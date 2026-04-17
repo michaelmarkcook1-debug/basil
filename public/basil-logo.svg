@@ -1,0 +1,25 @@
+<svg width="48" height="48" viewBox="0 0 48 48" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <!-- Background rounded square — same navy as before for brand continuity -->
+  <rect width="48" height="48" rx="14" fill="#1B2B4B"/>
+
+  <!-- Central stem — the spine of the basil sprig and the vertical of the "B" -->
+  <path d="M17 11 L17 37" stroke="#C9A84C" stroke-width="2.4" stroke-linecap="round"/>
+
+  <!-- Upper leaf, right side — classic basil leaf ovate shape -->
+  <path d="M17 16 C24 13, 32 15, 33.5 20 C33.5 20, 28 22, 24 21 C20 20, 17 19, 17 19 Z" fill="#C9A84C"/>
+
+  <!-- Upper leaf vein -->
+  <path d="M17 17.5 C22 17.5, 27 19, 32 20" stroke="#1B2B4B" stroke-width="0.8" fill="none" stroke-linecap="round" opacity="0.55"/>
+
+  <!-- Lower leaf, right side — slightly larger, gently pointing down -->
+  <path d="M17 26 C25 24, 34 27, 35 32.5 C35 32.5, 29 34, 24 32.5 C20 31.5, 17 30, 17 30 Z" fill="#C9A84C"/>
+
+  <!-- Lower leaf vein -->
+  <path d="M17 28 C23 28, 28 30, 33.5 31.5" stroke="#1B2B4B" stroke-width="0.8" fill="none" stroke-linecap="round" opacity="0.55"/>
+
+  <!-- Small tip leaf — growth accent at the crown -->
+  <path d="M17 11 C19.5 11, 20.5 12.5, 20 14 C19.5 15, 18 15, 17 14.5 Z" fill="#C9A84C" opacity="0.85"/>
+
+  <!-- Ground dot — same accent language as prior mark -->
+  <circle cx="17" cy="37" r="1.8" fill="#C9A84C"/>
+</svg>

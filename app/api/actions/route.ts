@@ -1,0 +1,53 @@
+import { NextResponse } from "next/server";
+import {
+  listActions,
+  createAction,
+  bulkImport,
+} from "@/lib/actions/store";
+import type { ActionItem } from "@/lib/types/action";
+
+export async function GET() {
+  const actions = await listActions();
+  return NextResponse.json({ actions });
+}
+
+export async function POST(req: Request) {
+  try {
+    const body = await req.json();
+
+    // Bulk import path — used for one-time localStorage → server migration.
+    if (Array.isArray(body?.import)) {
+      const added = await bulkImport(body.import as ActionItem[]);
+      return NextResponse.json({ imported: added }, { status: 201 });
+    }
+
+    const { text, owner, ownerId, dueDate, source } = body as {
+      text?: string;
+      owner?: string;
+      ownerId?: string;
+      dueDate?: string;
+      source?: ActionItem["source"];
+    };
+
+    if (!text || typeof text !== "string" || !text.trim()) {
+      return NextResponse.json(
+        { error: "text is required" },
+        { status: 400 }
+      );
+    }
+
+    const action = await createAction({
+      text,
+      owner,
+      ownerId,
+      dueDate,
+      source,
+    });
+    return NextResponse.json({ action }, { status: 201 });
+  } catch (e) {
+    return NextResponse.json(
+      { error: e instanceof Error ? e.message : "Unknown error" },
+      { status: 500 }
+    );
+  }
+}

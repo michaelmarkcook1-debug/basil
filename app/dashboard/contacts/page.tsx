@@ -1,0 +1,1059 @@
+"use client";
+
+import { useState, useEffect, useCallback, useMemo } from "react";
+import { contacts as seedContacts, type Contact, type ContactDirectory } from "@/lib/contacts-data";
+import {
+  getUserContacts,
+  addUserContact,
+  updateUserContact,
+  getDismissedSuggestionIds,
+  dismissSuggestion,
+  pickAvatarColor,
+  initialsFor,
+} from "@/lib/user-contacts";
+import { Input } from "@/components/ui/input";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Avatar, AvatarFallback } from "@/components/ui/avatar";
+import { Search, Mail, MapPin, Users, Brain, CheckSquare, AlertTriangle, Activity, Flame, RefreshCw, Loader2, Wifi, Sparkles, Plus, X, Phone, Briefcase, Home, ArrowRightLeft, MessageCircle, Wand2, Check, ChevronLeft } from "lucide-react";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import { Textarea } from "@/components/ui/textarea";
+import {
+  getAllOverrides,
+  getOverride,
+  setOverride,
+  clearOverride,
+  type ProfileOverride,
+} from "@/lib/contact-profile-overrides";
+
+interface Suggestion {
+  id: string;
+  displayName: string;
+  email?: string;
+  slackChannels: string[];
+  emailCount: number;
+  slackCount: number;
+  lastSeen: string;
+  sample: string;
+  signalSources: string[];
+}
+
+function ContactList({
+  contacts: list,
+  selected,
+  onSelect,
+}: {
+  contacts: Contact[];
+  selected: string | null;
+  onSelect: (id: string) => void;
+}) {
+  return (
+    <div className="space-y-1">
+      {list.map((c) => (
+        <button
+          key={c.id}
+          onClick={() => onSelect(c.id)}
+          className={`w-full flex items-center gap-3 rounded-lg px-3 py-2.5 text-left transition-colors ${
+            selected === c.id
+              ? "bg-[oklch(0.72_0.15_85)]/10 border border-[oklch(0.72_0.15_85)]/30"
+              : "hover:bg-accent/50 border border-transparent"
+          }`}
+        >
+          <Avatar className="h-8 w-8 shrink-0">
+            <AvatarFallback className={`text-xs text-white font-medium ${c.color}`}>
+              {c.initials}
+            </AvatarFallback>
+          </Avatar>
+          <div className="flex-1 min-w-0">
+            <p className="text-sm font-medium truncate">{c.name}</p>
+            <p className="text-xs text-muted-foreground truncate">{c.title}</p>
+          </div>
+          <Badge
+            variant="outline"
+            className={`text-[12px] shrink-0 ${
+              c.type === "internal"
+                ? "border-blue-400 text-blue-600"
+                : "border-amber-400 text-amber-600"
+            }`}
+          >
+            {c.type === "internal" ? "internal" : "external"}
+          </Badge>
+        </button>
+      ))}
+    </div>
+  );
+}
+
+function ContactDetail({
+  contact,
+  liveItems,
+  liveSources,
+  lastInteraction,
+  canMove,
+  onMove,
+  override,
+  onSaveOverride,
+  onClearOverride,
+}: {
+  contact: Contact;
+  liveItems: string[];
+  liveSources: string[];
+  lastInteraction?: string;
+  /** True if this is a user-added contact that can be reassigned. */
+  canMove: boolean;
+  onMove: (target: ContactDirectory) => void;
+  override?: ProfileOverride;
+  onSaveOverride: (patch: ProfileOverride) => void;
+  onClearOverride: () => void;
+}) {
+  const daysSince = lastInteraction
+    ? Math.floor((Date.now() - new Date(lastInteraction).getTime()) / 86400000)
+    : null;
+  const otherDirectory: ContactDirectory =
+    contact.directory === "work" ? "personal" : "work";
+
+  // Generator state — local to this component so the panel resets when the
+  // user navigates between contacts.
+  const [genOpen, setGenOpen] = useState(false);
+  const [genNotes, setGenNotes] = useState("");
+  const [genLoading, setGenLoading] = useState(false);
+  const [genError, setGenError] = useState("");
+  const [preview, setPreview] = useState<ProfileOverride | null>(null);
+
+  // Reset generator UI when the selected contact changes.
+  useEffect(() => {
+    setGenOpen(false);
+    setGenNotes("");
+    setGenError("");
+    setPreview(null);
+  }, [contact.id]);
+
+  async function generateProfile() {
+    setGenLoading(true);
+    setGenError("");
+    setPreview(null);
+    try {
+      const res = await fetch("/api/contacts/generate-profile", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          name: contact.name,
+          email: contact.email,
+          phone: contact.phone,
+          directory: contact.directory,
+          notes: genNotes.trim() || undefined,
+        }),
+      });
+      if (!res.ok) throw new Error(`Request failed (${res.status})`);
+      const data = (await res.json()) as ProfileOverride & { error?: string };
+      if (data.error) throw new Error(data.error);
+      setPreview({
+        personality: data.personality,
+        whatMakesThemTick: data.whatMakesThemTick,
+        watchOut: data.watchOut,
+        recentActivity: data.recentActivity,
+        activitySource: data.activitySource,
+        summary: data.summary,
+        generatedAt: new Date().toISOString(),
+      });
+    } catch (e) {
+      setGenError(e instanceof Error ? e.message : "Something went wrong");
+    } finally {
+      setGenLoading(false);
+    }
+  }
+
+  function acceptPreview() {
+    if (!preview) return;
+    onSaveOverride(preview);
+    setPreview(null);
+    setGenOpen(false);
+    setGenNotes("");
+  }
+  return (
+    <div className="space-y-6">
+      {/* Header */}
+      <div className="flex items-start gap-4">
+        <Avatar className="h-14 w-14">
+          <AvatarFallback className={`text-lg text-white font-semibold ${contact.color}`}>
+            {contact.initials}
+          </AvatarFallback>
+        </Avatar>
+        <div className="flex-1 min-w-0">
+          <div className="flex items-start justify-between gap-3">
+            <div>
+              <h2 className="text-xl font-semibold">{contact.name}</h2>
+              <p className="text-sm text-[oklch(0.72_0.15_85)]">{contact.title}</p>
+              <p className="text-sm text-muted-foreground">{contact.company}</p>
+            </div>
+            <div className="flex items-center gap-2 shrink-0">
+              <Badge
+                variant="outline"
+                className="text-[12px] gap-1 border-[oklch(0.72_0.15_85)]/40 text-[oklch(0.58_0.15_85)]"
+              >
+                {contact.directory === "work" ? (
+                  <Briefcase className="h-3 w-3" />
+                ) : (
+                  <Home className="h-3 w-3" />
+                )}
+                {contact.directory}
+              </Badge>
+              {canMove && (
+                <Button
+                  size="xs"
+                  variant="outline"
+                  onClick={() => onMove(otherDirectory)}
+                  className="gap-1"
+                  title={`Move to ${otherDirectory} directory`}
+                >
+                  <ArrowRightLeft className="h-3 w-3" />
+                  Move to {otherDirectory}
+                </Button>
+              )}
+            </div>
+          </div>
+          <div className="flex items-center gap-4 mt-2 text-sm text-muted-foreground flex-wrap">
+            {contact.email && (
+              <span className="flex items-center gap-1">
+                <Mail className="h-3 w-3" /> {contact.email}
+              </span>
+            )}
+            {contact.phone && (
+              <span className="flex items-center gap-1">
+                <Phone className="h-3 w-3" /> {contact.phone}
+              </span>
+            )}
+            {contact.location && (
+              <span className="flex items-center gap-1">
+                <MapPin className="h-3 w-3" /> {contact.location}
+              </span>
+            )}
+          </div>
+          <div className="flex flex-wrap gap-1.5 mt-3">
+            {contact.tags.map((tag) => (
+              <Badge key={tag} variant="outline" className="text-[12px] border-[oklch(0.72_0.15_85)]/30 text-[oklch(0.72_0.15_85)]">
+                {tag}
+              </Badge>
+            ))}
+          </div>
+        </div>
+      </div>
+
+      {/* Basil profile generator */}
+      <div className="rounded-xl ring-1 ring-[oklch(0.72_0.15_85)]/25 bg-[oklch(0.72_0.15_85)]/[0.04] p-4 space-y-3">
+        <div className="flex items-start justify-between gap-3 flex-wrap">
+          <div>
+            <p className="text-sm font-semibold flex items-center gap-1.5">
+              <Wand2 className="h-3.5 w-3.5 text-[oklch(0.58_0.15_85)]" />
+              Personality profile
+            </p>
+            <p className="text-[12px] text-muted-foreground leading-relaxed mt-0.5">
+              {override?.generatedAt ? (
+                <>
+                  Last regenerated by Basil ·{" "}
+                  {new Date(override.generatedAt).toLocaleString("en-GB", {
+                    timeZone: "Europe/London",
+                    day: "numeric",
+                    month: "short",
+                    hour: "2-digit",
+                    minute: "2-digit",
+                  })}
+                  {override.summary ? ` · ${override.summary}` : ""}
+                </>
+              ) : contact.directory === "personal" ? (
+                "Add a few notes and Basil will draft a profile. Friends and family rarely appear in Gmail or Slack — your notes are the richest signal."
+              ) : (
+                "Basil will pull every email, Slack thread, and Zoom summary tied to this person, then draft the profile fields below. Add your own notes to colour what she sees."
+              )}
+            </p>
+          </div>
+          <div className="flex items-center gap-2 shrink-0">
+            {override?.generatedAt && (
+              <Button
+                size="xs"
+                variant="outline"
+                onClick={onClearOverride}
+                className="gap-1"
+                title="Revert to original profile"
+              >
+                <RefreshCw className="h-3 w-3" />
+                Revert
+              </Button>
+            )}
+            {!genOpen && (
+              <Button
+                size="sm"
+                onClick={() => setGenOpen(true)}
+                className="gap-1.5 bg-[oklch(0.72_0.15_85)] text-[oklch(0.18_0.04_250)] hover:bg-[oklch(0.78_0.12_85)]"
+              >
+                <Wand2 className="h-3.5 w-3.5" />
+                {override?.generatedAt ? "Regenerate" : "Generate profile"}
+              </Button>
+            )}
+          </div>
+        </div>
+
+        {genOpen && !preview && (
+          <div className="space-y-2">
+            <Textarea
+              value={genNotes}
+              onChange={(e) => setGenNotes(e.target.value)}
+              placeholder={
+                contact.directory === "personal"
+                  ? "How you met, what they care about, anything Basil should know…"
+                  : "Optional: add context Basil won't find in Gmail / Slack / Zoom (how they prefer to be approached, things to remember, etc.)"
+              }
+              rows={3}
+              disabled={genLoading}
+              className="min-h-20"
+            />
+            <div className="flex items-center gap-2">
+              <Button
+                size="sm"
+                onClick={generateProfile}
+                disabled={
+                  genLoading ||
+                  (contact.directory === "personal" && !genNotes.trim())
+                }
+                className="gap-1.5 bg-[oklch(0.72_0.15_85)] text-[oklch(0.18_0.04_250)] hover:bg-[oklch(0.78_0.12_85)]"
+              >
+                {genLoading ? (
+                  <>
+                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                    Reading signal…
+                  </>
+                ) : (
+                  <>
+                    <Wand2 className="h-3.5 w-3.5" />
+                    Draft profile
+                  </>
+                )}
+              </Button>
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => {
+                  setGenOpen(false);
+                  setGenNotes("");
+                  setGenError("");
+                }}
+                disabled={genLoading}
+              >
+                Cancel
+              </Button>
+              {contact.directory === "personal" && !genNotes.trim() && (
+                <span className="text-[12px] text-muted-foreground">
+                  Add notes to generate a personal profile
+                </span>
+              )}
+            </div>
+            {genError && (
+              <p className="text-[12px] text-destructive">{genError}</p>
+            )}
+          </div>
+        )}
+
+        {preview && (
+          <div className="space-y-3">
+            <div className="rounded-lg bg-background/60 ring-1 ring-border p-3 space-y-3">
+              {(
+                [
+                  ["Personality", preview.personality],
+                  ["What makes them tick", preview.whatMakesThemTick],
+                  ["Watch out", preview.watchOut],
+                  ["Recent activity", preview.recentActivity],
+                  ["Activity source", preview.activitySource],
+                ] as const
+              ).map(([label, value]) => (
+                <div key={label}>
+                  <p className="text-[12px] font-semibold tracking-widest uppercase text-[oklch(0.58_0.15_85)]">
+                    {label}
+                  </p>
+                  <p className="text-sm leading-relaxed text-foreground/90 mt-1 whitespace-pre-line">
+                    {value}
+                  </p>
+                </div>
+              ))}
+              {preview.summary && (
+                <p className="text-[12px] text-muted-foreground pt-2 border-t border-border/60">
+                  {preview.summary}
+                </p>
+              )}
+            </div>
+            <div className="flex items-center gap-2">
+              <Button
+                size="sm"
+                onClick={acceptPreview}
+                className="gap-1.5 bg-[oklch(0.72_0.15_85)] text-[oklch(0.18_0.04_250)] hover:bg-[oklch(0.78_0.12_85)]"
+              >
+                <Check className="h-3.5 w-3.5" />
+                Save profile
+              </Button>
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => setPreview(null)}
+              >
+                Discard
+              </Button>
+              <Button
+                size="sm"
+                variant="ghost"
+                onClick={generateProfile}
+                disabled={genLoading}
+                className="gap-1.5"
+              >
+                <RefreshCw className="h-3.5 w-3.5" />
+                Try again
+              </Button>
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* Tabs */}
+      <Tabs defaultValue="profile">
+        <TabsList>
+          <TabsTrigger value="profile">Profile</TabsTrigger>
+          <TabsTrigger value="personality" className="gap-1">
+            <Brain className="h-3.5 w-3.5" /> Personality
+          </TabsTrigger>
+          <TabsTrigger value="activity">Activity</TabsTrigger>
+        </TabsList>
+
+        <TabsContent value="profile" className="space-y-4 mt-4">
+          <Card>
+            <CardHeader className="pb-2">
+              <CardTitle className="text-xs font-semibold tracking-widest uppercase text-[oklch(0.72_0.15_85)]">
+                Relationship
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              <p className="text-sm leading-relaxed">{contact.relationship}</p>
+            </CardContent>
+          </Card>
+          <Card>
+            <CardHeader className="pb-2">
+              <CardTitle className="text-xs font-semibold tracking-widest uppercase text-[oklch(0.72_0.15_85)]">
+                Company Context
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              <p className="text-sm leading-relaxed">{contact.companyContext}</p>
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        <TabsContent value="personality" className="space-y-4 mt-4">
+          <Card className="border-l-4 border-l-[oklch(0.72_0.15_85)]">
+            <CardHeader className="pb-2">
+              <CardTitle className="text-xs font-semibold tracking-widest uppercase flex items-center gap-1.5">
+                <Brain className="h-3.5 w-3.5 text-[oklch(0.72_0.15_85)]" /> Personality
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              <p className="text-sm leading-relaxed">{contact.personality}</p>
+            </CardContent>
+          </Card>
+          <Card className="border-l-4 border-l-emerald-500">
+            <CardHeader className="pb-2">
+              <CardTitle className="text-xs font-semibold tracking-widest uppercase flex items-center gap-1.5">
+                <CheckSquare className="h-3.5 w-3.5 text-emerald-500" /> What Makes Them Tick
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              <p className="text-sm leading-relaxed">{contact.whatMakesThemTick}</p>
+            </CardContent>
+          </Card>
+          <Card className="border-l-4 border-l-amber-500">
+            <CardHeader className="pb-2">
+              <CardTitle className="text-xs font-semibold tracking-widest uppercase flex items-center gap-1.5">
+                <AlertTriangle className="h-3.5 w-3.5 text-amber-500" /> Watch Out
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              <p className="text-sm leading-relaxed">{contact.watchOut}</p>
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        <TabsContent value="activity" className="space-y-4 mt-4">
+          {/* Live activity — pulled from Calendar, Gmail, Slack, Docs. */}
+          {liveItems.length > 0 && (
+            <Card className="border-l-4 border-l-emerald-500">
+              <CardHeader className="pb-2">
+                <CardTitle className="text-xs font-semibold tracking-widest uppercase text-emerald-600 flex items-center gap-1.5">
+                  <Wifi className="h-3.5 w-3.5" /> Live Activity
+                  {lastInteraction && daysSince !== null && (
+                    <span className="text-[12px] font-normal text-muted-foreground normal-case tracking-normal ml-1">
+                      · last {daysSince === 0 ? "today" : daysSince === 1 ? "yesterday" : `${daysSince}d ago`}
+                    </span>
+                  )}
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                <ul className="space-y-2 text-sm">
+                  {liveItems.slice(0, 6).map((item, i) => (
+                    <li key={i} className="flex gap-2 leading-relaxed">
+                      <span className="text-emerald-500 mt-1.5 h-1.5 w-1.5 rounded-full bg-emerald-500 shrink-0" />
+                      <span className="text-foreground/90">{item}</span>
+                    </li>
+                  ))}
+                </ul>
+                {liveSources.length > 0 && (
+                  <p className="text-[12px] text-muted-foreground mt-3 flex items-center gap-1.5">
+                    <Activity className="h-3 w-3" /> Sources: {liveSources.join(", ")}
+                  </p>
+                )}
+              </CardContent>
+            </Card>
+          )}
+
+          {/* Hardcoded narrative — context for what was happening last time the
+              persona was authored. Shown as a historical note alongside live data. */}
+          <Card>
+            <CardHeader className="pb-2">
+              <CardTitle className="text-xs font-semibold tracking-widest uppercase text-[oklch(0.72_0.15_85)]">
+                {liveItems.length > 0 ? "Background & recent history" : "Recent Activity"}
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              <p className="text-sm leading-relaxed">{contact.recentActivity}</p>
+            </CardContent>
+          </Card>
+          <p className="text-xs text-muted-foreground flex items-center gap-1.5">
+            <Activity className="h-3 w-3" /> Persona source: {contact.activitySource}
+          </p>
+        </TabsContent>
+      </Tabs>
+    </div>
+  );
+}
+
+interface ContactActivityItem {
+  contactId: string;
+  name: string;
+  lastInteraction: string | null;
+  sources: string[];
+  recentItems: string[];
+}
+
+export default function ContactsPage() {
+  const [search, setSearch] = useState("");
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [mobileView, setMobileView] = useState<"list" | "detail">("list");
+  const [tagFilter, setTagFilter] = useState<string>("all");
+  const [activeDirectory, setActiveDirectory] = useState<ContactDirectory>("work");
+  const [liveActivity, setLiveActivity] = useState<ContactActivityItem[]>([]);
+  const [activityLoading, setActivityLoading] = useState(false);
+  const [isLive, setIsLive] = useState(false);
+  const [suggestions, setSuggestions] = useState<Suggestion[]>([]);
+  const [suggestLoading, setSuggestLoading] = useState(false);
+  const [dismissedIds, setDismissedIds] = useState<string[]>([]);
+  const [userContacts, setUserContacts] = useState<Contact[]>([]);
+  const [overrides, setOverrides] = useState<Record<string, ProfileOverride>>({});
+
+  // Merge seed + user-added contacts — this is the effective "all contacts" list.
+  const contacts = useMemo<Contact[]>(
+    () => [...seedContacts, ...userContacts],
+    [userContacts]
+  );
+
+  // Slice by directory — every view on this page reads from here.
+  const directoryContacts = useMemo<Contact[]>(
+    () => contacts.filter((c) => c.directory === activeDirectory),
+    [contacts, activeDirectory]
+  );
+
+  const counts = useMemo(
+    () => ({
+      work: contacts.filter((c) => c.directory === "work").length,
+      personal: contacts.filter((c) => c.directory === "personal").length,
+    }),
+    [contacts]
+  );
+
+  // Load cached activity + user contacts + dismissed suggestions on mount
+  useEffect(() => {
+    const cached = localStorage.getItem("sage-contact-activity");
+    if (cached) {
+      try {
+        const parsed = JSON.parse(cached);
+        setLiveActivity(parsed.activity || []);
+        setIsLive(true);
+      } catch { /* ignore */ }
+    }
+    setUserContacts(getUserContacts());
+    setDismissedIds(getDismissedSuggestionIds());
+    setOverrides(getAllOverrides());
+
+    // Also auto-load a cached suggestion set so the strip doesn't come up empty.
+    const cachedSugg = localStorage.getItem("sage-contact-suggestions");
+    if (cachedSugg) {
+      try {
+        const parsed = JSON.parse(cachedSugg);
+        setSuggestions(parsed.suggestions || []);
+      } catch { /* ignore */ }
+    }
+  }, []);
+
+  const refreshSuggestions = useCallback(async () => {
+    setSuggestLoading(true);
+    try {
+      const res = await fetch("/api/contacts/suggest");
+      if (!res.ok) throw new Error("Failed");
+      const data = await res.json();
+      setSuggestions(data.suggestions || []);
+      localStorage.setItem("sage-contact-suggestions", JSON.stringify(data));
+    } catch (e) {
+      console.error("Suggestion refresh failed:", e);
+    } finally {
+      setSuggestLoading(false);
+    }
+  }, []);
+
+  const handleAddSuggestion = useCallback((s: Suggestion) => {
+    const stub: Contact = {
+      id: s.id,
+      name: s.displayName,
+      initials: initialsFor(s.displayName),
+      color: pickAvatarColor(s.displayName),
+      title: "Unknown — set role",
+      company: s.email?.split("@")[1]?.split(".")[0]?.replace(/\b\w/g, (c) => c.toUpperCase()) || "Unknown",
+      email: s.email,
+      tags: ["auto-added"],
+      status: "pending",
+      type: s.email?.includes("@talentgenius.io") ? "internal" : "external",
+      // Suggestions come from Gmail/Slack signal — always work by default.
+      // Michael can re-assign via the "Move to Personal" action on the detail.
+      directory: "work",
+      relationship: `Added from recent ${s.signalSources.join(" + ")} signal. Fill in context.`,
+      companyContext: "—",
+      personality: `Observed ${s.emailCount} email${s.emailCount === 1 ? "" : "s"} and ${s.slackCount} Slack message${s.slackCount === 1 ? "" : "s"} recently. Sample: "${s.sample}"`,
+      whatMakesThemTick: "—",
+      watchOut: "—",
+      recentActivity: s.sample,
+      activitySource: s.signalSources.join(", "),
+      lastInteraction: s.lastSeen.substring(0, 10),
+    };
+    addUserContact(stub);
+    setUserContacts(getUserContacts());
+    handleMobileSelect(stub.id);
+  }, []);
+
+  const handleMoveDirectory = useCallback(
+    (id: string, target: ContactDirectory) => {
+      // Only user-added contacts can move — seed contacts are hardcoded.
+      const moved = updateUserContact(id, { directory: target });
+      if (moved) {
+        setUserContacts(getUserContacts());
+        setActiveDirectory(target);
+      }
+    },
+    []
+  );
+
+  const handleDismiss = useCallback((id: string) => {
+    dismissSuggestion(id);
+    setDismissedIds(getDismissedSuggestionIds());
+  }, []);
+
+  const visibleSuggestions = useMemo(
+    () =>
+      suggestions.filter(
+        (s) =>
+          !dismissedIds.includes(s.id) &&
+          !contacts.some(
+            (c) =>
+              c.id === s.id ||
+              (c.email && s.email && c.email.toLowerCase() === s.email.toLowerCase())
+          )
+      ),
+    [suggestions, dismissedIds, contacts]
+  );
+
+  const refreshActivity = useCallback(async () => {
+    setActivityLoading(true);
+    try {
+      const res = await fetch("/api/contacts/activity");
+      if (!res.ok) throw new Error("Failed");
+      const data = await res.json();
+      setLiveActivity(data.activity || []);
+      setIsLive(true);
+      localStorage.setItem("sage-contact-activity", JSON.stringify(data));
+    } catch (e) {
+      console.error("Activity refresh failed:", e);
+    } finally {
+      setActivityLoading(false);
+    }
+  }, []);
+
+  // Helper to get the best lastInteraction for a contact
+  function getLastInteraction(contactId: string, fallback?: string): string | undefined {
+    const live = liveActivity.find((a) => a.contactId === contactId);
+    return live?.lastInteraction || fallback;
+  }
+
+  function getLiveItems(contactId: string): string[] {
+    return liveActivity.find((a) => a.contactId === contactId)?.recentItems || [];
+  }
+
+  function getLiveSources(contactId: string): string[] {
+    return liveActivity.find((a) => a.contactId === contactId)?.sources || [];
+  }
+
+  const allTags = Array.from(
+    new Set(directoryContacts.flatMap((c) => c.tags))
+  ).sort();
+
+  const filtered = directoryContacts.filter((c) => {
+    const matchesSearch =
+      !search ||
+      c.name.toLowerCase().includes(search.toLowerCase()) ||
+      c.title.toLowerCase().includes(search.toLowerCase()) ||
+      c.company.toLowerCase().includes(search.toLowerCase());
+    const matchesTag = tagFilter === "all" || c.tags.includes(tagFilter);
+    return matchesSearch && matchesTag;
+  });
+
+  // Find selected across ALL contacts so detail survives a directory switch.
+  const selectedBase = contacts.find((c) => c.id === selectedId) || null;
+
+  // Merge any profile override on top of the base contact record. Overrides are
+  // produced by "Generate profile with Basil" and held in localStorage.
+  const selected = useMemo<Contact | null>(() => {
+    if (!selectedBase) return null;
+    const ov = overrides[selectedBase.id];
+    if (!ov) return selectedBase;
+    return {
+      ...selectedBase,
+      personality: ov.personality ?? selectedBase.personality,
+      whatMakesThemTick:
+        ov.whatMakesThemTick ?? selectedBase.whatMakesThemTick,
+      watchOut: ov.watchOut ?? selectedBase.watchOut,
+      recentActivity: ov.recentActivity ?? selectedBase.recentActivity,
+      activitySource: ov.activitySource ?? selectedBase.activitySource,
+    };
+  }, [selectedBase, overrides]);
+
+  const selectedOverride = selectedBase
+    ? overrides[selectedBase.id]
+    : undefined;
+
+  const isSelectedUserContact = useMemo(
+    () => (selected ? userContacts.some((c) => c.id === selected.id) : false),
+    [selected, userContacts]
+  );
+
+  const handleSaveOverride = useCallback(
+    (contactId: string, profile: ProfileOverride) => {
+      setOverride(contactId, profile);
+      setOverrides(getAllOverrides());
+    },
+    []
+  );
+
+  const handleClearOverride = useCallback((contactId: string) => {
+    clearOverride(contactId);
+    setOverrides(getAllOverrides());
+  }, []);
+
+  // On mobile, selecting a contact flips the view to the detail panel.
+  function handleMobileSelect(id: string) {
+    setSelectedId(id);
+    setMobileView("detail");
+  }
+
+  return (
+    <div className="flex h-full">
+      {/* Left panel — contact list.
+          Mobile: full-width list view; hidden when showing detail.
+          Desktop (lg+): fixed-width sidebar, always visible. */}
+      <div
+        className={
+          mobileView === "detail"
+            ? "hidden lg:flex lg:w-80 lg:shrink-0 flex-col border-r border-border"
+            : "flex w-full flex-col lg:w-80 lg:shrink-0 border-r border-border"
+        }
+      >
+        {/* Directory switcher — keeps work contacts (Slack/Gmail signal) and
+            personal contacts (WhatsApp, friends, family) in separate views. */}
+        <div className="grid grid-cols-2 border-b border-border">
+          {(["work", "personal"] as const).map((dir) => {
+            const active = activeDirectory === dir;
+            const count = counts[dir];
+            const Icon = dir === "work" ? Briefcase : Home;
+            return (
+              <button
+                key={dir}
+                type="button"
+                onClick={() => setActiveDirectory(dir)}
+                className={`flex items-center justify-center gap-1.5 py-2.5 text-[12px] font-semibold uppercase tracking-[0.18em] transition-colors ${
+                  active
+                    ? "text-[oklch(0.58_0.15_85)] border-b-2 border-[oklch(0.72_0.15_85)] bg-[oklch(0.72_0.15_85)]/[0.06]"
+                    : "text-muted-foreground hover:text-foreground"
+                }`}
+                aria-pressed={active}
+              >
+                <Icon className="h-3.5 w-3.5" />
+                {dir}
+                <span className="font-mono tabular-nums text-[12px] text-muted-foreground">
+                  {count}
+                </span>
+              </button>
+            );
+          })}
+        </div>
+
+        <div className="p-4 space-y-3 border-b border-border">
+          <div className="relative">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
+            <Input
+              placeholder={`Search ${activeDirectory} contacts…`}
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              className="pl-9"
+            />
+          </div>
+          {allTags.length > 0 && (
+            <select
+              value={tagFilter}
+              onChange={(e) => setTagFilter(e.target.value)}
+              className="w-full h-10 rounded-lg border border-border bg-background px-3 text-sm text-foreground"
+            >
+              <option value="all">All tags</option>
+              {allTags.map((tag) => (
+                <option key={tag} value={tag}>{tag}</option>
+              ))}
+            </select>
+          )}
+          <p className="text-xs text-muted-foreground">
+            {filtered.length} of {directoryContacts.length} {activeDirectory} contact
+            {directoryContacts.length === 1 ? "" : "s"}
+          </p>
+        </div>
+        {/* Relationship Heat Map */}
+        <div className="px-4 py-3 border-b border-border">
+          <div className="flex items-center justify-between mb-2">
+            <p className="text-[12px] font-semibold tracking-widest uppercase text-muted-foreground flex items-center gap-1">
+              <Flame className="h-3 w-3" /> Relationship Health
+              {isLive && (
+                <Badge className="bg-emerald-500/15 text-emerald-500 border-emerald-500/30 text-[12px] ml-1 py-0 px-1 gap-0.5">
+                  <Wifi className="h-2 w-2" /> Live
+                </Badge>
+              )}
+            </p>
+            <button
+              onClick={refreshActivity}
+              disabled={activityLoading}
+              className="text-muted-foreground/50 hover:text-[oklch(0.72_0.15_85)] transition-colors"
+              title="Refresh from Calendar, Gmail & Slack"
+            >
+              {activityLoading ? (
+                <Loader2 className="h-3 w-3 animate-spin" />
+              ) : (
+                <RefreshCw className="h-3 w-3" />
+              )}
+            </button>
+          </div>
+          <div className="flex flex-wrap gap-1.5">
+            {[...directoryContacts]
+              .sort((a, b) => {
+                const ia = getLastInteraction(a.id, a.lastInteraction);
+                const ib = getLastInteraction(b.id, b.lastInteraction);
+                const da = ia ? new Date(ia).getTime() : 0;
+                const db = ib ? new Date(ib).getTime() : 0;
+                return da - db; // stale first
+              })
+              .map((c) => {
+                const interaction = getLastInteraction(c.id, c.lastInteraction);
+                const days = interaction
+                  ? Math.floor((Date.now() - new Date(interaction).getTime()) / 86400000)
+                  : 999;
+                const ringColor = days <= 5 ? "ring-emerald-500" : days <= 10 ? "ring-amber-500" : "ring-red-500";
+                const liveSources = getLiveSources(c.id);
+                const liveItems = getLiveItems(c.id);
+                return (
+                  <Tooltip key={c.id}>
+                    <TooltipTrigger asChild>
+                      <button
+                        onClick={() => setSelectedId(c.id)}
+                        className={`ring-2 ${ringColor} rounded-full transition-transform hover:scale-110`}
+                      >
+                        <Avatar className="h-7 w-7">
+                          <AvatarFallback className={`text-[12px] text-white font-medium ${c.color}`}>
+                            {c.initials}
+                          </AvatarFallback>
+                        </Avatar>
+                      </button>
+                    </TooltipTrigger>
+                    <TooltipContent side="bottom" className="text-xs max-w-52">
+                      <p className="font-medium">{c.name}</p>
+                      <p className="text-muted-foreground">
+                        {days === 999 ? "No interaction data" : `${days}d ago`}
+                        {liveSources.length > 0 ? ` (${liveSources.join(", ")})` : ""}
+                      </p>
+                      {liveItems[0] && (
+                        <p className="text-muted-foreground mt-0.5 truncate">{liveItems[0]}</p>
+                      )}
+                    </TooltipContent>
+                  </Tooltip>
+                );
+              })}
+          </div>
+        </div>
+        {/* Suggested contacts — people with real email/Slack signal not yet
+            tracked. Only shown in the Work directory because the signal sources
+            are Gmail + Slack. */}
+        {activeDirectory === "work" && (
+        <div className="px-4 py-3 border-b border-border">
+          <div className="flex items-center justify-between mb-2">
+            <p className="text-[12px] font-semibold tracking-widest uppercase text-muted-foreground flex items-center gap-1">
+              <Sparkles className="h-3 w-3" /> Suggested
+              {visibleSuggestions.length > 0 && (
+                <span className="text-[12px] font-mono text-muted-foreground ml-1 tabular-nums">
+                  {visibleSuggestions.length}
+                </span>
+              )}
+            </p>
+            <button
+              onClick={refreshSuggestions}
+              disabled={suggestLoading}
+              className="text-muted-foreground/50 hover:text-[oklch(0.72_0.15_85)] transition-colors"
+              title="Scan recent email & Slack for people not yet in contacts"
+            >
+              {suggestLoading ? (
+                <Loader2 className="h-3 w-3 animate-spin" />
+              ) : (
+                <RefreshCw className="h-3 w-3" />
+              )}
+            </button>
+          </div>
+          {visibleSuggestions.length === 0 ? (
+            <p className="text-[12px] text-muted-foreground leading-relaxed">
+              {suggestions.length === 0
+                ? "Click refresh to scan recent signal for new people."
+                : "All caught up — no new people to suggest."}
+            </p>
+          ) : (
+            <div className="space-y-1.5">
+              {visibleSuggestions.slice(0, 5).map((s) => (
+                <div
+                  key={s.id}
+                  className="group flex items-center gap-2 rounded-md px-1.5 py-1 hover:bg-accent/50"
+                >
+                  <Avatar className="h-6 w-6 shrink-0">
+                    <AvatarFallback
+                      className={`text-[12px] text-white font-medium ${pickAvatarColor(s.displayName)}`}
+                    >
+                      {initialsFor(s.displayName)}
+                    </AvatarFallback>
+                  </Avatar>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-xs font-medium truncate leading-tight">
+                      {s.displayName}
+                    </p>
+                    <p className="text-[12px] text-muted-foreground truncate leading-tight">
+                      {s.emailCount > 0 && `${s.emailCount} email${s.emailCount === 1 ? "" : "s"}`}
+                      {s.emailCount > 0 && s.slackCount > 0 && " · "}
+                      {s.slackCount > 0 && `${s.slackCount} slack`}
+                    </p>
+                  </div>
+                  <div className="flex items-center gap-0.5 opacity-60 group-hover:opacity-100">
+                    <button
+                      onClick={() => handleAddSuggestion(s)}
+                      className="rounded p-1 hover:bg-emerald-500/20 hover:text-emerald-600 transition-colors"
+                      title={`Add ${s.displayName} as a contact`}
+                    >
+                      <Plus className="h-3 w-3" />
+                    </button>
+                    <button
+                      onClick={() => handleDismiss(s.id)}
+                      className="rounded p-1 hover:bg-rose-500/20 hover:text-rose-600 transition-colors"
+                      title="Dismiss"
+                    >
+                      <X className="h-3 w-3" />
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+        )}
+
+        {/* Personal directory empty-state — surfaces the WhatsApp path. */}
+        {activeDirectory === "personal" && directoryContacts.length === 0 && (
+          <div className="px-4 py-6 border-b border-border space-y-3 text-center">
+            <Home className="h-8 w-8 text-muted-foreground/30 mx-auto" />
+            <div>
+              <p className="text-sm font-medium">No personal contacts yet</p>
+              <p className="text-[12px] text-muted-foreground mt-1 leading-relaxed">
+                Connect WhatsApp to pull in your personal threads, or move any existing contact into this directory from their profile.
+              </p>
+            </div>
+            <Button
+              size="sm"
+              disabled
+              variant="outline"
+              className="gap-1.5"
+              title="Connection path not wired yet — we'll hook this up once you pick an approach"
+            >
+              <MessageCircle className="h-3.5 w-3.5" />
+              Connect WhatsApp
+            </Button>
+          </div>
+        )}
+
+        <div className="flex-1 overflow-y-auto p-2">
+          <ContactList contacts={filtered} selected={selectedId} onSelect={handleMobileSelect} />
+        </div>
+      </div>
+
+      {/* Right panel — contact detail.
+          Mobile: shown only when a contact is selected (detail view).
+          Desktop (lg+): always visible, flex-1. */}
+      <div
+        className={
+          mobileView === "detail"
+            ? "flex flex-1 flex-col overflow-y-auto p-4 lg:p-8"
+            : "hidden lg:flex lg:flex-1 lg:overflow-y-auto lg:p-8 flex-col"
+        }
+      >
+        {/* Back button — mobile only */}
+        {mobileView === "detail" && (
+          <button
+            onClick={() => setMobileView("list")}
+            className="lg:hidden flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground transition-colors mb-4 -ml-1"
+          >
+            <ChevronLeft className="h-4 w-4" />
+            All contacts
+          </button>
+        )}
+        {selected ? (
+          <ContactDetail
+            contact={selected}
+            liveItems={getLiveItems(selected.id)}
+            liveSources={getLiveSources(selected.id)}
+            lastInteraction={getLastInteraction(selected.id, selected.lastInteraction)}
+            canMove={isSelectedUserContact}
+            onMove={(target) => handleMoveDirectory(selected.id, target)}
+            override={selectedOverride}
+            onSaveOverride={(patch) => handleSaveOverride(selected.id, patch)}
+            onClearOverride={() => handleClearOverride(selected.id)}
+          />
+        ) : (
+          <div className="flex flex-col items-center justify-center h-full text-center">
+            <Users className="h-12 w-12 text-muted-foreground/30 mb-4" />
+            <h2 className="text-lg font-medium">Select a contact</h2>
+            <p className="text-sm text-muted-foreground mt-1 max-w-sm">
+              Click anyone on the left to see their profile, personality insights, and activity history.
+            </p>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
