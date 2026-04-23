@@ -8,7 +8,8 @@
  *   MICROSOFT_CLIENT_ID
  *   MICROSOFT_CLIENT_SECRET
  *   MICROSOFT_TENANT_ID      (optional, defaults to "common")
- *   MICROSOFT_REDIRECT_URI   (optional, defaults to ${NEXT_PUBLIC_APP_URL}/api/auth/microsoft/callback)
+ *   MICROSOFT_REDIRECT_URI   (optional — derived from request origin when not set)
+ *   NEXT_PUBLIC_APP_URL      (optional fallback when MICROSOFT_REDIRECT_URI is not set)
  */
 
 import { readStore, writeStore } from "@/lib/storage/persistent";
@@ -60,11 +61,18 @@ function getTenantId(): string {
   return process.env.MICROSOFT_TENANT_ID || "common";
 }
 
-function getRedirectUri(): string {
-  return (
-    process.env.MICROSOFT_REDIRECT_URI ||
-    `${process.env.NEXT_PUBLIC_APP_URL || ""}/api/auth/microsoft/callback`
-  );
+function getRedirectUri(appBaseUrl?: string): string {
+  // Explicit env var takes top priority
+  if (process.env.MICROSOFT_REDIRECT_URI) {
+    return process.env.MICROSOFT_REDIRECT_URI;
+  }
+  // Base URL passed from the incoming request (most reliable on Vercel)
+  if (appBaseUrl) {
+    return `${appBaseUrl}/api/auth/microsoft/callback`;
+  }
+  // Fallback: NEXT_PUBLIC_APP_URL (set in Vercel env vars)
+  const base = process.env.NEXT_PUBLIC_APP_URL || "";
+  return `${base}/api/auth/microsoft/callback`;
 }
 
 function getTokenEndpoint(): string {
@@ -76,13 +84,17 @@ function getTokenEndpoint(): string {
 /**
  * Returns the Microsoft Identity Platform authorization URL.
  * Uses response_mode=query and prompt=consent to always re-confirm scopes.
+ *
+ * @param appBaseUrl  Optional origin of the app (e.g. "https://basil-app.vercel.app").
+ *                    Derived from the incoming request in the auth route handler so
+ *                    MICROSOFT_REDIRECT_URI / NEXT_PUBLIC_APP_URL are not required.
  */
-export function getMicrosoftAuthUrl(): string {
+export function getMicrosoftAuthUrl(appBaseUrl?: string): string {
   const params = new URLSearchParams({
     client_id:     process.env.MICROSOFT_CLIENT_ID || "",
     response_type: "code",
     response_mode: "query",
-    redirect_uri:  getRedirectUri(),
+    redirect_uri:  getRedirectUri(appBaseUrl),
     scope:         SCOPES,
     prompt:        "consent",
   });
@@ -94,8 +106,11 @@ export function getMicrosoftAuthUrl(): string {
 /**
  * Exchange an OAuth authorization code for tokens and persist them via the
  * shared store so they survive Vercel cold starts.
+ *
+ * @param appBaseUrl  Same origin passed to getMicrosoftAuthUrl() so both ends
+ *                    of the OAuth flow use an identical redirect_uri.
  */
-export async function exchangeCode(code: string): Promise<MicrosoftTokens> {
+export async function exchangeCode(code: string, appBaseUrl?: string): Promise<MicrosoftTokens> {
   const res = await fetch(getTokenEndpoint(), {
     method:  "POST",
     headers: { "Content-Type": "application/x-www-form-urlencoded" },
@@ -103,7 +118,7 @@ export async function exchangeCode(code: string): Promise<MicrosoftTokens> {
       client_id:     process.env.MICROSOFT_CLIENT_ID || "",
       client_secret: process.env.MICROSOFT_CLIENT_SECRET || "",
       code,
-      redirect_uri:  getRedirectUri(),
+      redirect_uri:  getRedirectUri(appBaseUrl),
       grant_type:    "authorization_code",
     }),
   });
