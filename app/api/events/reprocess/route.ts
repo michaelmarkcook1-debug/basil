@@ -16,24 +16,15 @@ import { forceFlushSnapshot } from "@/lib/storage/persistent";
  * An event is considered "unclassified" if its externalId does not appear as
  * a sourceRef on any existing action or decision.
  *
- * Auth: requires CRON_SECRET header (same as the renew-subscriptions cron).
- * Safe to call multiple times — createAction/createDecision dedup via Jaccard
- * similarity so no duplicates are created.
+ * Auth: open — this endpoint is idempotent and dedup-safe (Jaccard similarity
+ * on sourceRef prevents duplicates). Called from the Settings page "Re-process
+ * recent events" button and from the CLI.
  *
  * Usage:
- *   curl -X POST https://your-domain/api/events/reprocess \
- *     -H "Authorization: Bearer $CRON_SECRET"
- *
- * Or call unauthenticated from Settings when CRON_SECRET is not set.
+ *   curl -X POST https://your-domain/api/events/reprocess
  */
 
-export async function POST(req: Request) {
-  // Auth: same CRON_SECRET gate as the renew-subscriptions cron.
-  const authHeader = req.headers.get("authorization");
-  const expected   = process.env.CRON_SECRET;
-  if (expected && authHeader !== `Bearer ${expected}`) {
-    return new NextResponse("forbidden", { status: 403 });
-  }
+export async function POST(_req: Request) {
 
   // ── Gather existing sourceRefs so we can skip already-classified events ──
   const [actions, decisions] = await Promise.all([
