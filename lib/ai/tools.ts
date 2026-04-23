@@ -1,7 +1,7 @@
 import { tool } from "ai";
 import { z } from "zod";
 import { isGoogleConnected } from "@/lib/google/auth";
-import { getTodayEvents, createCalendarEvent } from "@/lib/google/calendar";
+import { getTodayEvents, createCalendarEvent, getEventsForDate, getEventsForDateRange } from "@/lib/google/calendar";
 import { getRecentEmails, searchEmails, createDraft, getEmailBody } from "@/lib/google/gmail";
 import { searchDriveFiles } from "@/lib/google/drive";
 import { getRecentSlackMessages, searchSlackMessages, sendSlackMessage as slackSend, getUserProfile } from "@/lib/slack/client";
@@ -39,16 +39,39 @@ export const assistantTools = {
   // ── READ-ONLY TOOLS ──
 
   getCalendarEvents: tool({
-    description: "Get calendar events for today. Returns events with title, time, attendees, and video link.",
+    description:
+      "Get calendar events for a specific date or date range. Use this whenever Michael asks about his schedule, availability, meetings, or wants to book time on a specific day. Always pass the target date — do NOT default to today if Michael mentions tomorrow, next Monday, etc.",
     inputSchema: z.object({
-      date: z.string().optional().describe("Date in YYYY-MM-DD format. Defaults to today."),
+      date: z
+        .string()
+        .optional()
+        .describe("Target date in YYYY-MM-DD format. Omit only for today's events."),
+      endDate: z
+        .string()
+        .optional()
+        .describe(
+          "Optional end date (YYYY-MM-DD) to fetch a range. E.g. pass startDate=Monday and endDate=Friday to see the full week."
+        ),
     }),
-    execute: async () => {
+    execute: async ({ date, endDate }) => {
       if (!(await isGoogleConnected())) {
         return { error: "Google Calendar not connected. Michael needs to connect Google in Settings." };
       }
-      const events = await getTodayEvents();
-      return { events, count: events.length };
+      try {
+        if (date && endDate) {
+          const events = await getEventsForDateRange(date, endDate);
+          return { events, count: events.length, dateRange: `${date} → ${endDate}` };
+        }
+        if (date) {
+          const events = await getEventsForDate(date);
+          return { events, count: events.length, date };
+        }
+        // No date specified — return today
+        const events = await getTodayEvents();
+        return { events, count: events.length, date: "today" };
+      } catch (e) {
+        return { error: `Calendar fetch failed: ${e instanceof Error ? e.message : String(e)}` };
+      }
     },
   }),
 

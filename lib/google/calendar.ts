@@ -159,6 +159,98 @@ export async function getTodayEvents(): Promise<CalendarEvent[]> {
   return getEventsForDays(1);
 }
 
+/**
+ * Return all events on a specific calendar date (YYYY-MM-DD).
+ * Uses Europe/London for the day boundary so it matches the user's wall clock.
+ */
+export async function getEventsForDate(dateStr: string): Promise<CalendarEvent[]> {
+  const auth = await getAuthedClient();
+  if (!auth) return [];
+
+  const calendar = google.calendar({ version: "v3", auth });
+
+  // Build inclusive day window in London time
+  const dayStart = new Date(`${dateStr}T00:00:00`);
+  const dayEnd   = new Date(`${dateStr}T23:59:59`);
+
+  const res = await calendar.events.list({
+    calendarId: "primary",
+    timeMin:     dayStart.toISOString(),
+    timeMax:     dayEnd.toISOString(),
+    timeZone:    "Europe/London",
+    singleEvents: true,
+    orderBy:     "startTime",
+    maxResults:  50,
+  });
+
+  const now = new Date();
+  const todayStr    = now.toLocaleDateString("en-CA", { timeZone: "Europe/London" });
+  const londonToday = new Date(todayStr + "T00:00:00");
+  const tomorrowDate = new Date(londonToday);
+  tomorrowDate.setDate(tomorrowDate.getDate() + 1);
+  const tomorrowStr = tomorrowDate.toLocaleDateString("en-CA", { timeZone: "Europe/London" });
+
+  return (res.data.items || []).map((e) => {
+    const eventDate = (e.start?.dateTime || e.start?.date || "").substring(0, 10);
+    let dateLabel: string;
+    if (eventDate === todayStr)    dateLabel = "Today";
+    else if (eventDate === tomorrowStr) dateLabel = "Tomorrow";
+    else {
+      dateLabel = new Date(eventDate + "T12:00:00").toLocaleDateString("en-GB", {
+        weekday: "long", day: "numeric", month: "long", timeZone: "Europe/London",
+      });
+    }
+    return mapEvent(e, dateLabel);
+  });
+}
+
+/**
+ * Return events across an inclusive date range (both dates YYYY-MM-DD).
+ * Maximum 100 results, ordered by start time.
+ */
+export async function getEventsForDateRange(
+  startDate: string,
+  endDate:   string
+): Promise<CalendarEvent[]> {
+  const auth = await getAuthedClient();
+  if (!auth) return [];
+
+  const calendar = google.calendar({ version: "v3", auth });
+
+  const timeMin = new Date(`${startDate}T00:00:00`);
+  const timeMax = new Date(`${endDate}T23:59:59`);
+
+  const res = await calendar.events.list({
+    calendarId: "primary",
+    timeMin:     timeMin.toISOString(),
+    timeMax:     timeMax.toISOString(),
+    timeZone:    "Europe/London",
+    singleEvents: true,
+    orderBy:     "startTime",
+    maxResults:  100,
+  });
+
+  const now = new Date();
+  const todayStr    = now.toLocaleDateString("en-CA", { timeZone: "Europe/London" });
+  const londonToday = new Date(todayStr + "T00:00:00");
+  const tomorrowDate = new Date(londonToday);
+  tomorrowDate.setDate(tomorrowDate.getDate() + 1);
+  const tomorrowStr = tomorrowDate.toLocaleDateString("en-CA", { timeZone: "Europe/London" });
+
+  return (res.data.items || []).map((e) => {
+    const eventDate = (e.start?.dateTime || e.start?.date || "").substring(0, 10);
+    let dateLabel: string;
+    if (eventDate === todayStr)    dateLabel = "Today";
+    else if (eventDate === tomorrowStr) dateLabel = "Tomorrow";
+    else {
+      dateLabel = new Date(eventDate + "T12:00:00").toLocaleDateString("en-GB", {
+        weekday: "long", day: "numeric", month: "long", timeZone: "Europe/London",
+      });
+    }
+    return mapEvent(e, dateLabel);
+  });
+}
+
 export async function getEventsForDays(days: number): Promise<CalendarEvent[]> {
   const auth = await getAuthedClient();
   if (!auth) return [];
