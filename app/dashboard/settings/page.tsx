@@ -536,7 +536,7 @@ export default function SettingsPage() {
                     <AzureStep n={3}>
                       Redirect URI → <strong>Web</strong> →{" "}
                       <CopyableCode
-                        value="https://ag-contracts.vercel.app/api/auth/microsoft/callback"
+                        value="https://basil-app.vercel.app/api/auth/microsoft/callback"
                         copiedEnvVar={copiedEnvVar}
                         setCopiedEnvVar={setCopiedEnvVar}
                       />
