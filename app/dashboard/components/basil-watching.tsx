@@ -9,6 +9,7 @@ import {
   Calendar,
   FileText,
   Sparkles,
+  Video,
   AlertTriangle,
   CheckCircle2,
   Clock,
@@ -19,6 +20,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
 import type { BasilEvent } from "@/lib/events/types";
+import { emitChange } from "@/lib/sync/channel";
 import { ApprovalPanel } from "./approval-panel";
 
 const SOURCE_ICON: Record<BasilEvent["source"], typeof Mail> = {
@@ -27,6 +29,7 @@ const SOURCE_ICON: Record<BasilEvent["source"], typeof Mail> = {
   calendar: Calendar,
   drive: FileText,
   manual: Sparkles,
+  zoom_email: Video,
 };
 
 const DISPOSITION_STYLE: Record<
@@ -85,6 +88,20 @@ export function BasilWatching() {
       await fetch("/api/events/poll-ingest", { method: "POST" });
       // New events arrive via SSE; also refresh list in case SSE missed any.
       await load();
+      // Fire-and-forget materialization runs async on the server after
+      // poll-ingest returns.  Emit domain sync signals at two offsets:
+      //   10 s — covers single email/Slack classify → materialize round-trip
+      //   30 s — covers batches (multiple emails each take ~5-7s sequential)
+      setTimeout(() => {
+        emitChange("actions");
+        emitChange("decisions");
+        emitChange("memory");
+      }, 10_000);
+      setTimeout(() => {
+        emitChange("actions");
+        emitChange("decisions");
+        emitChange("memory");
+      }, 30_000);
     } catch {
       /* ignore — empty state remains */
     } finally {
@@ -102,8 +119,18 @@ export function BasilWatching() {
     })();
   }, [load, pollIntegrations]);
 
-  // Live updates over SSE: when a new event is published (via the event bus
-  // in /api/events/ingest or any webhook), patch state without a full reload.
+  // Live updates via two complementary paths:
+  //
+  // 1. SSE stream — store-polling every 5 s on the server; delivers fast when
+  //    the ingest request lands on the same Fluid Compute instance that holds
+  //    this SSE connection.  EventSource auto-reconnects after the 300-second
+  //    function timeout with Last-Event-ID so no events are skipped.
+  //
+  // 2. 30-second client poll — reliable cross-instance fallback.  If an ingest
+  //    request lands on a DIFFERENT instance (its /tmp is separate), the SSE
+  //    poller on this instance won't see it until the next cold-start restore.
+  //    The periodic poll catches those events within 30 seconds.
+  //    This also self-heals after any SSE gap (network blip, tab background).
   useEffect(() => {
     const es = new EventSource("/api/events/stream");
     es.onmessage = (msg) => {
@@ -120,15 +147,14 @@ export function BasilWatching() {
         /* ignore malformed */
       }
     };
-    es.onerror = () => {
-      // EventSource auto-reconnects; nothing to do here.
-    };
+    // EventSource auto-reconnects on error — nothing extra needed here.
     return () => es.close();
   }, []);
 
-  const seedIfEmpty = useCallback(async () => {
-    await fetch("/api/events/seed", { method: "POST" });
-    await load();
+  // Periodic poll — cross-instance / tab-backgrounded fallback (see comment above).
+  useEffect(() => {
+    const interval = setInterval(() => { void load(); }, 30_000);
+    return () => clearInterval(interval);
   }, [load]);
 
   const openPanel = useCallback((id?: string) => {
@@ -202,13 +228,6 @@ export function BasilWatching() {
               <p className="text-sm text-muted-foreground">
                 Quiet for now. Nothing for Basil to watch.
               </p>
-              <button
-                onClick={seedIfEmpty}
-                className="text-[12px] text-muted-foreground/70 hover:text-muted-foreground hover:underline mt-2"
-                title="Inserts 8 fabricated events for UI testing only. Do not treat as real."
-              >
-                Load fake demo events (for UI testing) →
-              </button>
             </div>
           ) : (
             <>

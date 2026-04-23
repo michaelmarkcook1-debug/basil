@@ -1,10 +1,15 @@
 import { NextResponse } from "next/server";
 import { google } from "googleapis";
 import { getAuthedClient } from "@/lib/google/auth";
-import { createEvent } from "@/lib/events/store";
+import { createEvent, hasExternalId } from "@/lib/events/store";
 import { eventFromIngest } from "@/lib/events/rules";
 import { publish } from "@/lib/events/bus";
 import { getWatchState, updateGmail } from "@/lib/google/watch-state";
+import { detectZoomEmail } from "@/lib/google/zoom-email-detector";
+import {
+  processRegularEmail,
+  processZoomEmail,
+} from "@/lib/email/process-gmail-message";
 
 /**
  * POST /api/webhooks/gmail — Gmail push notifications (via Cloud Pub/Sub).
@@ -22,11 +27,17 @@ import { getWatchState, updateGmail } from "@/lib/google/watch-state";
  * `Authorization: Bearer <token>` header with a Google-signed JWT, verified
  * against `GMAIL_PUBSUB_AUDIENCE`. We verify a shared `GMAIL_PUBSUB_TOKEN`
  * query param as a simpler alternative — set both in the Pub/Sub subscription.
+ *
+ * Zoom detection: messages identified as Zoom meeting summaries get
+ * source:"zoom_email" rather than source:"email". The raw From header
+ * is available here (before the display-name extraction that poll-ingest
+ * applies), giving more reliable domain-based detection.
  */
 export async function POST(req: Request) {
   // Lightweight auth: shared secret in the push URL.
-  const { searchParams } = new URL(req.url);
-  const secretToken = searchParams.get("token");
+  // Note: urlParams comes from the native URL API (synchronous) — not Next.js route searchParams.
+  const urlParams = new URL(req.url).searchParams;
+  const secretToken = urlParams.get("token");
   if (
     process.env.GMAIL_PUBSUB_TOKEN &&
     secretToken !== process.env.GMAIL_PUBSUB_TOKEN
@@ -48,7 +59,7 @@ export async function POST(req: Request) {
   const newHistoryId = payload.historyId;
   if (!newHistoryId) return NextResponse.json({ ok: true });
 
-  const auth = getAuthedClient();
+  const auth = await getAuthedClient();
   if (!auth) return NextResponse.json({ ok: true, note: "gmail not connected" });
   const gmail = google.gmail({ version: "v1", auth });
 
@@ -60,6 +71,8 @@ export async function POST(req: Request) {
     await updateGmail({ historyId: newHistoryId });
     return NextResponse.json({ ok: true, bootstrapped: true });
   }
+
+  let processed = 0;
 
   try {
     const hist = await gmail.users.history.list({
@@ -78,6 +91,10 @@ export async function POST(req: Request) {
 
     for (const id of added) {
       try {
+        // Skip if already ingested (e.g. poll-ingest ran first)
+        const externalId = `gmail:${id}`;
+        if (await hasExternalId(externalId)) continue;
+
         const detail = await gmail.users.messages.get({
           userId: "me",
           id,
@@ -87,25 +104,65 @@ export async function POST(req: Request) {
         const headers = detail.data.payload?.headers || [];
         const h = (n: string) =>
           headers.find((hh) => hh.name === n)?.value || "";
-        const from = h("From");
+
+        const fromRaw = h("From");
         const subject = h("Subject");
         const snippet = detail.data.snippet || "";
 
+        // Zoom detection: use the raw From header (includes domain) for reliable detection.
+        // This is more accurate than the display-name-only version available in poll-ingest.
+        const zoomSignal = detectZoomEmail({
+          from: fromRaw,
+          subject,
+          snippet,
+        });
+        const source = zoomSignal.isZoom ? "zoom_email" as const : "email" as const;
+
+        if (source === "zoom_email") {
+          console.log(
+            `[gmail-webhook] Zoom email detected: "${subject}" ` +
+            `(signals: ${zoomSignal.signals.join(", ")}, confidence: ${zoomSignal.confidence.toFixed(2)})`
+          );
+        }
+
         const shaped = eventFromIngest({
-          source: "email",
+          source,
+          externalId,
           title: subject || "(no subject)",
           body: snippet,
-          from: extractName(from),
+          from: extractName(fromRaw),
         });
         const event = await createEvent(shaped);
         publish(event);
+        processed++;
+
+        // Fire-and-forget: classify + materialize into canonical Action/Decision/Memory
+        // stores. This is what creates durable records — the event above is just a receipt.
+        // Both paths are idempotent: stores dedup by sourceRef + text similarity.
+        if (source === "zoom_email") {
+          void processZoomEmail({
+            gmailId: id,
+            externalId,
+            eventId: event.id,
+            subject: subject || "(no subject)",
+          });
+        } else {
+          void processRegularEmail({
+            gmailId: id,
+            externalId,
+            eventId: event.id,
+            subject: subject || "(no subject)",
+            from: extractName(fromRaw),
+            snippetFallback: snippet,
+          });
+        }
       } catch (e) {
         console.error("Gmail message fetch failed:", e instanceof Error ? e.message : e);
       }
     }
 
     await updateGmail({ historyId: newHistoryId });
-    return NextResponse.json({ ok: true, processed: added.size });
+    return NextResponse.json({ ok: true, processed });
   } catch (e) {
     // On 404 HISTORY_NOT_FOUND (startHistoryId too old) just reset baseline.
     console.error("Gmail history.list error:", e instanceof Error ? e.message : e);

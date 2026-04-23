@@ -4,7 +4,6 @@ import {
   convertToModelMessages,
   stepCountIs,
 } from "ai";
-import { anthropic } from "@ai-sdk/anthropic";
 import { getSystemPrompt } from "@/lib/ai/system-prompt";
 import { assistantTools } from "@/lib/ai/tools";
 
@@ -17,11 +16,14 @@ export async function POST(req: Request) {
   ]);
 
   const result = streamText({
-    model: anthropic("claude-sonnet-4-6"),
+    model: "anthropic/claude-sonnet-4.6",
     system,
     messages: modelMessages,
     tools: assistantTools,
     stopWhen: stepCountIs(5),
+    providerOptions: {
+      gateway: { tags: ["feature:chat", "env:production"] },
+    },
   });
 
   return result.toUIMessageStreamResponse();

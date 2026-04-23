@@ -1,41 +1,17 @@
-import { promises as fs } from "node:fs";
-import path from "node:path";
 import { randomUUID } from "node:crypto";
 import type { Memory, MemoryKind } from "./types";
 import { withLock } from "@/lib/events/lock";
+import { readStore, writeStore } from "@/lib/storage/persistent";
 
-// ── Server-only file-based store ──
-// .data/ is already .gitignored (shares the same directory as OAuth tokens).
-// Memories persist across dev restarts and deployments via volume if configured;
-// suitable for single-user dev + personal production use.
-
-const DATA_DIR = path.join(process.cwd(), ".data");
-const MEMORY_FILE = path.join(DATA_DIR, "sage-memory.json");
+const MEMORY_FILE = "sage-memory.json";
 const LOCK_KEY = "memory";
 
-async function ensureFile(): Promise<void> {
-  await fs.mkdir(DATA_DIR, { recursive: true });
-  try {
-    await fs.access(MEMORY_FILE);
-  } catch {
-    await fs.writeFile(MEMORY_FILE, "[]", "utf8");
-  }
-}
-
 async function readAll(): Promise<Memory[]> {
-  await ensureFile();
-  try {
-    const raw = await fs.readFile(MEMORY_FILE, "utf8");
-    const parsed = JSON.parse(raw);
-    return Array.isArray(parsed) ? parsed : [];
-  } catch {
-    return [];
-  }
+  return readStore<Memory[]>(MEMORY_FILE, []);
 }
 
 async function writeAll(items: Memory[]): Promise<void> {
-  await ensureFile();
-  await fs.writeFile(MEMORY_FILE, JSON.stringify(items, null, 2), "utf8");
+  await writeStore(MEMORY_FILE, items);
 }
 
 export async function listMemories(): Promise<Memory[]> {
@@ -57,6 +33,14 @@ export interface CreateMemoryInput {
   content: string;
   entity?: string;
   source?: Memory["source"];
+  /** 0–1 confidence for inferred memories. Absent on manually-created items. */
+  confidence?: number;
+  /** True when confidence is in the review band — user may want to verify. */
+  needsReview?: boolean;
+  /** BasilEvent ID that produced this memory (provenance). */
+  eventId?: string;
+  /** Stable source-system reference (provenance), e.g. "gmail:1abc2def". */
+  sourceRef?: string;
 }
 
 export async function createMemory(input: CreateMemoryInput): Promise<Memory> {
@@ -84,6 +68,10 @@ export async function createMemory(input: CreateMemoryInput): Promise<Memory> {
       source: input.source ?? "chat",
       createdAt: now,
       updatedAt: now,
+      ...(input.confidence !== undefined && { confidence: input.confidence }),
+      ...(input.needsReview !== undefined && { needsReview: input.needsReview }),
+      eventId: input.eventId,
+      sourceRef: input.sourceRef,
     };
     items.unshift(memory);
     await writeAll(items);
@@ -119,9 +107,14 @@ export async function deleteMemory(id: string): Promise<boolean> {
   });
 }
 
+// Maximum items per kind and total emitted by memoriesForPrompt.
+// Keeps prompt context bounded even when the store grows large.
+const PROMPT_MAX_PER_KIND = 10;
+const PROMPT_MAX_TOTAL = 40;
+
 /** Compact, AI-prompt-friendly serialization. */
 export async function memoriesForPrompt(): Promise<string> {
-  const items = await listMemories();
+  const items = await listMemories(); // already newest-first
   if (items.length === 0) return "";
 
   const byKind: Record<MemoryKind, Memory[]> = {
@@ -130,7 +123,17 @@ export async function memoriesForPrompt(): Promise<string> {
     person: [],
     context: [],
   };
-  for (const m of items) byKind[m.kind].push(m);
+
+  // Fill each bucket up to per-kind cap, stopping when the total cap is reached.
+  let total = 0;
+  for (const m of items) {
+    if (total >= PROMPT_MAX_TOTAL) break;
+    const bucket = byKind[m.kind];
+    if (bucket.length < PROMPT_MAX_PER_KIND) {
+      bucket.push(m);
+      total++;
+    }
+  }
 
   const sections: string[] = [];
   if (byKind.preference.length) {

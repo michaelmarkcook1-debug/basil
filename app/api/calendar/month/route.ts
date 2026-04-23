@@ -25,7 +25,7 @@ export async function GET(request: NextRequest) {
     );
   }
 
-  if (!isGoogleConnected()) {
+  if (!(await isGoogleConnected())) {
     return NextResponse.json({
       connected: false,
       events: [],

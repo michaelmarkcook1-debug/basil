@@ -18,10 +18,13 @@ import {
   Loader2,
   Clock,
   Video,
+  HelpCircle,
+  ShieldAlert,
+  ListChecks,
+  BookOpen,
 } from "lucide-react";
 import Link from "next/link";
 import { formatTime } from "@/lib/utils";
-import { getUserContacts } from "@/lib/user-contacts";
 import {
   ExtraContextInput,
   buildExtraContextFormData,
@@ -29,13 +32,46 @@ import {
 
 interface EventMeta { title: string; time: string; attendees: string[]; dateLabel?: string }
 
+interface OpenAction {
+  id: string;
+  text: string;
+  owner?: string;
+  dueDate?: string;
+  status: "open" | "done" | "overdue";
+  priority?: "high" | "medium" | "low";
+  source?: string;
+  createdAt?: string;
+}
+
+interface PriorDecision {
+  id: string;
+  text: string;
+  title?: string;
+  decidedBy?: string;
+  date?: string;
+  rationale?: string;
+  consequences?: string[];
+  source?: string;
+  confidence?: number;
+}
+
+interface UnresolvedRisk {
+  risk: string;
+  source: string;
+  raisedDate?: string;
+}
+
 interface PrepData {
   fromTodaysCalls?: { title: string; summary: string }[];
   contextNote?: string;
   attendeeInsights?: { name: string; role: string; style: string }[];
   topicsToRaise?: { title: string; context: string; priority: string }[];
+  suggestedQuestions?: string[];
   thingsToLand?: string[];
   watchOuts?: string[];
+  unresolvedRisks?: UnresolvedRisk[];
+  openActions?: OpenAction[];
+  priorDecisions?: PriorDecision[];
   generatedAt?: string;
 }
 
@@ -138,14 +174,13 @@ export default function MeetingPrepPage() {
     setError("");
     try {
       const today = new Date().toISOString().split("T")[0];
-      // Ship user-added contacts along — the server can't see localStorage.
-      const userContacts = getUserContacts();
+      // User contacts are now read from the server store directly — no need
+      // to forward them through the request body.
       const meetingPayload = {
         title: meta.title,
         attendees: meta.attendees,
         date: today,
         time: meta.time.split(" – ")[0] || "14:00",
-        userContacts,
       };
 
       const hasExtras =
@@ -324,6 +359,25 @@ export default function MeetingPrepPage() {
             </div>
           )}
 
+          {/* Suggested Questions — blue */}
+          {prep.suggestedQuestions && prep.suggestedQuestions.length > 0 && (
+            <div>
+              <SectionHeader icon={HelpCircle} label="Questions to Ask" color="text-sky-500" />
+              <Card className="border-l-4 border-l-sky-400 border-t-0 border-r-0 border-b-0 bg-sky-50/60 dark:bg-sky-500/5">
+                <CardContent className="p-4">
+                  <ul className="space-y-1.5 text-sm">
+                    {prep.suggestedQuestions.map((q, i) => (
+                      <li key={i} className="flex gap-2">
+                        <span className="text-sky-400 shrink-0">?</span>
+                        <span>{q}</span>
+                      </li>
+                    ))}
+                  </ul>
+                </CardContent>
+              </Card>
+            </div>
+          )}
+
           {/* Things to Land — green */}
           {prep.thingsToLand && prep.thingsToLand.length > 0 && (
             <div>
@@ -353,6 +407,103 @@ export default function MeetingPrepPage() {
                   </ul>
                 </CardContent>
               </Card>
+            </div>
+          )}
+
+          {/* Unresolved Risks — explicitly source-backed risks */}
+          {prep.unresolvedRisks && prep.unresolvedRisks.length > 0 && (
+            <div>
+              <SectionHeader icon={ShieldAlert} label="Unresolved Risks" color="text-red-500" />
+              <Card className="border-l-4 border-l-red-500 border-t-0 border-r-0 border-b-0 bg-red-50/40 dark:bg-red-500/5">
+                <CardContent className="p-4">
+                  <ul className="space-y-2.5 text-sm">
+                    {prep.unresolvedRisks.map((r, i) => (
+                      <li key={i} className="space-y-0.5">
+                        <p className="text-foreground/90">{r.risk}</p>
+                        <p className="text-xs text-muted-foreground">
+                          {r.source}
+                          {r.raisedDate && ` · ${r.raisedDate}`}
+                        </p>
+                      </li>
+                    ))}
+                  </ul>
+                </CardContent>
+              </Card>
+            </div>
+          )}
+
+          {/* Reference Data divider */}
+          {((prep.openActions && prep.openActions.length > 0) ||
+            (prep.priorDecisions && prep.priorDecisions.length > 0)) && (
+            <div className="flex items-center gap-3 pt-2">
+              <Separator className="flex-1" />
+              <span className="text-[10px] font-semibold tracking-widest uppercase text-muted-foreground whitespace-nowrap">Reference Data</span>
+              <Separator className="flex-1" />
+            </div>
+          )}
+
+          {/* Open Actions — tracked actions relevant to this meeting */}
+          {prep.openActions && prep.openActions.length > 0 && (
+            <div>
+              <SectionHeader icon={ListChecks} label="Tracked Actions" color="text-slate-500" />
+              <div className="space-y-1.5">
+                {prep.openActions.map((a) => {
+                  const todayLocal = new Date().toISOString().split("T")[0];
+                  const isOverdue =
+                    a.status === "overdue" ||
+                    (a.status === "open" && !!a.dueDate && a.dueDate < todayLocal);
+                  return (
+                    <Card key={a.id} className={`border-l-4 border-t-0 border-r-0 border-b-0 ${isOverdue ? "border-l-red-400 bg-red-50/30 dark:bg-red-500/5" : a.priority === "high" ? "border-l-amber-400 bg-amber-50/20 dark:bg-amber-500/5" : "border-l-slate-300 bg-muted/20"}`}>
+                      <CardContent className="py-2.5 px-4 flex items-start gap-2">
+                        <div className="flex-1 min-w-0">
+                          <p className="text-sm text-foreground/90">{a.text}</p>
+                          <p className="text-xs text-muted-foreground mt-0.5 flex items-center gap-1.5">
+                            {isOverdue && <span className="text-red-500 font-medium">OVERDUE</span>}
+                            {!isOverdue && a.dueDate && <span>due {a.dueDate}</span>}
+                            {a.priority === "high" && !isOverdue && <span className="text-amber-600 font-medium">high priority</span>}
+                            {a.owner && a.owner !== "Michael Cook" && <span>· {a.owner}</span>}
+                          </p>
+                        </div>
+                      </CardContent>
+                    </Card>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+
+          {/* Prior Decisions — decisions already made relevant to this meeting */}
+          {prep.priorDecisions && prep.priorDecisions.length > 0 && (
+            <div>
+              <SectionHeader icon={BookOpen} label="Prior Decisions" color="text-indigo-500" />
+              <div className="space-y-2">
+                {prep.priorDecisions.map((d) => (
+                  <Card key={d.id} className="border-l-4 border-l-indigo-300 border-t-0 border-r-0 border-b-0 bg-indigo-50/20 dark:bg-indigo-500/5">
+                    <CardContent className="py-3 px-4">
+                      <p className="text-sm font-medium text-foreground/90">
+                        {d.title || d.text}
+                      </p>
+                      {d.title && <p className="text-sm text-foreground/75 mt-0.5">{d.text}</p>}
+                      <p className="text-xs text-muted-foreground mt-1 flex items-center gap-1.5 flex-wrap">
+                        {d.decidedBy && <span>{d.decidedBy}</span>}
+                        {d.date && <span>· {d.date}</span>}
+                        {d.source && <span>· {d.source}</span>}
+                        {typeof d.confidence === "number" && (
+                          <span>· {Math.round(d.confidence * 100)}% confidence</span>
+                        )}
+                      </p>
+                      {d.rationale && (
+                        <p className="text-xs text-muted-foreground mt-1 italic">Why: {d.rationale}</p>
+                      )}
+                      {d.consequences && d.consequences.length > 0 && (
+                        <p className="text-xs text-muted-foreground mt-1">
+                          Follow-ups: {d.consequences.join(" · ")}
+                        </p>
+                      )}
+                    </CardContent>
+                  </Card>
+                ))}
+              </div>
             </div>
           )}
 

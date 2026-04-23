@@ -1,55 +1,49 @@
-import { promises as fs } from "node:fs";
-import path from "node:path";
+/**
+ * Persists Gmail + Calendar watch-channel state via the shared store so it
+ * survives Vercel cold starts (included in the BASIL_DATA snapshot).
+ *
+ * Previously used node:fs directly against process.cwd()/.data, which is
+ * read-only on Vercel Fluid Compute. Migrated to readStore/writeStore which
+ * resolve to /tmp/basil-data on Vercel and .data/ in local dev.
+ */
 
-// Persists the Gmail historyId and Calendar syncToken across restarts so
-// webhook deliveries can be diffed against the last-seen state. Also stores
-// watch-channel metadata (expiry) so the renewal cron knows when to re-subscribe.
+import { readStore, writeStore } from "@/lib/storage/persistent";
 
-const DATA_DIR = path.join(process.cwd(), ".data");
-const FILE = path.join(DATA_DIR, "google-watch.json");
+const WATCH_FILE = "google-watch.json";
 
 export interface GmailWatchState {
-  historyId?: string;
+  historyId?:  string;
   expiration?: number; // ms epoch
 }
 
 export interface CalendarWatchState {
-  channelId?: string;
+  channelId?:  string;
   resourceId?: string;
-  syncToken?: string;
+  syncToken?:  string;
   expiration?: number; // ms epoch
 }
 
 export interface WatchState {
-  gmail?: GmailWatchState;
+  gmail?:    GmailWatchState;
   calendar?: CalendarWatchState;
 }
 
-async function read(): Promise<WatchState> {
-  try {
-    return JSON.parse(await fs.readFile(FILE, "utf8")) as WatchState;
-  } catch {
-    return {};
-  }
-}
-
-async function write(state: WatchState): Promise<void> {
-  await fs.mkdir(DATA_DIR, { recursive: true });
-  await fs.writeFile(FILE, JSON.stringify(state, null, 2), "utf8");
-}
-
 export async function getWatchState(): Promise<WatchState> {
-  return read();
+  return readStore<WatchState>(WATCH_FILE, {});
 }
 
 export async function updateGmail(patch: Partial<GmailWatchState>): Promise<void> {
-  const s = await read();
-  s.gmail = { ...s.gmail, ...patch };
-  await write(s);
+  const s = await getWatchState();
+  await writeStore<WatchState>(WATCH_FILE, {
+    ...s,
+    gmail: { ...s.gmail, ...patch },
+  });
 }
 
 export async function updateCalendar(patch: Partial<CalendarWatchState>): Promise<void> {
-  const s = await read();
-  s.calendar = { ...s.calendar, ...patch };
-  await write(s);
+  const s = await getWatchState();
+  await writeStore<WatchState>(WATCH_FILE, {
+    ...s,
+    calendar: { ...s.calendar, ...patch },
+  });
 }

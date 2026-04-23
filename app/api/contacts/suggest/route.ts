@@ -4,6 +4,7 @@ import { getRecentSlackMessages } from "@/lib/slack/client";
 import { contacts } from "@/lib/contacts-data";
 import { isSelf } from "@/lib/self-identity";
 import { findContactByName } from "@/lib/contacts-lookup";
+import type { ContactSuggestion } from "@/lib/types/contact";
 
 /**
  * GET /api/contacts/suggest
@@ -18,18 +19,6 @@ import { findContactByName } from "@/lib/contacts-lookup";
  *     lastSeen, sample, signalSources[]
  *   }]
  */
-
-interface Suggestion {
-  id: string;
-  displayName: string;
-  email?: string;
-  slackChannels: string[];
-  emailCount: number;
-  slackCount: number;
-  lastSeen: string;
-  sample: string;
-  signalSources: string[];
-}
 
 const BOT_PATTERNS = [
   /^base44\s*slack\s*integration$/i,
@@ -81,11 +70,11 @@ export async function GET() {
   ]);
 
   // Keyed by a stable identity — email when we have it, else slugified name.
-  const byKey = new Map<string, Suggestion>();
+  const byKey = new Map<string, ContactSuggestion>();
 
   const bump = (
     key: string,
-    patch: Partial<Suggestion> & { displayName: string; date: string; sample: string; source: "email" | "slack" }
+    patch: Partial<ContactSuggestion> & { displayName: string; date: string; sample: string; source: "email" | "slack" }
   ) => {
     const existing = byKey.get(key);
     if (!existing) {

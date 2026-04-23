@@ -1,8 +1,9 @@
 import { NextResponse } from "next/server";
 import { getEventsForDays, getEventsForMonth } from "@/lib/google/calendar";
-import { getRecentEmails } from "@/lib/google/gmail";
+import { searchEmails } from "@/lib/google/gmail";
 import { getRecentDriveActivity } from "@/lib/google/drive";
 import { getRecentSlackMessages } from "@/lib/slack/client";
+import { listMemories } from "@/lib/memory/store";
 import { contacts } from "@/lib/contacts-data";
 
 /**
@@ -42,8 +43,12 @@ export async function GET() {
   const currentYear = now.getFullYear();
   const currentMonth = now.getMonth();
 
+  // 30-day window (declared early so it's available in the parallel fetch)
+  const thirtyDaysAgo = new Date(now);
+  thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+
   // Fetch all data sources in parallel
-  const [calendarEvents, emails, slackMessages, driveActivity] =
+  const [calendarEvents, emails, slackMessages, driveActivity, zoomPersonMemories] =
     await Promise.all([
       (async () => {
         try {
@@ -58,11 +63,11 @@ export async function GET() {
           return [];
         }
       })(),
-      getRecentEmails(50).catch((e) => {
+      searchEmails("in:inbox OR in:sent", 200).catch((e) => {
         console.error("Email fetch failed:", e);
         return [];
       }),
-      getRecentSlackMessages(50).catch((e) => {
+      getRecentSlackMessages(200, 30).catch((e) => {
         console.error("Slack fetch failed:", e);
         return [];
       }),
@@ -70,11 +75,22 @@ export async function GET() {
         console.error("Drive activity fetch failed:", e);
         return [];
       }),
+      // Memory store: "person" memories written by the Zoom materialization path.
+      // These represent actual meeting participants, not incidental text mentions.
+      // Content format: 'Zoom meeting participant: "{title}" on YYYY-MM-DD.'
+      listMemories().then((all) =>
+        all.filter(
+          (m) =>
+            m.kind === "person" &&
+            m.entity &&
+            /^Zoom meeting participant:/i.test(m.content) &&
+            new Date(m.updatedAt).getTime() > thirtyDaysAgo.getTime()
+        )
+      ).catch((e) => {
+        console.error("Memory fetch failed:", e);
+        return [];
+      }),
     ]);
-
-  // 30-day window
-  const thirtyDaysAgo = new Date(now);
-  thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
 
   // Compute activity for each contact
   const activityMap: ContactActivity[] = contacts.map((contact) => {
@@ -125,12 +141,15 @@ export async function GET() {
       }
     }
 
-    // Email: check sender name
+    // Email: check sender (received) and recipient (sent) fields
     for (const email of emails) {
       const emailDate = email.date.substring(0, 10);
       if (!emailDate || new Date(emailDate) < thirtyDaysAgo) continue;
 
-      if (nameMatchesContact(email.from, contact.name)) {
+      const fromMatch = nameMatchesContact(email.from, contact.name);
+      const toMatch = nameMatchesContact(email.to, contact.name);
+
+      if (fromMatch || toMatch) {
         interactions.push({
           date: emailDate,
           source: "Email",
@@ -140,15 +159,20 @@ export async function GET() {
       }
     }
 
-    // Slack: check author and text mentions
+    // Slack: check author, text mentions, and DM channel members (catches outbound DMs)
     for (const msg of slackMessages) {
       const msgDate = msg.date.substring(0, 10);
       if (!msgDate || new Date(msgDate) < thirtyDaysAgo) continue;
 
       const authorMatch = nameMatchesContact(msg.author, contact.name);
       const textMatch = nameMatchesContact(msg.text, contact.name);
+      // channelMembers contains first names of DM participants — matches outbound DMs to this contact
+      const dmMatch =
+        msg.channelMembers?.some((m) =>
+          nameMatchesContact(m, contact.name)
+        ) ?? false;
 
-      if (authorMatch || textMatch) {
+      if (authorMatch || textMatch || dmMatch) {
         interactions.push({
           date: msgDate,
           source: "Slack",
@@ -156,6 +180,29 @@ export async function GET() {
         });
         sources.add("Slack");
       }
+    }
+
+    // Zoom (via memory store): person memories created during Zoom email
+    // materialization.  Each entry represents a confirmed meeting participant
+    // — not an incidental mention.  Entity field holds the attendee's name.
+    for (const mem of zoomPersonMemories) {
+      if (!mem.entity) continue;
+      // Match: does the memory's entity (attendee name) refer to this contact?
+      if (!nameMatchesContact(mem.entity, contact.name)) continue;
+      // Extract the actual meeting date from the structured content.
+      // Format: 'Zoom meeting participant: "{title}" on YYYY-MM-DD.'
+      const dateMatch = mem.content.match(/on (\d{4}-\d{2}-\d{2})\./);
+      const meetingDate = dateMatch ? dateMatch[1] : mem.updatedAt.substring(0, 10);
+      // Build a readable description: strip the "Zoom meeting participant: " prefix
+      const description = mem.content
+        .replace(/^Zoom meeting participant:\s*/i, "Zoom: ")
+        .replace(/\.$/, "");
+      interactions.push({
+        date: meetingDate,
+        source: "Zoom",
+        description,
+      });
+      sources.add("Zoom");
     }
 
     // Sort by date desc and get the most recent
@@ -183,6 +230,7 @@ export async function GET() {
       emails: emails.length,
       slackMessages: slackMessages.length,
       driveFiles: driveActivity.length,
+      zoomMeetings: zoomPersonMemories.length,
     },
   });
 }

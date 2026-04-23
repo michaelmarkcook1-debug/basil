@@ -7,6 +7,12 @@ import {
   updateCalendar,
   updateGmail,
 } from "@/lib/google/watch-state";
+import { graphFetch, getAccessToken } from "@/lib/microsoft/auth";
+import {
+  getWatchState as getMsWatchState,
+  updateMail as updateMsMail,
+  updateCalendar as updateMsCalendar,
+} from "@/lib/microsoft/watch-state";
 
 /**
  * Daily cron — re-registers Gmail and Calendar watch channels before they expire.
@@ -31,7 +37,7 @@ async function handle(req: Request) {
     return new NextResponse("forbidden", { status: 403 });
   }
 
-  const auth = getAuthedClient();
+  const auth = await getAuthedClient();
   if (!auth) {
     return NextResponse.json({ ok: false, reason: "google not connected" });
   }
@@ -107,6 +113,98 @@ async function handle(req: Request) {
     }
   } else {
     report.calendar = { renewed: false, reason: "not expiring" };
+  }
+
+  // ── Microsoft 365: renew mail + calendar subscriptions if expiring within 2 days ──
+  const msToken = await getAccessToken();
+  if (msToken) {
+    const msState = await getMsWatchState();
+    const threeDaysMs = 3 * 86400_000;
+    const threeDaysFromNow = new Date(Date.now() + threeDaysMs).toISOString();
+    const clientState = process.env.MICROSOFT_WEBHOOK_SECRET || randomUUID();
+
+    // MS mail subscription
+    const msMailExpiring =
+      !msState.mail?.expirationDateTime ||
+      new Date(msState.mail.expirationDateTime).getTime() - now < twoDays;
+
+    if (msMailExpiring && process.env.MICROSOFT_MAIL_WEBHOOK_URL) {
+      try {
+        const res = await graphFetch("https://graph.microsoft.com/v1.0/subscriptions", {
+          method: "POST",
+          body: JSON.stringify({
+            changeType: "created",
+            notificationUrl: process.env.MICROSOFT_MAIL_WEBHOOK_URL,
+            resource: "/me/mailFolders/inbox/messages",
+            expirationDateTime: threeDaysFromNow,
+            clientState,
+          }),
+        });
+        if (res && res.ok) {
+          const data = (await res.json()) as { id?: string; expirationDateTime?: string };
+          await updateMsMail({
+            subscriptionId: data.id ?? "",
+            expirationDateTime: data.expirationDateTime ?? threeDaysFromNow,
+            resource: "/me/mailFolders/inbox/messages",
+            clientState,
+          });
+          report.microsoftMail = { renewed: true, expiresAt: data.expirationDateTime };
+          console.log(`[renew-subscriptions] Microsoft mail subscription renewed: ${data.id}`);
+        } else {
+          const body = res ? await res.text() : "no response";
+          report.microsoftMail = { renewed: false, error: body };
+          console.error("[renew-subscriptions] Microsoft mail subscription failed:", body);
+        }
+      } catch (e) {
+        report.microsoftMail = { error: e instanceof Error ? e.message : String(e) };
+        console.error("[renew-subscriptions] Microsoft mail subscription error:", e);
+      }
+    } else {
+      report.microsoftMail = { renewed: false, reason: msMailExpiring ? "no webhook URL" : "not expiring" };
+    }
+
+    // MS calendar subscription
+    const msCalExpiring =
+      !msState.calendar?.expirationDateTime ||
+      new Date(msState.calendar.expirationDateTime).getTime() - now < twoDays;
+
+    if (msCalExpiring && process.env.MICROSOFT_CALENDAR_WEBHOOK_URL) {
+      try {
+        const res = await graphFetch("https://graph.microsoft.com/v1.0/subscriptions", {
+          method: "POST",
+          body: JSON.stringify({
+            changeType: "created,updated",
+            notificationUrl: process.env.MICROSOFT_CALENDAR_WEBHOOK_URL,
+            resource: "/me/events",
+            expirationDateTime: threeDaysFromNow,
+            clientState,
+          }),
+        });
+        if (res && res.ok) {
+          const data = (await res.json()) as { id?: string; expirationDateTime?: string };
+          await updateMsCalendar({
+            subscriptionId: data.id ?? "",
+            expirationDateTime: data.expirationDateTime ?? threeDaysFromNow,
+            resource: "/me/events",
+            clientState,
+          });
+          report.microsoftCalendar = { renewed: true, expiresAt: data.expirationDateTime };
+          console.log(`[renew-subscriptions] Microsoft calendar subscription renewed: ${data.id}`);
+        } else {
+          const body = res ? await res.text() : "no response";
+          report.microsoftCalendar = { renewed: false, error: body };
+          console.error("[renew-subscriptions] Microsoft calendar subscription failed:", body);
+        }
+      } catch (e) {
+        report.microsoftCalendar = { error: e instanceof Error ? e.message : String(e) };
+        console.error("[renew-subscriptions] Microsoft calendar subscription error:", e);
+      }
+    } else {
+      report.microsoftCalendar = { renewed: false, reason: msCalExpiring ? "no webhook URL" : "not expiring" };
+    }
+  } else {
+    report.microsoftMail     = { renewed: false, reason: "microsoft not connected" };
+    report.microsoftCalendar = { renewed: false, reason: "microsoft not connected" };
   }
 
   return NextResponse.json({ ok: true, report });

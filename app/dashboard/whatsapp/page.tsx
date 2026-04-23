@@ -23,7 +23,7 @@ import {
   ChevronRight,
 } from "lucide-react";
 import type { DumpStatus, SnapshotMessage } from "@/lib/whatsapp/dump-job";
-import { addUserContact } from "@/lib/user-contacts";
+import { bulkAddUserContacts } from "@/lib/user-contacts";
 import type { Contact } from "@/lib/contacts-data";
 import { initialsFor, pickAvatarColor, slugifyId } from "@/lib/user-contacts";
 
@@ -171,11 +171,16 @@ export default function WhatsAppPage() {
         name: string;
         phone?: string;
       }>;
-      let added = 0;
+
+      // Build all stubs first, then send ONE bulk request.
+      // Previously this fired addUserContact() per contact (N API calls,
+      // N domain-change events, N subscriber refreshes).  bulkAddUserContacts
+      // makes a single POST and emits one "contacts" change.
+      const stubs: Contact[] = [];
       for (const wc of withChat) {
         const id = slugifyId(wc.name || wc.phone || wc.jid);
         if (!id) continue;
-        const stub: Contact = {
+        stubs.push({
           id: `wa-${id}`,
           name: wc.name || wc.phone || "Unknown",
           initials: initialsFor(wc.name || wc.phone || "WA"),
@@ -195,10 +200,10 @@ export default function WhatsAppPage() {
           watchOut: "—",
           recentActivity: "—",
           activitySource: "WhatsApp",
-        };
-        addUserContact(stub);
-        added++;
+        });
       }
+
+      const added = await bulkAddUserContacts(stubs);
       setImportPreview({ added });
     } catch (e) {
       console.error("Import to personal contacts failed:", e);

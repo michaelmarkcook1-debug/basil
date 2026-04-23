@@ -3,7 +3,7 @@ import { isGoogleConnected } from "@/lib/google/auth";
 import { getRecentEmails } from "@/lib/google/gmail";
 
 export async function GET() {
-  if (!isGoogleConnected()) {
+  if (!(await isGoogleConnected())) {
     return NextResponse.json({
       connected: false,
       emails: [],

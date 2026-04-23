@@ -1,0 +1,273 @@
+/**
+ * Materializes email intelligence into the canonical Basil stores:
+ * Actions, Decisions, and Memory.
+ *
+ * Idempotency: handled upstream — poll-ingest skips emails whose externalId
+ * already exists in the events store, so this function is never called twice
+ * for the same message.
+ *
+ * Provenance fields on every created record:
+ *   source    → "email"
+ *   sourceRef → "gmail:<messageId>"
+ *   eventId   → the BasilEvent that triggered this ingestion
+ */
+
+import { createAction } from "@/lib/actions/store";
+import { createDecision, linkActionToDecision } from "@/lib/decisions/store";
+import { createMemory } from "@/lib/memory/store";
+import { actionTier, decisionTier, memoryTier, needsReviewFlag } from "@/lib/trust/policy";
+import type { EmailIntelligence, EmailCategory } from "./classify-email";
+
+// ── Input / output types ───────────────────────────────────────────────────────
+
+export interface MaterializeEmailInput {
+  intelligence: EmailIntelligence;
+  /** Gmail message ID (without "gmail:" prefix). */
+  messageId: string;
+  /** BasilEvent ID created for this email. */
+  eventId: string;
+  /** Email subject — used as context label in created records. */
+  subject: string;
+  /** Sender display name. */
+  from: string;
+  /** ISO date string of the email. */
+  date: string;
+}
+
+export interface MaterializeEmailResult {
+  actionsCreated: number;
+  decisionsCreated: number;
+  memoriesCreated: number;
+}
+
+// ── Categories that trigger action creation ────────────────────────────────────
+
+/** Categories that trigger action creation — including synthesized fallback when no explicit items found. */
+const ACTION_CATEGORIES = new Set<EmailCategory>([
+  "action_required",
+  "decision_request",
+  "follow_up_needed",
+  "scheduling_signal",
+]);
+
+/**
+ * Categories that produce actions ONLY when the AI explicitly extracted them.
+ * We never synthesize a fallback "respond to" action for these — we only honour
+ * what the AI found verbatim.
+ */
+const EXPLICIT_ONLY_ACTION_CATEGORIES = new Set<EmailCategory>([
+  "relationship_signal",
+]);
+
+// ── Core function ──────────────────────────────────────────────────────────────
+
+/**
+ * Write intelligence outputs to Actions, Decisions, and Memory stores.
+ *
+ * Each store write is attempted independently so one failure does not abort
+ * the others.  Errors are logged but never re-thrown.
+ */
+export async function materializeEmailIntelligence(
+  input: MaterializeEmailInput
+): Promise<MaterializeEmailResult> {
+  const { intelligence: intel, messageId, eventId, subject, from, date } = input;
+  const sourceRef = `gmail:${messageId}`;
+  const dateShort = date.slice(0, 10);
+  const shortSubject = subject.length > 60 ? subject.slice(0, 57) + "…" : subject;
+
+  let actionsCreated = 0;
+  let decisionsCreated = 0;
+  let memoriesCreated = 0;
+
+  // ── Trust policy tier for this email's confidence ─────────────────────────
+  const aTier = actionTier(intel.confidence);
+  const dTier = decisionTier(intel.confidence);
+
+  // ── Actions ────────────────────────────────────────────────────────────────
+  if (aTier !== "skip") {
+    const isActionCategory = ACTION_CATEGORIES.has(intel.category);
+    const isExplicitOnlyCategory = EXPLICIT_ONLY_ACTION_CATEGORIES.has(intel.category);
+
+    if (intel.actions.length > 0 && (isActionCategory || isExplicitOnlyCategory)) {
+      // Explicit extracted actions — honour for all qualifying category types
+      for (const item of intel.actions) {
+        if (!item.text?.trim()) continue;
+        try {
+          await createAction({
+            text: item.text.trim(),
+            owner: "Michael Cook",
+            dueDate: item.dueDate,
+            source: "email",
+            eventId,
+            sourceRef,
+            priority: item.priority,
+            confidence: intel.confidence,
+            needsReview: needsReviewFlag(aTier),
+          });
+          actionsCreated++;
+        } catch (e) {
+          console.error("[email-materialize] failed to create action:", e);
+        }
+      }
+    } else if (intel.actions.length === 0 && isActionCategory) {
+      // No explicit actions extracted but the category implies one —
+      // synthesize a canonical "respond to" action so nothing falls through.
+      // (Never synthesize for relationship_signal — only honour explicit items.)
+      const actionText = synthesizeActionText(intel.category, shortSubject, from);
+      if (actionText) {
+        try {
+          await createAction({
+            text: actionText,
+            owner: "Michael Cook",
+            source: "email",
+            eventId,
+            sourceRef,
+            // Urgency drives priority for synthesized actions
+            priority: intel.urgency === "high" ? "high" : intel.urgency === "medium" ? "medium" : "low",
+            confidence: intel.confidence,
+            needsReview: needsReviewFlag(aTier),
+          });
+          actionsCreated++;
+        } catch (e) {
+          console.error("[email-materialize] failed to create synthesized action:", e);
+        }
+      }
+    }
+  }
+
+  // ── Decisions ──────────────────────────────────────────────────────────────
+  if (intel.category === "decision_made" && intel.decisions.length > 0 && dTier !== "skip") {
+    for (const dec of intel.decisions) {
+      if (!dec.text?.trim()) continue;
+      try {
+        const decision = await createDecision({
+          text: dec.text.trim(),
+          title: dec.title?.trim(),
+          rationale: dec.rationale?.trim(),
+          alternatives: dec.alternatives,
+          consequences: dec.consequences,
+          decidedBy: dec.decidedBy || from,
+          // Named people in the email are implicit stakeholders
+          stakeholders: intel.people
+            .map((p) => p.name)
+            .filter((n) => n !== dec.decidedBy),
+          date: dateShort,
+          context: `From email: "${shortSubject}"`,
+          source: "email",
+          confidence: intel.confidence,
+          needsReview: needsReviewFlag(dTier),
+          eventId,
+          sourceRef,
+        });
+        decisionsCreated++;
+
+        // Create follow-up actions from consequences and link them back.
+        // Consequence actions inherit the same review flag as their parent decision.
+        if (dec.consequences && dec.consequences.length > 0) {
+          for (const consequence of dec.consequences) {
+            if (!consequence.trim()) continue;
+            try {
+              const action = await createAction({
+                text: consequence.trim(),
+                owner: "Michael Cook",
+                source: "email",
+                eventId,
+                sourceRef,
+                needsReview: needsReviewFlag(dTier),
+                linkedDecisionIds: [decision.id],
+              });
+              await linkActionToDecision(decision.id, action.id);
+              actionsCreated++;
+            } catch {
+              // Non-fatal — decision was already created
+            }
+          }
+        }
+      } catch (e) {
+        console.error("[email-materialize] failed to create decision:", e);
+      }
+    }
+  }
+
+  // ── Memory ─────────────────────────────────────────────────────────────────
+  // Persist key context as memory for: relationship signals, high-value
+  // informational emails, and any email where keyContext was extracted.
+  // Also add per-person relationship notes for relationship_signal emails.
+
+  const memoryCandidates: Array<{ content: string; entity?: string }> = [];
+
+  if (intel.keyContext.trim()) {
+    const entity =
+      intel.people.length > 0
+        ? intel.people[0].name
+        : intel.companies.length > 0
+        ? intel.companies[0]
+        : undefined;
+
+    memoryCandidates.push({
+      content: `[Email from ${from} — "${shortSubject}"] ${intel.keyContext.trim()}`,
+      entity,
+    });
+  }
+
+  // For relationship signals, store a brief note about each person mentioned
+  // so future briefings can surface recent context about that contact.
+  if (intel.category === "relationship_signal" && intel.people.length > 0) {
+    for (const person of intel.people.slice(0, 3)) {
+      if (!person.name?.trim()) continue;
+      const roleNote = person.role ? ` (${person.role})` : "";
+      memoryCandidates.push({
+        content: `[${dateShort}] ${person.name}${roleNote} mentioned in email from ${from}: "${shortSubject}".`,
+        entity: person.name.trim(),
+      });
+    }
+  }
+
+  const mTier = memoryTier(intel.confidence);
+  for (const mem of memoryCandidates) {
+    if (!mem.content.trim()) continue;
+    if (mTier === "skip") continue;
+    try {
+      await createMemory({
+        kind: "context",
+        content: mem.content,
+        entity: mem.entity,
+        source: "inferred",
+        confidence: intel.confidence,
+        needsReview: needsReviewFlag(mTier),
+        eventId,
+        sourceRef,
+      });
+      memoriesCreated++;
+    } catch (e) {
+      console.error("[email-materialize] failed to create memory:", e);
+    }
+  }
+
+  return { actionsCreated, decisionsCreated, memoriesCreated };
+}
+
+// ── Helpers ────────────────────────────────────────────────────────────────────
+
+/**
+ * Synthesize a "respond to" action when the category implies an action
+ * but no explicit action items were extracted from the body.
+ */
+function synthesizeActionText(
+  category: EmailCategory,
+  shortSubject: string,
+  from: string
+): string {
+  switch (category) {
+    case "action_required":
+      return `Respond to ${from} re: "${shortSubject}"`;
+    case "decision_request":
+      return `Decision needed — respond to ${from} re: "${shortSubject}"`;
+    case "follow_up_needed":
+      return `Follow up with ${from} re: "${shortSubject}"`;
+    case "scheduling_signal":
+      return `Respond to scheduling request from ${from} re: "${shortSubject}"`;
+    default:
+      return "";
+  }
+}

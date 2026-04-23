@@ -22,7 +22,7 @@ export async function POST() {
     );
   }
 
-  const auth = getAuthedClient();
+  const auth = await getAuthedClient();
   if (!auth) {
     return NextResponse.json({ error: "Gmail not connected" }, { status: 400 });
   }

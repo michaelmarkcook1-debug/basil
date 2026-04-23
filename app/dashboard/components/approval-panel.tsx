@@ -1,6 +1,7 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { emitChange } from "@/lib/sync/channel";
 import {
   X,
   Mail,
@@ -8,12 +9,16 @@ import {
   Calendar,
   FileText,
   Sparkles,
+  Video,
   Check,
   XCircle,
   AlertTriangle,
   Clock,
   CheckCircle2,
   Tag,
+  Loader2,
+  AlertCircle,
+  RefreshCw,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { BasilEvent } from "@/lib/events/types";
@@ -32,6 +37,7 @@ const SOURCE_ICON: Record<BasilEvent["source"], typeof Mail> = {
   calendar: Calendar,
   drive: FileText,
   manual: Sparkles,
+  zoom_email: Video,
 };
 
 const DISPOSITION_STYLE: Record<
@@ -97,6 +103,11 @@ export function ApprovalPanel({
 
   const selected =
     events.find((e) => e.id === selectedId) ?? active[0] ?? null;
+
+  const handleDone = async () => {
+    setSelectedId(null);
+    await onRefresh();
+  };
 
   return (
     <>
@@ -194,15 +205,7 @@ export function ApprovalPanel({
             {selected ? (
               <EventDetail
                 event={selected}
-                onAction={async (status) => {
-                  await fetch(`/api/events/${selected.id}`, {
-                    method: "PATCH",
-                    headers: { "Content-Type": "application/json" },
-                    body: JSON.stringify({ status }),
-                  });
-                  setSelectedId(null);
-                  await onRefresh();
-                }}
+                onDone={handleDone}
               />
             ) : (
               <div className="p-8 text-center text-sm text-muted-foreground">
@@ -217,29 +220,217 @@ export function ApprovalPanel({
   );
 }
 
+// ── Execution state ──────────────────────────────────────────────────────────
+
+type ExecState = "idle" | "executing" | "executed" | "failed";
+
+interface ExecFeedback {
+  state: ExecState;
+  summary: string;
+  error: string;
+}
+
+// ── EventDetail ──────────────────────────────────────────────────────────────
+
 function EventDetail({
   event,
-  onAction,
+  onDone,
 }: {
   event: BasilEvent;
-  onAction: (status: "approved" | "rejected" | "acknowledged") => Promise<void>;
+  /** Called after execution completes (success/failure/dismiss) so the parent
+   *  can clear the selection and refresh the event list. */
+  onDone: () => Promise<void>;
 }) {
   const ds = DISPOSITION_STYLE[event.disposition];
   const [draftBody, setDraftBody] = useState(event.draft?.body ?? "");
-  const [submitting, setSubmitting] = useState(false);
+  const [exec, setExec] = useState<ExecFeedback>({
+    state: "idle",
+    summary: "",
+    error: "",
+  });
+  const [regenerating, setRegenerating] = useState(false);
+  const [regenError, setRegenError]     = useState<string | null>(null);
+  // The live draft meta (generatedAt + caveat) may be updated by regeneration
+  const [liveDraft, setLiveDraft] = useState(event.draft);
 
+  // Reset all local state when the displayed event changes
   useEffect(() => {
     setDraftBody(event.draft?.body ?? "");
+    setExec({ state: "idle", summary: "", error: "" });
+    setRegenerating(false);
+    setRegenError(null);
+    setLiveDraft(event.draft);
   }, [event.id, event.draft?.body]);
 
-  const act = async (status: "approved" | "rejected" | "acknowledged") => {
-    setSubmitting(true);
+  // Auto-close after a successful execution
+  const autoCloseRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => {
+    if (exec.state === "executed") {
+      autoCloseRef.current = setTimeout(() => onDone(), 2200);
+    }
+    return () => {
+      if (autoCloseRef.current) clearTimeout(autoCloseRef.current);
+    };
+  }, [exec.state, onDone]);
+
+  // ── Approve / Send ─────────────────────────────────────────────────────────
+  const handleApprove = async () => {
+    setExec({ state: "executing", summary: "", error: "" });
     try {
-      await onAction(status);
-    } finally {
-      setSubmitting(false);
+      const res = await fetch(`/api/events/${event.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ status: "approved", draftBody }),
+      });
+      const data = (await res.json()) as {
+        event?: BasilEvent;
+        execution?: { ok: boolean; summary: string; error?: string };
+        error?: string;
+      };
+
+      if (!res.ok || data.error) {
+        setExec({
+          state: "failed",
+          summary: "",
+          error: data.error ?? `Server error ${res.status}`,
+        });
+        return;
+      }
+
+      if (data.execution?.ok) {
+        setExec({
+          state: "executed",
+          summary: data.execution.summary,
+          error: "",
+        });
+        // Broadcast to every other open surface so they refresh without
+        // requiring the user to manually navigate away and back.
+        emitChange("events");
+        if (data.event?.actionId)   emitChange("actions");
+        if (data.event?.decisionId) emitChange("decisions");
+        if (data.event?.memoryId)   emitChange("memory");
+      } else {
+        setExec({
+          state: "failed",
+          summary: "",
+          error: data.execution?.error ?? "Execution failed with no details.",
+        });
+      }
+    } catch (e) {
+      setExec({
+        state: "failed",
+        summary: "",
+        error: e instanceof Error ? e.message : "Network error",
+      });
     }
   };
+
+  // ── Reject / Acknowledge ───────────────────────────────────────────────────
+  const handleDismiss = async (status: "rejected" | "acknowledged") => {
+    setExec({ state: "executing", summary: "", error: "" });
+    try {
+      await fetch(`/api/events/${event.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ status }),
+      });
+      // Acknowledging a notify alert creates a completed action server-side.
+      // Emit so the Actions tab refreshes without a manual page reload.
+      if (status === "acknowledged") {
+        emitChange("actions");
+      }
+    } catch {
+      // Best-effort — proceed to close even if the request failed
+    }
+    await onDone();
+  };
+
+  // ── Regenerate draft ──────────────────────────────────────────────────────
+  const handleRegenerate = async () => {
+    setRegenerating(true);
+    setRegenError(null);
+    try {
+      const res = await fetch(`/api/events/${event.id}/draft`, { method: "POST" });
+      const data = (await res.json()) as {
+        draft?: typeof event.draft;
+        error?: string;
+        caveat?: string;
+      };
+      if (!res.ok || data.error) {
+        setRegenError(data.error ?? `Server error ${res.status}`);
+      } else if (data.draft) {
+        setLiveDraft(data.draft);
+        setDraftBody(data.draft.body ?? "");
+      }
+    } catch (e) {
+      setRegenError(e instanceof Error ? e.message : "Network error");
+    } finally {
+      setRegenerating(false);
+    }
+  };
+
+  // ── Execution overlay states ───────────────────────────────────────────────
+
+  if (exec.state === "executing") {
+    return (
+      <div className="flex flex-col items-center justify-center h-full gap-3 p-10 text-center">
+        <Loader2 className="h-7 w-7 animate-spin text-[oklch(0.72_0.15_85)]" />
+        <p className="text-sm font-medium text-foreground">
+          {event.draft?.channel === "email"
+            ? "Sending email…"
+            : event.draft?.channel === "slack"
+            ? "Sending Slack message…"
+            : "Executing…"}
+        </p>
+        <p className="text-xs text-muted-foreground">
+          This usually takes a second.
+        </p>
+      </div>
+    );
+  }
+
+  if (exec.state === "executed") {
+    return (
+      <div className="flex flex-col items-center justify-center h-full gap-3 p-10 text-center">
+        <div className="rounded-full bg-emerald-500/10 p-3">
+          <CheckCircle2 className="h-7 w-7 text-emerald-600" />
+        </div>
+        <p className="text-sm font-semibold text-foreground">Done</p>
+        <p className="text-sm text-muted-foreground max-w-xs">{exec.summary}</p>
+        <p className="text-xs text-muted-foreground mt-1">Closing in a moment…</p>
+      </div>
+    );
+  }
+
+  if (exec.state === "failed") {
+    return (
+      <div className="flex flex-col items-center justify-center h-full gap-3 p-10 text-center">
+        <div className="rounded-full bg-rose-500/10 p-3">
+          <AlertCircle className="h-7 w-7 text-rose-600" />
+        </div>
+        <p className="text-sm font-semibold text-foreground">Action failed</p>
+        <p className="text-sm text-muted-foreground max-w-xs leading-relaxed">
+          {exec.error}
+        </p>
+        <div className="flex gap-2 mt-2">
+          <button
+            onClick={() => setExec({ state: "idle", summary: "", error: "" })}
+            className="text-sm px-3.5 py-2 rounded-md border border-border hover:bg-accent/40 transition"
+          >
+            Try again
+          </button>
+          <button
+            onClick={onDone}
+            className="text-sm px-3.5 py-2 rounded-md bg-muted text-muted-foreground hover:bg-muted/70 transition"
+          >
+            Dismiss
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  // ── Normal (idle) view ─────────────────────────────────────────────────────
 
   return (
     <div className="p-5 space-y-5">
@@ -297,35 +488,89 @@ function EventDetail({
         </section>
       )}
 
-      {/* Draft editor */}
-      {event.disposition === "draft" && event.draft && (
-        <section>
-          <h4 className="text-[12px] font-mono uppercase tracking-[0.18em] text-muted-foreground mb-1.5">
-            Proposed {event.draft.channel === "email" ? "email" : "Slack reply"}
-          </h4>
+      {/* Draft editor — only for events with an outbound draft */}
+      {event.disposition === "draft" && liveDraft && (
+        <section className="space-y-2">
+          <div className="flex items-center justify-between">
+            <h4 className="text-[12px] font-mono uppercase tracking-[0.18em] text-muted-foreground">
+              Proposed {liveDraft.channel === "email" ? "email" : "Slack reply"}
+            </h4>
+            <button
+              onClick={handleRegenerate}
+              disabled={regenerating}
+              className="inline-flex items-center gap-1 text-[11px] text-muted-foreground hover:text-foreground disabled:opacity-50 transition"
+              title="Re-generate draft with AI"
+            >
+              <RefreshCw className={`h-3 w-3 ${regenerating ? "animate-spin" : ""}`} />
+              {regenerating ? "Regenerating…" : "Regenerate"}
+            </button>
+          </div>
+
+          {/* Caveat banner */}
+          {liveDraft.caveat && (
+            <div className="flex items-start gap-1.5 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-700">
+              <AlertTriangle className="h-3.5 w-3.5 shrink-0 mt-px" />
+              <span>{liveDraft.caveat}</span>
+            </div>
+          )}
+
+          {/* Regen error */}
+          {regenError && (
+            <div className="flex items-start gap-1.5 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700">
+              <AlertCircle className="h-3.5 w-3.5 shrink-0 mt-px" />
+              <span>Regeneration failed: {regenError}</span>
+            </div>
+          )}
+
           <div className="rounded-lg border border-border bg-background">
             <div className="px-3 py-2 border-b border-border/70 text-xs text-muted-foreground space-y-0.5">
               <div>
                 <span className="font-mono text-[12px] uppercase tracking-wider mr-2">
                   To
                 </span>
-                {event.draft.to}
+                {liveDraft.to}
               </div>
-              {event.draft.subject && (
+              {liveDraft.subject && (
                 <div>
                   <span className="font-mono text-[12px] uppercase tracking-wider mr-2">
                     Subject
                   </span>
-                  {event.draft.subject}
+                  {liveDraft.subject}
                 </div>
               )}
             </div>
-            <textarea
-              value={draftBody}
-              onChange={(e) => setDraftBody(e.target.value)}
-              className="w-full resize-y min-h-[140px] px-3 py-2 text-sm leading-relaxed bg-transparent focus:outline-none"
-              spellCheck
-            />
+
+            {/* Loading state — body is empty and hasn't been generated yet */}
+            {!draftBody && !liveDraft.generatedAt ? (
+              <div className="flex items-center gap-2 px-3 py-6 text-sm text-muted-foreground">
+                <Loader2 className="h-4 w-4 animate-spin shrink-0" />
+                Generating draft…
+              </div>
+            ) : (
+              <textarea
+                value={draftBody}
+                onChange={(e) => setDraftBody(e.target.value)}
+                className="w-full resize-y min-h-[140px] px-3 py-2 text-sm leading-relaxed bg-transparent focus:outline-none"
+                spellCheck
+                aria-label="Draft message body"
+              />
+            )}
+          </div>
+
+          <div className="flex items-center justify-between">
+            <p className="text-[11px] text-muted-foreground">
+              Edit above before sending. Changes are used as-is.
+            </p>
+            {liveDraft.generatedAt && (
+              <p className="text-[11px] text-muted-foreground shrink-0">
+                AI draft ·{" "}
+                {new Date(liveDraft.generatedAt).toLocaleTimeString("en-GB", {
+                  hour: "2-digit",
+                  minute: "2-digit",
+                  timeZone: "Europe/London",
+                })}
+              </p>
+            )}
           </div>
         </section>
       )}
@@ -335,17 +580,17 @@ function EventDetail({
         {event.disposition === "draft" ? (
           <>
             <button
-              disabled={submitting}
-              onClick={() => act("approved")}
-              className="inline-flex items-center gap-1.5 rounded-md bg-[oklch(0.72_0.15_85)] text-[oklch(0.18_0.04_250)] text-sm font-semibold px-3.5 py-2 hover:brightness-105 transition disabled:opacity-50"
+              onClick={handleApprove}
+              disabled={!draftBody && !liveDraft?.generatedAt}
+              className="inline-flex items-center gap-1.5 rounded-md bg-[oklch(0.72_0.15_85)] text-[oklch(0.18_0.04_250)] text-sm font-semibold px-3.5 py-2 hover:brightness-105 transition disabled:opacity-40 disabled:cursor-not-allowed"
+              title={!draftBody && !liveDraft?.generatedAt ? "Waiting for AI draft…" : undefined}
             >
               <Check className="h-4 w-4" />
               Send
             </button>
             <button
-              disabled={submitting}
-              onClick={() => act("rejected")}
-              className="inline-flex items-center gap-1.5 rounded-md border border-border text-sm font-medium px-3.5 py-2 hover:bg-accent/40 transition disabled:opacity-50"
+              onClick={() => handleDismiss("rejected")}
+              className="inline-flex items-center gap-1.5 rounded-md border border-border text-sm font-medium px-3.5 py-2 hover:bg-accent/40 transition"
             >
               <XCircle className="h-4 w-4" />
               Reject
@@ -353,9 +598,8 @@ function EventDetail({
           </>
         ) : (
           <button
-            disabled={submitting}
-            onClick={() => act("acknowledged")}
-            className="inline-flex items-center gap-1.5 rounded-md bg-[oklch(0.72_0.15_85)] text-[oklch(0.18_0.04_250)] text-sm font-semibold px-3.5 py-2 hover:brightness-105 transition disabled:opacity-50"
+            onClick={() => handleDismiss("acknowledged")}
+            className="inline-flex items-center gap-1.5 rounded-md bg-[oklch(0.72_0.15_85)] text-[oklch(0.18_0.04_250)] text-sm font-semibold px-3.5 py-2 hover:brightness-105 transition"
           >
             <Check className="h-4 w-4" />
             Got it

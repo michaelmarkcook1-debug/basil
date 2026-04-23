@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { useDomainSync } from "@/lib/sync/use-domain-sync";
 import {
   Brain,
   Plus,
@@ -73,6 +74,10 @@ export default function MemoryPage() {
     }
   }, []);
 
+  // notify() = emit "memory:changed" to this tab + all other open tabs/pages.
+  // Subscribed to incoming changes so chat/approval mutations auto-refresh here.
+  const notify = useDomainSync("memory", load);
+
   useEffect(() => {
     load();
   }, [load]);
@@ -105,7 +110,7 @@ export default function MemoryPage() {
 
   async function handleDelete(id: string) {
     await fetch(`/api/memory/${id}`, { method: "DELETE" });
-    await load();
+    notify();
   }
 
   return (
@@ -167,7 +172,13 @@ export default function MemoryPage() {
         ))}
       </div>
 
-      {showForm && <NewMemoryForm onCreated={load} onClose={() => setShowForm(false)} />}
+      {showForm && (
+        <NewMemoryForm
+          onCreated={load}
+          onSaved={notify}
+          onClose={() => setShowForm(false)}
+        />
+      )}
 
       {/* List */}
       {memories === null ? (
@@ -292,9 +303,13 @@ function MemoryRow({
 
 function NewMemoryForm({
   onCreated,
+  onSaved,
   onClose,
 }: {
+  /** Called after the API write to refresh the local list. */
   onCreated: () => void;
+  /** Called after save to broadcast the change to all other surfaces. */
+  onSaved?: () => void;
   onClose: () => void;
 }) {
   const [kind, setKind] = useState<MemoryKind>("preference");
@@ -319,7 +334,8 @@ function NewMemoryForm({
       });
       setContent("");
       setEntity("");
-      onCreated();
+      onSaved?.(); // broadcast to other tabs/surfaces
+      onCreated(); // refresh local list
       onClose();
     } finally {
       setSaving(false);

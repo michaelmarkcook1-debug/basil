@@ -1,9 +1,12 @@
 "use client";
 
 import { useState, useEffect, useCallback, useMemo } from "react";
+import Link from "next/link";
+import { useDomainSync } from "@/lib/sync/use-domain-sync";
 import { contacts as seedContacts, type Contact, type ContactDirectory } from "@/lib/contacts-data";
 import {
   getUserContacts,
+  loadUserContactsFromServer,
   addUserContact,
   updateUserContact,
   getDismissedSuggestionIds,
@@ -22,23 +25,13 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip
 import { Textarea } from "@/components/ui/textarea";
 import {
   getAllOverrides,
-  getOverride,
+  loadOverridesFromServer,
   setOverride,
   clearOverride,
   type ProfileOverride,
 } from "@/lib/contact-profile-overrides";
 
-interface Suggestion {
-  id: string;
-  displayName: string;
-  email?: string;
-  slackChannels: string[];
-  emailCount: number;
-  slackCount: number;
-  lastSeen: string;
-  sample: string;
-  signalSources: string[];
-}
+import type { ContactSuggestion } from "@/lib/types/contact";
 
 function ContactList({
   contacts: list,
@@ -549,7 +542,7 @@ export default function ContactsPage() {
   const [liveActivity, setLiveActivity] = useState<ContactActivityItem[]>([]);
   const [activityLoading, setActivityLoading] = useState(false);
   const [isLive, setIsLive] = useState(false);
-  const [suggestions, setSuggestions] = useState<Suggestion[]>([]);
+  const [suggestions, setSuggestions] = useState<ContactSuggestion[]>([]);
   const [suggestLoading, setSuggestLoading] = useState(false);
   const [dismissedIds, setDismissedIds] = useState<string[]>([]);
   const [userContacts, setUserContacts] = useState<Contact[]>([]);
@@ -575,7 +568,16 @@ export default function ContactsPage() {
     [contacts]
   );
 
-  // Load cached activity + user contacts + dismissed suggestions on mount
+  // Load cached activity + user contacts + dismissed suggestions on mount.
+  // User contacts and overrides have a two-phase load:
+  //   1. Immediate: sync read from localStorage cache (fast first render)
+  //   2. Authoritative: async fetch from server store (corrects any stale cache)
+  //
+  // sage-contact-activity / sage-contact-suggestions
+  // CLASSIFICATION: disposable UX convenience — inferred from live Gmail/Slack
+  // signals; refreshed on each page mount.  Not assistant truth.  Clearing
+  // these keys means the next mount re-fetches from source rather than using
+  // a stale cache.
   useEffect(() => {
     const cached = localStorage.getItem("sage-contact-activity");
     if (cached) {
@@ -585,9 +587,15 @@ export default function ContactsPage() {
         setIsLive(true);
       } catch { /* ignore */ }
     }
+
+    // Phase 1 — instant render from local cache
     setUserContacts(getUserContacts());
     setDismissedIds(getDismissedSuggestionIds());
     setOverrides(getAllOverrides());
+
+    // Phase 2 — authoritative server data (runs migration on first visit)
+    loadUserContactsFromServer().then(setUserContacts);
+    loadOverridesFromServer().then(setOverrides);
 
     // Also auto-load a cached suggestion set so the strip doesn't come up empty.
     const cachedSugg = localStorage.getItem("sage-contact-suggestions");
@@ -614,7 +622,32 @@ export default function ContactsPage() {
     }
   }, []);
 
-  const handleAddSuggestion = useCallback((s: Suggestion) => {
+  const refreshActivity = useCallback(async () => {
+    setActivityLoading(true);
+    try {
+      const res = await fetch("/api/contacts/activity");
+      if (!res.ok) throw new Error("Failed");
+      const data = await res.json();
+      setLiveActivity(data.activity || []);
+      setIsLive(true);
+      localStorage.setItem("sage-contact-activity", JSON.stringify(data));
+    } catch (e) {
+      console.error("Activity refresh failed:", e);
+    } finally {
+      setActivityLoading(false);
+    }
+  }, []);
+
+  // Subscribe to the contacts domain so changes from other surfaces (or other
+  // tabs) trigger an activity refresh here. Also re-load user contacts when
+  // the domain changes so the list stays consistent across tabs.
+  // Must be declared before the callbacks below that reference notifyContacts.
+  const notifyContacts = useDomainSync("contacts", () => {
+    refreshActivity();
+    loadUserContactsFromServer().then(setUserContacts);
+  });
+
+  const handleAddSuggestion = useCallback(async (s: ContactSuggestion) => {
     const stub: Contact = {
       id: s.id,
       name: s.displayName,
@@ -638,21 +671,25 @@ export default function ContactsPage() {
       activitySource: s.signalSources.join(", "),
       lastInteraction: s.lastSeen.substring(0, 10),
     };
-    addUserContact(stub);
+    // addUserContact does an optimistic localStorage update then server sync.
+    // After await, cache is fresh and emitChange("contacts") has fired.
+    await addUserContact(stub);
     setUserContacts(getUserContacts());
+    notifyContacts();
     handleMobileSelect(stub.id);
-  }, []);
+  }, [notifyContacts]);
 
   const handleMoveDirectory = useCallback(
-    (id: string, target: ContactDirectory) => {
+    async (id: string, target: ContactDirectory) => {
       // Only user-added contacts can move — seed contacts are hardcoded.
-      const moved = updateUserContact(id, { directory: target });
+      const moved = await updateUserContact(id, { directory: target });
       if (moved) {
         setUserContacts(getUserContacts());
         setActiveDirectory(target);
+        notifyContacts();
       }
     },
-    []
+    [notifyContacts]
   );
 
   const handleDismiss = useCallback((id: string) => {
@@ -673,22 +710,6 @@ export default function ContactsPage() {
       ),
     [suggestions, dismissedIds, contacts]
   );
-
-  const refreshActivity = useCallback(async () => {
-    setActivityLoading(true);
-    try {
-      const res = await fetch("/api/contacts/activity");
-      if (!res.ok) throw new Error("Failed");
-      const data = await res.json();
-      setLiveActivity(data.activity || []);
-      setIsLive(true);
-      localStorage.setItem("sage-contact-activity", JSON.stringify(data));
-    } catch (e) {
-      console.error("Activity refresh failed:", e);
-    } finally {
-      setActivityLoading(false);
-    }
-  }, []);
 
   // Helper to get the best lastInteraction for a contact
   function getLastInteraction(contactId: string, fallback?: string): string | undefined {
@@ -749,14 +770,16 @@ export default function ContactsPage() {
 
   const handleSaveOverride = useCallback(
     (contactId: string, profile: ProfileOverride) => {
-      setOverride(contactId, profile);
+      // setOverride is async with optimistic local update — fire and read cache
+      // synchronously; server sync runs in the background.
+      void setOverride(contactId, profile);
       setOverrides(getAllOverrides());
     },
     []
   );
 
   const handleClearOverride = useCallback((contactId: string) => {
-    clearOverride(contactId);
+    void clearOverride(contactId);
     setOverrides(getAllOverrides());
   }, []);
 
@@ -994,16 +1017,12 @@ export default function ContactsPage() {
                 Connect WhatsApp to pull in your personal threads, or move any existing contact into this directory from their profile.
               </p>
             </div>
-            <Button
-              size="sm"
-              disabled
-              variant="outline"
-              className="gap-1.5"
-              title="Connection path not wired yet — we'll hook this up once you pick an approach"
-            >
-              <MessageCircle className="h-3.5 w-3.5" />
-              Connect WhatsApp
-            </Button>
+            <Link href="/dashboard/whatsapp">
+              <Button size="sm" variant="outline" className="gap-1.5">
+                <MessageCircle className="h-3.5 w-3.5" />
+                Import from WhatsApp
+              </Button>
+            </Link>
           </div>
         )}
 

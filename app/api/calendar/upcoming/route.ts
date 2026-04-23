@@ -4,7 +4,7 @@ import { getEventsForDays } from "@/lib/google/calendar";
 
 // GET /api/calendar/upcoming — returns next 2 days of events
 export async function GET() {
-  if (!isGoogleConnected()) {
+  if (!(await isGoogleConnected())) {
     return NextResponse.json({
       connected: false,
       events: [],

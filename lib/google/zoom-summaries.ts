@@ -11,6 +11,7 @@
 
 import { searchEmails, getEmailBody } from "./gmail";
 import { searchDriveFiles } from "./drive";
+import { ZOOM_GMAIL_QUERY } from "./zoom-email-detector";
 
 export interface ZoomSummary {
   /** "gmail" or "drive" — where we found it. */
@@ -24,8 +25,9 @@ export interface ZoomSummary {
   link?: string;
 }
 
-const GMAIL_ZOOM_QUERY =
-  'from:(zoom.us OR no-reply@zoom.us OR meeting-summary@zoom.us) (subject:"meeting summary" OR subject:"AI Companion" OR subject:"Zoom" OR subject:"Smart Summary")';
+// Canonical Zoom Gmail query lives in zoom-email-detector.ts (re-exported here for
+// backward compatibility with any code that imports from zoom-summaries directly).
+export { ZOOM_GMAIL_QUERY };
 
 /** Strip HTML → text-ish. Not perfect; Zoom emails are mostly plain. */
 function stripTags(s: string): string {
@@ -50,7 +52,7 @@ function clip(s: string, max = 2000): string {
 /** Gmail-side Zoom recaps from the last `days` days. */
 export async function getZoomSummariesFromGmail(days = 14, maxResults = 8): Promise<ZoomSummary[]> {
   try {
-    const query = `${GMAIL_ZOOM_QUERY} newer_than:${days}d`;
+    const query = `${ZOOM_GMAIL_QUERY} newer_than:${days}d`;
     const messages = await searchEmails(query, maxResults);
     if (messages.length === 0) return [];
 

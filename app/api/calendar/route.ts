@@ -3,7 +3,7 @@ import { isGoogleConnected } from "@/lib/google/auth";
 import { getTodayEvents } from "@/lib/google/calendar";
 
 export async function GET() {
-  if (!isGoogleConnected()) {
+  if (!(await isGoogleConnected())) {
     return NextResponse.json({
       connected: false,
       events: [],

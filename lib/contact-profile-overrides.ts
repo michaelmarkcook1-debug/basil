@@ -1,13 +1,20 @@
-// Personality-profile overrides, keyed by contact id.
+// Personality-profile overrides keyed by contact id.
 //
-// Seed contacts live in source (lib/contacts-data.ts) with hand-written
-// profiles. User-added contacts live in localStorage. Both can be "regenerated"
-// by Basil, and the regenerated profile lands here as an override — applied on
-// top of whichever base record the UI renders.
+// Storage classification:
+//   sage-contact-profile-overrides → SERVER (domain truth — AI reads these for
+//                                    meeting prep, drafts, and persona summaries)
+//                                    Cached in localStorage after every read/write.
+//
+// Seed contacts (lib/contacts-data.ts) have hand-written profiles; user-added
+// contacts have none by default. "Generate profile with Basil" produces an
+// override that lands here — applied on top of the base record everywhere.
 //
 // Why a separate layer rather than editing the underlying record:
 //   - Seed records are immutable at runtime (they're literal source)
 //   - Keeping overrides distinct makes it trivial to "revert" a regeneration
+//
+// Write pattern: optimistic local update first → then persist to server.
+// Read pattern: sync from cache (instant) + one async server fetch on mount.
 
 const OVERRIDE_KEY = "sage-contact-profile-overrides";
 
@@ -24,6 +31,8 @@ export interface ProfileOverride {
 }
 
 type OverrideMap = Record<string, ProfileOverride>;
+
+// ── Local cache helpers ───────────────────────────────────────────────────────
 
 function readAll(): OverrideMap {
   if (typeof window === "undefined") return {};
@@ -44,6 +53,8 @@ function writeAll(map: OverrideMap): void {
   }
 }
 
+// ── Synchronous cache reads ───────────────────────────────────────────────────
+
 export function getAllOverrides(): OverrideMap {
   return readAll();
 }
@@ -52,21 +63,92 @@ export function getOverride(contactId: string): ProfileOverride | undefined {
   return readAll()[contactId];
 }
 
-export function setOverride(
-  contactId: string,
-  patch: ProfileOverride
-): ProfileOverride {
-  const all = readAll();
-  const next: ProfileOverride = { ...all[contactId], ...patch };
-  all[contactId] = next;
-  writeAll(all);
-  return next;
+// ── Server-authoritative async API ───────────────────────────────────────────
+
+/**
+ * Fetch all overrides from the server store, update the localStorage cache,
+ * and return the authoritative map.  Call on page mount.
+ */
+export async function loadOverridesFromServer(): Promise<OverrideMap> {
+  if (typeof window === "undefined") return {};
+
+  // One-time migration: push any existing localStorage overrides to the server.
+  const cached = readAll();
+  if (Object.keys(cached).length > 0) {
+    const migKey = "sage-contact-overrides-migrated-v1";
+    if (!localStorage.getItem(migKey)) {
+      try {
+        // Push each override individually — server merges, not replaces.
+        await Promise.allSettled(
+          Object.entries(cached).map(([id, patch]) =>
+            fetch(`/api/contacts/overrides/${id}`, {
+              method: "PUT",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify(patch),
+            })
+          )
+        );
+      } catch { /* migration is best-effort */ }
+      localStorage.setItem(migKey, "1");
+    }
+  }
+
+  try {
+    const res = await fetch("/api/contacts/overrides");
+    if (!res.ok) return cached;
+    const data = await res.json();
+    const overrides = data.overrides as OverrideMap;
+    writeAll(overrides);
+    return overrides;
+  } catch {
+    return cached; // fall back to stale cache
+  }
 }
 
-export function clearOverride(contactId: string): void {
+/**
+ * Save an override: persist to server, update the localStorage cache.
+ * Returns the merged override.
+ *
+ * Optimistic: cache is written before the server round-trip.
+ */
+export async function setOverride(
+  contactId: string,
+  patch: ProfileOverride
+): Promise<ProfileOverride> {
+  // Optimistic local update.
   const all = readAll();
-  if (all[contactId]) {
-    delete all[contactId];
-    writeAll(all);
-  }
+  const merged: ProfileOverride = { ...all[contactId], ...patch };
+  all[contactId] = merged;
+  writeAll(all);
+
+  try {
+    const res = await fetch(`/api/contacts/overrides/${contactId}`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(patch),
+    });
+    if (res.ok) {
+      const data = await res.json();
+      const serverMerged = data.override as ProfileOverride;
+      // Update cache with the server-canonical version.
+      all[contactId] = serverMerged;
+      writeAll(all);
+      return serverMerged;
+    }
+  } catch { /* cache already updated */ }
+  return merged;
+}
+
+/**
+ * Clear an override: delete on server, remove from cache.
+ */
+export async function clearOverride(contactId: string): Promise<void> {
+  // Optimistic local update.
+  const all = readAll();
+  delete all[contactId];
+  writeAll(all);
+
+  try {
+    await fetch(`/api/contacts/overrides/${contactId}`, { method: "DELETE" });
+  } catch { /* cache already updated */ }
 }

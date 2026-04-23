@@ -19,7 +19,7 @@ export async function GET(req: Request) {
     );
   }
 
-  if (!isGoogleConnected()) {
+  if (!(await isGoogleConnected())) {
     return NextResponse.json({
       connected: false,
       files: [],

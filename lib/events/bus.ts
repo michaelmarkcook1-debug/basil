@@ -1,37 +1,35 @@
-// In-process pub/sub for Basil events.
-// Ingest endpoints publish here; the SSE stream subscribes and pushes to the
-// dashboard. Kept intentionally minimal — single-user, single-instance.
+// ── Cross-instance event delivery ─────────────────────────────────────────────
 //
-// For multi-instance / serverless we'd swap this for Redis pub/sub or
-// an Upstash/PartyKit-style fan-out. The surface below stays the same.
+// The previous implementation used an in-process Set<Listener> — fine for
+// local dev (single process) but broken on Vercel Fluid Compute: an ingest
+// request can land on instance A while the SSE stream is held open on instance
+// B.  Listeners registered on B are never called.
+//
+// NEW APPROACH — store-poll SSE:
+//   The SSE route (app/api/events/stream/route.ts) now polls the persistent
+//   store every 5 seconds for events newer than the last one it sent.  This
+//   works across instances because every instance can read the store.
+//
+//   publish() and subscribe() are kept as no-ops so all existing call-sites
+//   (audit.ts, ingest route) continue to compile without changes.  They
+//   produce no side-effects; delivery happens via the polling loop.
+//
+// NOTE: true cross-instance delivery still requires each instance to see the
+// same event data.  Within Fluid Compute, a cold-started instance restores its
+// store from the BASIL_DATA snapshot (see lib/storage/persistent.ts) which now
+// includes sage-events.json.  In the rare case of simultaneous live instances
+// an event written to instance A's /tmp is not visible to instance B's poller
+// until the next cold start.  For a single-user assistant this gap is
+// acceptable; the client's 30-second periodic poll covers the fallback.
 
 import type { BasilEvent } from "./types";
 
-type Listener = (event: BasilEvent) => void;
-
-// `globalThis` guards against Next.js dev-mode module re-execution resetting
-// listeners when routes hot-reload.
-const GLOBAL_KEY = Symbol.for("basil.events.bus");
-interface BusState {
-  listeners: Set<Listener>;
-}
-const g = globalThis as unknown as { [GLOBAL_KEY]?: BusState };
-const state: BusState = g[GLOBAL_KEY] ?? { listeners: new Set() };
-g[GLOBAL_KEY] = state;
-
-export function subscribe(listener: Listener): () => void {
-  state.listeners.add(listener);
-  return () => {
-    state.listeners.delete(listener);
-  };
+/** No-op — kept for backward-compatible call-sites. */
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
+export function subscribe(_listener: (event: BasilEvent) => void): () => void {
+  return () => {};
 }
 
-export function publish(event: BasilEvent): void {
-  for (const listener of state.listeners) {
-    try {
-      listener(event);
-    } catch (e) {
-      console.error("Event bus listener threw:", e);
-    }
-  }
-}
+/** No-op — kept for backward-compatible call-sites. */
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
+export function publish(_event: BasilEvent): void {}

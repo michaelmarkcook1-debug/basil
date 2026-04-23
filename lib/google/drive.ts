@@ -28,7 +28,7 @@ export async function getRecentDriveActivity(
   sinceDaysAgo = 30,
   maxResults = 100
 ): Promise<DriveActivity[]> {
-  const auth = getAuthedClient();
+  const auth = await getAuthedClient();
   if (!auth) return [];
 
   const drive = google.drive({ version: "v3", auth });
@@ -64,7 +64,7 @@ export async function getRecentDriveActivity(
 }
 
 export async function searchDriveFiles(query: string, maxResults = 10): Promise<DriveFile[]> {
-  const auth = getAuthedClient();
+  const auth = await getAuthedClient();
   if (!auth) return [];
 
   const drive = google.drive({ version: "v3", auth });

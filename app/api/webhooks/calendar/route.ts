@@ -31,7 +31,7 @@ export async function POST(req: Request) {
     return NextResponse.json({ ok: true, bootstrap: true });
   }
 
-  const auth = getAuthedClient();
+  const auth = await getAuthedClient();
   if (!auth) return NextResponse.json({ ok: true, note: "calendar not connected" });
   const cal = google.calendar({ version: "v3", auth });
 

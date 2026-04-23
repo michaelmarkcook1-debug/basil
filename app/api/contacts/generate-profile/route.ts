@@ -1,5 +1,4 @@
 import { generateText } from "ai";
-import { anthropic } from "@ai-sdk/anthropic";
 import { getSystemPrompt } from "@/lib/ai/system-prompt";
 import { parseAIJson } from "@/lib/ai/parse-json";
 import { searchEmails, getRecentEmails } from "@/lib/google/gmail";
@@ -200,9 +199,12 @@ Return ONLY valid JSON, no markdown fences:
 }`;
 
   const result = await generateText({
-    model: anthropic("claude-sonnet-4-6"),
+    model: "anthropic/claude-sonnet-4.6",
     system: await getSystemPrompt(),
     prompt: promptText,
+    providerOptions: {
+      gateway: { tags: ["feature:contact-profile", "env:production"] },
+    },
   });
 
   try {

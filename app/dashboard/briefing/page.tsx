@@ -1,34 +1,36 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
   Newspaper,
   Calendar,
-  Mail,
-  Hash,
-  ListChecks,
   Scale,
   Zap,
   Loader2,
+  AlertTriangle,
+  Flame,
+  ArrowUpRight,
+  Users,
+  Inbox,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import {
   ExtraContextInput,
   buildExtraContextFormData,
 } from "@/components/extra-context-input";
+import { useDomainSync } from "@/lib/sync/use-domain-sync";
 
-interface Briefing {
-  calendar: string | null;
-  emails: string | null;
-  slack: string | null;
-  tasks: string | null;
-  decisions: string | null;
-  generatedAt: string;
-}
+import type { Briefing } from "@/lib/types/briefing";
 
-type SectionKey = "calendar" | "emails" | "slack" | "tasks" | "decisions";
+type SectionKey =
+  | "criticalToday"
+  | "followUps"
+  | "decisionsToWatch"
+  | "meetingsNeedingPrep"
+  | "peopleAndAccounts"
+  | "inboxSlack";
 
 interface SectionDef {
   key: SectionKey;
@@ -46,8 +48,35 @@ interface SectionDef {
 
 const sections: SectionDef[] = [
   {
-    key: "calendar",
-    label: "Calendar",
+    key: "criticalToday",
+    label: "Critical Today",
+    icon: Flame,
+    bg: "bg-red-500/[0.04]",
+    accent: "bg-red-500",
+    fg: "text-red-600",
+    ring: "ring-red-500/25",
+  },
+  {
+    key: "followUps",
+    label: "Follow-ups Required",
+    icon: ArrowUpRight,
+    bg: "bg-amber-500/[0.04]",
+    accent: "bg-amber-500",
+    fg: "text-amber-600",
+    ring: "ring-amber-500/25",
+  },
+  {
+    key: "decisionsToWatch",
+    label: "Decisions to Watch",
+    icon: Scale,
+    bg: "bg-violet-500/[0.04]",
+    accent: "bg-violet-500",
+    fg: "text-violet-600",
+    ring: "ring-violet-500/25",
+  },
+  {
+    key: "meetingsNeedingPrep",
+    label: "Meetings Needing Prep",
     icon: Calendar,
     bg: "bg-[oklch(0.72_0.15_85)]/[0.04]",
     accent: "bg-[oklch(0.72_0.15_85)]",
@@ -55,40 +84,22 @@ const sections: SectionDef[] = [
     ring: "ring-[oklch(0.72_0.15_85)]/25",
   },
   {
-    key: "emails",
-    label: "Inbox",
-    icon: Mail,
+    key: "peopleAndAccounts",
+    label: "People & Accounts",
+    icon: Users,
+    bg: "bg-teal-500/[0.04]",
+    accent: "bg-teal-500",
+    fg: "text-teal-600",
+    ring: "ring-teal-500/25",
+  },
+  {
+    key: "inboxSlack",
+    label: "Inbox & Slack",
+    icon: Inbox,
     bg: "bg-blue-500/[0.04]",
     accent: "bg-blue-500",
     fg: "text-blue-600",
     ring: "ring-blue-500/25",
-  },
-  {
-    key: "slack",
-    label: "Slack",
-    icon: Hash,
-    bg: "bg-violet-500/[0.04]",
-    accent: "bg-violet-500",
-    fg: "text-violet-600",
-    ring: "ring-violet-500/25",
-  },
-  {
-    key: "tasks",
-    label: "Open Tasks & Follow-ups",
-    icon: ListChecks,
-    bg: "bg-emerald-500/[0.04]",
-    accent: "bg-emerald-500",
-    fg: "text-emerald-600",
-    ring: "ring-emerald-500/25",
-  },
-  {
-    key: "decisions",
-    label: "Decisions Needed",
-    icon: Scale,
-    bg: "bg-rose-500/[0.04]",
-    accent: "bg-rose-500",
-    fg: "text-rose-600",
-    ring: "ring-rose-500/25",
   },
 ];
 
@@ -197,9 +208,28 @@ export default function BriefingPage() {
   const [extraNotes, setExtraNotes] = useState("");
   const [extraFiles, setExtraFiles] = useState<File[]>([]);
   const [extraUrls, setExtraUrls] = useState<string[]>([]);
+  // True when actions, decisions, or memory have changed since the briefing
+  // was last generated — prompts the user to regenerate for fresh data.
+  const [isStale, setIsStale] = useState(false);
+  // Ref so domain sync callbacks always see the latest briefing value
+  // without needing to recreate the subscription on every render.
+  const briefingRef = useRef<Briefing | null>(null);
+  useEffect(() => { briefingRef.current = briefing; }, [briefing]);
 
+  // Subscribe to actions, decisions, and memory domains. When any of these
+  // change after the briefing was generated, flag it as stale so Michael
+  // knows the briefing may no longer reflect the current state of his tracker.
+  const markStale = () => { if (briefingRef.current) setIsStale(true); };
+  useDomainSync("actions",   markStale);
+  useDomainSync("decisions", markStale);
+  useDomainSync("memory",    markStale);
+
+  // CLASSIFICATION: disposable generation cache — today-scoped so it expires
+  // automatically at midnight.  The briefing is regenerated from live data on
+  // demand; clearing this key means the next visit re-generates rather than
+  // replaying a cached summary.  Not assistant truth.
   useEffect(() => {
-    const cached = localStorage.getItem("sage-briefing");
+    const cached = localStorage.getItem("sage-briefing-v2");
     if (cached) {
       try {
         const parsed = JSON.parse(cached);
@@ -214,7 +244,7 @@ export default function BriefingPage() {
         if (cachedDate === today) {
           setBriefing(parsed);
         } else {
-          localStorage.removeItem("sage-briefing");
+          localStorage.removeItem("sage-briefing-v2");
         }
       } catch {
         /* ignore bad cache */
@@ -225,6 +255,7 @@ export default function BriefingPage() {
   async function generate() {
     setLoading(true);
     setError("");
+    setIsStale(false); // clear stale flag on every regenerate
     try {
       const hasExtras =
         extraNotes.trim().length > 0 ||
@@ -244,7 +275,7 @@ export default function BriefingPage() {
       if (!res.ok) throw new Error("Generation failed");
       const data = await res.json();
       setBriefing(data);
-      localStorage.setItem("sage-briefing", JSON.stringify(data));
+      localStorage.setItem("sage-briefing-v2", JSON.stringify(data));
     } catch (e) {
       setError(e instanceof Error ? e.message : "Something went wrong");
     } finally {
@@ -307,6 +338,25 @@ export default function BriefingPage() {
         onUrlsChange={setExtraUrls}
         disabled={loading}
       />
+
+      {/* Staleness banner — shown when actions/decisions/memory changed after
+          this briefing was generated. Does not auto-regenerate (too expensive). */}
+      {isStale && briefing && !loading && (
+        <div className="flex items-start gap-3 rounded-xl border border-amber-200/70 bg-amber-50/70 px-5 py-3.5">
+          <AlertTriangle className="h-4 w-4 text-amber-500 shrink-0 mt-0.5" />
+          <p className="text-sm text-amber-700 leading-relaxed">
+            Actions or decisions have changed since this briefing was generated.
+            {" "}
+            <button
+              onClick={generate}
+              className="font-semibold underline underline-offset-2 hover:text-amber-900 transition-colors"
+            >
+              Regenerate
+            </button>
+            {" "}to incorporate the latest.
+          </p>
+        </div>
+      )}
 
       {error && (
         <div className="rounded-xl border border-destructive/40 bg-destructive/5 px-5 py-4 text-sm text-destructive">

@@ -19,7 +19,7 @@ const ACTION_KEYWORDS = /\b(todo|to do|action|follow up|follow-up|action item|ne
 
 const KEY_PEOPLE = ["malcolm", "ed baum", " ed ", "isaac", "olivia", "sam jordan"];
 
-function isAboutKeyPerson(text: string): boolean {
+export function isAboutKeyPerson(text: string): boolean {
   const t = text.toLowerCase();
   return KEY_PEOPLE.some((p) => t.includes(p));
 }
@@ -40,6 +40,8 @@ interface Classification {
   rationale: string;
   tags: string[];
   draft?: BasilEvent["draft"];
+  /** 0–1 rule confidence. 1.0 = definitive match, <1.0 = heuristic. */
+  confidence: number;
 }
 
 export function classify(payload: IngestPayload): Classification {
@@ -48,7 +50,23 @@ export function classify(payload: IngestPayload): Classification {
   const aboutKeyPerson =
     payload.hints?.isFromKeyPerson || isAboutKeyPerson(combined);
 
+  // 0) ZOOM EMAIL — always auto-classify; never draft a reply to a Zoom-generated email
+  // The extraction service materializes actions/decisions separately; this event
+  // is just the receipt record.
+  if (payload.source === "zoom_email") {
+    const zoomTags = [...new Set([...tags, "zoom", "meeting"])];
+    return {
+      disposition: "auto",
+      priority: zoomTags.includes("action") || zoomTags.includes("decision") ? "normal" : "low",
+      confidence: 1.0,
+      rationale:
+        "Zoom meeting summary — extracting action items, decisions, and notes now.",
+      tags: zoomTags,
+    };
+  }
+
   // 1) NOTIFY — money / legal / hiring / @here in exec
+  // Definitive keyword match → confidence 1.0
   const isHighStakes = ["money", "legal", "hiring"].some((t) => tags.includes(t));
   const isExecMention =
     payload.channel?.startsWith("#exec") && /@here|@channel/i.test(payload.body);
@@ -57,6 +75,7 @@ export function classify(payload: IngestPayload): Classification {
     return {
       disposition: "notify",
       priority: "high",
+      confidence: 1.0,
       rationale: isExecMention
         ? "@here in #exec — you'd want to see this live, not from a summary."
         : `Matches high-stakes rule (${tags.filter((t) => ["money", "legal", "hiring"].includes(t)).join(", ")}). Not acting automatically.`,
@@ -65,60 +84,65 @@ export function classify(payload: IngestPayload): Classification {
   }
 
   // 2) DRAFT — incoming email/Slack that wants a reply
+  // Explicit hints (isDM, isMention) are definitive; key-person proximity is heuristic.
+  const hasExplicitHint =
+    payload.hints?.isDM || payload.hints?.isGroupDM || payload.hints?.isMention;
   const isReplyable =
     (payload.source === "email" || payload.source === "slack") &&
-    (payload.hints?.isDM ||
-      payload.hints?.isGroupDM ||
-      payload.hints?.isMention ||
-      aboutKeyPerson);
+    (hasExplicitHint || aboutKeyPerson);
 
   if (isReplyable) {
     const recipient = payload.from || payload.channel || "recipient";
     return {
       disposition: "draft",
       priority: aboutKeyPerson ? "high" : "normal",
+      confidence: hasExplicitHint ? 1.0 : 0.8,
       rationale: `Drafting a reply — ${payload.hints?.isDM ? "direct message" : payload.hints?.isMention ? "you were @-mentioned" : "key person involved"}. Waiting for your sign-off before sending.`,
       tags,
       draft: {
         channel: payload.source === "email" ? "email" : "slack",
         to: recipient,
         subject: payload.source === "email" ? `Re: ${payload.title}` : undefined,
-        body: generateDraftBody(payload),
+        // Empty string — AI draft is generated asynchronously after event creation
+        body: "",
       },
     };
   }
 
   // 3) AUTO — everything else: decisions/actions extracted, relationship updated, memory written
+  // Catch-all → lower confidence
   return {
     disposition: "auto",
     priority: tags.includes("decision") || tags.includes("action") ? "normal" : "low",
+    confidence: 0.7,
     rationale: tags.includes("decision")
-      ? "Logged as a decision candidate. Ping me if you want to see it."
+      ? "Decision signal detected — analysing and filing automatically."
       : tags.includes("action")
-        ? "Extracted as an action item and filed on the tracker."
-        : "Updated relationship tracker and memory. No action needed from you.",
+        ? "Action signal detected — analysing and filing automatically."
+        : "Monitoring for context — no immediate action needed.",
     tags,
   };
-}
-
-// Tiny placeholder drafter — the AI chat route would replace this with a real model call.
-function generateDraftBody(p: IngestPayload): string {
-  const opener = p.hints?.isDM ? "Hey" : "Hi";
-  const who = p.from ? p.from.split(/[ <]/)[0] : "there";
-  return `${opener} ${who},
-
-Thanks for this. Let me take a look and come back with specifics — I want to make sure the response is right rather than rushed.
-
-Michael`;
 }
 
 export function eventFromIngest(p: IngestPayload): Omit<BasilEvent, "id" | "createdAt" | "updatedAt"> {
   const c = classify(p);
   const headline = buildHeadline(p, c.disposition);
 
+  // Store the full ingest payload for debugging / future reprocessing
+  const payload: Record<string, unknown> = {
+    title: p.title,
+    body: p.body,
+    from: p.from,
+    channel: p.channel,
+    hints: p.hints,
+  };
+
   return {
     source: p.source,
+    // Populate both canonical and legacy fields so old + new code both work
+    sourceRef: p.externalId,
     externalId: p.externalId,
+    payload,
     headline,
     context: `${p.title}\n\n${p.body}`.trim(),
     draft: c.draft,
@@ -128,6 +152,7 @@ export function eventFromIngest(p: IngestPayload): Omit<BasilEvent, "id" | "crea
     status: c.disposition === "auto" ? "executed" : "pending",
     rationale: c.rationale,
     tags: c.tags,
+    confidence: c.confidence,
   };
 }
 
@@ -142,6 +167,8 @@ function buildHeadline(p: IngestPayload, d: EventDisposition): string {
         ? `Slack in ${p.channel || who}`
         : p.source === "calendar"
           ? `calendar: ${p.title}`
-          : p.source;
+          : p.source === "zoom_email"
+            ? `meeting recap: ${p.title}`
+            : p.source;
   return `${verb} — ${what}`;
 }

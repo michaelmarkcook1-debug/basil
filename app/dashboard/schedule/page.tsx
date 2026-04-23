@@ -75,6 +75,11 @@ export default function SchedulePage() {
   // Hydrate proposed meetings + last Basil response from localStorage on mount.
   // Drop proposals whose date has already passed — stale "proposed" entries
   // from days ago would clutter the diary view.
+  // CLASSIFICATION: disposable UX state — Basil's scheduling proposals for
+  // the current device session.  Proposals that the user approves are written
+  // to Google Calendar (the durable truth); the localStorage copy is only a
+  // pending-queue display aid.  Clearing this key loses unsent proposals, not
+  // committed calendar events.
   useEffect(() => {
     if (hydrated.current) return;
     hydrated.current = true;

@@ -21,12 +21,15 @@ export async function POST(req: Request) {
       return NextResponse.json({ imported: added }, { status: 201 });
     }
 
-    const { text, owner, ownerId, dueDate, source } = body as {
+    const { text, owner, ownerId, dueDate, source, priority, confidence, followUpDate } = body as {
       text?: string;
       owner?: string;
       ownerId?: string;
       dueDate?: string;
       source?: ActionItem["source"];
+      priority?: ActionItem["priority"];
+      confidence?: number;
+      followUpDate?: string;
     };
 
     if (!text || typeof text !== "string" || !text.trim()) {
@@ -42,6 +45,9 @@ export async function POST(req: Request) {
       ownerId,
       dueDate,
       source,
+      priority,
+      confidence,
+      followUpDate,
     });
     return NextResponse.json({ action }, { status: 201 });
   } catch (e) {

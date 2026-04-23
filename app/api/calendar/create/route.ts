@@ -5,7 +5,7 @@ import { emitAuditEvent } from "@/lib/events/audit";
 
 // POST /api/calendar/create — create a calendar event
 export async function POST(req: Request) {
-  if (!isGoogleConnected()) {
+  if (!(await isGoogleConnected())) {
     return NextResponse.json(
       { error: "Google Calendar not connected." },
       { status: 401 }

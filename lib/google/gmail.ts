@@ -4,33 +4,45 @@ import { getAuthedClient } from "./auth";
 export interface GmailMessage {
   id: string;
   from: string;
+  to: string;
   subject: string;
   snippet: string;
   date: string;
   unread: boolean;
 }
 
-export async function getRecentEmails(maxResults = 10): Promise<GmailMessage[]> {
-  return searchEmails(undefined, maxResults);
+/**
+ * Returns the N most recent emails from the last `maxAgeDays` days.
+ * Defaults: last 2 days, 10 results — suitable for ingestion polling.
+ * Pass `maxAgeDays: 7` for meeting-prep and briefing to widen the window.
+ */
+export async function getRecentEmails(
+  maxResults = 10,
+  maxAgeDays = 2
+): Promise<GmailMessage[]> {
+  return searchEmails(undefined, maxResults, maxAgeDays);
 }
 
 /**
- * Search Gmail. When `query` is omitted, returns the most recent 2 days.
- * When provided, Gmail search operators are honoured (from:, subject:, etc.)
- * and we broaden the date window to 30 days so older matches surface.
+ * Search Gmail. When `query` is omitted, returns the most recent `maxAgeDays` days.
+ * When a query is provided, Gmail search operators are honoured (from:, subject:, etc.)
+ * and the date window is `maxAgeDays` (default 30 days for searches).
  */
 export async function searchEmails(
   query: string | undefined,
-  maxResults = 10
+  maxResults = 10,
+  maxAgeDays?: number
 ): Promise<GmailMessage[]> {
-  const auth = getAuthedClient();
+  const auth = await getAuthedClient();
   if (!auth) return [];
 
   const gmail = google.gmail({ version: "v1", auth });
 
+  // Resolve effective lookback: explicit > query-default (30d) > no-query default (2d)
+  const effectiveDays = maxAgeDays ?? (query && query.trim() ? 30 : 2);
   const q = query && query.trim()
-    ? `${query.trim()} newer_than:30d`
-    : "newer_than:2d";
+    ? `${query.trim()} newer_than:${effectiveDays}d`
+    : `newer_than:${effectiveDays}d`;
 
   const res = await gmail.users.messages.list({
     userId: "me",
@@ -46,20 +58,25 @@ export async function searchEmails(
       userId: "me",
       id: msg.id,
       format: "metadata",
-      metadataHeaders: ["From", "Subject", "Date"],
+      metadataHeaders: ["From", "To", "Subject", "Date"],
     });
 
     const headers = detail.data.payload?.headers || [];
     const getHeader = (name: string) => headers.find((h) => h.name === name)?.value || "";
 
-    // Extract just the name from "Name <email>" format
+    // Extract just the display name from "Name <email>" format
+    function extractName(raw: string): string {
+      const m = raw.match(/^"?([^"<]+)"?\s*</);
+      return m ? m[1].trim() : raw.split("@")[0];
+    }
+
     const fromRaw = getHeader("From");
-    const fromMatch = fromRaw.match(/^"?([^"<]+)"?\s*</);
-    const from = fromMatch ? fromMatch[1].trim() : fromRaw.split("@")[0];
+    const toRaw = getHeader("To");
 
     messages.push({
       id: msg.id,
-      from,
+      from: extractName(fromRaw),
+      to: toRaw,
       subject: getHeader("Subject"),
       snippet: detail.data.snippet || "",
       date: new Date(parseInt(detail.data.internalDate || "0")).toISOString(),
@@ -111,7 +128,7 @@ function extractBody(payload: { mimeType?: string | null; body?: { data?: string
 }
 
 export async function getEmailBody(messageId: string): Promise<EmailBody> {
-  const auth = getAuthedClient();
+  const auth = await getAuthedClient();
   if (!auth) throw new Error("Gmail not connected");
 
   const gmail = google.gmail({ version: "v1", auth });
@@ -146,7 +163,7 @@ export async function getEmailBody(messageId: string): Promise<EmailBody> {
 }
 
 export async function createDraft(to: string, subject: string, body: string): Promise<{ id: string }> {
-  const auth = getAuthedClient();
+  const auth = await getAuthedClient();
   if (!auth) throw new Error("Gmail not connected");
 
   const gmail = google.gmail({ version: "v1", auth });
@@ -158,6 +175,32 @@ export async function createDraft(to: string, subject: string, body: string): Pr
   const res = await gmail.users.drafts.create({
     userId: "me",
     requestBody: { message: { raw } },
+  });
+
+  return { id: res.data.id || "" };
+}
+
+/**
+ * Actually send an email via Gmail.
+ * Requires the gmail.send OAuth scope (included in gmail.modify).
+ */
+export async function sendEmail(
+  to: string,
+  subject: string,
+  body: string
+): Promise<{ id: string }> {
+  const auth = await getAuthedClient();
+  if (!auth) throw new Error("Gmail not connected");
+
+  const gmail = google.gmail({ version: "v1", auth });
+
+  const raw = Buffer.from(
+    `To: ${to}\r\nSubject: ${subject}\r\nContent-Type: text/plain; charset=utf-8\r\n\r\n${body}`
+  ).toString("base64url");
+
+  const res = await gmail.users.messages.send({
+    userId: "me",
+    requestBody: { raw },
   });
 
   return { id: res.data.id || "" };

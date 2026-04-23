@@ -1,5 +1,19 @@
+/**
+ * Daily briefing generator — v2.
+ *
+ * Intelligence-centric output (not source-centric):
+ *   criticalToday       — top urgent items, cross-source
+ *   followUps           — email replies + stalled actions + decision consequences
+ *   decisionsToWatch    — recent decisions with open follow-ups
+ *   meetingsNeedingPrep — today's video meetings with context + prep gaps
+ *   peopleAndAccounts   — cross-source relationship signals
+ *   inboxSlack          — remaining inbox/Slack highlights
+ *
+ * Data priority: structured stores (actions, decisions, memory) first;
+ * raw source text (email, Slack, Zoom) as supporting evidence.
+ */
+
 import { generateText, type ModelMessage } from "ai";
-import { anthropic } from "@ai-sdk/anthropic";
 import { getSystemPrompt } from "@/lib/ai/system-prompt";
 import { parseAIJson } from "@/lib/ai/parse-json";
 import { getTodayEvents, type CalendarEvent } from "@/lib/google/calendar";
@@ -8,36 +22,58 @@ import {
   getRecentSlackMessages,
   type SlackMessage,
 } from "@/lib/slack/client";
+import { listActions, isActionStalled } from "@/lib/actions/store";
+import { listDecisions } from "@/lib/decisions/store";
+import { getZoomSummariesFromGmail } from "@/lib/google/zoom-summaries";
+import type { ZoomSummary } from "@/lib/google/zoom-summaries";
+import { listMemories } from "@/lib/memory/store";
+import type { Memory } from "@/lib/memory/types";
 import {
   parseExtraContext,
   formatExtraContextBlock,
   type ExtraContext,
 } from "@/lib/ai/extra-context";
 
-// ── Format helpers ──
+// ── Format helpers ─────────────────────────────────────────────────────────────
+
+function fmtTime(iso: string): string {
+  return new Date(iso).toLocaleTimeString("en-GB", {
+    timeZone: "Europe/London",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+}
 
 function formatCalendarBlock(events: CalendarEvent[]): string {
-  if (events.length === 0) return "";
+  if (events.length === 0) return "No events on today's calendar.";
   return events
     .map((e) => {
-      const time = e.isAllDay
-        ? "All day"
-        : `${new Date(e.start).toLocaleTimeString("en-GB", { timeZone: "Europe/London", hour: "2-digit", minute: "2-digit" })} – ${new Date(e.end).toLocaleTimeString("en-GB", { timeZone: "Europe/London", hour: "2-digit", minute: "2-digit" })}`;
+      const time = e.isAllDay ? "All day" : `${fmtTime(e.start)} – ${fmtTime(e.end)}`;
       const video = e.hasVideo ? " [VIDEO]" : "";
-      const attendees =
-        e.attendeeCount > 0 ? ` (${e.attendeeCount} attendees)` : "";
+      const attendees = e.attendees.length
+        ? ` — with ${e.attendees.slice(0, 5).join(", ")}`
+        : "";
       return `- ${time} | ${e.summary}${video}${attendees}`;
     })
     .join("\n");
 }
 
-function formatEmailBlock(emails: GmailMessage[]): string {
+function formatEmailBlock(emails: GmailMessage[], snippetLen = 160): string {
   if (emails.length === 0) return "";
   return emails
     .map((e) => {
-      const unread = e.unread ? " [UNREAD]" : "";
-      const snippet = e.snippet.length > 100 ? e.snippet.slice(0, 100) + "..." : e.snippet;
-      return `- From: ${e.from} | Subject: ${e.subject}${unread}\n  Snippet: ${snippet}`;
+      const date = new Date(e.date).toLocaleString("en-GB", {
+        timeZone: "Europe/London",
+        day: "numeric",
+        month: "short",
+        hour: "2-digit",
+        minute: "2-digit",
+      });
+      const snippet =
+        e.snippet.length > snippetLen
+          ? e.snippet.slice(0, snippetLen) + "…"
+          : e.snippet;
+      return `- [${date}] From: ${e.from} | "${e.subject}"\n  ${snippet}`;
     })
     .join("\n");
 }
@@ -46,14 +82,32 @@ function formatSlackBlock(messages: SlackMessage[]): string {
   if (messages.length === 0) return "";
   return messages
     .map((m) => {
-      const mention = m.isMention ? " [MENTIONS MICHAEL]" : "";
-      const text = m.text.length > 150 ? m.text.slice(0, 150) + "..." : m.text;
-      return `- ${m.channel} | ${m.author}${mention}: ${text}`;
+      const isDM = !!m.channelId?.startsWith("D");
+      const mention = m.isMention ? " [@MICHAEL]" : "";
+      const dm = isDM ? " [DM]" : "";
+      const text =
+        m.text.length > 200 ? m.text.slice(0, 200) + "…" : m.text;
+      return `- ${m.channel}${dm}${mention} | ${m.author}: ${text}`;
     })
     .join("\n");
 }
 
-// ── Route ──
+function formatZoomBlock(summaries: ZoomSummary[]): string {
+  if (summaries.length === 0) return "";
+  return summaries
+    .map((s) => {
+      const date = new Date(s.date).toLocaleDateString("en-GB", {
+        day: "numeric",
+        month: "short",
+        timeZone: "Europe/London",
+      });
+      const body = s.body.length > 350 ? s.body.slice(0, 350) + "…" : s.body;
+      return `- [${date}] ${s.title}\n  ${body}`;
+    })
+    .join("\n");
+}
+
+// ── Route ──────────────────────────────────────────────────────────────────────
 
 export async function POST(req: Request) {
   const today = new Date().toLocaleDateString("en-GB", {
@@ -63,9 +117,9 @@ export async function POST(req: Request) {
     month: "long",
     year: "numeric",
   });
+  const todayDate = new Date().toISOString().split("T")[0];
 
-  // Accept either multipart FormData (when the UI sends extra context) or
-  // no body at all (backwards-compatible simple trigger).
+  // Accept multipart FormData (extra context) or no body (simple trigger).
   let extra: ExtraContext = {
     notes: "",
     textBlock: "",
@@ -83,96 +137,320 @@ export async function POST(req: Request) {
     }
   }
 
-  // Fetch all data sources in parallel, each wrapped in try/catch
-  const [calendarResult, emailResult, slackResult] = await Promise.all([
+  // ── Parallel fetch all sources ────────────────────────────────────────────
+  const [
+    calendarResult,
+    emailResult,
+    slackResult,
+    actionsResult,
+    decisionsResult,
+    zoomResult,
+    memoriesResult,
+  ] = await Promise.all([
     getTodayEvents().catch((err) => {
       console.error("Calendar fetch failed:", err);
       return null;
     }),
-    getRecentEmails(12).catch((err) => {
+    // 20 emails gives enough signal to split unread / read meaningfully
+    getRecentEmails(20).catch((err) => {
       console.error("Email fetch failed:", err);
       return null;
     }),
-    getRecentSlackMessages(15).catch((err) => {
+    // 25 messages — DMs and @mentions surfaced first inside the block
+    getRecentSlackMessages(25).catch((err) => {
       console.error("Slack fetch failed:", err);
       return null;
     }),
+    listActions().catch((err) => {
+      console.error("Actions fetch failed:", err);
+      return [];
+    }),
+    listDecisions().catch((err) => {
+      console.error("Decisions fetch failed:", err);
+      return [];
+    }),
+    // 8 summaries from the last 7 days — richer Zoom context for today's attendees
+    getZoomSummariesFromGmail(7, 8).catch((err) => {
+      console.error("Zoom summaries fetch failed:", err);
+      return [];
+    }),
+    listMemories().catch((err) => {
+      console.error("Memories fetch failed:", err);
+      return [] as Memory[];
+    }),
   ]);
 
-  // Format each data source — null means the fetch failed, empty array means connected but no data
+  // ── Calendar ─────────────────────────────────────────────────────────────
   const calendarBlock =
     calendarResult === null
       ? "Google Calendar not connected."
-      : calendarResult.length === 0
-        ? "No events on today's calendar."
-        : formatCalendarBlock(calendarResult);
+      : formatCalendarBlock(calendarResult);
+
+  // ── Emails — unread (full snippet) vs recently-read ──────────────────────
+  const emails = emailResult ?? [];
+  const unreadEmails = emails.filter((e) => e.unread);
+  const readEmails = emails.filter((e) => !e.unread).slice(0, 8);
 
   const emailBlock =
     emailResult === null
       ? "Gmail not connected."
-      : emailResult.length === 0
-        ? "No recent emails in the last 48 hours."
-        : formatEmailBlock(emailResult);
+      : emails.length === 0
+        ? "Inbox is quiet — no recent emails."
+        : [
+            unreadEmails.length > 0
+              ? `UNREAD (${unreadEmails.length}):\n${formatEmailBlock(unreadEmails, 200)}`
+              : "No unread emails.",
+            readEmails.length > 0
+              ? `\nRECENTLY READ:\n${formatEmailBlock(readEmails, 120)}`
+              : "",
+          ]
+            .filter(Boolean)
+            .join("\n");
+
+  // ── Slack — DMs and @mentions prominently, channel activity second ────────
+  const slackMessages = slackResult ?? [];
+  const dmsMentions = slackMessages.filter(
+    (m) => m.isMention || m.channelId?.startsWith("D")
+  );
+  const channelActivity = slackMessages
+    .filter((m) => !m.isMention && !m.channelId?.startsWith("D"))
+    .slice(0, 12);
 
   const slackBlock =
     slackResult === null
       ? "Slack not connected."
-      : slackResult.length === 0
-        ? "No recent Slack messages."
-        : formatSlackBlock(slackResult);
+      : slackMessages.length === 0
+        ? "No recent Slack activity."
+        : [
+            dmsMentions.length > 0
+              ? `DMs & MENTIONS:\n${formatSlackBlock(dmsMentions)}`
+              : "",
+            channelActivity.length > 0
+              ? `\nCHANNEL ACTIVITY:\n${formatSlackBlock(channelActivity)}`
+              : "",
+          ]
+            .filter(Boolean)
+            .join("\n");
+
+  // ── Zoom summaries ────────────────────────────────────────────────────────
+  const zoomBlock = zoomResult.length > 0 ? formatZoomBlock(zoomResult) : "";
+
+  // ── Actions — three buckets by urgency ───────────────────────────────────
+  const openActions = actionsResult.filter((a) => a.status !== "done");
+  const PRIORITY_ORDER: Record<string, number> = { high: 0, medium: 1, low: 2 };
+
+  // Bucket 1: Overdue + due today — hardest deadline pressure
+  const urgentActions = openActions
+    .filter((a) => {
+      const isOverdue =
+        a.status === "overdue" ||
+        (a.status === "open" && a.dueDate && a.dueDate < todayDate);
+      const isDueToday = a.status === "open" && a.dueDate === todayDate;
+      return isOverdue || isDueToday;
+    })
+    .sort(
+      (a, b) =>
+        (PRIORITY_ORDER[a.priority ?? "low"] ?? 2) -
+        (PRIORITY_ORDER[b.priority ?? "low"] ?? 2)
+    );
+
+  // Bucket 2: Stalled — open, undated, no meaningful activity in ≥14 days
+  const stalledActions = openActions.filter(isActionStalled);
+
+  // Bucket 3: Other open — high-priority or has a due date, not in above buckets
+  const urgentOrStalledIds = new Set(
+    [...urgentActions, ...stalledActions].map((a) => a.id)
+  );
+  const otherOpenActions = openActions
+    .filter(
+      (a) =>
+        !urgentOrStalledIds.has(a.id) &&
+        (a.priority === "high" || !!a.dueDate)
+    )
+    .sort(
+      (a, b) =>
+        (PRIORITY_ORDER[a.priority ?? "low"] ?? 2) -
+        (PRIORITY_ORDER[b.priority ?? "low"] ?? 2)
+    )
+    .slice(0, 8);
+
+  type ActionLike = (typeof openActions)[number];
+
+  function fmtAction(a: ActionLike): string {
+    const isOverdue =
+      a.status === "overdue" ||
+      (a.status === "open" && a.dueDate && a.dueDate < todayDate);
+    const isDueToday = a.status === "open" && a.dueDate === todayDate;
+    const flags: string[] = [];
+    if (isOverdue) flags.push("OVERDUE");
+    else if (isDueToday) flags.push("DUE TODAY");
+    else if (a.dueDate) flags.push(`due ${a.dueDate}`);
+    if (a.priority === "high") flags.push("HIGH PRIORITY");
+    if (isActionStalled(a)) flags.push("STALLED");
+    if (a.owner && a.owner !== "Michael Cook") flags.push(`owner: ${a.owner}`);
+    if (a.source && a.source !== "manual") flags.push(a.source);
+    if (a.needsReview) flags.push("UNCONFIRMED — awaiting review");
+    return `- ${a.text}${flags.length ? ` (${flags.join(", ")})` : ""}`;
+  }
+
+  const urgentActionsBlock =
+    urgentActions.length === 0
+      ? "No overdue or due-today actions."
+      : urgentActions.slice(0, 10).map(fmtAction).join("\n");
+
+  const stalledActionsBlock =
+    stalledActions.length > 0
+      ? stalledActions.slice(0, 8).map(fmtAction).join("\n")
+      : "";
+
+  const otherActionsBlock =
+    otherOpenActions.length > 0
+      ? otherOpenActions.map(fmtAction).join("\n")
+      : "";
+
+  // ── Decisions — active, last 14 days ────────────────────────────────────
+  const fourteenDaysAgo = new Date(Date.now() - 14 * 24 * 60 * 60 * 1000);
+  const activeDecisions = decisionsResult
+    .filter(
+      (d) =>
+        d.status !== "superseded" &&
+        (!d.date || new Date(d.date) >= fourteenDaysAgo)
+    )
+    .sort(
+      (a, b) =>
+        new Date(b.updatedAt ?? b.date ?? "").getTime() -
+        new Date(a.updatedAt ?? a.date ?? "").getTime()
+    )
+    .slice(0, 10);
+
+  const decisionsBlock =
+    activeDecisions.length === 0
+      ? "No decisions logged in the last 14 days."
+      : activeDecisions
+          .map((d) => {
+            const reviewFlag = d.needsReview ? "[UNCONFIRMED] " : "";
+            const headline = d.title ? `${d.title}: ${d.text}` : d.text;
+            const meta: string[] = [];
+            if (d.decidedBy) meta.push(d.decidedBy);
+            if (d.date) meta.push(d.date);
+            if (d.source) meta.push(`via ${d.source}`);
+            const metaStr = meta.length > 0 ? ` (${meta.join(", ")})` : "";
+            const rationaleStr = d.rationale ? `\n  Why: ${d.rationale}` : "";
+            const consequencesStr =
+              d.consequences && d.consequences.length > 0
+                ? `\n  Pending follow-ups: ${d.consequences.join("; ")}`
+                : "";
+            return `- ${reviewFlag}${headline}${metaStr}${rationaleStr}${consequencesStr}`;
+          })
+          .join("\n");
+
+  // ── Relationship memory — person/context/fact notes, last 30 days ─────────
+  const thirtyDaysAgo = Date.now() - 30 * 24 * 60 * 60 * 1000;
+  const recentMemories = (memoriesResult as Memory[])
+    .filter((m) => new Date(m.updatedAt).getTime() > thirtyDaysAgo)
+    .slice(0, 15);
+
+  const memoryBlock =
+    recentMemories.length > 0
+      ? recentMemories
+          .map(
+            (m) =>
+              `- [${m.kind}${m.entity ? ` · ${m.entity}` : ""}] ${m.content}`
+          )
+          .join("\n")
+      : "";
 
   const extraBlock = formatExtraContextBlock(extra);
 
-  const promptText = `Generate Michael's daily briefing for ${today}. This is a sharp executive cheatsheet — depth, judgement, prioritisation, Basil's voice.
+  // ── Signal density (for LOW SIGNAL discipline) ─────────────────────────
+  const totalSignal =
+    (calendarResult?.length ?? 0) +
+    emails.length +
+    slackMessages.length +
+    zoomResult.length;
 
-## LIVE DATA — Today's Calendar
+  // ── Build prompt ──────────────────────────────────────────────────────────
+  const promptText = `Generate Michael's daily briefing for ${today}.
+Goal: 3-minute executive read. Not a log — intelligence. Tell Michael what to do today, who to respond to, what to watch, and what to prepare for.
+
+---
+
+## SOURCE DATA
+
+### TODAY'S CALENDAR
 ${calendarBlock}
 
-## LIVE DATA — Recent Emails (last 48h)
+### URGENT ACTIONS — overdue or due today (from Action Tracker — real commitments)
+${urgentActionsBlock}
+${stalledActionsBlock ? `
+### STALLED ACTIONS — open, no activity in 14+ days (silently slipping)
+${stalledActionsBlock}
+` : ""}${otherActionsBlock ? `
+### OTHER HIGH-PRIORITY OPEN ACTIONS
+${otherActionsBlock}
+` : ""}
+### DECISION LOG — active decisions from last 14 days (already made — use only for follow-up context)
+${decisionsBlock}
+
+### EMAILS — last 48h
 ${emailBlock}
 
-## LIVE DATA — Slack Highlights
+### SLACK — last 48h
 ${slackBlock}
-${extraBlock ? `\n${extraBlock}` : ""}
-## How Basil writes a briefing
+${zoomBlock ? `
+### ZOOM MEETING SUMMARIES — last 7 days (AI Companion recaps — what was actually said on prior calls)
+${zoomBlock}
+` : ""}${memoryBlock ? `
+### RELATIONSHIP MEMORY — person/context notes accumulated over prior interactions
+${memoryBlock}
+` : ""}${extraBlock ? `\n${extraBlock}\n` : ""}---
 
-Write this the way a great chief of staff would: direct, opinionated, prioritised, useful. Michael scans this before his day — he wants insight, not a log.
+## Briefing structure
 
-- Lead each section with what matters most, not what happened first. Rank by impact on Michael's day.
-- Cross-reference sources aggressively *when both sides are in the live data* — if a meeting attendee above also appears as a recent email sender or in a Slack thread, call that out ("Crystal is in the 18:00 sync and sent colour palettes this morning — review before the call").
-- Use your voice — noticing, flagging, connecting. "Worth reviewing before Thursday." "Ed will track this." "This thread's gone quiet — nudge?"
-- Read tone from contact personas for interpretation ("Ed's @here means he wants action today, not this week"), but never quote or attribute to personas.
-- Give real depth where the data supports it. Multiple paragraphs is fine. Bullets are fine. No artificial length cap.
-${extraBlock ? "- When Michael has attached notes, files, or a folder, WEAVE them into the briefing — treat them as top-priority signal. Reference them by name. If they change your read of calendar/inbox/Slack, say so.\n" : ""}
+Write the way a great chief of staff would: opinionated, specific, cross-referenced. Michael scans this before his day begins.
+
+**criticalToday** — 3-5 items that genuinely need attention today. Cross-source: if an overdue action also appears in an email thread, that is ONE item not two. If an attendee also sent a DM, that is ONE item. Rank by real urgency — not by which source listed it first. If there is nothing critical today, say so honestly ("Routine day — nothing critical.").
+
+**followUps** — things requiring Michael's active response: email replies he hasn't sent, stalled actions that need a nudge, decision consequences that haven't been confirmed yet. For each: one line on what it is, one line on why it matters now. Name the person specifically.
+
+**decisionsToWatch** — recent decisions from the Decision Log that have pending follow-up consequences listed. Flag if a consequence appears not yet actioned (don't claim it hasn't been — just flag it as worth checking). Also surface any genuinely new decisions implied by today's calendar or inbox (not fabricated — only if clearly implied by live data). Do NOT re-list already-made decisions as open items.
+
+**meetingsNeedingPrep** — today's video/multi-attendee calendar meetings worth preparing for. For each: name + time, what the current context is (from email/Slack/Zoom summaries mentioning those attendees), what Michael should aim to land. If signal is thin, flag it ("No recent signal on this one — go in open"). Skip solo blocks and trivial quick syncs unless context makes them significant.
+
+**peopleAndAccounts** — people or accounts appearing across multiple sources today (e.g. "Ed in 3pm meeting + unread email + Slack DM — three touchpoints suggesting something's live"), or where relationship memory or a recent Zoom note suggests a check-in is overdue. Specific and grounded. Null if no genuine cross-source signals.
+
+**inboxSlack** — remaining inbox and Slack highlights not already covered above. Only what merits Michael's attention. Skip newsletters, Zoom join/confirmation emails, OOO replies, auto-notifications, and anything already surfaced in criticalToday or followUps.
+
+---
+
 ## Factual guardrails — non-negotiable
 
-Basil is rich but never invents. Rules for specific claims:
-
-- Every name, company, meeting title, email subject, Slack quote, dollar figure, deadline, decision, and commitment must come from the LIVE DATA blocks above${extraBlock ? " (including EXTRA CONTEXT)" : ""} or from what you already know is true about Michael's team/products from the system prompt. If it is not in the live data, you do not state it as fact.
-- Do NOT invent prospects, companies, deal stages, figures, percentages, ticket numbers, or product names that don't appear above.
-- Do NOT fabricate quotes or attribute positions to people. If someone's view isn't in the data, don't claim they hold it.
-- Persona notes in the system prompt are STYLE guidance only — never a source of "what X is doing this week".
-- If a data source says "not connected", that section is exactly: "Not connected — connect to see briefing content."
-- If a source is connected but genuinely empty, say so briefly in Basil's voice ("Inbox is quiet — nothing needing action.") and move on.
-
-The bar: every specific fact traceable to live data, every interpretation clearly Basil's judgement grounded in those facts.
+Every name, company, email subject, Slack quote, action text, decision, and commitment must come from the SOURCE DATA above.
+- Do NOT fabricate names, deal stages, company names, dollar figures, or product outcomes not present in the data.
+- If a source is disconnected, say "Not connected" and move on.
+- If connected but empty, say so briefly ("Inbox quiet", "No Slack signal") in the relevant section.
+- Zoom summaries contain what was ACTUALLY SAID on prior calls — cross-reference their attendees with today's calendar for meetingsNeedingPrep.
+- DECISION LOG entries are already-made decisions. Only surface them as "this decision has pending follow-ups" — never as "this still needs to be decided".
+- Relationship memory notes are accumulated facts about people — use them to enrich peopleAndAccounts and meetingsNeedingPrep. Never invent claims beyond what the memory says.
+- Signal density today: ${totalSignal} live source item(s)${recentMemories.length > 0 ? ` + ${recentMemories.length} memory note(s)` : ""}. If signal is low, produce a shorter briefing — an honest 2-item brief beats a padded fabrication.
+- Items marked [UNCONFIRMED] or "UNCONFIRMED — awaiting review" are candidates Basil identified from signals but Michael has not yet verified. Present these as tentative ("may have been decided", "worth checking", "appears to") — never as confirmed facts or firm commitments.
+${extraBlock ? "- Extra context Michael provided is FIRST-CLASS signal — weave into the relevant sections, reference by filename where applicable.\n" : ""}
+---
 
 ## Output shape
 
-Respond with JSON. Each field is free-form text (paragraphs, bullet lines, numbered lists all fine — they render nicely). Length should match the density of real data.
-
+Return ONLY valid JSON, no markdown code fences:
 {
-  "calendar": "Today's calendar with Basil's read — what's the anchor meeting, what needs prep, where the gaps are. Cross-reference attendees against recent email/Slack above.",
-  "emails": "Inbox highlights with priorities — who's waiting on you, what's urgent, what's noise. Reference specific senders and subjects from the live data.",
-  "slack": "Slack digest with Basil's read — DMs to answer, threads to watch, mentions. Name specific people and channels from the live data.",
-  "tasks": "Action list for today — concrete items grounded in the calendar/emails/Slack above. Bullets or numbered list. Put the most important first. Each item should be specific enough that Michael knows exactly what 'done' looks like.",
-  "decisions": "Decisions Michael needs to make today or this week — each one traceable to something in the live data above. Empty sections return null (don't fill with hedge prose)."
-}
-
-Return ONLY valid JSON, no markdown code fences.`;
+  "criticalToday": "3-5 urgent items cross-referenced across sources. Bullets, most urgent first. Null if nothing genuinely urgent.",
+  "followUps": "Email replies needed, stalled actions, outstanding decision consequences. Bullets. Null if nothing.",
+  "decisionsToWatch": "Recent decisions with pending follow-ups + any new decisions implied by today's data. Null if nothing.",
+  "meetingsNeedingPrep": "Today's meetings with prep context. Null if no meetings with meaningful attendees.",
+  "peopleAndAccounts": "Cross-source relationship signals. Null if no genuine cross-source signals.",
+  "inboxSlack": "Remaining inbox/Slack highlights. Null if nothing further worth Michael's attention."
+}`;
 
   // If we have binary file parts (PDFs, images), use the messages API so they
-  // ride along on the user message. Otherwise stick with the simple prompt form.
+  // ride along on the user message. Otherwise use the simple prompt form.
   const messages: ModelMessage[] | undefined =
     extra.fileParts.length > 0
       ? [
@@ -192,9 +470,12 @@ Return ONLY valid JSON, no markdown code fences.`;
       : undefined;
 
   const result = await generateText({
-    model: anthropic("claude-sonnet-4-6"),
+    model: "anthropic/claude-sonnet-4.6",
     system: await getSystemPrompt(),
     ...(messages ? { messages } : { prompt: promptText }),
+    providerOptions: {
+      gateway: { tags: ["feature:briefing", "env:production"] },
+    },
   });
 
   try {
@@ -205,12 +486,14 @@ Return ONLY valid JSON, no markdown code fences.`;
       extraContextSummary: extra.summary,
     });
   } catch {
+    // Parse failure — return raw text in criticalToday so the UI shows something
     return Response.json({
-      calendar: result.text,
-      emails: "",
-      slack: "",
-      tasks: "",
-      decisions: "",
+      criticalToday: result.text,
+      followUps: null,
+      decisionsToWatch: null,
+      meetingsNeedingPrep: null,
+      peopleAndAccounts: null,
+      inboxSlack: null,
       generatedAt: new Date().toISOString(),
       extraContextSummary: extra.summary,
     });

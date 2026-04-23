@@ -60,7 +60,7 @@ export async function createCalendarEvent(params: {
   duration: number;   // minutes
   zoomLink?: string;
 }): Promise<{ id: string; htmlLink: string }> {
-  const auth = getAuthedClient();
+  const auth = await getAuthedClient();
   if (!auth) throw new Error("Google Calendar not connected");
 
   const calendar = google.calendar({ version: "v3", auth });
@@ -112,7 +112,7 @@ export async function createCalendarEvent(params: {
 }
 
 export async function getEventsForMonth(year: number, month: number): Promise<CalendarEvent[]> {
-  const auth = getAuthedClient();
+  const auth = await getAuthedClient();
   if (!auth) return [];
 
   const calendar = google.calendar({ version: "v3", auth });
@@ -160,7 +160,7 @@ export async function getTodayEvents(): Promise<CalendarEvent[]> {
 }
 
 export async function getEventsForDays(days: number): Promise<CalendarEvent[]> {
-  const auth = getAuthedClient();
+  const auth = await getAuthedClient();
   if (!auth) return [];
 
   const calendar = google.calendar({ version: "v3", auth });

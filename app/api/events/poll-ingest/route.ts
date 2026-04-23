@@ -1,12 +1,24 @@
-import { NextResponse } from "next/server";
-import { createEvent, hasExternalId } from "@/lib/events/store";
-import { eventFromIngest } from "@/lib/events/rules";
+import { NextResponse, after } from "next/server";
+import { createEvent, hasExternalId, updateEvent, compactEvents } from "@/lib/events/store";
+import { eventFromIngest, isAboutKeyPerson } from "@/lib/events/rules";
 import { publish } from "@/lib/events/bus";
-import type { IngestPayload } from "@/lib/events/types";
+import { generateDraftForEvent } from "@/lib/events/drafter";
+import type { IngestPayload, BasilEvent } from "@/lib/events/types";
 import { getTodayEvents } from "@/lib/google/calendar";
-import { getRecentEmails } from "@/lib/google/gmail";
+import { getRecentEmails, searchEmails } from "@/lib/google/gmail";
 import { getRecentSlackMessages } from "@/lib/slack/client";
 import { isSelf } from "@/lib/self-identity";
+import { ZOOM_GMAIL_QUERY, detectZoomEmail } from "@/lib/google/zoom-email-detector";
+import { processRegularEmail, processZoomEmail } from "@/lib/email/process-gmail-message";
+import { fetchSlackThread, formatThreadTranscript } from "@/lib/slack/fetch-thread";
+import { classifySlack, shouldClassifySlack, shouldMaterializeSlack } from "@/lib/slack/classify-slack";
+import { materializeSlackIntelligence } from "@/lib/slack/materialize-slack";
+// Microsoft 365 sources (only used when Microsoft tokens are present)
+import { getRecentOutlookMessages, getOutlookMessageBody } from "@/lib/microsoft/outlook-mail";
+import { getRecentTeamsMessages } from "@/lib/teams/client";
+import { fetchTeamsThread, formatTeamsTranscript } from "@/lib/teams/fetch-thread";
+import { classifyTeams, shouldMaterializeSlack as shouldMaterializeTeams } from "@/lib/teams/classify-teams";
+import { materializeTeamsIntelligence } from "@/lib/teams/materialize-teams";
 
 /**
  * POST /api/events/poll-ingest
@@ -15,74 +27,156 @@ import { isSelf } from "@/lib/self-identity";
  * and runs each item through the rules engine to create Basil events. Dedupes
  * against previously-seen externalIds so repeated polling is idempotent.
  *
+ * Zoom meeting summary emails receive dedicated treatment:
+ *  1. Pre-filtered via Gmail query (server-side, efficient).
+ *  2. Full body fetched for structured extraction.
+ *  3. Action items → Actions store, decisions → Decisions store,
+ *     meeting summary → Memory store.
+ *  4. Excluded from the regular email loop so the same message is never
+ *     double-ingested as both source:"email" and source:"zoom_email".
+ *
  * This exists because real webhook subscriptions (Gmail Pub/Sub, Slack Events
  * API, Calendar events.watch) aren't registered yet. Polling bridges the gap
  * so "Basil is watching" actually has something to watch.
  */
-export async function POST() {
-  const payloads: IngestPayload[] = [];
 
-  // Parallel fetch, each source failing softly so a broken integration
-  // doesn't poison the whole poll.
-  const [emails, slacks, calEvents] = await Promise.all([
+
+export async function POST() {
+  // ── Parallel source fetch ────────────────────────────────────────────────────
+  // Zoom emails are fetched separately so they can be excluded from the regular
+  // email loop and processed with full-body extraction.
+  // Microsoft sources (Outlook + Teams) are fetched concurrently — they return
+  // empty arrays silently when Microsoft is not connected, so they never block.
+  const [emails, slacks, calEvents, zoomEmails, outlookEmails, teamsMessages] = await Promise.all([
     getRecentEmails(20).catch(() => []),
     getRecentSlackMessages(30).catch(() => []),
     getTodayEvents().catch(() => []),
+    searchEmails(ZOOM_GMAIL_QUERY, 8).catch(() => []),
+    getRecentOutlookMessages(20, 2).catch(() => []),
+    getRecentTeamsMessages(30, 3).catch(() => []),
   ]);
 
+  // Build a Set of Gmail message IDs confirmed as Zoom emails so the regular
+  // email loop can skip them (avoids double-ingestion with different source types).
+  const zoomEmailIds = new Set(zoomEmails.map((m) => m.id));
+
+  const payloads: IngestPayload[] = [];
+
+  // ── Regular emails (excluding Zoom) ─────────────────────────────────────────
   for (const e of emails) {
+    // Skip Zoom emails — they have a dedicated processing path below
+    if (zoomEmailIds.has(e.id)) continue;
+
+    // Secondary detection: catch Zoom emails that slipped past the query
+    // (e.g. if the from field still contains "zoom" in the display name)
+    const signal = detectZoomEmail({ from: e.from, subject: e.subject, snippet: e.snippet });
+    if (signal.isZoom && signal.confidence >= 0.8) {
+      zoomEmailIds.add(e.id);
+      continue;
+    }
+
     payloads.push({
       source: "email",
       externalId: `gmail:${e.id}`,
       title: e.subject || "(no subject)",
       body: e.snippet || "",
       from: e.from,
-      hints: {
-        isDM: false,
-      },
+      // Preserve the email's actual send time — used in memory labels and decision dates.
+      // Defaults to ingest time in classify/materialize if absent.
+      date: e.date,
+      hints: { isDM: false },
     });
   }
 
-  // Skip self-authored messages (nothing to draft a reply to our own message)
-  // and known bot/integration DMs (Google Calendar notifications, Slackbot, etc.
-  // don't need a Basil event — they're not people Michael is in conversation with).
+  // ── Slack (skip self-authored and bot DMs) ────────────────────────────────
   const BOT_CHANNEL_NAMES = [
-    "google calendar",
-    "slackbot",
-    "notion",
-    "linear",
-    "github",
-    "loom",
-    "zoom",
-    "claude",
-    "reclaim",
-    "asana",
+    "google calendar", "slackbot", "notion", "linear",
+    "github", "loom", "zoom", "claude", "reclaim", "asana",
   ];
   const isBotChannel = (channel: string) => {
     const c = channel.toLowerCase();
     return BOT_CHANNEL_NAMES.some((n) => c.includes(`dm: ${n}`));
   };
 
+  // Metadata map: externalId → { channelId, messageTs, channelName }
+  // Built alongside payloads so we don't have to re-parse externalId strings later.
+  const slackMetaMap = new Map<string, {
+    channelId: string;
+    messageTs: string;
+    channelName: string;
+  }>();
+
   for (const m of slacks) {
     if (isSelf(m.author)) continue;
     if (isBotChannel(m.channel)) continue;
     const isDM = m.channel.startsWith("DM:");
     const isGroupDM = m.channel.startsWith("Group DM");
+    const externalId = `slack:${m.channelId || m.channel}:${m.id}`;
     payloads.push({
       source: "slack",
-      externalId: `slack:${m.channelId || m.channel}:${m.id}`,
+      externalId,
       title: `${m.channel} — ${m.author}`,
       body: m.text,
       from: m.author,
       channel: m.channel,
-      hints: {
-        isDM,
-        isGroupDM,
-        isMention: m.isMention,
-      },
+      // m.date is already ISO (see lib/slack/client.ts line ~201)
+      date: m.date,
+      hints: { isDM, isGroupDM, isMention: m.isMention },
+    });
+    // Only track if we have a real channelId — needed for thread fetching
+    if (m.channelId) {
+      slackMetaMap.set(externalId, {
+        channelId: m.channelId,
+        messageTs: m.id,
+        channelName: m.channel,
+      });
+    }
+  }
+
+  // ── Outlook emails (Microsoft 365) ──────────────────────────────────────
+  for (const e of outlookEmails) {
+    payloads.push({
+      source: "email",
+      externalId: `outlook:${e.id}`,
+      title: e.subject || "(no subject)",
+      body: e.snippet || "",
+      from: e.from,
+      date: e.date,
+      hints: { isDM: false },
     });
   }
 
+  // ── Teams messages (Microsoft 365) ──────────────────────────────────────
+  // Metadata map for Teams thread fetching (mirrors the Slack slackMetaMap)
+  const teamsMetaMap = new Map<string, {
+    chatOrChannelId: string;
+    channelId: string | null;
+    messageId: string;
+    channelName: string;
+  }>();
+
+  for (const m of teamsMessages) {
+    if (isSelf(m.author)) continue;
+    const externalId = `teams:${m.chatOrChannelId}:${m.id}`;
+    payloads.push({
+      source: "slack", // ActionItem.source has no "teams" — use "slack" as closest
+      externalId,
+      title: `${m.channel} — ${m.author}`,
+      body: m.text,
+      from: m.author,
+      channel: m.channel,
+      date: m.date,
+      hints: { isDM: m.isDM, isGroupDM: false, isMention: m.isMention },
+    });
+    teamsMetaMap.set(externalId, {
+      chatOrChannelId: m.chatOrChannelId,
+      channelId: m.channelId ?? null,
+      messageId: m.id,
+      channelName: m.channel,
+    });
+  }
+
+  // ── Calendar ──────────────────────────────────────────────────────────────
   for (const c of calEvents) {
     payloads.push({
       source: "calendar",
@@ -93,23 +187,343 @@ export async function POST() {
     });
   }
 
-  // Dedupe + persist
+  // ── Zoom email payloads ───────────────────────────────────────────────────
+  // These get source: "zoom_email" and are always auto-classified.
+  const zoomPayloads: IngestPayload[] = zoomEmails.map((e) => ({
+    source: "zoom_email" as const,
+    externalId: `gmail:${e.id}`,
+    title: e.subject || "Zoom Meeting Summary",
+    body: e.snippet || "",
+    from: e.from,
+    // Preserve email date so extractZoomMeeting fallback date is the send time, not ingest time
+    date: e.date,
+  }));
+
+  // ── Dedupe + persist: regular payloads ───────────────────────────────────
   let ingested = 0;
+  const draftEvents: BasilEvent[] = [];
+
+  // Collect (payload, event) pairs for post-processing intelligence pipelines.
+  // Both run fire-and-forget after events are persisted so the response is fast.
+  const emailsToClassify: Array<{ payload: IngestPayload; eventId: string }> = [];
+  const slacksToClassify: Array<{
+    payload: IngestPayload;
+    eventId: string;
+    channelId: string;
+    messageTs: string;
+    channelName: string;
+    tags: string[];
+  }> = [];
+  const teamsToClassify: Array<{
+    payload: IngestPayload;
+    eventId: string;
+    chatOrChannelId: string;
+    channelId: string | null;
+    messageId: string;
+    channelName: string;
+    tags: string[];
+  }> = [];
+
   for (const p of payloads) {
     if (p.externalId && (await hasExternalId(p.externalId))) continue;
     const shaped = eventFromIngest(p);
     const event = await createEvent(shaped);
     publish(event);
     ingested++;
+    if (event.disposition === "draft" && event.draft) {
+      draftEvents.push(event);
+    }
+    // Queue email-sourced events for intelligence classification
+    if (p.source === "email" && p.externalId) {
+      emailsToClassify.push({ payload: p, eventId: event.id });
+    }
+    // Queue qualifying Slack events for thread-aware intelligence classification
+    if (p.source === "slack" && p.externalId) {
+      const slackMeta = slackMetaMap.get(p.externalId);
+      const teamsMeta = teamsMetaMap.get(p.externalId);
+
+      if (slackMeta && shouldClassifySlack({
+        isDM: !!p.hints?.isDM,
+        isGroupDM: !!p.hints?.isGroupDM,
+        isMention: !!p.hints?.isMention,
+        isFromKeyPerson: isAboutKeyPerson(p.from || ""),
+        tags: event.tags,
+      })) {
+        slacksToClassify.push({
+          payload: p,
+          eventId: event.id,
+          channelId: slackMeta.channelId,
+          messageTs: slackMeta.messageTs,
+          channelName: slackMeta.channelName,
+          tags: event.tags,
+        });
+      }
+
+      // Teams messages (also stored with source:"slack") share the classify gate
+      if (teamsMeta && shouldClassifySlack({
+        isDM: !!p.hints?.isDM,
+        isGroupDM: false,
+        isMention: !!p.hints?.isMention,
+        isFromKeyPerson: isAboutKeyPerson(p.from || ""),
+        tags: event.tags,
+      })) {
+        teamsToClassify.push({
+          payload: p,
+          eventId: event.id,
+          chatOrChannelId: teamsMeta.chatOrChannelId,
+          channelId: teamsMeta.channelId,
+          messageId: teamsMeta.messageId,
+          channelName: teamsMeta.channelName,
+          tags: event.tags,
+        });
+      }
+    }
   }
+
+  // ── Email intelligence: classify + materialize (after-response) ─────────
+  // For each newly-ingested non-Zoom email, run AI classification and write
+  // actions/decisions/memory based on what was found.
+  //
+  // Uses next/server `after()` so Vercel keeps the function instance alive
+  // until all background work completes — `void` fire-and-forget is not
+  // guaranteed to finish before the instance is recycled on Fluid Compute.
+  //
+  // Outlook emails (externalId starts with "outlook:") are fetched via the
+  // Microsoft Graph API instead of the Gmail API, so the full body is
+  // available for accurate classification rather than just the 200-char snippet.
+  if (emailsToClassify.length > 0) {
+    after(async () => {
+      for (const { payload, eventId } of emailsToClassify) {
+        const externalId = payload.externalId!;
+        const isOutlook = externalId.startsWith("outlook:");
+        const msgId = isOutlook
+          ? externalId.replace("outlook:", "")
+          : externalId.replace("gmail:", "");
+        await processRegularEmail({
+          gmailId: msgId,
+          externalId,
+          eventId,
+          subject: payload.title || "",
+          from: payload.from || "",
+          dateFallback: payload.date,
+          snippetFallback: payload.body,
+          // For Outlook emails, override the default Gmail body fetch with the
+          // Microsoft Graph equivalent so we always get the full message body.
+          bodyFetcher: isOutlook
+            ? () => getOutlookMessageBody(msgId)
+            : undefined,
+        });
+      }
+    });
+  }
+
+  // ── Slack intelligence: fetch thread + classify + materialize (after-response) ──
+  // For each qualifying Slack message: fetch the full thread for context, run
+  // AI classification, then materialize actions/decisions/memory.
+  if (slacksToClassify.length > 0) {
+    after(async () => {
+      for (const { payload, eventId, channelId, messageTs, channelName } of slacksToClassify) {
+        try {
+          // Fetch full thread — gives the AI conversation context, not just a snippet
+          const threadMessages = await fetchSlackThread(channelId, messageTs);
+
+          // If no thread replies fetched, fall back to the snippet we already have
+          const transcript =
+            threadMessages.length > 0
+              ? formatThreadTranscript(threadMessages, channelName)
+              : `Channel: ${channelName}\n\n${payload.from || "Unknown"}: ${payload.body || ""}`;
+
+          const intel = await classifySlack({
+            channelName,
+            transcript,
+            isDM: !!payload.hints?.isDM,
+            isMention: !!payload.hints?.isMention,
+            // Use the Slack message's actual timestamp; fall back to ingest time if absent
+            date: payload.date || new Date().toISOString(),
+          });
+
+          console.log(
+            `[poll-ingest] slack classified: ${payload.externalId} → ` +
+            `${intel.category} (confidence=${intel.confidence})`
+          );
+
+          if (!shouldMaterializeSlack(intel)) continue;
+
+          const sourceRef = payload.externalId!;
+          const result = await materializeSlackIntelligence({
+            intelligence: intel,
+            sourceRef,
+            eventId,
+            channelName,
+            from: payload.from || "Unknown",
+            // Use the Slack message's actual send date, not ingest time
+            date: payload.date || new Date().toISOString(),
+          });
+
+          if (result.actionsCreated + result.decisionsCreated + result.memoriesCreated > 0) {
+            console.log(
+              `[poll-ingest] slack materialized: ${payload.externalId} → ` +
+              `${result.actionsCreated} action(s), ${result.decisionsCreated} decision(s), ` +
+              `${result.memoriesCreated} memory item(s)`
+            );
+          }
+        } catch (err) {
+          console.error(
+            `[poll-ingest] slack intelligence failed for ${payload.externalId}:`,
+            err
+          );
+        }
+      }
+    });
+  }
+
+  // ── Teams intelligence: fetch thread + classify + materialize (after-response) ──
+  if (teamsToClassify.length > 0) {
+    after(async () => {
+      for (const { payload, eventId, chatOrChannelId, channelId, messageId, channelName } of teamsToClassify) {
+        try {
+          const threadMessages = await fetchTeamsThread(chatOrChannelId, channelId, messageId);
+          const transcript =
+            threadMessages.length > 0
+              ? formatTeamsTranscript(threadMessages, channelName)
+              : `Channel: ${channelName}\n\n${payload.from || "Unknown"}: ${payload.body || ""}`;
+
+          const intel = await classifyTeams({
+            channelName,
+            transcript,
+            isDM: !!payload.hints?.isDM,
+            isMention: !!payload.hints?.isMention,
+            date: payload.date || new Date().toISOString(),
+          });
+
+          console.log(
+            `[poll-ingest] teams classified: ${payload.externalId} → ` +
+            `${intel.category} (confidence=${intel.confidence})`
+          );
+
+          if (!shouldMaterializeTeams(intel)) continue;
+
+          const result = await materializeTeamsIntelligence({
+            intelligence: intel,
+            sourceRef: payload.externalId!,
+            eventId,
+            channelName,
+            from: payload.from || "Unknown",
+            date: payload.date || new Date().toISOString(),
+          });
+
+          if (result.actionsCreated + result.decisionsCreated + result.memoriesCreated > 0) {
+            console.log(
+              `[poll-ingest] teams materialized: ${payload.externalId} → ` +
+              `${result.actionsCreated} action(s), ${result.decisionsCreated} decision(s), ` +
+              `${result.memoriesCreated} memory item(s)`
+            );
+          }
+        } catch (err) {
+          console.error(`[poll-ingest] teams intelligence failed for ${payload.externalId}:`, err);
+        }
+      }
+    });
+  }
+
+  // ── Generate AI drafts in parallel ───────────────────────────────────────
+  if (draftEvents.length > 0) {
+    console.log(`[poll-ingest] generating AI drafts for ${draftEvents.length} event(s)`);
+    await Promise.allSettled(
+      draftEvents.map(async (event) => {
+        try {
+          const result = await generateDraftForEvent(event);
+          const updated = await updateEvent(event.id, {
+            draft: {
+              ...event.draft!,
+              body: result.body,
+              generatedAt: result.generatedAt,
+              caveat: result.caveat,
+            },
+          });
+          if (updated) {
+            publish(updated);
+            console.log(`[poll-ingest] draft generated for event ${event.id}`);
+          }
+        } catch (err) {
+          console.error(`[poll-ingest] draft generation failed for event ${event.id}:`, err);
+        }
+      })
+    );
+  }
+
+  // ── Dedupe + persist: Zoom emails ────────────────────────────────────────
+  // For each new Zoom email: create the event record, then run structured
+  // extraction and materialize outputs into Actions / Decisions / Memory.
+  // Materialization runs fire-and-forget, so actual counts are emitted to
+  // server logs after this response returns — not included in the response.
+  let zoomIngested = 0;
+
+  for (const p of zoomPayloads) {
+    if (p.externalId && (await hasExternalId(p.externalId))) continue;
+
+    const shaped = eventFromIngest(p);
+    const event = await createEvent(shaped);
+    publish(event);
+    zoomIngested++;
+
+    // Fetch, extract, and materialize using after() — Vercel-safe background
+    // completion. Delegates to the same shared helper used by the Gmail
+    // push-notification webhook so both ingest paths produce identical,
+    // idempotent durable records.
+    const gmailId = p.externalId?.replace("gmail:", "");
+    if (!gmailId) continue;
+
+    const zoomEventId = event.id;
+    const zoomExternalId = p.externalId!;
+    const zoomSubject = p.title;
+    const zoomDate = p.date;
+    after(() =>
+      processZoomEmail({
+        gmailId,
+        externalId: zoomExternalId,
+        eventId: zoomEventId,
+        subject: zoomSubject,
+        dateFallback: zoomDate,
+      })
+    );
+  }
+
+  // Run event compaction after ingestion — keeps the events store small
+  // so the BASIL_DATA snapshot stays within Vercel's env var size limit.
+  // Fire-and-forget: compaction never fails the poll-ingest response.
+  const eventsCompacted = await compactEvents().catch((err) => {
+    console.error("[poll-ingest] event compaction failed:", err);
+    return 0;
+  });
 
   return NextResponse.json({
     ingested,
+    draftsGenerated: draftEvents.length,
     scanned: payloads.length,
     sources: {
-      email: emails.length,
+      email: emails.length - zoomEmailIds.size,
       slack: slacks.length,
       calendar: calEvents.length,
+      zoom_email: zoomEmails.length,
+      outlook_email: outlookEmails.length,
+      teams: teamsMessages.length,
     },
+    zoom: {
+      detected: zoomEmails.length,
+      ingested: zoomIngested,
+    },
+    // Intelligence queues are async fire-and-forget.  Actual materialization
+    // counts are emitted to server logs since they complete after this response.
+    emailIntelligence: {
+      queued: emailsToClassify.length,
+    },
+    slackIntelligence: {
+      queued: slacksToClassify.length,
+    },
+    teamsIntelligence: {
+      queued: teamsToClassify.length,
+    },
+    eventsCompacted,
   });
 }

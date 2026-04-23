@@ -24,6 +24,12 @@ import {
 } from "@/lib/decisions/store";
 import { emitAuditEvent } from "@/lib/events/audit";
 import { findContactByName } from "@/lib/contacts-lookup";
+// NOTE: domain sync (emitChange) is NOT called here — tools.ts runs server-side
+// inside the /api/chat route handler where `window` is undefined.  Domain changes
+// are broadcast client-side by the post-stream handler in app/dashboard/chat/page.tsx
+// which scans completed assistant message parts.  In AI SDK v6 each tool call
+// surfaces as a part with type "tool-<toolName>" (e.g. "tool-addAction") and
+// state "output-available" when the tool has run successfully.
 
 function checkSlack() {
   return !!process.env.SLACK_BOT_TOKEN;
@@ -38,7 +44,7 @@ export const assistantTools = {
       date: z.string().optional().describe("Date in YYYY-MM-DD format. Defaults to today."),
     }),
     execute: async () => {
-      if (!isGoogleConnected()) {
+      if (!(await isGoogleConnected())) {
         return { error: "Google Calendar not connected. Michael needs to connect Google in Settings." };
       }
       const events = await getTodayEvents();
@@ -59,7 +65,7 @@ export const assistantTools = {
       limit: z.number().optional().describe("Max results. Defaults to 5."),
     }),
     execute: async ({ query, limit }) => {
-      if (!isGoogleConnected()) {
+      if (!(await isGoogleConnected())) {
         return { error: "Gmail not connected. Michael needs to connect Google in Settings." };
       }
       const emails = query
@@ -78,7 +84,7 @@ export const assistantTools = {
         .describe("The Gmail message id (the `id` field from a searchEmails result)."),
     }),
     execute: async ({ messageId }) => {
-      if (!isGoogleConnected()) {
+      if (!(await isGoogleConnected())) {
         return { error: "Gmail not connected. Michael needs to connect Google in Settings." };
       }
       try {
@@ -143,7 +149,7 @@ export const assistantTools = {
       query: z.string().describe("Search query for Drive documents"),
     }),
     execute: async ({ query }) => {
-      if (!isGoogleConnected()) {
+      if (!(await isGoogleConnected())) {
         return { error: "Google Drive not connected. Michael needs to connect Google in Settings." };
       }
       const files = await searchDriveFiles(query);
@@ -162,7 +168,7 @@ export const assistantTools = {
     }),
     needsApproval: true,
     execute: async ({ to, subject, body }) => {
-      if (!isGoogleConnected()) {
+      if (!(await isGoogleConnected())) {
         return { error: "Gmail not connected. Cannot create drafts until Google is connected in Settings." };
       }
       const result = await createDraft(to, subject, body);
@@ -189,7 +195,7 @@ export const assistantTools = {
     }),
     needsApproval: true,
     execute: async ({ title, attendees, date, startTime, duration }) => {
-      if (!isGoogleConnected()) {
+      if (!(await isGoogleConnected())) {
         return { error: "Google Calendar not connected. Cannot schedule until Google is connected in Settings." };
       }
       try {
@@ -334,6 +340,9 @@ export const assistantTools = {
           dueDate: a.dueDate,
           status: a.status,
           source: a.source,
+          priority: a.priority,
+          confidence: a.confidence,
+          linkedDecisionIds: a.linkedDecisionIds,
         })),
       };
     },
@@ -352,13 +361,17 @@ export const assistantTools = {
         .string()
         .optional()
         .describe("Due date in YYYY-MM-DD. Optional."),
+      priority: z
+        .enum(["high", "medium", "low"])
+        .optional()
+        .describe("Urgency level. Use high for time-critical items, low if no urgency. Defaults to medium."),
       source: z
         .enum(["meeting", "slack", "email", "manual", "chat"])
         .optional()
         .describe("Where this action came from. Defaults to chat."),
     }),
     needsApproval: true,
-    execute: async ({ text, owner, dueDate, source }) => {
+    execute: async ({ text, owner, dueDate, priority, source }) => {
       const ownerId = owner ? findContactByName(owner)?.id : undefined;
       const action = await createAction({
         text,
@@ -366,6 +379,7 @@ export const assistantTools = {
         ownerId,
         dueDate,
         source: source ?? "chat",
+        priority,
       });
       await emitAuditEvent({
         source: "manual",
@@ -424,11 +438,18 @@ export const assistantTools = {
         status: filter,
         decisions: items.map((d) => ({
           id: d.id,
+          title: d.title,
           text: d.text,
           decidedBy: d.decidedBy,
+          stakeholders: d.stakeholders,
           date: d.date,
           context: d.context,
           status: d.status,
+          source: d.source,
+          confidence: d.confidence,
+          rationale: d.rationale,
+          consequences: d.consequences,
+          linkedActionIds: d.linkedActionIds,
         })),
       };
     },
@@ -439,7 +460,15 @@ export const assistantTools = {
       "Log a new decision to Michael's Decision Log. Use when Michael says something was decided, or when a thread clearly reached a call he wants captured. Shows for approval before saving.",
     inputSchema: z.object({
       text: z.string().describe("What was decided. One crisp sentence."),
+      title: z
+        .string()
+        .optional()
+        .describe("Short (≤8 word) scannable headline — omit if you can't form one cleanly."),
       decidedBy: z.string().describe("Who made the call (person or group)."),
+      stakeholders: z
+        .array(z.string())
+        .optional()
+        .describe("Other people affected or consulted (names)."),
       date: z
         .string()
         .optional()
@@ -448,21 +477,39 @@ export const assistantTools = {
         .string()
         .optional()
         .describe("Short note on source/context (e.g. 'Slack #ap-launch')."),
+      rationale: z
+        .string()
+        .optional()
+        .describe("Why this decision was made — only if explicitly stated or known."),
+      alternatives: z
+        .array(z.string())
+        .optional()
+        .describe("Options that were explicitly considered and rejected."),
+      consequences: z
+        .array(z.string())
+        .optional()
+        .describe("Direct follow-up commitments or implications tied to this decision."),
     }),
     needsApproval: true,
-    execute: async ({ text, decidedBy, date, context }) => {
+    execute: async ({ text, title, decidedBy, stakeholders, date, context, rationale, alternatives, consequences }) => {
       const decidedById = findContactByName(decidedBy)?.id;
       const decision = await createDecision({
         text,
+        title,
         decidedBy,
         decidedById,
+        stakeholders,
         date,
         context,
+        source: "chat",
+        rationale,
+        alternatives,
+        consequences,
       });
       await emitAuditEvent({
         source: "manual",
-        headline: `Logged decision: ${decision.text.slice(0, 60)}`,
-        context: `Decided by ${decision.decidedBy} on ${decision.date}${decision.context ? `\n${decision.context}` : ""}`,
+        headline: `Logged decision: ${(decision.title ?? decision.text).slice(0, 60)}`,
+        context: `Decided by ${decision.decidedBy} on ${decision.date}${decision.context ? `\n${decision.context}` : ""}${rationale ? `\nRationale: ${rationale}` : ""}`,
         rationale: "Michael approved the decision log entry in chat.",
         entityName: decidedBy,
         tags: ["decisions", "logged"],

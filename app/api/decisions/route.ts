@@ -15,35 +15,51 @@ export async function POST(req: Request) {
   try {
     const body = await req.json();
 
+    // Bulk import path (legacy data migration from localStorage)
     if (Array.isArray(body?.import)) {
       const added = await bulkImport(body.import as Decision[]);
       return NextResponse.json({ imported: added }, { status: 201 });
     }
 
-    const { text, decidedBy, decidedById, date, context } = body as {
-      text?: string;
-      decidedBy?: string;
-      decidedById?: string;
-      date?: string;
-      context?: string;
-    };
+    const {
+      text,
+      title,
+      summary,
+      rationale,
+      alternatives,
+      consequences,
+      decidedBy,
+      decidedById,
+      stakeholders,
+      date,
+      context,
+      source,
+      confidence,
+      tags,
+    } = body as Partial<Decision>;
 
     if (!text || !text.trim()) {
       return NextResponse.json({ error: "text is required" }, { status: 400 });
     }
     if (!decidedBy || !decidedBy.trim()) {
-      return NextResponse.json(
-        { error: "decidedBy is required" },
-        { status: 400 }
-      );
+      return NextResponse.json({ error: "decidedBy is required" }, { status: 400 });
     }
 
     const decision = await createDecision({
       text,
+      title,
+      summary,
+      rationale,
+      alternatives,
+      consequences,
       decidedBy,
       decidedById,
+      stakeholders,
       date,
       context,
+      source,
+      confidence,
+      tags,
     });
     return NextResponse.json({ decision }, { status: 201 });
   } catch (e) {

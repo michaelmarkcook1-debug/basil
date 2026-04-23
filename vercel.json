@@ -3,6 +3,10 @@
     {
       "path": "/api/cron/renew-subscriptions",
       "schedule": "0 4 * * *"
+    },
+    {
+      "path": "/api/cron/slack-sync",
+      "schedule": "0 6 * * *"
     }
   ]
 }

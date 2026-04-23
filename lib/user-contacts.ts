@@ -1,22 +1,36 @@
-// User-added contacts (stubs added via the "Suggested" strip on the Contacts
-// page) live in localStorage so Michael can flesh them out without editing
-// source. They share the Contact shape from contacts-data.ts and are merged
-// with the seed contacts everywhere the app uses `contacts`.
+// User-added contacts — server store is authoritative; localStorage is a
+// write-through cache for fast synchronous reads between server round-trips.
+//
+// Storage classification:
+//   sage-user-contacts         → SERVER (domain truth, device-independent)
+//                                Cached in localStorage after every server read/write.
+//   sage-dismissed-suggestions → LOCAL-ONLY (per-device UX convenience — ephemeral)
+//
+// Write pattern: optimistic local update first → then persist to server.
+// Read pattern: sync from cache (instant) + one async server fetch on page mount.
 
 import type { Contact } from "./contacts-data";
+import { emitChange } from "./sync/channel";
 
 const USER_CONTACTS_KEY = "sage-user-contacts";
 const DISMISSED_SUGGESTIONS_KEY = "sage-dismissed-suggestions";
+/** Set once after the first successful migration push, never reset. */
+const MIGRATION_KEY = "sage-user-contacts-migrated-v1";
 
-/**
- * Back-compat: older records don't have a `directory` field. Default them to
- * "work" so the existing contacts stay visible after the Work/Personal split.
- */
+// ── Internal helpers ──────────────────────────────────────────────────────────
+
 function normalize(c: Contact): Contact {
   if (!c.directory) return { ...c, directory: "work" };
   return c;
 }
 
+// ── Synchronous cache reads ───────────────────────────────────────────────────
+
+/**
+ * Fast synchronous read from the localStorage cache.  Populated from the
+ * server on page load via `loadUserContactsFromServer()`; falls back to an
+ * empty array on first visit or SSR.
+ */
 export function getUserContacts(): Contact[] {
   if (typeof window === "undefined") return [];
   try {
@@ -28,33 +42,166 @@ export function getUserContacts(): Contact[] {
   }
 }
 
-export function addUserContact(c: Contact): void {
-  if (typeof window === "undefined") return;
-  const existing = getUserContacts();
-  if (existing.some((x) => x.id === c.id)) return;
-  localStorage.setItem(
-    USER_CONTACTS_KEY,
-    JSON.stringify([...existing, normalize(c)])
-  );
+// ── Server-authoritative async API ───────────────────────────────────────────
+
+/**
+ * Fetch all user contacts from the server store, update the localStorage
+ * cache, and return the authoritative list.
+ *
+ * Also runs a one-time migration: any contacts already stored locally are
+ * pushed to the server (idempotent — server skips existing IDs).
+ */
+export async function loadUserContactsFromServer(): Promise<Contact[]> {
+  if (typeof window === "undefined") return [];
+
+  // One-time migration: push existing localStorage contacts to the server store.
+  if (!localStorage.getItem(MIGRATION_KEY)) {
+    const cached = getUserContacts();
+    if (cached.length > 0) {
+      try {
+        await fetch("/api/contacts/user", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ import: cached }),
+        });
+      } catch { /* migration is best-effort */ }
+    }
+    localStorage.setItem(MIGRATION_KEY, "1");
+  }
+
+  try {
+    const res = await fetch("/api/contacts/user");
+    if (!res.ok) return getUserContacts();
+    const data = await res.json();
+    const contacts = (data.contacts as Contact[]).map(normalize);
+    localStorage.setItem(USER_CONTACTS_KEY, JSON.stringify(contacts));
+    return contacts;
+  } catch {
+    return getUserContacts(); // fall back to stale cache
+  }
 }
 
 /**
- * Patch an existing user-added contact. Returns true if the contact was found
- * and updated, false if no match. Seed contacts can't be updated here — those
- * live in source.
+ * Add a contact: persist to the server store, update localStorage cache.
+ * Returns the saved contact (server may normalise it).
+ *
+ * Optimistic: the local cache is updated synchronously before the server
+ * round-trip so callers can read `getUserContacts()` immediately after.
  */
-export function updateUserContact(
+export async function addUserContact(c: Contact): Promise<Contact> {
+  const normalised = normalize(c);
+  // Optimistic local update.
+  const existing = getUserContacts();
+  if (!existing.some((x) => x.id === normalised.id)) {
+    localStorage.setItem(
+      USER_CONTACTS_KEY,
+      JSON.stringify([...existing, normalised])
+    );
+  }
+  try {
+    const res = await fetch("/api/contacts/user", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(normalised),
+    });
+    if (res.ok) {
+      emitChange("contacts"); // notify all surfaces of the new contact
+      const data = await res.json();
+      return data.contact as Contact;
+    }
+  } catch { /* server sync failed; cache already has the record */ }
+  return normalised;
+}
+
+/**
+ * Patch an existing user contact: persist to the server store, update cache.
+ * Returns true if the contact was found and updated.
+ *
+ * Optimistic: local cache is updated before the server call.
+ */
+export async function updateUserContact(
   id: string,
   patch: Partial<Contact>
-): boolean {
-  if (typeof window === "undefined") return false;
+): Promise<boolean> {
+  // Optimistic local update.
   const existing = getUserContacts();
   const idx = existing.findIndex((c) => c.id === id);
   if (idx === -1) return false;
   existing[idx] = normalize({ ...existing[idx], ...patch });
   localStorage.setItem(USER_CONTACTS_KEY, JSON.stringify(existing));
+
+  try {
+    await fetch(`/api/contacts/user/${id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(patch),
+    });
+    emitChange("contacts");
+  } catch { /* cache already updated */ }
   return true;
 }
+
+/**
+ * Bulk-add an array of contacts in a single server round-trip.
+ *
+ * Replaces the previous pattern of calling addUserContact() N times in a loop,
+ * which fired N domain-change events and made N API requests.  This function
+ * makes ONE POST (using the bulk-import path on /api/contacts/user) and emits
+ * ONE "contacts" domain change so subscribers refresh exactly once.
+ *
+ * Returns the number of contacts actually added (server dedupes by id).
+ * The optimistic localStorage update is applied before the server call so
+ * callers can read getUserContacts() immediately after without waiting.
+ */
+export async function bulkAddUserContacts(contacts: Contact[]): Promise<number> {
+  if (typeof window === "undefined" || contacts.length === 0) return 0;
+
+  // Optimistic local update — add all contacts not already in cache.
+  const existing    = getUserContacts();
+  const existingIds = new Set(existing.map((c) => c.id));
+  const toAdd       = contacts.filter((c) => !existingIds.has(c.id)).map(normalize);
+  if (toAdd.length > 0) {
+    localStorage.setItem(
+      USER_CONTACTS_KEY,
+      JSON.stringify([...existing, ...toAdd])
+    );
+  }
+
+  try {
+    const res = await fetch("/api/contacts/user", {
+      method:  "POST",
+      headers: { "Content-Type": "application/json" },
+      body:    JSON.stringify({ import: contacts }),
+    });
+    if (res.ok) {
+      emitChange("contacts"); // single event for the entire batch
+      const data = await res.json();
+      return (data.imported as number) ?? toAdd.length;
+    }
+  } catch {
+    /* server sync failed; optimistic cache already updated */
+  }
+  return toAdd.length;
+}
+
+/**
+ * Delete a user contact: remove from server store, update cache.
+ */
+export async function deleteUserContact(id: string): Promise<void> {
+  // Optimistic local update.
+  const existing = getUserContacts();
+  localStorage.setItem(
+    USER_CONTACTS_KEY,
+    JSON.stringify(existing.filter((c) => c.id !== id))
+  );
+  try {
+    await fetch(`/api/contacts/user/${id}`, { method: "DELETE" });
+    emitChange("contacts");
+  } catch { /* cache already updated */ }
+}
+
+// ── Dismissed suggestions — local-only UX state ──────────────────────────────
+// Per-device ephemeral state. No benefit to server-persisting these.
 
 export function getDismissedSuggestionIds(): string[] {
   if (typeof window === "undefined") return [];
@@ -75,6 +222,8 @@ export function dismissSuggestion(id: string): void {
     JSON.stringify([...existing, id])
   );
 }
+
+// ── Pure helpers ─────────────────────────────────────────────────────────────
 
 /** Stable ID from a display name or email string — used as Contact.id. */
 export function slugifyId(source: string): string {

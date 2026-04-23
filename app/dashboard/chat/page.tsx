@@ -1,7 +1,9 @@
 "use client";
 
 import { useChat } from "@ai-sdk/react";
-import { useState, useRef, useEffect } from "react";
+import { useState, useRef, useEffect, useCallback, Suspense } from "react";
+import { useSearchParams, useRouter } from "next/navigation";
+import { emitChange, type SyncDomain } from "@/lib/sync/channel";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
@@ -21,8 +23,14 @@ import {
   X,
   ShieldCheck,
   Trash2,
+  Paperclip,
 } from "lucide-react";
 
+// CLASSIFICATION: disposable UX convenience — chat history persisted so the
+// conversation survives navigating away and back on the same device.
+// NOT assistant truth: actions/decisions/memory created in chat are immediately
+// written to their respective server stores.  Clearing this key loses only
+// the displayed conversation thread, never any committed state.
 const CHAT_STORAGE_KEY = "sage-chat-messages-v1";
 
 const toolIcons: Record<string, typeof Calendar> = {
@@ -37,6 +45,27 @@ const toolIcons: Record<string, typeof Calendar> = {
 
 const ACTION_TOOLS = new Set(["draftEmail", "scheduleMeeting", "sendSlackMessage"]);
 
+/**
+ * Maps tool names that mutate server state to the domain they affect.
+ * When the chat stream finishes and any of these tools completed successfully,
+ * we emit a domain change so every other open surface refreshes automatically.
+ */
+// Maps tool names to the domain they mutate.  In AI SDK v6 each tool call
+// surfaces as a part with type "tool-<toolName>" (e.g. "tool-addAction");
+// stripping the "tool-" prefix gives the key to look up here.
+// When a tool completes (state === "output-available"), emitChange fires for
+// its domain so every subscriber (actions page, decisions page, etc.) refreshes.
+const TOOL_DOMAIN_MAP: Record<string, SyncDomain> = {
+  addAction:              "actions",
+  completeAction:         "actions",
+  removeAction:           "actions",
+  logDecision:            "decisions",
+  supersedeDecision:      "decisions",
+  rememberThis:           "memory",
+  forgetMemory:           "memory",
+  generateContactProfile: "contacts",
+};
+
 function formatToolInput(toolName: string, input: Record<string, unknown>): string {
   switch (toolName) {
     case "draftEmail":
@@ -50,15 +79,71 @@ function formatToolInput(toolName: string, input: Record<string, unknown>): stri
   }
 }
 
-export default function ChatPage() {
+/** Files the user has staged but not yet sent. */
+interface StagedFile {
+  id: string;
+  file: File;
+  /** Object URL for images, so we can show a preview. Revoked after send. */
+  previewUrl?: string;
+}
+
+function humanSize(bytes: number): string {
+  if (bytes < 1024) return `${bytes}B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(0)}KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)}MB`;
+}
+
+function ChatPageInner() {
   const [input, setInput] = useState("");
+  const [stagedFiles, setStagedFiles] = useState<StagedFile[]>([]);
   const scrollRef = useRef<HTMLDivElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const hydrated = useRef(false);
+  /** Ensures the incoming ?q= param is consumed exactly once per mount. */
+  const queryConsumed = useRef(false);
+
+  const searchParams = useSearchParams();
+  const router = useRouter();
 
   const { messages, sendMessage, setMessages, addToolApprovalResponse, status } =
     useChat();
 
   const isActive = status === "streaming" || status === "submitted";
+
+  // When the AI stream completes, scan the last assistant message for tool
+  // calls that mutate server state and broadcast domain changes so other
+  // surfaces (actions page, decisions page, memory page in other tabs or
+  // on the dashboard) refresh without manual user intervention.
+  const prevStatusRef = useRef(status);
+  useEffect(() => {
+    const prev = prevStatusRef.current;
+    prevStatusRef.current = status;
+
+    // Only act on the transition into ready (stream just completed)
+    if (status !== "ready" || prev === "ready") return;
+
+    // Find the last assistant message in the completed exchange
+    const lastAssistant = [...messages].reverse().find((m) => m.role === "assistant");
+    if (!lastAssistant) return;
+
+    const domainsToNotify = new Set<SyncDomain>();
+    for (const part of lastAssistant.parts) {
+      if (typeof part.type !== "string") continue;
+      if (!part.type.startsWith("tool-")) continue;
+
+      const toolName = part.type.replace("tool-", "");
+      // Only emit when the tool actually completed.  In AI SDK v6 the terminal
+      // success state is "output-available"; "output-error" / "output-denied" /
+      // "approval-requested" all mean the tool did NOT mutate server state.
+      const state = (part as Record<string, unknown>).state as string | undefined;
+      if (state !== "output-available") continue;
+
+      const domain = TOOL_DOMAIN_MAP[toolName];
+      if (domain) domainsToNotify.add(domain);
+    }
+
+    domainsToNotify.forEach((d) => emitChange(d));
+  }, [status, messages]);
 
   // Hydrate messages from localStorage on mount — keeps the conversation alive
   // when the user clicks away to another sidebar page and back.
@@ -76,6 +161,28 @@ export default function ChatPage() {
       /* ignore bad cache */
     }
   }, [setMessages]);
+
+  // Consume the ?q= query param injected by dashboard search / quick-action
+  // links.  Fires after the hydration effect (React runs effects in declaration
+  // order), so persisted history is already loaded when sendMessage is called.
+  //
+  // The queryConsumed ref ensures the auto-send happens exactly once per mount
+  // even if searchParams identity changes after router.replace cleans the URL.
+  useEffect(() => {
+    if (queryConsumed.current) return;
+    queryConsumed.current = true;
+
+    const raw = searchParams.get("q");
+    const q = raw?.trim() ?? "";
+    if (!q) return;
+
+    // Replace the URL immediately so a hard refresh won't re-send the query.
+    // Using replace (not push) keeps the Back button pointed at the dashboard.
+    router.replace("/dashboard/chat", { scroll: false });
+
+    // Auto-send into the conversation.
+    sendMessage({ text: q });
+  }, [searchParams, router, sendMessage]);
 
   // Persist messages whenever they change. Skip the initial render so we
   // don't clobber existing cache with an empty array before hydration lands.
@@ -109,8 +216,27 @@ export default function ChatPage() {
 
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
-    if (!input.trim()) return;
-    sendMessage({ text: input });
+    const hasText = input.trim().length > 0;
+    const hasFiles = stagedFiles.length > 0;
+    if (!hasText && !hasFiles) return;
+
+    let fileList: FileList | undefined;
+    if (hasFiles) {
+      const dt = new DataTransfer();
+      stagedFiles.forEach((sf) => dt.items.add(sf.file));
+      fileList = dt.files;
+    }
+
+    sendMessage({
+      text: input,
+      ...(fileList && { files: fileList }),
+    });
+
+    // Revoke object URLs to avoid memory leaks
+    stagedFiles.forEach((sf) => {
+      if (sf.previewUrl) URL.revokeObjectURL(sf.previewUrl);
+    });
+    setStagedFiles([]);
     setInput("");
   }
 
@@ -120,6 +246,29 @@ export default function ChatPage() {
       handleSubmit(e);
     }
   }
+
+  const handleFileChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = Array.from(e.target.files ?? []);
+    if (!files.length) return;
+    const newStaged: StagedFile[] = files.map((file) => ({
+      id: `${file.name}-${file.size}-${Date.now()}-${Math.random()}`,
+      file,
+      previewUrl: file.type.startsWith("image/")
+        ? URL.createObjectURL(file)
+        : undefined,
+    }));
+    setStagedFiles((prev) => [...prev, ...newStaged]);
+    // Reset input so the same file can be re-attached if removed
+    if (fileInputRef.current) fileInputRef.current.value = "";
+  }, []);
+
+  const removeFile = useCallback((id: string) => {
+    setStagedFiles((prev) => {
+      const removed = prev.find((sf) => sf.id === id);
+      if (removed?.previewUrl) URL.revokeObjectURL(removed.previewUrl);
+      return prev.filter((sf) => sf.id !== id);
+    });
+  }, []);
 
   return (
     <div className="flex h-full flex-col">
@@ -203,6 +352,37 @@ export default function ChatPage() {
                         className="text-sm leading-relaxed whitespace-pre-wrap"
                       >
                         {part.text}
+                      </div>
+                    );
+                  }
+                  // Render file attachments sent by the user
+                  if (part.type === "file") {
+                    const filePart = part as {
+                      type: "file";
+                      mediaType: string;
+                      url?: string;
+                      filename?: string;
+                    };
+                    const isImage = filePart.mediaType?.startsWith("image/");
+                    if (isImage && filePart.url) {
+                      return (
+                        <img
+                          key={`${message.id}-${i}`}
+                          src={filePart.url}
+                          alt={filePart.filename ?? "attachment"}
+                          className="max-w-xs max-h-60 rounded-lg border border-border object-cover"
+                        />
+                      );
+                    }
+                    return (
+                      <div
+                        key={`${message.id}-${i}`}
+                        className="inline-flex items-center gap-1.5 rounded-md border border-border bg-muted/50 px-2.5 py-1.5 text-xs text-muted-foreground"
+                      >
+                        <FileText className="h-3 w-3 shrink-0" />
+                        <span className="max-w-[200px] truncate">
+                          {filePart.filename ?? filePart.mediaType ?? "file"}
+                        </span>
                       </div>
                     );
                   }
@@ -327,27 +507,92 @@ export default function ChatPage() {
       <div className="border-t border-border px-4 py-4 bg-background/80 backdrop-blur-sm">
         <form
           onSubmit={handleSubmit}
-          className="max-w-3xl mx-auto flex items-end gap-2"
+          className="max-w-3xl mx-auto space-y-2"
         >
-          <Textarea
-            value={input}
-            onChange={(e) => setInput(e.target.value)}
-            onKeyDown={handleKeyDown}
-            placeholder="Ask me anything..."
-            className="min-h-12 max-h-40 resize-none border-[oklch(0.72_0.15_85)]/20 focus-visible:ring-[oklch(0.72_0.15_85)] py-3"
-            rows={1}
-          />
-          <Button
-            type="submit"
-            size="icon"
-            disabled={isActive || !input.trim()}
-            aria-label="Send message"
-            className="h-12 w-12 shrink-0 bg-gradient-to-r from-[oklch(0.72_0.15_85)] to-[oklch(0.78_0.12_85)] hover:from-[oklch(0.78_0.12_85)] hover:to-[oklch(0.82_0.10_85)] text-white"
-          >
-            <Send className="h-4 w-4" />
-          </Button>
+          {/* Staged file chips */}
+          {stagedFiles.length > 0 && (
+            <div className="flex flex-wrap gap-1.5">
+              {stagedFiles.map((sf) => (
+                <div
+                  key={sf.id}
+                  className="group relative flex items-center gap-1.5 rounded-md border border-border bg-muted/50 pl-2 pr-1 py-1 text-xs text-muted-foreground"
+                >
+                  {sf.previewUrl ? (
+                    <img
+                      src={sf.previewUrl}
+                      alt={sf.file.name}
+                      className="h-5 w-5 rounded object-cover shrink-0"
+                    />
+                  ) : (
+                    <FileText className="h-3 w-3 shrink-0" />
+                  )}
+                  <span className="max-w-[140px] truncate">{sf.file.name}</span>
+                  <span className="text-muted-foreground/60">
+                    {humanSize(sf.file.size)}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => removeFile(sf.id)}
+                    className="ml-0.5 rounded p-0.5 opacity-60 hover:opacity-100 hover:text-destructive transition-opacity"
+                    aria-label={`Remove ${sf.file.name}`}
+                  >
+                    <X className="h-3 w-3" />
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
+
+          <div className="flex items-end gap-2">
+            {/* Hidden file input */}
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept="image/*,.pdf,.txt,.md,.csv,.json"
+              multiple
+              className="hidden"
+              onChange={handleFileChange}
+            />
+            {/* Paperclip button */}
+            <Button
+              type="button"
+              size="icon"
+              variant="ghost"
+              disabled={isActive}
+              onClick={() => fileInputRef.current?.click()}
+              aria-label="Attach file"
+              className="h-12 w-10 shrink-0 text-muted-foreground hover:text-foreground"
+            >
+              <Paperclip className="h-4 w-4" />
+            </Button>
+            <Textarea
+              value={input}
+              onChange={(e) => setInput(e.target.value)}
+              onKeyDown={handleKeyDown}
+              placeholder="Ask me anything..."
+              className="min-h-12 max-h-40 resize-none border-[oklch(0.72_0.15_85)]/20 focus-visible:ring-[oklch(0.72_0.15_85)] py-3"
+              rows={1}
+            />
+            <Button
+              type="submit"
+              size="icon"
+              disabled={isActive || (!input.trim() && stagedFiles.length === 0)}
+              aria-label="Send message"
+              className="h-12 w-12 shrink-0 bg-gradient-to-r from-[oklch(0.72_0.15_85)] to-[oklch(0.78_0.12_85)] hover:from-[oklch(0.78_0.12_85)] hover:to-[oklch(0.82_0.10_85)] text-white"
+            >
+              <Send className="h-4 w-4" />
+            </Button>
+          </div>
         </form>
       </div>
     </div>
+  );
+}
+
+export default function ChatPage() {
+  return (
+    <Suspense>
+      <ChatPageInner />
+    </Suspense>
   );
 }

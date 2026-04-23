@@ -1,13 +1,18 @@
 import { generateText } from "ai";
-import { anthropic } from "@ai-sdk/anthropic";
 import { getSystemPrompt } from "@/lib/ai/system-prompt";
 import { parseAIJson } from "@/lib/ai/parse-json";
 import { getEventsForMonth } from "@/lib/google/calendar";
 import { getRecentEmails } from "@/lib/google/gmail";
 import { getRecentSlackMessages } from "@/lib/slack/client";
+import { getZoomSummariesFromGmail } from "@/lib/google/zoom-summaries";
+import { listActions, isActionStalled } from "@/lib/actions/store";
+import { listDecisions } from "@/lib/decisions/store";
+import { listMemories } from "@/lib/memory/store";
 import type { CalendarEvent } from "@/lib/google/calendar";
 import type { GmailMessage } from "@/lib/google/gmail";
 import type { SlackMessage } from "@/lib/slack/client";
+import type { ZoomSummary } from "@/lib/google/zoom-summaries";
+import type { Memory } from "@/lib/memory/types";
 
 // ── Helpers ──
 
@@ -44,8 +49,8 @@ function formatCalendarBlock(events: CalendarEvent[], label: string): string {
   return `=== ${label} (${events.length} events) ===\n${lines.join("\n")}\n`;
 }
 
-function formatEmailBlock(emails: GmailMessage[]): string {
-  if (emails.length === 0) return "=== RECENT EMAILS ===\n(No emails found)\n";
+function formatEmailBlock(emails: GmailMessage[], label = "RECENT EMAILS"): string {
+  if (emails.length === 0) return `=== ${label} ===\n(No emails found)\n`;
 
   const lines = emails.map((e) => {
     const date = new Date(e.date).toLocaleDateString("en-GB", {
@@ -54,10 +59,22 @@ function formatEmailBlock(emails: GmailMessage[]): string {
       timeZone: "Europe/London",
     });
     const unread = e.unread ? " [UNREAD]" : "";
-    return `- ${date} from ${e.from}: ${e.subject}${unread}\n  ${e.snippet.substring(0, 150)}`;
+    return `- ${date} from ${e.from}: ${e.subject}${unread}\n  ${e.snippet.substring(0, 180)}`;
   });
 
-  return `=== RECENT EMAILS (${emails.length}) ===\n${lines.join("\n")}\n`;
+  return `=== ${label} (${emails.length}) ===\n${lines.join("\n")}\n`;
+}
+
+function formatZoomBlock(summaries: ZoomSummary[]): string {
+  if (summaries.length === 0) return "=== ZOOM MEETING SUMMARIES ===\n(No Zoom summaries found)\n";
+  const lines = summaries.map((s) => {
+    const date = new Date(s.date).toLocaleDateString("en-GB", {
+      day: "numeric", month: "short", timeZone: "Europe/London",
+    });
+    const body = s.body.length > 600 ? s.body.slice(0, 600) + "…" : s.body;
+    return `- [${date}] ${s.title}\n  ${body}`;
+  });
+  return `=== ZOOM MEETING SUMMARIES (last 14 days, ${summaries.length} found) ===\n${lines.join("\n")}\n`;
 }
 
 function formatSlackBlock(messages: SlackMessage[]): string {
@@ -71,7 +88,7 @@ function formatSlackBlock(messages: SlackMessage[]): string {
       timeZone: "Europe/London",
     });
     const mention = m.isMention ? " [MENTIONS MICHAEL]" : "";
-    return `- ${date} ${m.channel} — ${m.author}: ${m.text.substring(0, 200)}${mention}`;
+    return `- ${date} ${m.channel} — ${m.author}: ${m.text.substring(0, 220)}${mention}`;
   });
 
   return `=== RECENT SLACK MESSAGES (${messages.length}) ===\n${lines.join("\n")}\n`;
@@ -85,34 +102,42 @@ export async function POST() {
   sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
   const sevenDaysAhead = new Date(now);
   sevenDaysAhead.setDate(sevenDaysAhead.getDate() + 7);
+  const fourteenDaysAgo = new Date(now);
+  fourteenDaysAgo.setDate(fourteenDaysAgo.getDate() - 14);
+  const thirtyDaysAgo = new Date(now);
+  thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
 
-  // Fetch all data sources in parallel, each wrapped in try/catch
-  const [calendarEvents, emails, slackMessages] = await Promise.all([
+  // Fetch all data sources in parallel — each wrapped in a try/catch so a
+  // single source failing never aborts the whole digest.
+  const [
+    calendarEvents,
+    emails,
+    slackMessages,
+    zoomSummaries,
+    actionsResult,
+    decisionsResult,
+    memoriesResult,
+  ] = await Promise.all([
     (async (): Promise<CalendarEvent[]> => {
       try {
-        // Get current month and, if needed, the adjacent month to cover the full 14-day window
         const currentYear = now.getFullYear();
-        const currentMonth = now.getMonth(); // 0-indexed
+        const currentMonth = now.getMonth();
+        const currentMonthEvents = await getEventsForMonth(currentYear, currentMonth);
 
-        const currentMonthEvents = await getEventsForMonth(
-          currentYear,
-          currentMonth
-        );
-
-        // If the 7-day-ago window falls in the previous month, fetch that too
         let prevMonthEvents: CalendarEvent[] = [];
         if (sevenDaysAgo.getMonth() !== currentMonth) {
-          const prevMonth = sevenDaysAgo.getMonth();
-          const prevYear = sevenDaysAgo.getFullYear();
-          prevMonthEvents = await getEventsForMonth(prevYear, prevMonth);
+          prevMonthEvents = await getEventsForMonth(
+            sevenDaysAgo.getFullYear(),
+            sevenDaysAgo.getMonth()
+          );
         }
 
-        // If the 7-day-ahead window falls in the next month, fetch that too
         let nextMonthEvents: CalendarEvent[] = [];
         if (sevenDaysAhead.getMonth() !== currentMonth) {
-          const nextMonth = sevenDaysAhead.getMonth();
-          const nextYear = sevenDaysAhead.getFullYear();
-          nextMonthEvents = await getEventsForMonth(nextYear, nextMonth);
+          nextMonthEvents = await getEventsForMonth(
+            sevenDaysAhead.getFullYear(),
+            sevenDaysAhead.getMonth()
+          );
         }
 
         return [...prevMonthEvents, ...currentMonthEvents, ...nextMonthEvents];
@@ -124,7 +149,7 @@ export async function POST() {
 
     (async (): Promise<GmailMessage[]> => {
       try {
-        return await getRecentEmails(20);
+        return await getRecentEmails(30);
       } catch (e) {
         console.error("Failed to fetch emails:", e);
         return [];
@@ -133,24 +158,43 @@ export async function POST() {
 
     (async (): Promise<SlackMessage[]> => {
       try {
-        return await getRecentSlackMessages(20);
+        return await getRecentSlackMessages(30);
       } catch (e) {
         console.error("Failed to fetch Slack messages:", e);
         return [];
       }
     })(),
+
+    (async (): Promise<ZoomSummary[]> => {
+      try {
+        return await getZoomSummariesFromGmail(14, 8);
+      } catch (e) {
+        console.error("Failed to fetch Zoom summaries:", e);
+        return [];
+      }
+    })(),
+
+    listActions().catch((e) => {
+      console.error("Failed to fetch actions:", e);
+      return [];
+    }),
+
+    listDecisions().catch((e) => {
+      console.error("Failed to fetch decisions:", e);
+      return [];
+    }),
+
+    listMemories().catch((e) => {
+      console.error("Failed to fetch memories:", e);
+      return [] as Memory[];
+    }),
   ]);
 
-  // Split calendar events into past 7 days and next 7 days
-  const todayStr = now.toLocaleDateString("en-CA", {
-    timeZone: "Europe/London",
-  });
-  const sevenDaysAgoStr = sevenDaysAgo.toLocaleDateString("en-CA", {
-    timeZone: "Europe/London",
-  });
-  const sevenDaysAheadStr = sevenDaysAhead.toLocaleDateString("en-CA", {
-    timeZone: "Europe/London",
-  });
+  // ── Calendar: split past vs upcoming ──────────────────────────────────────
+
+  const todayStr = now.toLocaleDateString("en-CA", { timeZone: "Europe/London" });
+  const sevenDaysAgoStr = sevenDaysAgo.toLocaleDateString("en-CA", { timeZone: "Europe/London" });
+  const sevenDaysAheadStr = sevenDaysAhead.toLocaleDateString("en-CA", { timeZone: "Europe/London" });
 
   const pastEvents = calendarEvents.filter((e) => {
     const d = eventDateStr(e);
@@ -162,7 +206,148 @@ export async function POST() {
     return d >= todayStr && d <= sevenDaysAheadStr;
   });
 
-  // Build the live data blocks
+  // ── Actions: 5 buckets ────────────────────────────────────────────────────
+  // Bucket 1: completed this week
+  const completedThisWeek = actionsResult.filter((a) => {
+    if (a.status !== "done") return false;
+    const updated = a.updatedAt ?? a.createdAt;
+    if (!updated) return false;
+    return new Date(updated).getTime() >= sevenDaysAgo.getTime();
+  });
+
+  // Bucket 2: opened/created this week (not yet done)
+  const openedThisWeek = actionsResult.filter((a) => {
+    if (a.status === "done") return false;
+    if (!a.createdAt) return false;
+    return new Date(a.createdAt).getTime() >= sevenDaysAgo.getTime();
+  });
+
+  const todayIso = now.toISOString().split("T")[0];
+  const PORDER: Record<string, number> = { high: 0, medium: 1, low: 2 };
+
+  // Bucket 3: overdue (open with past due date)
+  const overdueActions = actionsResult
+    .filter((a) => {
+      if (a.status === "done") return false;
+      return a.status === "overdue" || (a.status === "open" && !!a.dueDate && a.dueDate < todayIso);
+    })
+    .sort((a, b) => (PORDER[a.priority ?? "low"] ?? 2) - (PORDER[b.priority ?? "low"] ?? 2));
+
+  // Bucket 4: stalled (open, no due date, no recent activity)
+  const stalledActions = actionsResult.filter((a) => {
+    if (a.status === "done") return false;
+    return isActionStalled(a);
+  });
+
+  // Bucket 5: due next 7 days (open, not overdue, not stalled)
+  const overdueOrStalledIds = new Set([
+    ...overdueActions.map((a) => a.id),
+    ...stalledActions.map((a) => a.id),
+  ]);
+  const dueNextWeek = actionsResult
+    .filter((a) => {
+      if (a.status === "done") return false;
+      if (overdueOrStalledIds.has(a.id)) return false;
+      if (!a.dueDate) return false;
+      return a.dueDate >= todayIso && a.dueDate <= sevenDaysAheadStr;
+    })
+    .sort((a, b) => (a.dueDate! < b.dueDate! ? -1 : 1));
+
+  const allOpenActions = actionsResult.filter((a) => a.status !== "done");
+
+  // Format action blocks
+  function formatActionList(
+    actions: typeof actionsResult,
+    label: string,
+    cap = 15
+  ): string {
+    if (actions.length === 0) return `=== ${label} ===\n(none)\n`;
+    return (
+      `=== ${label} (${actions.length}) ===\n` +
+      actions
+        .slice(0, cap)
+        .map((a) => {
+          const flags: string[] = [];
+          if (a.dueDate) flags.push(`due ${a.dueDate}`);
+          if (a.priority === "high") flags.push("HIGH");
+          if (a.owner && a.owner !== "Michael Cook") flags.push(`owner: ${a.owner}`);
+          if (a.source && a.source !== "manual") flags.push(a.source);
+          return `- ${a.text}${flags.length ? ` (${flags.join(", ")})` : ""}`;
+        })
+        .join("\n") +
+      "\n"
+    );
+  }
+
+  const actionsBlock = [
+    formatActionList(completedThisWeek, "COMPLETED THIS WEEK"),
+    formatActionList(openedThisWeek, "OPENED THIS WEEK (not yet done)"),
+    formatActionList(overdueActions, "OVERDUE"),
+    formatActionList(stalledActions, "STALLED (open, no due date, no activity ≥14 days)"),
+    formatActionList(dueNextWeek, "DUE NEXT 7 DAYS"),
+  ].join("\n");
+
+  // ── Decisions: last 14 days ────────────────────────────────────────────────
+  const recentDecisions = decisionsResult
+    .filter((d) => {
+      if (d.status === "superseded") return false;
+      if (!d.date) return true;
+      return new Date(d.date).getTime() >= fourteenDaysAgo.getTime();
+    })
+    .sort(
+      (a, b) =>
+        new Date(b.updatedAt ?? b.date ?? "").getTime() -
+        new Date(a.updatedAt ?? a.date ?? "").getTime()
+    )
+    .slice(0, 15);
+
+  const decisionsBlock =
+    recentDecisions.length === 0
+      ? "=== RECENT DECISIONS (last 14 days) ===\n(No decisions logged in this window)\n"
+      : `=== RECENT DECISIONS — last 14 days (${recentDecisions.length}) ===\n` +
+        recentDecisions
+          .map((d) => {
+            const headline = d.title ? `${d.title}: ${d.text}` : d.text;
+            const meta: string[] = [];
+            if (d.decidedBy) meta.push(d.decidedBy);
+            if (d.date) meta.push(d.date);
+            if (d.source) meta.push(`via ${d.source}`);
+            const metaStr = meta.length > 0 ? ` (${meta.join(", ")})` : "";
+            const rationaleStr = d.rationale ? `\n  Rationale: ${d.rationale}` : "";
+            const consequencesStr =
+              d.consequences && d.consequences.length > 0
+                ? `\n  Follow-ons: ${d.consequences.join("; ")}`
+                : "";
+            return `- ${headline}${metaStr}${rationaleStr}${consequencesStr}`;
+          })
+          .join("\n") + "\n";
+
+  // ── Memory: last 30 days ───────────────────────────────────────────────────
+  const recentMemories = (memoriesResult as Memory[])
+    .filter((m) => new Date(m.updatedAt).getTime() > thirtyDaysAgo.getTime())
+    .slice(0, 20);
+
+  const memoryBlock =
+    recentMemories.length > 0
+      ? `=== BASIL'S MEMORY NOTES (last 30 days, ${recentMemories.length}) ===\n` +
+        recentMemories
+          .map((m) => `- [${m.kind}${m.entity ? ` · ${m.entity}` : ""}] ${m.content}`)
+          .join("\n") + "\n"
+      : "=== BASIL'S MEMORY NOTES ===\n(No recent notes)\n";
+
+  // ── Signal density ─────────────────────────────────────────────────────────
+  const totalSignal =
+    pastEvents.length +
+    upcomingEvents.length +
+    emails.length +
+    slackMessages.length +
+    zoomSummaries.length +
+    completedThisWeek.length +
+    allOpenActions.length +
+    recentDecisions.length;
+
+  // ── Prompt ────────────────────────────────────────────────────────────────
+
   const liveDataBlock = [
     "╔══════════════════════════════════════╗",
     "║         LIVE DATA — DO NOT IGNORE    ║",
@@ -170,73 +355,73 @@ export async function POST() {
     "",
     `Generated: ${now.toISOString()}`,
     `Window: ${formatDate(sevenDaysAgo)} → ${formatDate(now)} (recap) | ${formatDate(now)} → ${formatDate(sevenDaysAhead)} (forward)`,
+    `Signal density: ${totalSignal} live items + ${recentMemories.length} memory note(s).`,
     "",
     formatCalendarBlock(pastEvents, "PAST 7 DAYS — CALENDAR"),
     formatCalendarBlock(upcomingEvents, "NEXT 7 DAYS — CALENDAR"),
-    formatEmailBlock(emails),
+    formatEmailBlock(emails, "RECENT EMAILS (last 7 days)"),
     formatSlackBlock(slackMessages),
+    zoomSummaries.length > 0 ? formatZoomBlock(zoomSummaries) : "",
+    actionsBlock,
+    decisionsBlock,
+    memoryBlock,
     "",
     "╔══════════════════════════════════════╗",
     "║         END LIVE DATA                ║",
     "╚══════════════════════════════════════╝",
-  ].join("\n");
+  ]
+    .filter((line) => line !== "")
+    .join("\n");
 
-  const prompt = `Generate Michael Cook's weekly digest — a sharp, opinionated retrospective + forward look, split into AnalystGenius (AG) and AgentPowered/TalentGenius (AP/TG) columns.
+  const prompt = `Generate Michael Cook's weekly executive summary — a clear, honest account of the past 7 days and what next week needs.
 
 ${liveDataBlock}
 
-IMPORTANT: Michael Cook is the CEO of AnalystGenius and VP of Product at TalentGenius. There is ANOTHER person named Michael Trujillo who is a different team member — do NOT confuse them.
+IMPORTANT: Michael Cook is the CEO of AnalystGenius and VP of Product at TalentGenius. There is another person named Michael Trujillo who is a different team member — do NOT confuse them.
 
-## How Basil writes a digest
+## How Basil writes a weekly summary
 
-Write this the way a great chief of staff writes a Sunday-night prep note: scannable, opinionated, cross-referenced. Michael reads this to prime for the week ahead, not to tick a box.
+This is a chief-of-staff end-of-week note, not a data dump. Michael reads this on Friday afternoon or Sunday morning to understand: what actually happened, what shifted, what got decided, and where he needs to focus next week.
 
-- Lead each column with what matters most for that product — rank by impact, not chronology.
-- Use Basil's voice: name the pattern, name the tension, flag what's ripening. "Crystal moved twice this week — unusual, check it's not a signal." "Ed's 1:1 slipped again — third time, worth a word."
-- Cross-reference sources when both sides are in the live data — if a calendar attendee also sent email or appeared in Slack, connect them.
-- Use persona notes in the system prompt for TONE ("Ed likes execution detail", "Malcolm wants strategy") — never for claims about what someone did.
-- Real depth is welcome. Paragraphs, bullets, numbered lists all render. No artificial length cap. Length should match the signal density.
+- Lead each section with the most important item, not chronology.
+- Use Basil's voice: name the pattern, name the tension, flag what's ripening. "Crystal's timeline moved twice this week — unusual." "Ed's 1:1 slipped again — worth a word." "Three separate threads with Sona this week suggests something is converging."
+- Cross-reference sources: if a calendar attendee also appeared in Slack, email, or a Zoom recap, connect the threads.
+- Zoom meeting summaries are first-class evidence for meetings, decisions, and action items. Use them.
+- Memory notes from Basil add context that raw source data lacks — use them to explain patterns or flag recurring themes.
+- Length should match signal density. When the week was quiet, write a brief honest summary. Don't pad.
+- Real depth is welcome when warranted: paragraphs, bullets, numbered lists all render.
 
 ## Factual guardrails — non-negotiable
 
-Basil is rich but never invents. Michael makes real decisions off this.
-
-- Every name, meeting title, email subject, Slack quote, figure, deadline, decision, and commitment must come from the LIVE DATA above. If it's not there, you do not state it as fact.
+- Every name, meeting title, email subject, Slack quote, figure, deadline, decision, and commitment must come from the LIVE DATA above.
 - Do NOT invent meetings, deal stages, prospect names, company names, dollar figures, percentages, or outcomes.
-- Do NOT infer a "decision" unless the live data contains explicit decision language (confirming, approving, announcing a choice).
-- Do NOT infer "slipped" from absence — only flag something as slipped if the live data contains explicit delay/missed/cancelled/rescheduled language.
-- Classify each data point as AG or AP/TG only when the people or topics make it unambiguous. If ambiguous, omit it rather than guess.
-- Persona notes are STYLE guidance only — never a source of "what X did this week".
-- **Empty is an acceptable answer.** If a section has no supporting evidence, return null for that field (not filler prose). A mostly-null digest is better than a fabricated one.
+- Do NOT infer a "decision" unless the live data contains explicit decision language.
+- Do NOT infer "slipped" from absence — only flag if the live data contains explicit delay/missed/cancelled/rescheduled language.
+- **Empty is an acceptable answer.** If a section has no supporting evidence, return null (not filler prose).
 - If all live-data sources are empty or not connected, return null for ALL fields.
 
 ## Output shape
 
-JSON. Each field is free-form text (paragraphs, bullets, or numbered lists render cleanly) or null.
+JSON. Each field is free-form text (paragraphs, bullets, numbered lists) or null.
 
 {
-  "ag": {
-    "shipped": "What landed for AG this week — grounded in specific calendar events/Slack/emails from the past 7 days. Basil's read on the signal behind the fact. Null if nothing in the data supports it.",
-    "slipped": "AG items explicitly delayed, cancelled, rescheduled, or flagged as overdue in the live data. Basil's take on why it matters. Null if no explicit slippage.",
-    "whoYouMet": "AG meetings/1:1s from PAST 7 DAYS CALENDAR. Name the person, note what's worth remembering from context (Slack/email threads involving them). Null if no AG meetings.",
-    "decisions": "AG decisions explicitly recorded in the live data. Each traceable to a line above. Null if none.",
-    "carryForward": "AG items in NEXT 7 DAYS CALENDAR or unresolved threads — what needs prep, what's at risk, what Basil is watching. Null if nothing upcoming."
-  },
-  "aptg": {
-    "shipped": "Same treatment, AP/TG-scoped. Null if none.",
-    "slipped": "Same rules. Null if none.",
-    "whoYouMet": "Same rules. Null if none.",
-    "decisions": "Same rules. Null if none.",
-    "carryForward": "Same rules. Null if none."
-  }
+  "majorMeetings": "Key meetings, 1:1s, and calls from the past 7 days. Who was there, what came out of it, what the signal means. Draw from PAST 7 DAYS CALENDAR and Zoom summaries. Cross-reference Slack/email threads involving the same people. Null if no meetings in the data.",
+  "whatChanged": "What moved this week. Actions completed. Momentum made or lost. Work shipped or advanced. Draw from COMPLETED THIS WEEK and OPENED THIS WEEK actions, calendar, and Zoom recaps. Name specific items. Null if nothing evident.",
+  "decisionsLog": "Decisions logged or clearly implied in the past 7-14 days. Each decision traceable to a line in the live data. Include rationale and follow-on consequences where present. Draw from RECENT DECISIONS block and Zoom summaries. Null if none.",
+  "blockers": "What's stuck. Overdue actions. Stalled threads. Risks raised but unresolved. Items that need a nudge or decision to unblock. Draw from OVERDUE, STALLED, and blocker-language in emails/Slack/memory. Be specific — name the item, the owner, and why it matters. Null if nothing is genuinely blocked.",
+  "relationshipSignals": "Cross-source signals about people and accounts. Who appeared in multiple channels this week? Any relationship that's warming, cooling, or needs attention? Any account activity worth noting? Draw from calendar attendees, email senders, Slack participants, and memory notes. Null if no cross-source signal.",
+  "nextWeekNeeds": "What next week requires. Meetings that need prep. Open threads to close. Decisions that are ripening. Items from DUE NEXT 7 DAYS and NEXT 7 DAYS CALENDAR. Basil's one or two priorities for Michael's attention. Null if nothing notable upcoming."
 }
 
 Return ONLY valid JSON, no markdown code fences.`;
 
   const result = await generateText({
-    model: anthropic("claude-sonnet-4-6"),
+    model: "anthropic/claude-sonnet-4.6",
     system: await getSystemPrompt(),
     prompt,
+    providerOptions: {
+      gateway: { tags: ["feature:digest", "env:production"] },
+    },
   });
 
   try {
@@ -249,12 +434,22 @@ Return ONLY valid JSON, no markdown code fences.`;
         calendarUpcoming: upcomingEvents.length,
         emails: emails.length,
         slackMessages: slackMessages.length,
+        zoomSummaries: zoomSummaries.length,
+        completedActions: completedThisWeek.length,
+        openActions: allOpenActions.length,
+        recentDecisions: recentDecisions.length,
+        memories: recentMemories.length,
       },
     });
   } catch {
+    // Fallback: wrap any parseable text in the primary section
     return Response.json({
-      error: "Failed to parse digest",
-      raw: result.text,
+      majorMeetings: result.text || "Failed to parse digest response.",
+      whatChanged: null,
+      decisionsLog: null,
+      blockers: null,
+      relationshipSignals: null,
+      nextWeekNeeds: null,
       generatedAt: now.toISOString(),
     });
   }
