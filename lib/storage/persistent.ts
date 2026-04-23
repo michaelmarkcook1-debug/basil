@@ -257,9 +257,20 @@ export async function writeStore<T>(filename: string, data: T): Promise<void> {
   await ensureDir();
   await fs.writeFile(path.join(DATA_DIR, filename), JSON.stringify(data, null, 2), "utf8");
   // Fire-and-forget snapshot — never blocks the response.
-  // Failures are logged and tracked in snapDiag; they do NOT propagate.
+  // For long-running after() pipelines, call forceFlushSnapshot() explicitly
+  // at the end to guarantee the snapshot completes within the function lifetime.
   persistSnapshot().catch((err) => {
-    // Should never reach here (persistSnapshot has its own catch), but belt-and-suspenders.
     console.error("[snapshot] Unexpected error in persistSnapshot:", err);
   });
+}
+
+/**
+ * Explicitly awaits a snapshot flush.
+ *
+ * Call this at the end of after() callbacks (poll-ingest, reprocess, etc.)
+ * to guarantee BASIL_DATA is updated before Vercel recycles the function.
+ * Unlike the fire-and-forget in writeStore, this awaits completion.
+ */
+export async function forceFlushSnapshot(): Promise<void> {
+  await persistSnapshot();
 }

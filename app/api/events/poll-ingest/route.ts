@@ -1,5 +1,6 @@
 import { NextResponse, after } from "next/server";
 import { createEvent, hasExternalId, updateEvent, compactEvents } from "@/lib/events/store";
+import { forceFlushSnapshot } from "@/lib/storage/persistent";
 import { eventFromIngest, isAboutKeyPerson } from "@/lib/events/rules";
 import { publish } from "@/lib/events/bus";
 import { generateDraftForEvent } from "@/lib/events/drafter";
@@ -307,13 +308,14 @@ export async function POST() {
           from: payload.from || "",
           dateFallback: payload.date,
           snippetFallback: payload.body,
-          // For Outlook emails, override the default Gmail body fetch with the
-          // Microsoft Graph equivalent so we always get the full message body.
           bodyFetcher: isOutlook
             ? () => getOutlookMessageBody(msgId)
             : undefined,
         });
       }
+      // Flush snapshot after all mutations so BASIL_DATA is updated before
+      // Vercel recycles this function instance.
+      await forceFlushSnapshot();
     });
   }
 
@@ -374,6 +376,7 @@ export async function POST() {
           );
         }
       }
+      await forceFlushSnapshot();
     });
   }
 
@@ -423,6 +426,7 @@ export async function POST() {
           console.error(`[poll-ingest] teams intelligence failed for ${payload.externalId}:`, err);
         }
       }
+      await forceFlushSnapshot();
     });
   }
 
@@ -478,15 +482,16 @@ export async function POST() {
     const zoomExternalId = p.externalId!;
     const zoomSubject = p.title;
     const zoomDate = p.date;
-    after(() =>
-      processZoomEmail({
+    after(async () => {
+      await processZoomEmail({
         gmailId,
         externalId: zoomExternalId,
         eventId: zoomEventId,
         subject: zoomSubject,
         dateFallback: zoomDate,
-      })
-    );
+      });
+      await forceFlushSnapshot();
+    });
   }
 
   // Run event compaction after ingestion — keeps the events store small
@@ -527,3 +532,6 @@ export async function POST() {
     eventsCompacted,
   });
 }
+
+// Vercel cron jobs call GET — expose the same logic so the 15-min cron works.
+export { POST as GET };

@@ -4,6 +4,7 @@ import { listActions } from "@/lib/actions/store";
 import { listDecisions } from "@/lib/decisions/store";
 import { processRegularEmail } from "@/lib/email/process-gmail-message";
 import { getOutlookMessageBody } from "@/lib/microsoft/outlook-mail";
+import { forceFlushSnapshot } from "@/lib/storage/persistent";
 
 /**
  * POST /api/events/reprocess
@@ -93,6 +94,8 @@ export async function POST(req: Request) {
       }
     }
     console.log(`[reprocess] completed: ${processed}/${toClassify.length} events classified`);
+    // Explicit flush so BASIL_DATA is updated before Vercel recycles the function.
+    await forceFlushSnapshot();
   });
 
   return NextResponse.json({
