@@ -146,6 +146,7 @@ export default function SettingsPage() {
   const [refreshing, setRefreshing] = useState(false);
   const [reprocessing, setReprocessing] = useState(false);
   const [reprocessResult, setReprocessResult] = useState<string | null>(null);
+  const [urlNotice, setUrlNotice] = useState<{ type: "success" | "error"; message: string } | null>(null);
 
   // ── Profile/settings state ────────────────────────────────────────────────
   const [profile, setProfile]         = useState<UserSettings | null>(null);
@@ -240,6 +241,30 @@ export default function SettingsPage() {
   useEffect(() => {
     void loadStatuses();
     void loadSettings();
+
+    // Parse OAuth callback params from URL and show a banner, then clean the URL
+    const params = new URLSearchParams(window.location.search);
+    const error     = params.get("error");
+    const connected = params.get("connected");
+
+    if (connected === "microsoft") {
+      setUrlNotice({ type: "success", message: "Microsoft 365 connected successfully." });
+    } else if (error === "microsoft_not_configured") {
+      setUrlNotice({
+        type: "error",
+        message:
+          "Microsoft 365 is not configured yet. Register an Azure AD app and add MICROSOFT_CLIENT_ID + MICROSOFT_CLIENT_SECRET to your Vercel environment variables, then redeploy.",
+      });
+    } else if (error === "microsoft_auth") {
+      setUrlNotice({ type: "error", message: "Microsoft 365 authorization failed — please try connecting again." });
+    } else if (error === "no_code") {
+      setUrlNotice({ type: "error", message: "Authorization was cancelled or no code was returned." });
+    }
+
+    // Remove query params from the URL bar without reloading
+    if (error || connected) {
+      window.history.replaceState({}, "", window.location.pathname);
+    }
   }, []);
 
   const g  = statuses?.google;
@@ -399,6 +424,19 @@ export default function SettingsPage() {
       {loadError && (
         <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
           Could not load integration status: {loadError}
+        </div>
+      )}
+
+      {/* OAuth callback notice (success / error from ?connected= or ?error= params) */}
+      {urlNotice && (
+        <div
+          className={`rounded-lg border px-4 py-3 text-sm ${
+            urlNotice.type === "success"
+              ? "border-emerald-200 bg-emerald-50 text-emerald-700"
+              : "border-amber-200 bg-amber-50 text-amber-800"
+          }`}
+        >
+          {urlNotice.message}
         </div>
       )}
 

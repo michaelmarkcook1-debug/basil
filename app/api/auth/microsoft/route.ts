@@ -4,10 +4,9 @@ import { getMicrosoftAuthUrl } from "@/lib/microsoft/auth";
 // GET /api/auth/microsoft — redirects to Microsoft OAuth consent screen
 export async function GET(req: Request) {
   if (!process.env.MICROSOFT_CLIENT_ID) {
-    return NextResponse.json(
-      { error: "MICROSOFT_CLIENT_ID not configured. Please register an Azure AD app and set MICROSOFT_CLIENT_ID and MICROSOFT_CLIENT_SECRET in your Vercel environment variables." },
-      { status: 503 }
-    );
+    console.warn("[microsoft-auth] MICROSOFT_CLIENT_ID not configured — redirecting to settings");
+    const settingsUrl = new URL("/dashboard/settings?error=microsoft_not_configured", req.url);
+    return NextResponse.redirect(settingsUrl);
   }
 
   // Derive the app base URL from the incoming request so OAuth works on any
