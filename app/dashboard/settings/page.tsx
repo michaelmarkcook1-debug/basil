@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import React, { useEffect, useState } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -24,6 +24,11 @@ import {
   Building2,
   Video,
   MessageSquare,
+  ChevronDown,
+  ChevronRight,
+  ExternalLink,
+  Copy,
+  ClipboardCheck,
 } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import type { IntegrationStatus, IntegrationState } from "@/lib/integrations/types";
@@ -147,6 +152,8 @@ export default function SettingsPage() {
   const [reprocessing, setReprocessing] = useState(false);
   const [reprocessResult, setReprocessResult] = useState<string | null>(null);
   const [urlNotice, setUrlNotice] = useState<{ type: "success" | "error"; message: string } | null>(null);
+  const [showAzureGuide, setShowAzureGuide] = useState(false);
+  const [copiedEnvVar, setCopiedEnvVar] = useState<string | null>(null);
 
   // ── Profile/settings state ────────────────────────────────────────────────
   const [profile, setProfile]         = useState<UserSettings | null>(null);
@@ -478,23 +485,94 @@ export default function SettingsPage() {
       {/* Show connect for: never connected, disconnected, OR error state */}
       {statuses && (!ms || ms.state === "disconnected" || ms.state === "error") && (
         <Card className="border-blue-500/30 bg-blue-500/5">
-          <CardContent className="py-6 text-center space-y-3">
-            <div className="flex items-center justify-center gap-2">
-              <Building2 className="h-5 w-5 text-blue-500" />
-              <p className="font-medium">Connect Microsoft 365</p>
+          <CardContent className="py-6 space-y-4">
+            <div className="text-center space-y-3">
+              <div className="flex items-center justify-center gap-2">
+                <Building2 className="h-5 w-5 text-blue-500" />
+                <p className="font-medium">Connect Microsoft 365</p>
+              </div>
+              <p className="text-sm text-muted-foreground">
+                Grants access to Outlook Mail, Outlook Calendar, OneDrive, and Teams — alongside or instead of Google.
+              </p>
+              {ms?.state === "error" && ms.error && (
+                <p className="text-xs text-red-600 bg-red-50 rounded px-3 py-1.5">{ms.error}</p>
+              )}
+              <Button
+                className="bg-blue-600 hover:bg-blue-700 text-white"
+                onClick={() => { window.location.href = "/api/auth/microsoft"; }}
+              >
+                Connect Microsoft 365
+              </Button>
             </div>
-            <p className="text-sm text-muted-foreground">
-              Grants access to Outlook Mail, Outlook Calendar, OneDrive, and Teams — alongside or instead of Google.
-            </p>
-            {ms?.state === "error" && ms.error && (
-              <p className="text-xs text-red-600 bg-red-50 rounded px-3 py-1.5">{ms.error}</p>
-            )}
-            <Button
-              className="bg-blue-600 hover:bg-blue-700 text-white"
-              onClick={() => { window.location.href = "/api/auth/microsoft"; }}
-            >
-              Connect Microsoft 365
-            </Button>
+
+            {/* Azure AD setup guide — collapsed by default */}
+            <div className="border-t border-blue-200/60 pt-4">
+              <button
+                onClick={() => setShowAzureGuide(v => !v)}
+                className="flex items-center gap-1.5 text-xs text-blue-700 hover:text-blue-900 font-medium w-full"
+              >
+                {showAzureGuide
+                  ? <ChevronDown className="h-3.5 w-3.5" />
+                  : <ChevronRight className="h-3.5 w-3.5" />}
+                Need to set up Azure AD? Follow the 5-minute guide
+              </button>
+              {showAzureGuide && (
+                <div className="mt-3 text-xs text-left space-y-3 text-blue-900/80">
+                  <p className="font-semibold text-blue-800">One-time setup (free, ~5 min):</p>
+                  <ol className="space-y-2.5 list-none">
+                    <AzureStep n={1}>
+                      Go to{" "}
+                      <a href="https://portal.azure.com" target="_blank" rel="noreferrer"
+                        className="underline inline-flex items-center gap-0.5">
+                        portal.azure.com <ExternalLink className="h-3 w-3" />
+                      </a>{" "}
+                      → search <span className="font-mono bg-blue-100 px-1 rounded">App registrations</span>{" "}
+                      → <strong>New registration</strong>
+                    </AzureStep>
+                    <AzureStep n={2}>
+                      Name: anything (e.g. <em>Basil</em>). Supported account types:{" "}
+                      <strong>"Accounts in any organizational directory … and personal Microsoft accounts"</strong>
+                    </AzureStep>
+                    <AzureStep n={3}>
+                      Redirect URI → <strong>Web</strong> →{" "}
+                      <CopyableCode
+                        value="https://ag-contracts.vercel.app/api/auth/microsoft/callback"
+                        copiedEnvVar={copiedEnvVar}
+                        setCopiedEnvVar={setCopiedEnvVar}
+                      />
+                    </AzureStep>
+                    <AzureStep n={4}>
+                      Click <strong>Register</strong>. On the overview page, copy{" "}
+                      <span className="font-mono bg-blue-100 px-1 rounded">Application (client) ID</span>{" "}
+                      → this is your <strong>MICROSOFT_CLIENT_ID</strong>
+                    </AzureStep>
+                    <AzureStep n={5}>
+                      <strong>Certificates &amp; secrets</strong> → <strong>New client secret</strong> →
+                      copy the <em>Value</em> (not the ID) → this is your <strong>MICROSOFT_CLIENT_SECRET</strong>
+                    </AzureStep>
+                    <AzureStep n={6}>
+                      <strong>API permissions</strong> → <strong>Add a permission</strong> →{" "}
+                      <strong>Microsoft Graph</strong> → <strong>Delegated</strong> → add:{" "}
+                      <span className="font-mono bg-blue-100 px-1 rounded text-[11px]">
+                        Mail.Read Mail.ReadWrite Mail.Send Calendars.ReadWrite Files.Read.All
+                        Chat.Read ChannelMessage.Read.All User.Read offline_access
+                      </span>
+                    </AzureStep>
+                    <AzureStep n={7}>
+                      In the{" "}
+                      <a href="https://vercel.com/dashboard" target="_blank" rel="noreferrer"
+                        className="underline inline-flex items-center gap-0.5">
+                        Vercel dashboard <ExternalLink className="h-3 w-3" />
+                      </a>
+                      , add both env vars to <strong>Production</strong> and redeploy.
+                    </AzureStep>
+                  </ol>
+                  <p className="text-blue-700 bg-blue-50 rounded px-3 py-2 mt-2">
+                    Once both env vars are set and deployed, click <strong>Connect Microsoft 365</strong> above.
+                  </p>
+                </div>
+              )}
+            </div>
           </CardContent>
         </Card>
       )}
@@ -541,7 +619,9 @@ export default function SettingsPage() {
               </CardTitle>
             </CardHeader>
             <CardContent className="space-y-4">
-              {items.map((integration, i) => (
+              {items.map((integration, i) => {
+                const isNotConnected = !integration.status || integration.status.state !== "connected";
+                return (
                 <div key={integration.key}>
                   <div className="flex items-start gap-3">
                     <integration.icon className={`h-5 w-5 mt-0.5 shrink-0 ${integration.color}`} />
@@ -555,11 +635,24 @@ export default function SettingsPage() {
                         <p className="text-xs text-red-600 mt-0.5 truncate">{integration.status.error}</p>
                       )}
                     </div>
-                    <StateBadge state={integration.status ? integration.status.state : "loading"} />
+                    {/* Microsoft rows: show Connect button when not connected */}
+                    {group === "microsoft" && isNotConnected ? (
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        className="shrink-0 text-xs h-7 px-2.5 text-blue-600 border-blue-200 hover:bg-blue-50 hover:border-blue-400"
+                        onClick={() => { window.location.href = "/api/auth/microsoft"; }}
+                      >
+                        Connect →
+                      </Button>
+                    ) : (
+                      <StateBadge state={integration.status ? integration.status.state : "loading"} />
+                    )}
                   </div>
                   {i < items.length - 1 && <Separator className="mt-4" />}
                 </div>
-              ))}
+                );
+              })}
             </CardContent>
           </Card>
         );
@@ -826,5 +919,46 @@ export default function SettingsPage() {
         </Card>
       )}
     </div>
+  );
+}
+
+// ── Azure AD guide helpers ────────────────────────────────────────────────────
+
+function AzureStep({ n, children }: { n: number; children: React.ReactNode }) {
+  return (
+    <li className="flex gap-2.5">
+      <span className="flex-shrink-0 h-5 w-5 rounded-full bg-blue-600 text-white flex items-center justify-center font-bold text-[10px]">
+        {n}
+      </span>
+      <span className="pt-0.5 leading-relaxed">{children}</span>
+    </li>
+  );
+}
+
+function CopyableCode({
+  value,
+  copiedEnvVar,
+  setCopiedEnvVar,
+}: {
+  value: string;
+  copiedEnvVar: string | null;
+  setCopiedEnvVar: (v: string | null) => void;
+}) {
+  const copied = copiedEnvVar === value;
+  return (
+    <span
+      className="inline-flex items-center gap-1 font-mono bg-blue-100 px-1.5 py-0.5 rounded cursor-pointer hover:bg-blue-200 transition-colors"
+      onClick={async () => {
+        await navigator.clipboard.writeText(value);
+        setCopiedEnvVar(value);
+        setTimeout(() => setCopiedEnvVar(null), 2000);
+      }}
+      title="Click to copy"
+    >
+      {value}
+      {copied
+        ? <ClipboardCheck className="h-3 w-3 text-emerald-600" />
+        : <Copy className="h-3 w-3 text-blue-500" />}
+    </span>
   );
 }
