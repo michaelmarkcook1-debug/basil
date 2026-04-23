@@ -2,7 +2,7 @@
   "crons": [
     {
       "path": "/api/events/poll-ingest",
-      "schedule": "*/15 * * * *"
+      "schedule": "0 7 * * *"
     },
     {
       "path": "/api/cron/renew-subscriptions",
