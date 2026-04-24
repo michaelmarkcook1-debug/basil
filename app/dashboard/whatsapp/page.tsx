@@ -88,6 +88,12 @@ export default function WhatsAppPage() {
   const [importing, setImporting] = useState(false);
   const [importPreview, setImportPreview] = useState<{ added: number } | null>(null);
   const pollRef = useRef<number | null>(null);
+  // Track when the current QR code was received so we can show an expiry countdown.
+  // WhatsApp QR codes are valid for ~60 seconds; Baileys issues a new one each time.
+  const qrSeenAtRef = useRef<number | null>(null);
+  const [qrSecondsLeft, setQrSecondsLeft] = useState<number | null>(null);
+  const qrTimerRef = useRef<number | null>(null);
+  const lastQrUrlRef = useRef<string | null>(null);
 
   const loadSnapshot = useCallback(async () => {
     setSnapshotLoading(true);
@@ -106,8 +112,27 @@ export default function WhatsAppPage() {
     try {
       const res = await fetch("/api/whatsapp/dump/status", { cache: "no-store" });
       const data = await res.json();
-      setStatus(data.status);
-      return data.status as DumpStatus;
+      const s = data.status as DumpStatus;
+      setStatus(s);
+
+      // Start (or restart) the QR expiry countdown whenever a new QR arrives.
+      if (s?.state === "awaiting_qr" && s.qrDataUrl && s.qrDataUrl !== lastQrUrlRef.current) {
+        lastQrUrlRef.current = s.qrDataUrl;
+        qrSeenAtRef.current = Date.now();
+        if (qrTimerRef.current) window.clearInterval(qrTimerRef.current);
+        setQrSecondsLeft(60);
+        qrTimerRef.current = window.setInterval(() => {
+          const elapsed = Math.floor((Date.now() - (qrSeenAtRef.current ?? Date.now())) / 1000);
+          const left = Math.max(0, 60 - elapsed);
+          setQrSecondsLeft(left);
+          if (left === 0 && qrTimerRef.current) {
+            window.clearInterval(qrTimerRef.current);
+            qrTimerRef.current = null;
+          }
+        }, 1000);
+      }
+
+      return s;
     } catch {
       return null;
     }
@@ -118,6 +143,7 @@ export default function WhatsAppPage() {
     loadStatus();
     return () => {
       if (pollRef.current) window.clearInterval(pollRef.current);
+      if (qrTimerRef.current) window.clearInterval(qrTimerRef.current);
     };
   }, [loadSnapshot, loadStatus]);
 
@@ -324,7 +350,14 @@ export default function WhatsAppPage() {
 
             {status.state === "awaiting_qr" && status.qrDataUrl && (
               <div className="flex flex-col items-center gap-3 py-4">
-                <div className="rounded-xl ring-1 ring-border bg-white p-3 shadow-sm">
+                {/* Stale QR warning */}
+                {qrSecondsLeft === 0 && (
+                  <div className="rounded-lg bg-amber-50 border border-amber-200 px-4 py-2 text-[13px] text-amber-800 flex items-center gap-2">
+                    <AlertTriangle className="h-4 w-4 shrink-0" />
+                    This QR has expired — a fresh one should appear in a moment. If it doesn't, click Reset and start again.
+                  </div>
+                )}
+                <div className={`relative rounded-xl ring-1 bg-white p-3 shadow-sm transition-all ${qrSecondsLeft === 0 ? "ring-amber-400 opacity-40 grayscale" : "ring-border"}`}>
                   {/* eslint-disable-next-line @next/next/no-img-element */}
                   <img
                     src={status.qrDataUrl}
@@ -332,6 +365,12 @@ export default function WhatsAppPage() {
                     className="h-64 w-64"
                   />
                 </div>
+                {/* Expiry countdown */}
+                {qrSecondsLeft !== null && qrSecondsLeft > 0 && (
+                  <div className={`text-[12px] font-mono tabular-nums ${qrSecondsLeft <= 10 ? "text-amber-600 font-semibold" : "text-muted-foreground"}`}>
+                    Scan within {qrSecondsLeft}s — code refreshes automatically
+                  </div>
+                )}
                 <p className="text-[13px] text-muted-foreground text-center max-w-md leading-relaxed">
                   Open WhatsApp on your phone → <strong>Settings</strong> →{" "}
                   <strong>Linked Devices</strong> → <strong>Link a device</strong> — then scan this code.
