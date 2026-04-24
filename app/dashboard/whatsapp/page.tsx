@@ -142,6 +142,11 @@ export default function WhatsAppPage() {
   useEffect(() => {
     loadSnapshot();
     loadStatus();
+    // Silently rebuild the compact signal index on every page mount.
+    // This bootstraps whatsapp-signal-index.json into BASIL_DATA from whichever
+    // warm instance still has the snapshot file on disk — required so
+    // generate-profile can find WhatsApp message signal on cold-start instances.
+    fetch("/api/whatsapp/rebuild-index", { method: "POST" }).catch(() => {/* best-effort */});
     return () => {
       if (pollRef.current) window.clearInterval(pollRef.current);
       if (qrTimerRef.current) window.clearInterval(qrTimerRef.current);

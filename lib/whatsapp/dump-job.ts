@@ -118,9 +118,12 @@ export interface Snapshot {
 // getWhatsAppSignalForContact falls back to it when the full snapshot is absent.
 
 const SIGNAL_INDEX_FILE = "whatsapp-signal-index.json";
-const SIGNAL_MAX_CHATS   = 60;  // top N most-recent 1:1 chats
-const SIGNAL_MAX_MSGS    = 10;  // messages per chat
-const SIGNAL_MAX_TEXT    = 120; // chars per message text
+// Keep the index small — BASIL_DATA budget is ~52KB and is already ~48KB used.
+// 40 chats × 6 msgs × 80 chars ≈ 19KB raw → ~25KB base64. The auto-compactor
+// will trim sage-events.json to compensate, which has plenty of headroom.
+const SIGNAL_MAX_CHATS   = 40;
+const SIGNAL_MAX_MSGS    = 6;
+const SIGNAL_MAX_TEXT    = 80;
 
 export interface SignalIndexChat {
   jid: string;   // user portion of JID, e.g. "447700900123"
