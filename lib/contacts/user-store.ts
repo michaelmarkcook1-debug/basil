@@ -20,12 +20,21 @@ const CONTACTS_FILE = "sage-user-contacts.json";
 const LOCK_KEY = "user-contacts";
 
 // ── Normaliser ───────────────────────────────────────────────────────────────
-// 1. Back-compat: older records may be missing `directory`.
-// 2. Domain tagging: any contact with a @talentgenius.io email is automatically
-//    marked as internal with company "TalentGenius" and directory "work".
+// 1. Back-compat: older records may be missing `directory` → default "work".
+// 2. Domain tagging: @talentgenius.io email → force internal/work.
+// 3. Name guard: never persist a blank name — fall back to phone or id.
 function normalize(c: Contact): Contact {
-  let out = c.directory ? c : { ...c, directory: "work" as const };
+  // 1. Directory back-compat
+  let out: Contact = c.directory ? c : { ...c, directory: "work" as const };
 
+  // 2. Name guard — blank names must never reach the store.
+  //    Precedence: existing name → phone (clean fallback for WhatsApp contacts) → id.
+  const name = out.name?.trim();
+  if (!name) {
+    out = { ...out, name: out.phone?.trim() || out.id };
+  }
+
+  // 3. TalentGenius domain tagging
   if (out.email && out.email.toLowerCase().endsWith("@talentgenius.io")) {
     out = {
       ...out,

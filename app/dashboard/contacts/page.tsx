@@ -33,6 +33,48 @@ import {
 
 import type { ContactSuggestion } from "@/lib/types/contact";
 
+// ── Per-contact draft store ───────────────────────────────────────────────────
+// CLASSIFICATION: sage-contact-draft-{id} → LOCAL-ONLY (transient in-progress
+// work; keyed by contact ID; cleared on explicit save or discard; never promoted
+// to server truth).
+//
+// Persists genNotes, the generated preview, extracted canonical fields, and
+// panel-open state across contact-list navigation and tab switches.
+// The ContactDetail component loads from here on mount; writes on every change.
+const DRAFT_KEY_PREFIX = "sage-contact-draft-";
+
+interface ContactDraft {
+  genNotes: string;
+  genOpen: boolean;
+  preview: ProfileOverride | null;
+  /** Structured fields the AI extracted from context notes.
+   *  Applied to the canonical Contact record alongside the prose override on save. */
+  canonicalFields: Partial<Contact> | null;
+}
+
+const EMPTY_DRAFT: ContactDraft = {
+  genNotes: "",
+  genOpen: false,
+  preview: null,
+  canonicalFields: null,
+};
+
+function readContactDraft(contactId: string): ContactDraft {
+  if (typeof window === "undefined") return EMPTY_DRAFT;
+  try {
+    const raw = localStorage.getItem(`${DRAFT_KEY_PREFIX}${contactId}`);
+    if (!raw) return EMPTY_DRAFT;
+    return JSON.parse(raw) as ContactDraft;
+  } catch {
+    return EMPTY_DRAFT;
+  }
+}
+
+function clearContactDraft(contactId: string): void {
+  if (typeof window === "undefined") return;
+  try { localStorage.removeItem(`${DRAFT_KEY_PREFIX}${contactId}`); } catch { /* ignore */ }
+}
+
 function ContactList({
   contacts: list,
   selected,
@@ -91,6 +133,7 @@ function ContactDetail({
   override,
   onSaveOverride,
   onClearOverride,
+  onContactUpdated,
 }: {
   contact: Contact;
   liveItems: string[];
@@ -105,6 +148,8 @@ function ContactDetail({
   override?: ProfileOverride;
   onSaveOverride: (patch: ProfileOverride) => void;
   onClearOverride: () => void;
+  /** Called after canonical Contact fields are updated so the parent can refresh. */
+  onContactUpdated: () => void;
 }) {
   const daysSince = lastInteraction
     ? Math.floor((Date.now() - new Date(lastInteraction).getTime()) / 86400000)
@@ -112,13 +157,24 @@ function ContactDetail({
   const otherDirectory: ContactDirectory =
     contact.directory === "work" ? "personal" : "work";
 
-  // Generator state — local to this component so the panel resets when the
-  // user navigates between contacts.
+  // ── Generator state ────────────────────────────────────────────────────────
+  // STATE MODEL:
+  //   genNotes        → LOCAL DRAFT (durable: survives tab switches)
+  //   preview         → LOCAL DRAFT (durable: AI-generated prose, pending acceptance)
+  //   canonicalFields → LOCAL DRAFT (durable: structured fields extracted from notes)
+  //   genOpen         → LOCAL DRAFT (durable: whether the context panel is visible)
+  //   genError        → EPHEMERAL  (never persisted — re-run to refresh)
+  //   genLoading      → EPHEMERAL  (in-flight flag)
+  //
+  // Draft is persisted to localStorage keyed by contact.id via the effect below.
+  // On contact change the draft is loaded; on save/discard it is explicitly cleared.
   const [genOpen, setGenOpen] = useState(false);
   const [genNotes, setGenNotes] = useState("");
   const [genLoading, setGenLoading] = useState(false);
   const [genError, setGenError] = useState("");
   const [preview, setPreview] = useState<ProfileOverride | null>(null);
+  /** Structured canonical fields extracted by the AI from context notes. */
+  const [canonicalFields, setCanonicalFields] = useState<Partial<Contact> | null>(null);
 
   // Inline name editing — only for user-added contacts.
   const [editingName, setEditingName] = useState(false);
@@ -135,15 +191,38 @@ function ContactDetail({
     setNameSaving(false);
   }
 
-  // Reset generator UI when the selected contact changes.
+  // ① Load per-contact draft from localStorage when the selected contact changes.
+  //   Restores durable state (genNotes, preview, canonicalFields, genOpen);
+  //   always clears ephemeral state (error, loading, editingName).
+  //   contact.name is in deps so nameInput stays current after a rename.
   useEffect(() => {
-    setGenOpen(false);
-    setGenNotes("");
-    setGenError("");
-    setPreview(null);
+    const draft = readContactDraft(contact.id);
+    setGenOpen(draft.genOpen);
+    setGenNotes(draft.genNotes);
+    setPreview(draft.preview);
+    setCanonicalFields(draft.canonicalFields);
+    setGenError(""); // ephemeral — always clear on contact change
+    setGenLoading(false);
     setEditingName(false);
     setNameInput(contact.name);
-  }, [contact.id, contact.name]);
+  }, [contact.id, contact.name]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // ② Persist draft state to localStorage whenever durable fields change.
+  //   Draft is keyed by contact.id — switching contacts never bleeds state.
+  //   Auto-clears the key when all durable fields are empty (after save/discard).
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    if (!genNotes && !genOpen && !preview && !canonicalFields) {
+      localStorage.removeItem(`${DRAFT_KEY_PREFIX}${contact.id}`);
+    } else {
+      try {
+        localStorage.setItem(
+          `${DRAFT_KEY_PREFIX}${contact.id}`,
+          JSON.stringify({ genNotes, genOpen, preview, canonicalFields } satisfies ContactDraft)
+        );
+      } catch { /* storage full */ }
+    }
+  }, [contact.id, genNotes, genOpen, preview, canonicalFields]);
 
   async function generateProfile() {
     setGenLoading(true);
@@ -162,8 +241,21 @@ function ContactDetail({
         }),
       });
       if (!res.ok) throw new Error(`Request failed (${res.status})`);
-      const data = (await res.json()) as ProfileOverride & { error?: string };
+      const data = (await res.json()) as ProfileOverride & {
+        error?: string;
+        /** Structured fields explicitly stated in Michael's notes. */
+        canonicalFields?: Partial<Contact>;
+      };
       if (data.error) throw new Error(data.error);
+
+      // Store any structured field extractions — applied to the canonical
+      // Contact record when the user accepts the preview (see acceptPreview).
+      const extracted = data.canonicalFields ?? {};
+      const hasCanonical = Object.values(extracted).some(
+        (v) => v && typeof v === "string" && (v as string).trim()
+      );
+      setCanonicalFields(hasCanonical ? extracted : null);
+
       setPreview({
         personality: data.personality,
         whatMakesThemTick: data.whatMakesThemTick,
@@ -182,8 +274,30 @@ function ContactDetail({
 
   function acceptPreview() {
     if (!preview) return;
+
+    // 1. Save prose fields to the ProfileOverride store.
     onSaveOverride(preview);
+
+    // 2. Apply any canonical field extractions to the Contact record.
+    //    Only writes non-empty values — never blanks a field that already has data.
+    if (canonicalFields) {
+      const patch: Partial<Contact> = {};
+      for (const [key, value] of Object.entries(canonicalFields)) {
+        if (value && typeof value === "string" && (value as string).trim()) {
+          (patch as Record<string, string>)[key] = (value as string).trim();
+        }
+      }
+      if (Object.keys(patch).length > 0) {
+        void updateUserContact(contact.id, patch).then((updated) => {
+          if (updated) onContactUpdated();
+        });
+      }
+    }
+
+    // 3. Clear draft — work is complete.
+    clearContactDraft(contact.id);
     setPreview(null);
+    setCanonicalFields(null);
     setGenOpen(false);
     setGenNotes("");
   }
@@ -232,6 +346,12 @@ function ContactDetail({
               )}
               <p className="text-sm text-[oklch(0.72_0.15_85)]">{contact.title}</p>
               <p className="text-sm text-muted-foreground">{contact.company}</p>
+              {contact.phone && (
+                <p className="text-sm text-muted-foreground flex items-center gap-1 mt-0.5">
+                  <Phone className="h-3 w-3 shrink-0" />
+                  {contact.phone}
+                </p>
+              )}
             </div>
             <div className="flex items-center gap-2 shrink-0">
               <Badge
@@ -380,9 +500,13 @@ function ContactDetail({
                 size="sm"
                 variant="outline"
                 onClick={() => {
+                  // Cancel = abandon in-progress work entirely.
+                  clearContactDraft(contact.id);
                   setGenOpen(false);
                   setGenNotes("");
                   setGenError("");
+                  setPreview(null);
+                  setCanonicalFields(null);
                 }}
                 disabled={genLoading}
               >
@@ -402,6 +526,30 @@ function ContactDetail({
 
         {preview && (
           <div className="space-y-3">
+            {/* Canonical field extractions — contact details the AI pulled from notes */}
+            {canonicalFields && Object.values(canonicalFields).some((v) => v) && (
+              <div className="rounded-lg bg-emerald-500/10 ring-1 ring-emerald-500/20 p-3 space-y-1.5">
+                <p className="text-[12px] font-semibold text-emerald-700 dark:text-emerald-400 flex items-center gap-1.5">
+                  <Check className="h-3 w-3" />
+                  Contact details to update on save
+                </p>
+                {(Object.entries(canonicalFields) as [string, string | undefined][]).map(([key, value]) => {
+                  if (!value) return null;
+                  const labels: Record<string, string> = {
+                    name: "Name", title: "Role", company: "Company",
+                    location: "Location", email: "Email", phone: "Phone",
+                  };
+                  return (
+                    <p key={key} className="text-xs text-foreground/80">
+                      <span className="text-muted-foreground">{labels[key] ?? key}:</span>{" "}
+                      <span className="font-medium">{value}</span>
+                    </p>
+                  );
+                })}
+              </div>
+            )}
+
+            {/* Prose preview */}
             <div className="rounded-lg bg-background/60 ring-1 ring-border p-3 space-y-3">
               {(
                 [
@@ -439,7 +587,12 @@ function ContactDetail({
               <Button
                 size="sm"
                 variant="outline"
-                onClick={() => setPreview(null)}
+                onClick={() => {
+                  // Discard preview only — keep notes so user can iterate.
+                  // Persistence effect will update the stored draft automatically.
+                  setPreview(null);
+                  setCanonicalFields(null);
+                }}
               >
                 Discard
               </Button>
@@ -1119,6 +1272,12 @@ export default function ContactsPage() {
             override={selectedOverride}
             onSaveOverride={(patch) => handleSaveOverride(selected.id, patch)}
             onClearOverride={() => handleClearOverride(selected.id)}
+            onContactUpdated={() => {
+              // Refresh the contacts list after canonical field updates (e.g. title,
+              // company, location extracted from context notes on profile save).
+              setUserContacts(getUserContacts());
+              notifyContacts();
+            }}
           />
         ) : (
           <div className="flex flex-col items-center justify-center h-full text-center">

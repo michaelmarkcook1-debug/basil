@@ -17,6 +17,8 @@
 
 import { promises as fs } from "node:fs";
 import path from "node:path";
+import { DATA_DIR as STORE_DATA_DIR } from "@/lib/storage/paths";
+import { forceFlushSnapshot } from "@/lib/storage/persistent";
 import makeWASocket, {
   useMultiFileAuthState,
   fetchLatestBaileysVersion,
@@ -105,7 +107,10 @@ export interface Snapshot {
   meName?: string;
 }
 
-const DATA_DIR = path.join(process.cwd(), ".data");
+// Use the same data directory as all other stores so the snapshot is backed up
+// in BASIL_DATA and readable across Vercel function instances.
+// On Vercel this resolves to /tmp/basil-data (writable); locally it's .data/.
+const DATA_DIR = STORE_DATA_DIR;
 const AUTH_DIR = path.join(DATA_DIR, "whatsapp-auth");
 const SNAPSHOT_FILE = path.join(DATA_DIR, "whatsapp-snapshot.json");
 
@@ -115,6 +120,10 @@ const GLOBAL_KEY = Symbol.for("basil.whatsapp.dump");
 interface GlobalBag {
   status: DumpStatus;
   running: boolean;
+  /** Set by resetDump() to signal any running job to stop immediately. */
+  cancelRequested: boolean;
+  /** Active Baileys socket — stored so resetDump() can force-close it on cancel. */
+  currentSocket?: ReturnType<typeof makeWASocket>;
 }
 function bag(): GlobalBag {
   const g = globalThis as unknown as Record<symbol, GlobalBag | undefined>;
@@ -122,6 +131,7 @@ function bag(): GlobalBag {
     g[GLOBAL_KEY] = {
       status: { state: "idle", chatCount: 0, messageCount: 0, contactCount: 0 },
       running: false,
+      cancelRequested: false,
     };
   }
   return g[GLOBAL_KEY]!;
@@ -158,6 +168,35 @@ async function wipeAuthDir(): Promise<void> {
     await fs.rm(AUTH_DIR, { recursive: true, force: true });
   } catch {
     /* best effort */
+  }
+}
+
+/**
+ * Extract the sender's push name from an inbound message and write it back
+ * into contactsById so that contacts without address-book names still get a
+ * display name in the snapshot.
+ *
+ * WhatsApp embeds the sender's current display name ("push name") in the
+ * message header for every received message.  Baileys exposes this as
+ * `m.pushName`.  We use it to fill in `notify` for any contact that has no
+ * name yet — this dramatically improves name coverage for numbers not saved
+ * in the phone's address book.
+ */
+function harvestPushName(
+  m: WAMessage,
+  contactsById: Map<string, WAContact>
+): void {
+  if (!m.pushName || m.key.fromMe) return;
+  const senderJid = m.key.participant || m.key.remoteJid;
+  if (!senderJid) return;
+  const existing = contactsById.get(senderJid);
+  if (existing) {
+    if (!existing.notify) {
+      // Enrich — don't overwrite an existing name.
+      contactsById.set(senderJid, { ...existing, notify: m.pushName });
+    }
+  } else {
+    contactsById.set(senderJid, { id: senderJid, notify: m.pushName });
   }
 }
 
@@ -241,7 +280,16 @@ export async function startDump(): Promise<void> {
 
   // Run the dump off the request path so POST can return immediately.
   (async () => {
+    const b = bag();
+    b.cancelRequested = false; // Clear any leftover cancel flag from a previous run
     try {
+      // Always start with a clean auth dir so WhatsApp always shows a fresh QR.
+      // This guarantees we never silently re-use a stale session from a previous
+      // dump — the user always knows when they're linking a new session.
+      await wipeAuthDir();
+      // Check cancel immediately after the first async operation — resetDump()
+      // may have been called while wipeAuthDir was running.
+      if (b.cancelRequested) { b.running = false; return; }
       await fs.mkdir(AUTH_DIR, { recursive: true });
       const { state, saveCreds } = await useMultiFileAuthState(AUTH_DIR);
       const { version } = await fetchLatestBaileysVersion();
@@ -264,6 +312,7 @@ export async function startDump(): Promise<void> {
       const MAX_RECONNECTS = 4;
 
       const connectSocket = () => {
+        if (b.cancelRequested) return; // Don't open a socket after cancel
         const sock = makeWASocket({
           version,
           auth: state,
@@ -273,10 +322,12 @@ export async function startDump(): Promise<void> {
           markOnlineOnConnect: false,
         });
         currentSock = sock;
+        b.currentSocket = sock; // Expose to resetDump() for force-close
 
         sock.ev.on("creds.update", saveCreds);
 
         sock.ev.on("connection.update", async (u) => {
+          if (b.cancelRequested) return; // Ignore all events after cancel
           const { connection, qr, lastDisconnect } = u;
           if (qr) {
             try {
@@ -284,6 +335,24 @@ export async function startDump(): Promise<void> {
               setStatus({ state: "awaiting_qr", qrDataUrl: dataUrl });
             } catch {
               /* ignore QR render failures — state stays awaiting_qr */
+            }
+          }
+          if (connection === "connecting") {
+            // If a QR was already shown and the connection is re-establishing,
+            // the QR was almost certainly just scanned. Transition to the
+            // "authenticating" state so the UI can show a clear post-scan message
+            // rather than the stale QR or a blank spinner.
+            //
+            // IMPORTANT: Baileys fires "connecting" on INITIAL socket creation
+            // (before any QR is shown) as well as after a QR scan. The qrDataUrl
+            // guard ensures we only transition to "authenticating" after the user
+            // actually saw and scanned a QR — not on the initial TCP connect.
+            if (b.status.state === "awaiting_qr" && b.status.qrDataUrl) {
+              setStatus({
+                state: "authenticating",
+                qrDataUrl: undefined,
+                progressNote: "QR scanned — authenticating…",
+              });
             }
           }
           if (connection === "open") {
@@ -302,7 +371,7 @@ export async function startDump(): Promise<void> {
 
             // restartRequired (515): WhatsApp server asking for a protocol restart.
             // Not a failure — silently create a fresh socket and retry.
-            if (code === DisconnectReason.restartRequired && reconnectAttempts < MAX_RECONNECTS) {
+            if (code === DisconnectReason.restartRequired && reconnectAttempts < MAX_RECONNECTS && !b.cancelRequested) {
               reconnectAttempts++;
               console.log(`[whatsapp] restartRequired — reconnecting (${reconnectAttempts}/${MAX_RECONNECTS})`);
               setTimeout(() => connectSocket(), 1_500);
@@ -325,6 +394,7 @@ export async function startDump(): Promise<void> {
         });
 
         sock.ev.on("messaging-history.set", (evt) => {
+          if (b.cancelRequested) return;
           const { chats, messages, contacts, isLatest } = evt;
           for (const c of chats) {
             if (c.id) chatsById.set(c.id, c);
@@ -337,6 +407,9 @@ export async function startDump(): Promise<void> {
               messagesByChat.set(key.remoteJid, new Map());
             }
             messagesByChat.get(key.remoteJid)!.set(key.id, m);
+            // Harvest push name from each message — fills in names for contacts
+            // that aren't in the address book (no c.name) but have a WhatsApp display name.
+            harvestPushName(m, contactsById);
           }
           lastHistoryAt = Date.now();
           const totalMsgs = [...messagesByChat.values()].reduce(
@@ -358,6 +431,7 @@ export async function startDump(): Promise<void> {
 
         // Also pick up live messages that arrive during the window (rare but possible).
         sock.ev.on("messages.upsert", ({ messages }) => {
+          if (b.cancelRequested) return;
           for (const m of messages) {
             const key = m.key;
             if (!key?.remoteJid || !key.id) continue;
@@ -365,6 +439,9 @@ export async function startDump(): Promise<void> {
               messagesByChat.set(key.remoteJid, new Map());
             }
             messagesByChat.get(key.remoteJid)!.set(key.id, m);
+            // Harvest push names from incoming messages — improves name coverage
+            // for contacts not yet in the address book.
+            harvestPushName(m, contactsById);
           }
           lastHistoryAt = Date.now();
         });
@@ -376,6 +453,12 @@ export async function startDump(): Promise<void> {
       // Poll the quiet-window condition.
       await new Promise<void>((resolve) => {
         const interval = setInterval(() => {
+          // Cancel check — break out immediately when the user presses Cancel.
+          if (b.cancelRequested) {
+            clearInterval(interval);
+            resolve();
+            return;
+          }
           const now = Date.now();
           const elapsed = now - start;
           if (historyCompleted) {
@@ -388,15 +471,23 @@ export async function startDump(): Promise<void> {
             resolve();
             return;
           }
-          // While waiting with no data yet, update the progress note so the UI
-          // doesn't look frozen.
+          // Update progress note while waiting for history to arrive.
+          // CRITICAL: do NOT set state here — this branch fires before the user
+          // has even scanned the QR, and patching state:"syncing" would overwrite
+          // "awaiting_qr", hiding the QR code from the UI.  The state transitions
+          // are owned exclusively by the connection.update handler:
+          //   QR arrives       → state: "awaiting_qr"
+          //   connection:"open" → state: "syncing"
           if (chatsById.size === 0 && lastHistoryAt === 0) {
             const waitSecs = Math.floor(elapsed / 1000);
             const maxSecs  = Math.floor(MAX_WAIT_MS / 1000);
-            setStatus({
-              state: "syncing",
-              progressNote: `Waiting for WhatsApp to push history… (${waitSecs}s / ${maxSecs}s max)`,
-            });
+            // Only update the progress note when already authenticated (syncing).
+            // During awaiting_qr the QR panel is visible — no note needed.
+            if (b.status.state === "syncing") {
+              setStatus({
+                progressNote: `Waiting for WhatsApp to push history… (${waitSecs}s / ${maxSecs}s max)`,
+              });
+            }
           }
           // Only start the quiet-window timer once history has actually begun.
           if (
@@ -409,6 +500,14 @@ export async function startDump(): Promise<void> {
           }
         }, 1500);
       });
+
+      // Cancel guard: if cancelled during the poll-wait, clean up and exit
+      // without saving — the status is already "idle" from resetDump().
+      if (b.cancelRequested) {
+        try { await currentSock!.logout(); } catch { /* ignore */ }
+        await wipeAuthDir();
+        return;
+      }
 
       // Guard: if WhatsApp never sent any history, fail loudly rather than
       // saving an empty snapshot that makes it look like a successful import.
@@ -505,6 +604,9 @@ export async function startDump(): Promise<void> {
 
       await fs.mkdir(DATA_DIR, { recursive: true });
       await fs.writeFile(SNAPSHOT_FILE, JSON.stringify(snapshot, null, 2), "utf8");
+      // Flush the snapshot into BASIL_DATA so it survives Vercel cold starts and
+      // is readable on any function instance, not just the one that ran the dump.
+      await forceFlushSnapshot();
 
       setStatus({
         state: "disconnecting",
@@ -529,30 +631,55 @@ export async function startDump(): Promise<void> {
         progressNote: `Imported ${snapshot.chatCount} chat(s), ${snapshot.messageCount} message(s). Device unlinked.`,
       });
     } catch (e) {
-      console.error("[whatsapp dump] failed:", e);
-      setStatus({
-        state: "error",
-        error: e instanceof Error ? e.message : "Unknown error",
-        finishedAt: new Date().toISOString(),
-      });
+      // Suppress error reporting if the job was cancelled — the error is
+      // expected (socket.end() causes the promise chain to throw).
+      if (!b.cancelRequested) {
+        console.error("[whatsapp dump] failed:", e);
+        setStatus({
+          state: "error",
+          error: e instanceof Error ? e.message : "Unknown error",
+          finishedAt: new Date().toISOString(),
+        });
+      }
       // Belt-and-braces: wipe any partial auth so the next attempt starts clean.
       await wipeAuthDir();
     } finally {
-      bag().running = false;
+      b.running = false;
+      b.currentSocket = undefined;
+      if (b.cancelRequested) {
+        // Cancelled path: ensure status is clean regardless of what ran above.
+        b.cancelRequested = false;
+        b.status = { state: "idle", chatCount: 0, messageCount: 0, contactCount: 0 };
+      }
     }
   })();
 }
 
 export async function resetDump(): Promise<void> {
-  // Only allow reset when not actively running.
-  if (bag().running) return;
-  await wipeAuthDir();
-  bag().status = {
+  const b = bag();
+  // Signal any running IIFE to stop — checked at every async boundary.
+  b.cancelRequested = true;
+  // Force-close the Baileys WebSocket so the dump doesn't keep waiting for
+  // WhatsApp events after the user cancels.
+  if (b.currentSocket) {
+    try { b.currentSocket.end(undefined); } catch { /* socket may already be closed */ }
+    b.currentSocket = undefined;
+  }
+  // Immediately reset visible status so the UI returns to idle without waiting
+  // for the IIFE to notice the cancel flag.
+  b.status = {
     state: "idle",
     chatCount: 0,
     messageCount: 0,
     contactCount: 0,
   };
+  // Wipe auth credentials so the next import always shows a fresh QR.
+  await wipeAuthDir();
+  // If no job is running, clear the cancel flag now.
+  // If running, the finally block in startDump() will clear it after cleanup.
+  if (!b.running) {
+    b.cancelRequested = false;
+  }
 }
 
 /**

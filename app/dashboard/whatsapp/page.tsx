@@ -23,9 +23,9 @@ import {
   ChevronRight,
 } from "lucide-react";
 import type { DumpStatus, SnapshotMessage } from "@/lib/whatsapp/dump-job";
-import { bulkAddUserContacts, updateUserContact } from "@/lib/user-contacts";
+import { loadUserContactsFromServer, updateUserContact, mergeContactsIntoCache, getUserContacts, initialsFor } from "@/lib/user-contacts";
+import { emitChange } from "@/lib/sync/channel";
 import type { Contact } from "@/lib/contacts-data";
-import { initialsFor, pickAvatarColor, slugifyId } from "@/lib/user-contacts";
 
 interface LightSnapshot {
   capturedAt: string;
@@ -150,13 +150,30 @@ export default function WhatsAppPage() {
 
   const startImport = useCallback(async () => {
     setImportPreview(null);
-    await fetch("/api/whatsapp/dump", { method: "POST" });
+    // Record when *this* import session started so we can reject stale "done"
+    // responses from Vercel warm instances that ran a previous dump.
+    const importStartedAt = Date.now();
+
+    const res = await fetch("/api/whatsapp/dump", { method: "POST" });
+    const initData = await res.json() as { status?: DumpStatus };
+    // Immediately apply the POST response status — this gives the UI instant
+    // "awaiting_qr" state from the same instance that actually started the dump,
+    // before any poll can return a stale "idle" or "done" from a different instance.
+    if (initData.status) setStatus(initData.status);
+
     // Start polling for status updates; stop when done or errored.
     if (pollRef.current) window.clearInterval(pollRef.current);
     pollRef.current = window.setInterval(async () => {
       const s = await loadStatus();
       if (!s) return;
       if (s.state === "done" || s.state === "error") {
+        // Guard against stale "done" from a different Vercel warm instance:
+        // only accept completion if the dump started AFTER we pressed the button.
+        const dumpStartedAt = s.startedAt ? new Date(s.startedAt).getTime() : 0;
+        if (dumpStartedAt < importStartedAt - 5_000) {
+          // This is a stale "done" from a previous run — ignore and keep polling.
+          return;
+        }
         if (pollRef.current) window.clearInterval(pollRef.current);
         pollRef.current = null;
         if (s.state === "done") await loadSnapshot();
@@ -191,59 +208,53 @@ export default function WhatsAppPage() {
     setImporting(true);
     setProfileProgress(null);
     try {
-      const res = await fetch("/api/whatsapp/import-contacts", { cache: "no-store" });
-      if (!res.ok) throw new Error("Import fetch failed");
-      const data = await res.json();
-      const withChat = (data.withChat || []) as Array<{
-        jid: string;
-        name: string;
-        phone?: string;
-      }>;
+      // ── Server-side import ───────────────────────────────────────────────
+      // The POST endpoint builds stubs with stable JID-based IDs, writes to
+      // the canonical server store, and awaits forceFlushSnapshot() before
+      // responding — guaranteeing BASIL_DATA is current before we continue.
+      const res = await fetch("/api/whatsapp/import-contacts", {
+        method: "POST",
+        cache: "no-store",
+      });
+      if (!res.ok) throw new Error(`Import failed (${res.status})`);
+      const data = await res.json() as { imported: number; total: number; contacts?: Contact[] };
 
-      // Build all stubs first, then send ONE bulk request.
-      const stubs: Contact[] = [];
-      for (const wc of withChat) {
-        const id = slugifyId(wc.name || wc.phone || wc.jid);
-        if (!id) continue;
-        stubs.push({
-          id: `wa-${id}`,
-          name: wc.name || wc.phone || "Unknown",
-          initials: initialsFor(wc.name || wc.phone || "WA"),
-          color: pickAvatarColor(wc.name || wc.phone || id),
-          title: "WhatsApp contact",
-          company: "—",
-          email: undefined,
-          phone: wc.phone,
-          tags: ["whatsapp"],
-          status: "pending",
-          type: "external",
-          directory: "personal",
-          relationship: "Imported from WhatsApp.",
-          companyContext: "—",
-          personality: "—",
-          whatMakesThemTick: "—",
-          watchOut: "—",
-          recentActivity: "—",
-          activitySource: "WhatsApp",
-        });
-      }
-
-      const added = await bulkAddUserContacts(stubs);
-      setImportPreview({ added });
+      setImportPreview({ added: data.imported });
       setImporting(false);
 
-      // ── Auto-generate personality profiles ───────────────────────────────
-      // Run in the background so the UI stays responsive.
-      // Process 3 at a time to avoid hammering the AI API.
-      if (stubs.length === 0) return;
-      setProfileProgress({ done: 0, total: stubs.length });
+      // ── Seed localStorage directly from POST response ────────────────────
+      // The POST body includes the full contact stubs that were just written.
+      // Seeding the cache here guarantees contacts are in localStorage BEFORE
+      // emitChange fires — so any tab that re-fetches will get a valid merge
+      // even if the GET hits a Vercel warm instance that hasn't picked up the
+      // new BASIL_DATA yet.
+      if (data.contacts?.length) {
+        mergeContactsIntoCache(data.contacts);
+      }
+      emitChange("contacts");
+
+      // Background authoritative refresh — non-blocking, updates cache if the
+      // server instance is warm and returns the real list.
+      loadUserContactsFromServer().catch(() => {/* cache already set above */});
+
+      const allContacts = getUserContacts();
+
+      // ── Auto-generate personality profiles (smart — skip existing) ───────
+      // Only run for WhatsApp contacts that don't already have a real profile.
+      // This means re-importing is safe: existing profiles are never clobbered.
+      const toProfile = allContacts.filter(
+        (c: Contact) => c.tags?.includes("whatsapp") && (!c.personality || c.personality === "—")
+      );
+
+      if (toProfile.length === 0) return;
+      setProfileProgress({ done: 0, total: toProfile.length });
 
       const BATCH = 3;
       let done = 0;
-      for (let i = 0; i < stubs.length; i += BATCH) {
-        const batch = stubs.slice(i, i + BATCH);
+      for (let i = 0; i < toProfile.length; i += BATCH) {
+        const batch = toProfile.slice(i, i + BATCH);
         await Promise.all(
-          batch.map(async (stub) => {
+          batch.map(async (stub: Contact) => {
             try {
               const pr = await fetch("/api/contacts/generate-profile", {
                 method: "POST",
@@ -270,7 +281,7 @@ export default function WhatsAppPage() {
               // Profile gen failure is non-fatal — contact already saved
             } finally {
               done++;
-              setProfileProgress({ done, total: stubs.length });
+              setProfileProgress({ done, total: toProfile.length });
             }
           })
         );
@@ -316,6 +327,21 @@ export default function WhatsAppPage() {
     status.state !== "idle" &&
     status.state !== "done" &&
     status.state !== "error";
+
+  // Human-readable label for each state.
+  function stateLabel(state: string): string {
+    const map: Record<string, string> = {
+      awaiting_qr:    "Waiting for QR scan",
+      authenticating: "Authenticating…",
+      syncing:        "Syncing history",
+      saving:         "Saving snapshot",
+      disconnecting:  "Unlinking device",
+      done:           "Done",
+      error:          "Error",
+      idle:           "Idle",
+    };
+    return map[state] ?? state.replace(/_/g, " ");
+  }
 
   return (
     <div className="p-4 sm:p-6 lg:p-8 space-y-6 max-w-6xl">
@@ -380,16 +406,24 @@ export default function WhatsAppPage() {
             <div className="flex items-center gap-3">
               <Loader2 className="h-5 w-5 text-[oklch(0.58_0.15_85)] animate-spin" />
               <div>
-                <p className="font-semibold capitalize">
-                  {status.state.replace("_", " ")}
+                <p className="font-semibold">
+                  {stateLabel(status.state)}
                 </p>
-                {status.progressNote && (
+                {status.progressNote && status.state !== "awaiting_qr" && (
                   <p className="text-[13px] text-muted-foreground leading-relaxed mt-0.5">
                     {status.progressNote}
                   </p>
                 )}
               </div>
             </div>
+
+            {/* Authenticating — QR was scanned, handshake in progress */}
+            {status.state === "authenticating" && (
+              <div className="flex items-center gap-2 text-[13px] text-muted-foreground">
+                <Loader2 className="h-4 w-4 animate-spin" />
+                QR scanned — authenticating with WhatsApp. This takes a few seconds…
+              </div>
+            )}
 
             {status.state === "awaiting_qr" && status.qrDataUrl && (
               <div className="flex flex-col items-center gap-3 py-4">

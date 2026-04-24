@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useRef, useCallback } from "react";
 import { useDomainSync } from "@/lib/sync/use-domain-sync";
+import { useDraft } from "@/lib/hooks/use-draft";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -27,6 +28,25 @@ import { isActionStalled } from "@/lib/actions/utils";
 import type { ActionItem } from "@/lib/types/action";
 
 const LEGACY_STORAGE_KEY = "sage-actions";
+
+// Draft key — persists unsaved form input across tab switches / navigation.
+const ACTION_DRAFT_KEY = "basil-draft-action";
+interface ActionFormDraft {
+  showForm: boolean;
+  text: string;
+  owner: string;
+  due: string;
+  source: ActionItem["source"];
+  priority: NonNullable<ActionItem["priority"]>;
+}
+const ACTION_DRAFT_DEFAULT: ActionFormDraft = {
+  showForm: false,
+  text: "",
+  owner: "",
+  due: "",
+  source: "manual",
+  priority: "medium",
+};
 
 // ── Visual helpers ─────────────────────────────────────────────────────────────
 
@@ -320,12 +340,8 @@ export default function ActionsPage() {
   const [actions, setActions] = useState<ActionItem[]>([]);
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState<string>("all");
-  const [showForm, setShowForm] = useState(false);
-  const [newText, setNewText] = useState("");
-  const [newOwner, setNewOwner] = useState("");
-  const [newDue, setNewDue] = useState("");
-  const [newSource, setNewSource] = useState<ActionItem["source"]>("manual");
-  const [newPriority, setNewPriority] = useState<ActionItem["priority"]>("medium");
+  // Form draft — survives tab switches; cleared on save or explicit cancel.
+  const [form, setForm, clearForm] = useDraft<ActionFormDraft>(ACTION_DRAFT_KEY, ACTION_DRAFT_DEFAULT);
   const migratedRef = useRef(false);
 
   const refresh = useCallback(async () => {
@@ -371,23 +387,20 @@ export default function ActionsPage() {
   }, [refresh]);
 
   async function handleAdd() {
-    if (!newText.trim()) return;
+    if (!form.text.trim()) return;
     await fetch("/api/actions", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        text: newText,
-        owner: newOwner || "Michael Cook",
-        ownerId: findContactByName(newOwner)?.id,
-        dueDate: newDue || undefined,
-        source: newSource,
-        priority: newPriority,
+        text: form.text,
+        owner: form.owner || "Michael Cook",
+        ownerId: findContactByName(form.owner)?.id,
+        dueDate: form.due || undefined,
+        source: form.source,
+        priority: form.priority,
       }),
     });
-    setNewText("");
-    setNewOwner("");
-    setNewDue("");
-    setShowForm(false);
+    clearForm();
     notify();
   }
 
@@ -492,7 +505,7 @@ export default function ActionsPage() {
         <Button
           size="sm"
           className="bg-[oklch(0.22_0.05_250)] hover:bg-[oklch(0.28_0.06_250)] text-white gap-1.5"
-          onClick={() => setShowForm(!showForm)}
+          onClick={() => setForm(f => ({ ...f, showForm: !f.showForm }))}
         >
           <Plus className="h-3.5 w-3.5" />
           Add Action
@@ -500,31 +513,31 @@ export default function ActionsPage() {
       </header>
 
       {/* Add form */}
-      {showForm && (
+      {form.showForm && (
         <Card className="border-[oklch(0.72_0.15_85)]/30">
           <CardContent className="p-4 space-y-3">
             <Textarea
               placeholder="What needs to be done?"
-              value={newText}
-              onChange={(e) => setNewText(e.target.value)}
+              value={form.text}
+              onChange={(e) => setForm(f => ({ ...f, text: e.target.value }))}
               rows={2}
             />
             <div className="flex gap-3 flex-wrap">
               <Input
                 placeholder="Owner"
-                value={newOwner}
-                onChange={(e) => setNewOwner(e.target.value)}
+                value={form.owner}
+                onChange={(e) => setForm(f => ({ ...f, owner: e.target.value }))}
                 className="flex-1 min-w-28"
               />
               <Input
                 type="date"
-                value={newDue}
-                onChange={(e) => setNewDue(e.target.value)}
+                value={form.due}
+                onChange={(e) => setForm(f => ({ ...f, due: e.target.value }))}
                 className="w-38"
               />
               <select
-                value={newPriority}
-                onChange={(e) => setNewPriority(e.target.value as ActionItem["priority"])}
+                value={form.priority}
+                onChange={(e) => setForm(f => ({ ...f, priority: e.target.value as NonNullable<ActionItem["priority"]> }))}
                 className="h-10 rounded-lg border border-border bg-background px-3 text-sm"
               >
                 <option value="high">🔴 High</option>
@@ -532,8 +545,8 @@ export default function ActionsPage() {
                 <option value="low">⚪ Low</option>
               </select>
               <select
-                value={newSource}
-                onChange={(e) => setNewSource(e.target.value as ActionItem["source"])}
+                value={form.source}
+                onChange={(e) => setForm(f => ({ ...f, source: e.target.value as ActionItem["source"] }))}
                 className="h-10 rounded-lg border border-border bg-background px-3 text-sm"
               >
                 <option value="manual">Manual</option>
@@ -551,7 +564,7 @@ export default function ActionsPage() {
               >
                 Save
               </Button>
-              <Button size="sm" variant="outline" onClick={() => setShowForm(false)}>
+              <Button size="sm" variant="outline" onClick={clearForm}>
                 Cancel
               </Button>
             </div>

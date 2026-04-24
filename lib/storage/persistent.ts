@@ -137,6 +137,14 @@ async function persistSnapshot(): Promise<void> {
 
   try {
     // ── 1. Build snapshot ────────────────────────────────────────────────────
+    // Files excluded from BASIL_DATA — too large or safely re-derivable:
+    //   whatsapp-snapshot.json  — can be 100s of KB; re-run dump to regenerate
+    const SNAPSHOT_EXCLUDE = new Set(["whatsapp-snapshot.json"]);
+
+    // Hard ceiling for the base64 payload (well inside Vercel's 64KB total limit).
+    // Total env vars share a 64KB budget; leaving ~10KB headroom for other vars.
+    const PAYLOAD_HARD_CAP = 52_000;
+
     let files: string[];
     try {
       files = await fs.readdir(DATA_DIR);
@@ -145,9 +153,7 @@ async function persistSnapshot(): Promise<void> {
     }
 
     const snapshot: Record<string, unknown> = {};
-    // All .json stores are included — sage-events.json is deliberately included
-    // because pending event drafts awaiting approval must survive cold starts.
-    for (const f of files.filter((f) => f.endsWith(".json"))) {
+    for (const f of files.filter((f) => f.endsWith(".json") && !SNAPSHOT_EXCLUDE.has(f))) {
       try {
         const raw = await fs.readFile(path.join(DATA_DIR, f), "utf8");
         snapshot[f] = JSON.parse(raw);
@@ -156,16 +162,37 @@ async function persistSnapshot(): Promise<void> {
       }
     }
 
-    const encoded     = Buffer.from(JSON.stringify(snapshot)).toString("base64");
-    const payloadBytes = encoded.length;
+    let encoded     = Buffer.from(JSON.stringify(snapshot)).toString("base64");
+    let payloadBytes = encoded.length;
+
+    // ── Auto-compact if over the hard cap ────────────────────────────────────
+    // Trim the oldest entries from sage-events.json until we fit.  This only
+    // affects the BASIL_DATA backup — the on-disk file is untouched — so no
+    // permanent data loss occurs while the instance stays warm.
+    if (payloadBytes > PAYLOAD_HARD_CAP && Array.isArray(snapshot["sage-events.json"])) {
+      const events = snapshot["sage-events.json"] as unknown[];
+      let trimmed = events;
+      while (payloadBytes > PAYLOAD_HARD_CAP && trimmed.length > 0) {
+        // Drop the oldest quarter each iteration — fast convergence.
+        const drop = Math.max(1, Math.floor(trimmed.length / 4));
+        trimmed = trimmed.slice(drop);
+        snapshot["sage-events.json"] = trimmed;
+        encoded      = Buffer.from(JSON.stringify(snapshot)).toString("base64");
+        payloadBytes = encoded.length;
+      }
+      console.warn(
+        `[snapshot] Auto-compacted sage-events.json from ${events.length} → ${trimmed.length} entries ` +
+        `to fit under ${PAYLOAD_HARD_CAP}B cap.`
+      );
+    }
 
     if (payloadBytes > PAYLOAD_ERROR_BYTES) {
       console.error(
-        `[snapshot] Payload is ${payloadBytes} bytes — likely exceeds Vercel's 64KB env var limit. ` +
-        `Run event compaction to reduce size. ${Object.keys(snapshot).join(", ")}`
+        `[snapshot] Payload is ${payloadBytes} bytes — exceeds ${PAYLOAD_ERROR_BYTES}B soft limit. ` +
+        `Files: ${Object.keys(snapshot).join(", ")}`
       );
     } else if (payloadBytes > PAYLOAD_WARN_BYTES) {
-      console.warn(`[snapshot] Payload is ${payloadBytes} bytes — approaching the 64KB limit.`);
+      console.warn(`[snapshot] Payload is ${payloadBytes} bytes — approaching the 48KB warn threshold.`);
     }
 
     // ── 2. Find existing BASIL_DATA env var id ───────────────────────────────

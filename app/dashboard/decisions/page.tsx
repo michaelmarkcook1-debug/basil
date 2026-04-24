@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useRef, useCallback } from "react";
 import { useDomainSync } from "@/lib/sync/use-domain-sync";
+import { useDraft } from "@/lib/hooks/use-draft";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -26,6 +27,29 @@ import { findContactByName } from "@/lib/contacts-lookup";
 import type { Decision } from "@/lib/types/decision";
 
 const LEGACY_STORAGE_KEY = "sage-decisions";
+
+// Draft key — persists unsaved form input across tab switches / navigation.
+const DECISION_DRAFT_KEY = "basil-draft-decision";
+interface DecisionFormDraft {
+  showForm: boolean;
+  text: string;
+  title: string;
+  by: string;
+  date: string;
+  context: string;
+  rationale: string;
+}
+function decisionDraftDefault(): DecisionFormDraft {
+  return {
+    showForm: false,
+    text: "",
+    title: "",
+    by: "",
+    date: new Date().toISOString().split("T")[0],
+    context: "",
+    rationale: "",
+  };
+}
 
 const SOURCE_LABEL: Record<string, string> = {
   meeting: "Meeting",
@@ -294,13 +318,8 @@ function DecisionCard({
 export default function DecisionsPage() {
   const [decisions, setDecisions] = useState<Decision[]>([]);
   const [search, setSearch] = useState("");
-  const [showForm, setShowForm] = useState(false);
-  const [newText, setNewText] = useState("");
-  const [newTitle, setNewTitle] = useState("");
-  const [newBy, setNewBy] = useState("");
-  const [newDate, setNewDate] = useState(new Date().toISOString().split("T")[0]);
-  const [newContext, setNewContext] = useState("");
-  const [newRationale, setNewRationale] = useState("");
+  // Form draft — survives tab switches; cleared on save or explicit cancel.
+  const [form, setForm, clearForm] = useDraft<DecisionFormDraft>(DECISION_DRAFT_KEY, decisionDraftDefault());
   const migratedRef = useRef(false);
 
   const refresh = useCallback(async () => {
@@ -345,27 +364,22 @@ export default function DecisionsPage() {
   }, [refresh]);
 
   async function handleAdd() {
-    if (!newText.trim()) return;
+    if (!form.text.trim()) return;
     await fetch("/api/decisions", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        text: newText,
-        title: newTitle || undefined,
-        decidedBy: newBy || "Unknown",
-        decidedById: findContactByName(newBy)?.id,
-        date: newDate,
-        context: newContext || undefined,
-        rationale: newRationale || undefined,
+        text: form.text,
+        title: form.title || undefined,
+        decidedBy: form.by || "Unknown",
+        decidedById: findContactByName(form.by)?.id,
+        date: form.date,
+        context: form.context || undefined,
+        rationale: form.rationale || undefined,
         source: "manual",
       }),
     });
-    setNewText("");
-    setNewTitle("");
-    setNewBy("");
-    setNewContext("");
-    setNewRationale("");
-    setShowForm(false);
+    clearForm();
     notify();
   }
 
@@ -427,50 +441,50 @@ export default function DecisionsPage() {
         <Button
           size="sm"
           className="bg-[oklch(0.22_0.05_250)] hover:bg-[oklch(0.28_0.06_250)] text-white gap-1.5"
-          onClick={() => setShowForm(!showForm)}
+          onClick={() => setForm(f => ({ ...f, showForm: !f.showForm }))}
         >
           <Plus className="h-3.5 w-3.5" />
           Log Decision
         </Button>
       </header>
 
-      {showForm && (
+      {form.showForm && (
         <Card className="border-[oklch(0.72_0.15_85)]/30">
           <CardContent className="p-4 space-y-3">
             <Input
               placeholder="Short headline (optional, e.g. 'Adopt REST API')"
-              value={newTitle}
-              onChange={(e) => setNewTitle(e.target.value)}
+              value={form.title}
+              onChange={(e) => setForm(f => ({ ...f, title: e.target.value }))}
             />
             <Textarea
               placeholder="What was decided? (full statement)"
-              value={newText}
-              onChange={(e) => setNewText(e.target.value)}
+              value={form.text}
+              onChange={(e) => setForm(f => ({ ...f, text: e.target.value }))}
               rows={2}
             />
             <div className="flex gap-3">
               <Input
                 placeholder="Decided by"
-                value={newBy}
-                onChange={(e) => setNewBy(e.target.value)}
+                value={form.by}
+                onChange={(e) => setForm(f => ({ ...f, by: e.target.value }))}
                 className="flex-1"
               />
               <Input
                 type="date"
-                value={newDate}
-                onChange={(e) => setNewDate(e.target.value)}
+                value={form.date}
+                onChange={(e) => setForm(f => ({ ...f, date: e.target.value }))}
                 className="w-40"
               />
             </div>
             <Input
               placeholder="Context / source (e.g. 'Slack #ap-launch', 'Board call')"
-              value={newContext}
-              onChange={(e) => setNewContext(e.target.value)}
+              value={form.context}
+              onChange={(e) => setForm(f => ({ ...f, context: e.target.value }))}
             />
             <Textarea
               placeholder="Rationale — why was this decided? (optional)"
-              value={newRationale}
-              onChange={(e) => setNewRationale(e.target.value)}
+              value={form.rationale}
+              onChange={(e) => setForm(f => ({ ...f, rationale: e.target.value }))}
               rows={2}
             />
             <div className="flex gap-2">
@@ -481,7 +495,7 @@ export default function DecisionsPage() {
               >
                 Save
               </Button>
-              <Button size="sm" variant="outline" onClick={() => setShowForm(false)}>
+              <Button size="sm" variant="outline" onClick={clearForm}>
                 Cancel
               </Button>
             </div>

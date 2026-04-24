@@ -251,6 +251,9 @@ Each field is one compact paragraph, Michael's voice, grounded in evidence:
 - Never fabricate quotes, commitments, or positions.
 - Don't use adjectives that aren't grounded. "Kind" / "smart" mean nothing here.
 
+## canonicalFields extraction
+Scan Michael's notes for directly-stated contact details. Extract ONLY what is written explicitly — do NOT infer from email domains, signal data, or guesswork. Omit any field not literally present in the notes. Return "canonicalFields": {} if nothing is explicitly stated.
+
 ## Output shape
 Return ONLY valid JSON, no markdown fences:
 {
@@ -259,7 +262,15 @@ Return ONLY valid JSON, no markdown fences:
   "watchOut": "...",
   "recentActivity": "...",
   "activitySource": "...",
-  "summary": "One-line summary of signal density and what this profile is based on (for debug)."
+  "summary": "One-line summary of signal density and what this profile is based on (for debug).",
+  "canonicalFields": {
+    "name": "corrected or full name only if stated in notes",
+    "title": "job title / role only if explicitly stated",
+    "company": "employer only if explicitly stated",
+    "location": "city or country only if explicitly stated",
+    "email": "email address only if explicitly provided",
+    "phone": "phone number only if explicitly provided"
+  }
 }`;
 
   const result = await generateText({
@@ -279,6 +290,15 @@ Return ONLY valid JSON, no markdown fences:
       recentActivity: string;
       activitySource: string;
       summary?: string;
+      /** Structured fields explicitly stated in Michael's notes — not inferred. */
+      canonicalFields?: {
+        name?: string;
+        title?: string;
+        company?: string;
+        location?: string;
+        email?: string;
+        phone?: string;
+      };
     }>(result.text);
     return Response.json({
       ...parsed,

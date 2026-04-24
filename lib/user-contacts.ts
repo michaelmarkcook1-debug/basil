@@ -42,6 +42,25 @@ export function getUserContacts(): Contact[] {
   }
 }
 
+/**
+ * Synchronously merge contacts into the localStorage cache.
+ * Used to seed the cache from a POST response body so subsequent reads
+ * don't depend on a server round-trip that might hit a stale instance.
+ */
+export function mergeContactsIntoCache(incoming: Contact[]): void {
+  if (typeof window === "undefined" || incoming.length === 0) return;
+  const existing = getUserContacts();
+  const existingIds = new Set(existing.map((c) => c.id));
+  const brandNew = incoming
+    .filter((c) => !existingIds.has(c.id))
+    .map(normalize);
+  if (brandNew.length === 0) return;
+  localStorage.setItem(
+    USER_CONTACTS_KEY,
+    JSON.stringify([...existing, ...brandNew])
+  );
+}
+
 // ── Server-authoritative async API ───────────────────────────────────────────
 
 /**
@@ -73,9 +92,26 @@ export async function loadUserContactsFromServer(): Promise<Contact[]> {
     const res = await fetch("/api/contacts/user");
     if (!res.ok) return getUserContacts();
     const data = await res.json();
-    const contacts = (data.contacts as Contact[]).map(normalize);
-    localStorage.setItem(USER_CONTACTS_KEY, JSON.stringify(contacts));
-    return contacts;
+    const serverContacts = (data.contacts as Contact[]).map(normalize);
+    const current = getUserContacts();
+
+    // If the server returned nothing but localStorage has contacts, the server
+    // instance is likely stale (BASIL_DATA hasn't propagated to it yet after a
+    // recent import). Never overwrite a populated cache with an empty result —
+    // that's the classic "contacts disappear seconds after import" bug.
+    if (serverContacts.length === 0 && current.length > 0) {
+      return current;
+    }
+
+    // Merge: server wins for records it knows about; preserve local-only records
+    // (e.g. contacts written to localStorage by the import POST before a full
+    // server round-trip could confirm them).
+    const serverIds = new Set(serverContacts.map((c) => c.id));
+    const localOnly = current.filter((c) => !serverIds.has(c.id));
+    const merged = [...serverContacts, ...localOnly];
+
+    localStorage.setItem(USER_CONTACTS_KEY, JSON.stringify(merged));
+    return merged;
   } catch {
     return getUserContacts(); // fall back to stale cache
   }
