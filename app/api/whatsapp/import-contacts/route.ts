@@ -16,7 +16,7 @@
  */
 
 import { NextResponse } from "next/server";
-import { getSnapshot } from "@/lib/whatsapp/dump-job";
+import { getSnapshot, persistSignalIndex } from "@/lib/whatsapp/dump-job";
 import { bulkImportUserContacts } from "@/lib/contacts/user-store";
 import { forceFlushSnapshot } from "@/lib/storage/persistent";
 import type { Contact } from "@/lib/contacts-data";
@@ -175,6 +175,12 @@ export async function POST() {
   // Write to canonical store (server file-system + in-memory).
   const imported = await bulkImportUserContacts(stubs);
   console.log(`[wa/import-contacts POST] imported ${imported} new contacts (${stubs.length - imported} already existed)`);
+
+  // ── Build compact signal index ───────────────────────────────────────────
+  // The full whatsapp-snapshot.json is excluded from BASIL_DATA (too large).
+  // Persist a trimmed index so getWhatsAppSignalForContact works on cold-start
+  // instances that haven't seen the snapshot file.
+  await persistSignalIndex(snapshot);
 
   // ── Guaranteed persistence ────────────────────────────────────────────────
   // forceFlushSnapshot() awaits the full BASIL_DATA env-var write before this

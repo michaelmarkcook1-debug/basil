@@ -18,7 +18,7 @@
 import { promises as fs } from "node:fs";
 import path from "node:path";
 import { DATA_DIR as STORE_DATA_DIR } from "@/lib/storage/paths";
-import { forceFlushSnapshot } from "@/lib/storage/persistent";
+import { forceFlushSnapshot, readStore, writeStore } from "@/lib/storage/persistent";
 import makeWASocket, {
   useMultiFileAuthState,
   fetchLatestBaileysVersion,
@@ -105,6 +105,63 @@ export interface Snapshot {
   /** The linked account's own jid (useful for resolving fromMe). */
   meJid?: string;
   meName?: string;
+}
+
+// ── Compact signal index ──────────────────────────────────────────────────────
+//
+// The full whatsapp-snapshot.json is excluded from BASIL_DATA (too large for
+// the 52KB env-var limit). On Vercel cold starts getSnapshot() returns null,
+// so profile generation sees zero WhatsApp signal.
+//
+// The signal index is a stripped-down version (direct chats only, last N msgs)
+// stored via writeStore → it IS included in BASIL_DATA and survives cold starts.
+// getWhatsAppSignalForContact falls back to it when the full snapshot is absent.
+
+const SIGNAL_INDEX_FILE = "whatsapp-signal-index.json";
+const SIGNAL_MAX_CHATS   = 60;  // top N most-recent 1:1 chats
+const SIGNAL_MAX_MSGS    = 10;  // messages per chat
+const SIGNAL_MAX_TEXT    = 120; // chars per message text
+
+export interface SignalIndexChat {
+  jid: string;   // user portion of JID, e.g. "447700900123"
+  name: string;
+  msgs: string[];// pre-formatted "[YYYY-MM-DD] speaker: text" lines
+}
+
+export interface SignalIndex {
+  capturedAt: string;
+  chats: SignalIndexChat[];
+}
+
+/**
+ * Build a compact signal index from a Snapshot and persist it via writeStore
+ * so it enters BASIL_DATA on the next forceFlushSnapshot().
+ */
+export async function persistSignalIndex(snapshot: Snapshot): Promise<void> {
+  const direct = snapshot.chats
+    .filter((c) => !c.isGroup)
+    .sort((a, b) => {
+      const ta = a.lastMessageAt ? new Date(a.lastMessageAt).getTime() : 0;
+      const tb = b.lastMessageAt ? new Date(b.lastMessageAt).getTime() : 0;
+      return tb - ta;
+    })
+    .slice(0, SIGNAL_MAX_CHATS);
+
+  const chats: SignalIndexChat[] = direct.map((chat) => {
+    const recent = [...chat.messages]
+      .filter((m) => !!m.text)
+      .slice(-SIGNAL_MAX_MSGS);
+    const msgs = recent.map((m) => {
+      const speaker = m.fromMe ? "michael" : chat.name;
+      const text = (m.text ?? "").slice(0, SIGNAL_MAX_TEXT);
+      return `[${m.timestamp?.slice(0, 10) ?? ""}] ${speaker}: ${text}`;
+    });
+    return { jid: chat.id.split("@")[0], name: chat.name, msgs };
+  });
+
+  const index: SignalIndex = { capturedAt: snapshot.capturedAt, chats };
+  await writeStore<SignalIndex>(SIGNAL_INDEX_FILE, index);
+  console.log(`[whatsapp] Wrote signal index: ${chats.length} chats`);
 }
 
 // Use the same data directory as all other stores so the snapshot is backed up
@@ -607,6 +664,10 @@ export async function startDump(): Promise<void> {
 
       await fs.mkdir(DATA_DIR, { recursive: true });
       await fs.writeFile(SNAPSHOT_FILE, JSON.stringify(snapshot, null, 2), "utf8");
+      // Build and persist the compact signal index BEFORE the flush so that
+      // getWhatsAppSignalForContact can find chat messages on cold-start instances
+      // (the full snapshot is too large for BASIL_DATA; the index is not).
+      await persistSignalIndex(snapshot);
       // Flush the snapshot into BASIL_DATA so it survives Vercel cold starts and
       // is readable on any function instance, not just the one that ran the dump.
       await forceFlushSnapshot();
@@ -693,55 +754,83 @@ export async function resetDump(): Promise<void> {
  *   1. Direct 1:1 chat whose display name contains the contact's name
  *   2. Group messages where the author name contains the contact's name
  *   3. Phone-number match via the JID (@s.whatsapp.net suffix stripped)
+ *
+ * On Vercel cold starts the full snapshot isn't available (excluded from
+ * BASIL_DATA — too large). Falls back to the compact signal index which IS
+ * persisted in BASIL_DATA and loaded via readStore → maybeRestore.
  */
 export async function getWhatsAppSignalForContact(
   name: string,
   phone?: string,
   limit = 40
 ): Promise<string[]> {
-  const snapshot = await getSnapshot();
-  if (!snapshot) return [];
-
-  const nameLower  = name.trim().toLowerCase();
-  const firstName  = nameLower.split(/\s+/)[0];
-  // Normalise phone: keep digits only for comparison
+  const nameLower   = name.trim().toLowerCase();
+  const firstName   = nameLower.split(/\s+/)[0];
+  // Normalise phone: keep last 9 digits for comparison
   const phoneDigits = phone ? phone.replace(/\D/g, "").slice(-9) : null;
 
-  const lines: string[] = [];
+  // ── Path A: full snapshot (same instance as dump, or warm local dev) ─────
+  const snapshot = await getSnapshot();
+  if (snapshot) {
+    const lines: string[] = [];
+    for (const chat of snapshot.chats) {
+      const chatNameLower = (chat.name ?? "").toLowerCase();
+      const chatJidPhone  = chat.id.split("@")[0].replace(/\D/g, "");
 
-  for (const chat of snapshot.chats) {
-    const chatNameLower = (chat.name ?? "").toLowerCase();
-    const chatJidPhone  = chat.id.split("@")[0].replace(/\D/g, "");
+      // Match 1: direct chat whose name matches the contact
+      const isDirect =
+        !chat.isGroup &&
+        (chatNameLower.includes(nameLower) ||
+          (firstName.length >= 3 && chatNameLower.includes(firstName)) ||
+          (phoneDigits && chatJidPhone.endsWith(phoneDigits)));
 
-    // Match 1: direct chat (non-group) whose name matches the contact
-    const isDirect =
-      !chat.isGroup &&
-      (chatNameLower.includes(nameLower) ||
-        (firstName.length >= 3 && chatNameLower.includes(firstName)) ||
-        (phoneDigits && chatJidPhone.endsWith(phoneDigits)));
-
-    for (const msg of chat.messages) {
-      if (!msg.text) continue;
-
-      if (isDirect) {
-        // Every message in a direct chat is from or to this person
-        const speaker = msg.fromMe ? "Michael" : (chat.name || "Them");
-        lines.push(`[${msg.timestamp?.slice(0, 10)}] ${speaker}: ${msg.text}`);
-      } else if (chat.isGroup) {
-        // In a group, only include messages authored by the contact
-        const authorLower = (msg.authorName ?? "").toLowerCase();
-        if (
-          authorLower.includes(nameLower) ||
-          (firstName.length >= 3 && authorLower.includes(firstName))
-        ) {
-          lines.push(`[${msg.timestamp?.slice(0, 10)}] ${msg.authorName} (in ${chat.name}): ${msg.text}`);
+      for (const msg of chat.messages) {
+        if (!msg.text) continue;
+        if (isDirect) {
+          const speaker = msg.fromMe ? "Michael" : (chat.name || "Them");
+          lines.push(`[${msg.timestamp?.slice(0, 10)}] ${speaker}: ${msg.text}`);
+        } else if (chat.isGroup) {
+          const authorLower = (msg.authorName ?? "").toLowerCase();
+          if (
+            authorLower.includes(nameLower) ||
+            (firstName.length >= 3 && authorLower.includes(firstName))
+          ) {
+            lines.push(`[${msg.timestamp?.slice(0, 10)}] ${msg.authorName} (in ${chat.name}): ${msg.text}`);
+          }
         }
+        if (lines.length >= limit) break;
       }
-
       if (lines.length >= limit) break;
+    }
+    return lines;
+  }
+
+  // ── Path B: compact signal index (Vercel cold-start fallback) ───────────
+  // readStore calls maybeRestore() so the index is populated from BASIL_DATA.
+  const index = await readStore<SignalIndex | null>(SIGNAL_INDEX_FILE, null);
+  if (!index) {
+    console.log(`[whatsapp] No signal for "${name}" — snapshot and signal index both absent`);
+    return [];
+  }
+
+  const lines: string[] = [];
+  for (const chat of index.chats) {
+    const chatNameLower = chat.name.toLowerCase();
+    const chatJidPhone  = chat.jid.replace(/\D/g, "");
+
+    const matches =
+      chatNameLower.includes(nameLower) ||
+      (firstName.length >= 3 && chatNameLower.includes(firstName)) ||
+      (phoneDigits && chatJidPhone.endsWith(phoneDigits));
+
+    if (matches) {
+      for (const line of chat.msgs) {
+        lines.push(line);
+        if (lines.length >= limit) break;
+      }
     }
     if (lines.length >= limit) break;
   }
-
+  console.log(`[whatsapp] Signal index lookup for "${name}": ${lines.length} lines`);
   return lines;
 }
