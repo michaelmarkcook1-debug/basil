@@ -4,6 +4,7 @@ import { useState } from "react";
 import { Menu } from "lucide-react";
 import { AppSidebar } from "@/components/app-sidebar";
 import { Sheet, SheetContent } from "@/components/ui/sheet";
+import { ThemeToggle } from "@/components/theme-toggle";
 
 export default function DashboardLayout({
   children,
@@ -48,6 +49,10 @@ export default function DashboardLayout({
               className="h-7 w-7 rounded-md ring-1 ring-[oklch(0.72_0.15_85)]/30"
             />
             <p className="basil-display text-base text-[oklch(0.72_0.15_85)]">Basil</p>
+          </div>
+          {/* Night mode toggle — pushed to the right on mobile */}
+          <div className="ml-auto">
+            <ThemeToggle />
           </div>
         </header>
 

@@ -17,6 +17,7 @@ import {
   Settings,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { ThemeToggle } from "@/components/theme-toggle";
 
 type NavItem = { href: string; label: string; icon: typeof LayoutDashboard };
 
@@ -207,8 +208,15 @@ export function AppSidebar({
         </div>
       </nav>
 
-      {/* Bottom — settings */}
-      <div className="relative mt-2 border-t border-sidebar-border/60 pt-3 px-2">
+      {/* Bottom — theme toggle + settings */}
+      <div className="relative mt-2 border-t border-sidebar-border/60 pt-3 px-2 flex flex-col gap-1">
+        {/* Night mode toggle — centred on collapsed sidebar, full row on expanded */}
+        <div className={cn(
+          "flex",
+          expanded ? "justify-start px-1" : "justify-center lg:justify-start lg:px-1"
+        )}>
+          <ThemeToggle />
+        </div>
         <SidebarLink
           item={{ href: "/dashboard/settings", label: "Settings", icon: Settings }}
           active={pathname === "/dashboard/settings"}
