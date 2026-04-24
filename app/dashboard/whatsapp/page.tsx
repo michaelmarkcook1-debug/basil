@@ -23,7 +23,7 @@ import {
   ChevronRight,
 } from "lucide-react";
 import type { DumpStatus, SnapshotMessage } from "@/lib/whatsapp/dump-job";
-import { bulkAddUserContacts } from "@/lib/user-contacts";
+import { bulkAddUserContacts, updateUserContact } from "@/lib/user-contacts";
 import type { Contact } from "@/lib/contacts-data";
 import { initialsFor, pickAvatarColor, slugifyId } from "@/lib/user-contacts";
 
@@ -87,6 +87,7 @@ export default function WhatsAppPage() {
   const [search, setSearch] = useState("");
   const [importing, setImporting] = useState(false);
   const [importPreview, setImportPreview] = useState<{ added: number } | null>(null);
+  const [profileProgress, setProfileProgress] = useState<{ done: number; total: number } | null>(null);
   const pollRef = useRef<number | null>(null);
   // Track when the current QR code was received so we can show an expiry countdown.
   // WhatsApp QR codes are valid for ~60 seconds; Baileys issues a new one each time.
@@ -188,6 +189,7 @@ export default function WhatsAppPage() {
 
   const importToPersonalContacts = useCallback(async () => {
     setImporting(true);
+    setProfileProgress(null);
     try {
       const res = await fetch("/api/whatsapp/import-contacts", { cache: "no-store" });
       if (!res.ok) throw new Error("Import fetch failed");
@@ -199,9 +201,6 @@ export default function WhatsAppPage() {
       }>;
 
       // Build all stubs first, then send ONE bulk request.
-      // Previously this fired addUserContact() per contact (N API calls,
-      // N domain-change events, N subscriber refreshes).  bulkAddUserContacts
-      // makes a single POST and emits one "contacts" change.
       const stubs: Contact[] = [];
       for (const wc of withChat) {
         const id = slugifyId(wc.name || wc.phone || wc.jid);
@@ -219,7 +218,7 @@ export default function WhatsAppPage() {
           status: "pending",
           type: "external",
           directory: "personal",
-          relationship: "Imported from WhatsApp. Generate a profile with Basil to add context.",
+          relationship: "Imported from WhatsApp.",
           companyContext: "—",
           personality: "—",
           whatMakesThemTick: "—",
@@ -231,10 +230,54 @@ export default function WhatsAppPage() {
 
       const added = await bulkAddUserContacts(stubs);
       setImportPreview({ added });
+      setImporting(false);
+
+      // ── Auto-generate personality profiles ───────────────────────────────
+      // Run in the background so the UI stays responsive.
+      // Process 3 at a time to avoid hammering the AI API.
+      if (stubs.length === 0) return;
+      setProfileProgress({ done: 0, total: stubs.length });
+
+      const BATCH = 3;
+      let done = 0;
+      for (let i = 0; i < stubs.length; i += BATCH) {
+        const batch = stubs.slice(i, i + BATCH);
+        await Promise.all(
+          batch.map(async (stub) => {
+            try {
+              const pr = await fetch("/api/contacts/generate-profile", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                  name: stub.name,
+                  phone: stub.phone,
+                  directory: "personal",
+                }),
+              });
+              if (pr.ok) {
+                const profile = await pr.json();
+                if (profile.personality && profile.personality !== "—") {
+                  await updateUserContact(stub.id, {
+                    personality:       profile.personality,
+                    whatMakesThemTick: profile.whatMakesThemTick,
+                    watchOut:          profile.watchOut,
+                    recentActivity:    profile.recentActivity,
+                    activitySource:    profile.activitySource || "WhatsApp",
+                  });
+                }
+              }
+            } catch {
+              // Profile gen failure is non-fatal — contact already saved
+            } finally {
+              done++;
+              setProfileProgress({ done, total: stubs.length });
+            }
+          })
+        );
+      }
     } catch (e) {
       console.error("Import to personal contacts failed:", e);
       setImportPreview({ added: 0 });
-    } finally {
       setImporting(false);
     }
   }, []);
@@ -468,15 +511,32 @@ export default function WhatsAppPage() {
                 Captured {formatTimestamp(snapshot.capturedAt)} · Device unlinked
               </span>
             </div>
-            <div className="flex items-center gap-2">
+            <div className="flex flex-col items-end gap-1.5">
               {importPreview ? (
-                <Badge
-                  variant="outline"
-                  className="text-[12px] gap-1 border-emerald-400 text-emerald-600 bg-emerald-50"
-                >
-                  <Check className="h-3 w-3" />
-                  Added {importPreview.added} to Personal
-                </Badge>
+                <div className="flex flex-col items-end gap-1">
+                  <Badge
+                    variant="outline"
+                    className="text-[12px] gap-1 border-emerald-400 text-emerald-600 bg-emerald-50"
+                  >
+                    <Check className="h-3 w-3" />
+                    Added {importPreview.added} to Personal
+                  </Badge>
+                  {profileProgress && (
+                    <div className="flex flex-col items-end gap-0.5 w-48">
+                      <span className="text-[11px] text-muted-foreground">
+                        {profileProgress.done < profileProgress.total
+                          ? `Profiling ${profileProgress.done}/${profileProgress.total}…`
+                          : `${profileProgress.total} profiles generated ✓`}
+                      </span>
+                      <div className="w-full h-1 rounded-full bg-muted overflow-hidden">
+                        <div
+                          className="h-full bg-[oklch(0.72_0.15_85)] rounded-full transition-all duration-300"
+                          style={{ width: `${Math.round((profileProgress.done / profileProgress.total) * 100)}%` }}
+                        />
+                      </div>
+                    </div>
+                  )}
+                </div>
               ) : (
                 <Button
                   size="sm"
@@ -484,14 +544,14 @@ export default function WhatsAppPage() {
                   onClick={importToPersonalContacts}
                   disabled={importing}
                   className="gap-1.5"
-                  title="Add WhatsApp contacts you've messaged into the Personal directory"
+                  title="Import contacts and auto-generate personality profiles"
                 >
                   {importing ? (
                     <Loader2 className="h-3.5 w-3.5 animate-spin" />
                   ) : (
                     <UserPlus className="h-3.5 w-3.5" />
                   )}
-                  Add to Personal contacts
+                  {importing ? "Importing…" : "Add to Personal contacts"}
                 </Button>
               )}
             </div>
