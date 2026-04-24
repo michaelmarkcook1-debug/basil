@@ -214,8 +214,8 @@ function chatDisplayName(
   return jidToPhone(id) || id;
 }
 
-const QUIET_WINDOW_MS = 8_000; // if no history events for 8s, consider it done
-const MAX_WAIT_MS = 120_000; // absolute ceiling — 2 minutes
+const QUIET_WINDOW_MS = 12_000; // if no history events for 12s, consider done
+const MAX_WAIT_MS = 240_000;  // absolute ceiling — 4 min (Vercel limit is 300s)
 
 /**
  * Run one snapshot job. Safe to call while a job is running (returns immediately).
@@ -388,6 +388,16 @@ export async function startDump(): Promise<void> {
             resolve();
             return;
           }
+          // While waiting with no data yet, update the progress note so the UI
+          // doesn't look frozen.
+          if (chatsById.size === 0 && lastHistoryAt === 0) {
+            const waitSecs = Math.floor(elapsed / 1000);
+            const maxSecs  = Math.floor(MAX_WAIT_MS / 1000);
+            setStatus({
+              state: "syncing",
+              progressNote: `Waiting for WhatsApp to push history… (${waitSecs}s / ${maxSecs}s max)`,
+            });
+          }
           // Only start the quiet-window timer once history has actually begun.
           if (
             lastHistoryAt > 0 &&
@@ -399,6 +409,20 @@ export async function startDump(): Promise<void> {
           }
         }, 1500);
       });
+
+      // Guard: if WhatsApp never sent any history, fail loudly rather than
+      // saving an empty snapshot that makes it look like a successful import.
+      if (chatsById.size === 0) {
+        setStatus({
+          state: "error",
+          error: "WhatsApp linked but sent no chat history. This usually means the sync timed out before data arrived. Click Re-import and try again — scan the QR quickly once it appears.",
+          finishedAt: new Date().toISOString(),
+        });
+        bag().running = false;
+        try { await currentSock!.logout(); } catch { /* ignore */ }
+        await wipeAuthDir();
+        return;
+      }
 
       setStatus({
         state: "saving",
