@@ -62,7 +62,14 @@ const snapDiag: SnapshotDiagnostics = {
  * health checks, not historical auditing.
  */
 export function getSnapshotDiagnostics(): SnapshotDiagnostics {
-  return { ...snapDiag };
+  // isConfigured: check env vars directly — don't rely on the module-level flag
+  // which starts as false and only updates after the first write in this instance.
+  const token     = process.env.VERCEL_TOKEN;
+  const projectId = process.env.VERCEL_PROJECT_ID;
+  return {
+    ...snapDiag,
+    isConfigured: !!(token && projectId),
+  };
 }
 
 // ── Internal helpers ───────────────────────────────────────────────────────

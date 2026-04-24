@@ -19,8 +19,17 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "forbidden" }, { status: 403 });
   }
 
-  // Trigger maybeRestore so /tmp is populated from BASIL_DATA on cold start
-  await readStore("__ping__.json", null);
+  // Trigger maybeRestore AND explicitly read every known auth/data file so
+  // this instance's /tmp is fully populated before we flush.
+  await Promise.all([
+    readStore("google-tokens.json", null),
+    readStore("google-watch-state.json", null),
+    readStore("sage-user-contacts.json", []),
+    readStore("sage-actions.json", []),
+    readStore("sage-decisions.json", []),
+    readStore("sage-memory.json", []),
+    readStore("sage-whatsapp-snapshot.json", null),
+  ]);
 
   const before = Date.now();
   await forceFlushSnapshot();
