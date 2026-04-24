@@ -461,7 +461,10 @@ export async function startDump(): Promise<void> {
           }
           const now = Date.now();
           const elapsed = now - start;
-          if (historyCompleted) {
+          // Only exit early on isLatest if we've already accumulated chats.
+          // WhatsApp sometimes sends isLatest:true on an empty "latest" batch
+          // before the historical batches arrive — don't bail out with zero data.
+          if (historyCompleted && chatsById.size > 0) {
             clearInterval(interval);
             resolve();
             return;
