@@ -97,24 +97,54 @@ export async function deleteUserContactFromStore(id: string): Promise<boolean> {
 }
 
 /**
- * Bulk import — used once on first load to migrate any contacts that were
- * already stored in the client-side localStorage before this store existed.
- * Skips contacts whose id already exists.
+ * Returns true when a name is just a raw phone number (no real name attached).
+ * Used to decide whether a fresh import's resolved name is an upgrade.
+ */
+function looksLikePhoneNumber(name: string): boolean {
+  return /^\+?\d[\d\s\-(). ]{4,}$/.test(name.trim());
+}
+
+/**
+ * Bulk import — idempotent by ID.
+ *
+ * New contacts are appended.  Existing contacts are skipped UNLESS:
+ *   • their stored name is just a phone number AND
+ *   • the incoming stub has a real resolved name (not also a phone number)
+ * In that case we upgrade the name + initials — this repairs contacts that were
+ * first imported before the chat-name resolution was working correctly.
  */
 export async function bulkImportUserContacts(
   incoming: Contact[]
 ): Promise<number> {
   return withLock(LOCK_KEY, async () => {
     const items = await readAll();
-    const existingIds = new Set(items.map((c) => c.id));
+    const existingById = new Map(items.map((c) => [c.id, c]));
     let added = 0;
+    let updated = 0;
     for (const c of incoming) {
-      if (!existingIds.has(c.id)) {
+      const existing = existingById.get(c.id);
+      if (!existing) {
         items.push(normalize(c));
         added++;
+      } else if (
+        looksLikePhoneNumber(existing.name) &&
+        c.name &&
+        !looksLikePhoneNumber(c.name)
+      ) {
+        // Upgrade: replace phone-number placeholder with a real name.
+        const idx = items.findIndex((x) => x.id === c.id);
+        if (idx !== -1) {
+          items[idx] = normalize({
+            ...items[idx],
+            name: c.name,
+            initials: c.initials,
+            color: c.color,
+          });
+          updated++;
+        }
       }
     }
-    if (added > 0) await writeAll(items);
+    if (added > 0 || updated > 0) await writeAll(items);
     return added;
   });
 }

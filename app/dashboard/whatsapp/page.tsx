@@ -86,7 +86,7 @@ export default function WhatsAppPage() {
   const [chatLoading, setChatLoading] = useState(false);
   const [search, setSearch] = useState("");
   const [importing, setImporting] = useState(false);
-  const [importPreview, setImportPreview] = useState<{ added: number } | null>(null);
+  const [importPreview, setImportPreview] = useState<{ added: number; unresolved?: number } | null>(null);
   const [profileProgress, setProfileProgress] = useState<{ done: number; total: number } | null>(null);
   const pollRef = useRef<number | null>(null);
   // Track when the current QR code was received so we can show an expiry countdown.
@@ -219,7 +219,8 @@ export default function WhatsAppPage() {
       if (!res.ok) throw new Error(`Import failed (${res.status})`);
       const data = await res.json() as { imported: number; total: number; contacts?: Contact[] };
 
-      setImportPreview({ added: data.imported });
+      const unresolved = (data as { unresolved?: number }).unresolved ?? 0;
+      setImportPreview({ added: data.imported, unresolved });
       setImporting(false);
 
       // ── Seed localStorage directly from POST response ────────────────────
@@ -233,20 +234,27 @@ export default function WhatsAppPage() {
       }
       emitChange("contacts");
 
-      // Background authoritative refresh — non-blocking, updates cache if the
-      // server instance is warm and returns the real list.
-      loadUserContactsFromServer().catch(() => {/* cache already set above */});
+      // Authoritative refresh — await so upgraded names (phone → real name)
+      // are in localStorage before we decide which contacts to auto-profile.
+      await loadUserContactsFromServer().catch(() => {/* fallback to cache */});
 
       const allContacts = getUserContacts();
 
       // ── Auto-generate personality profiles (smart — skip existing) ───────
       // Only run for WhatsApp contacts that don't already have a real profile.
+      // Skip contacts whose name is still just a phone number — the AI has no
+      // signal to work with and will return "—" for every field.
       // Capped at 12, sorted by most-recent interaction, so the most active
       // contacts get profiled first. Re-importing is safe: existing profiles
       // (personality !== "—") are never clobbered.
+      const phoneNameRe = /^\+?\d[\d\s\-(). ]{4,}$/;
       const AUTO_PROFILE_LIMIT = 12;
       const toProfile = allContacts
-        .filter((c: Contact) => c.tags?.includes("whatsapp") && (!c.personality || c.personality === "—"))
+        .filter((c: Contact) =>
+          c.tags?.includes("whatsapp") &&
+          (!c.personality || c.personality === "—") &&
+          !phoneNameRe.test(c.name?.trim() ?? "")
+        )
         .sort((a: Contact, b: Contact) => {
           const da = a.lastInteraction ? new Date(a.lastInteraction).getTime() : 0;
           const db = b.lastInteraction ? new Date(b.lastInteraction).getTime() : 0;
@@ -564,6 +572,16 @@ export default function WhatsAppPage() {
                     <Check className="h-3 w-3" />
                     Added {importPreview.added} to Personal
                   </Badge>
+                  {(importPreview.unresolved ?? 0) > 0 && (
+                    <Badge
+                      variant="outline"
+                      className="text-[12px] gap-1 border-amber-400 text-amber-700 bg-amber-50"
+                      title="These contacts aren't in your phone's address book and didn't send you a message during the import. Re-scan after they message you to get their names."
+                    >
+                      <AlertTriangle className="h-3 w-3" />
+                      {importPreview.unresolved} name{importPreview.unresolved === 1 ? "" : "s"} not identified
+                    </Badge>
+                  )}
                   {profileProgress && (
                     <div className="flex flex-col items-end gap-0.5 w-48">
                       <span className="text-[11px] text-muted-foreground">

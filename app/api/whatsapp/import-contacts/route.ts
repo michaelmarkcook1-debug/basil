@@ -166,7 +166,11 @@ export async function POST() {
       } satisfies Contact;
     });
 
-  console.log(`[wa/import-contacts POST] built ${stubs.length} stubs from snapshot`);
+  // Count how many stubs could not be resolved to a real name — just a phone number.
+  const phonePattern = /^\+?\d[\d\s\-(). ]{4,}$/;
+  const unresolved = stubs.filter((s) => phonePattern.test(s.name.trim())).length;
+
+  console.log(`[wa/import-contacts POST] built ${stubs.length} stubs (${unresolved} unresolved names) from snapshot`);
 
   // Write to canonical store (server file-system + in-memory).
   const imported = await bulkImportUserContacts(stubs);
@@ -183,7 +187,7 @@ export async function POST() {
   // Return the full stubs list so the client can seed localStorage directly
   // without a second GET that might hit a stale Vercel instance.
   return NextResponse.json(
-    { imported, total: stubs.length, contacts: stubs },
+    { imported, total: stubs.length, unresolved, contacts: stubs },
     { status: 201 }
   );
 }
