@@ -273,16 +273,16 @@ Return ONLY valid JSON, no markdown fences:
   }
 }`;
 
-  const result = await generateText({
-    model: "anthropic/claude-sonnet-4.6",
-    system: await getSystemPrompt(),
-    prompt: promptText,
-    providerOptions: {
-      gateway: { tags: ["feature:contact-profile", "env:production"] },
-    },
-  });
-
   try {
+    const result = await generateText({
+      model: "anthropic/claude-sonnet-4.6",
+      system: await getSystemPrompt(),
+      prompt: promptText,
+      providerOptions: {
+        gateway: { tags: ["feature:contact-profile", "env:production"] },
+      },
+    });
+
     const parsed = parseAIJson<{
       personality: string;
       whatMakesThemTick: string;
@@ -305,9 +305,11 @@ Return ONLY valid JSON, no markdown fences:
       signalCount,
       generatedAt: new Date().toISOString(),
     });
-  } catch {
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    console.error("[generate-profile] failed:", msg);
     return Response.json(
-      { error: "Failed to parse AI response", raw: result.text },
+      { error: msg },
       { status: 500 }
     );
   }
