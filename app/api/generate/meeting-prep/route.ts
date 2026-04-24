@@ -23,6 +23,7 @@ const CARRY_IN_HOURS = 24;
 import { getRecentSlackMessages, searchSlackMessages } from "@/lib/slack/client";
 import { getTodayEvents } from "@/lib/google/calendar";
 import { getZoomSummaries, filterByAttendees } from "@/lib/google/zoom-summaries";
+import { getTeamsMeetings, filterTeamsMeetingsByAttendees } from "@/lib/microsoft/teams";
 import { listDecisions } from "@/lib/decisions/store";
 import { listActions, isActionStalled } from "@/lib/actions/store";
 import { stripSelf } from "@/lib/self-identity";
@@ -114,7 +115,7 @@ export async function POST(req: Request) {
   // Fetch emails + Slack (recent + targeted search) + today's calendar + Zoom
   // summaries + decisions in parallel. Targeted search is critical — relying
   // only on the last 60 recent messages buries any conversation older than a day.
-  const [emails, slackMessages, todaysCal, zoomSummariesAll, perAttendeeSlack, allDecisions, allActions, perAttendeeMemories, allMemories] = await Promise.all([
+  const [emails, slackMessages, todaysCal, zoomSummariesAll, teamsMeetingsAll, perAttendeeSlack, allDecisions, allActions, perAttendeeMemories, allMemories] = await Promise.all([
     getRecentEmails(50, MEETING_PREP_EMAIL_DAYS).catch((err) => {
       console.error("Failed to fetch emails for meeting prep:", err);
       return [];
@@ -129,6 +130,10 @@ export async function POST(req: Request) {
     }),
     getZoomSummaries(14).catch((err) => {
       console.error("Failed to fetch Zoom summaries:", err);
+      return [];
+    }),
+    getTeamsMeetings(14).catch((err) => {
+      console.error("Failed to fetch Teams meetings:", err);
       return [];
     }),
     // Actively SEARCH Slack for each attendee — DMs, mentions, channel posts —
@@ -201,6 +206,9 @@ export async function POST(req: Request) {
   // prior calls that don't show up in email or Slack text.
   const relevantZoom = filterByAttendees(zoomSummariesAll, attendeeNames);
 
+  // Teams meetings mentioning attendees — equivalent to Zoom for M365 users
+  const relevantTeamsMeetings = filterTeamsMeetingsByAttendees(teamsMeetingsAll, attendeeNames);
+
   // Today's *other* events that already happened before this meeting — the
   // "From Today's Calls" amber card pulls from here. Carry-in context from
   // earlier calls is what makes meeting prep feel like a real chief-of-staff note.
@@ -272,6 +280,13 @@ export async function POST(req: Request) {
         .map((z) => `- [${z.date}] (${z.source}) ${z.title}\n${z.body}${z.link ? `\n  link: ${z.link}` : ""}`)
         .join("\n\n")
     : "No Zoom AI Companion summaries or Zoom-titled Drive docs mention these attendees in the last 14 days.";
+
+  const teamsBlock = relevantTeamsMeetings.length > 0
+    ? relevantTeamsMeetings
+        .slice(0, 4)
+        .map((m) => `- [${m.date}] (teams) ${m.title}\n${m.body}`)
+        .join("\n\n")
+    : null;
 
   // ── Relevant decisions — filter to those related to this meeting's attendees,
   // context, or meeting title. A decision is "relevant" if:
@@ -434,6 +449,7 @@ ${slackContext || "No recent Slack activity found with these attendees."}
 
 ## ZOOM SUMMARIES WITH ATTENDEES (AI Companion post-meeting recaps + Drive docs titled 'Zoom', last 14 days)
 ${zoomBlock}
+${teamsBlock ? `\n## MICROSOFT TEAMS MEETINGS WITH ATTENDEES (Outlook Calendar online meetings, last 14 days)\n${teamsBlock}` : ""}
 
 ## LOGGED DECISIONS RELEVANT TO THIS MEETING (from Decision Log — already made, use as context and to avoid re-litigating)
 ${decisionsBlock}

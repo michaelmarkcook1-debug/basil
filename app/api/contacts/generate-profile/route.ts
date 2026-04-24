@@ -8,6 +8,12 @@ import {
 } from "@/lib/slack/client";
 import { getZoomSummaries, filterByAttendees } from "@/lib/google/zoom-summaries";
 import { getWhatsAppSignalForContact } from "@/lib/whatsapp/dump-job";
+import {
+  getTeamsChatSignalForContact,
+  getTeamsChannelSignalForContact,
+  getTeamsMeetings,
+  filterTeamsMeetingsByAttendees,
+} from "@/lib/microsoft/teams";
 
 // Given a contact (name + optional email + directory + optional free-text
 // notes), pull every bit of signal we can reach and ask Basil to write the
@@ -50,7 +56,7 @@ export async function POST(req: Request) {
   // personal-only WhatsApp contact from Gmail would just be noise.
   const shouldPullWorkSignal = directory === "work" || !!email;
 
-  const [emailsAll, slackRecent, slackSearched, zoomAll, whatsappLines] = await Promise.all([
+  const [emailsAll, slackRecent, slackSearched, zoomAll, whatsappLines, teamsChatLines, teamsChannelLines, teamsAllMeetings] = await Promise.all([
     shouldPullWorkSignal
       ? getRecentEmails(40).catch(() => [])
       : Promise.resolve([]),
@@ -65,6 +71,16 @@ export async function POST(req: Request) {
       : Promise.resolve([]),
     // WhatsApp signal is available for any contact regardless of directory.
     getWhatsAppSignalForContact(name, body.phone, 40).catch(() => [] as string[]),
+    // Teams chat messages — work contacts only
+    shouldPullWorkSignal
+      ? getTeamsChatSignalForContact(name, 30).catch(() => [] as string[])
+      : Promise.resolve([] as string[]),
+    shouldPullWorkSignal
+      ? getTeamsChannelSignalForContact(name, 20).catch(() => [] as string[])
+      : Promise.resolve([] as string[]),
+    shouldPullWorkSignal
+      ? getTeamsMeetings(30).catch(() => [])
+      : Promise.resolve([]),
   ]);
 
   // Filter emails: match sender/recipient against name or email
@@ -115,6 +131,14 @@ export async function POST(req: Request) {
     ? filterByAttendees(zoomAll, [name]).slice(0, 4)
     : [];
 
+  // Teams meetings with the person (from Outlook Calendar — no extra scope needed)
+  const teamsMeetings = shouldPullWorkSignal
+    ? filterTeamsMeetingsByAttendees(teamsAllMeetings, [name]).slice(0, 4)
+    : [];
+
+  // Teams chat + channel messages for the person
+  const teamsLines = [...teamsChatLines, ...teamsChannelLines].slice(0, 30);
+
   const emailBlock = emails.length
     ? emails
         .map((e) => `- [${e.date}] From ${e.from}: "${e.subject}" — ${e.snippet}`)
@@ -137,7 +161,19 @@ export async function POST(req: Request) {
     ? whatsappLines.join("\n")
     : null;
 
-  const signalCount = emails.length + slackMsgs.length + zoom.length + whatsappLines.length;
+  const teamsChatBlock = teamsLines.length
+    ? teamsLines.join("\n")
+    : null;
+
+  const teamsMeetingBlock = teamsMeetings.length
+    ? teamsMeetings
+        .map((m) => `- [${m.date}] (teams) ${m.title}\n${m.body}`)
+        .join("\n\n")
+    : null;
+
+  const signalCount =
+    emails.length + slackMsgs.length + zoom.length + whatsappLines.length +
+    teamsLines.length + teamsMeetings.length;
 
   const promptText = `Generate a personality profile for one of Michael's contacts. Match the style of his existing, hand-authored profiles — specific, observational, written like a great chief of staff's notes. No fluff.
 
@@ -179,6 +215,20 @@ ${
   whatsappBlock
     ? `## WHATSAPP SIGNAL (${whatsappLines.length} messages — direct chats and group appearances)
 ${whatsappBlock}
+`
+    : ""
+}
+${
+  teamsChatBlock
+    ? `## MICROSOFT TEAMS CHAT (${teamsLines.length} messages — direct and group chats)
+${teamsChatBlock}
+`
+    : ""
+}
+${
+  teamsMeetingBlock
+    ? `## MICROSOFT TEAMS MEETINGS (${teamsMeetings.length} online meetings via Outlook Calendar)
+${teamsMeetingBlock}
 `
     : ""
 }

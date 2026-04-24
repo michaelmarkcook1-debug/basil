@@ -302,11 +302,16 @@ export async function getMicrosoftConnectionStatus(): Promise<IntegrationStatus>
     const hasCalendar = granted.has(MICROSOFT_SCOPE.calendar);
     const hasDrive    = granted.has(MICROSOFT_SCOPE.drive);
     const hasTeams    = granted.has(MICROSOFT_SCOPE.teams);
-    const allGranted  = hasMail && hasCalendar && hasDrive && hasTeams;
+
+    // Core services (mail + calendar) are sufficient for "connected".
+    // Drive and Teams are optional — their individual tiles show their own
+    // status. Only fall to permission_missing if the core is absent.
+    const coreGranted = hasMail && hasCalendar;
+    const allGranted  = coreGranted && hasDrive && hasTeams;
 
     return {
       id:            "microsoft",
-      state:         allGranted ? "connected" : "permission_missing",
+      state:         coreGranted ? "connected" : "permission_missing",
       lastCheckedAt: now,
       scopes:        [...granted],
       microsoft: {

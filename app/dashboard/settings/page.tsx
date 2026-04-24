@@ -552,13 +552,19 @@ export default function SettingsPage() {
                     </AzureStep>
                     <AzureStep n={6}>
                       <strong>API permissions</strong> → <strong>Add a permission</strong> →{" "}
-                      <strong>Microsoft Graph</strong> → <strong>Delegated</strong> → add:{" "}
-                      <span className="font-mono bg-blue-100 px-1 rounded text-[11px]">
-                        Mail.Read Mail.ReadWrite Mail.Send Calendars.ReadWrite Files.Read.All
-                        Chat.Read ChannelMessage.Read.All User.Read offline_access
+                      <strong>Microsoft Graph</strong> → <strong>Delegated</strong> → add these scopes:{" "}
+                      <span className="font-mono bg-blue-100 px-1 rounded text-[11px] block mt-1 leading-relaxed">
+                        Mail.Read · Mail.ReadWrite · Mail.Send · Calendars.ReadWrite · Files.Read.All
+                        · Chat.Read · Chat.ReadBasic · Team.ReadBasic.All · Channel.ReadBasic.All
+                        · ChannelMessage.Read.All · User.Read · offline_access
                       </span>
                     </AzureStep>
                     <AzureStep n={7}>
+                      Still in <strong>API permissions</strong>, click{" "}
+                      <strong>Grant admin consent for [your tenant]</strong> and confirm.
+                      This is required for Teams scopes (Chat.Read etc.) to be granted during OAuth.
+                    </AzureStep>
+                    <AzureStep n={8}>
                       In the{" "}
                       <a href="https://vercel.com/dashboard" target="_blank" rel="noreferrer"
                         className="underline inline-flex items-center gap-0.5">
@@ -576,14 +582,11 @@ export default function SettingsPage() {
           </CardContent>
         </Card>
       )}
-      {statuses && (ms?.state === "permission_missing" || ms?.state === "token_expired") && (
+      {/* Session expired — needs full re-auth */}
+      {statuses && ms?.state === "token_expired" && (
         <Card className="border-amber-400/30 bg-amber-500/5">
           <CardContent className="py-5 text-center space-y-3">
-            <p className="font-medium text-amber-700">
-              {ms?.state === "token_expired"
-                ? "Microsoft 365 session expired"
-                : "Some Microsoft 365 permissions are missing"}
-            </p>
+            <p className="font-medium text-amber-700">Microsoft 365 session expired</p>
             <p className="text-sm text-muted-foreground">
               Re-authorize to restore Outlook, OneDrive, and Teams access.
             </p>
@@ -592,6 +595,46 @@ export default function SettingsPage() {
               onClick={() => { window.location.href = "/api/auth/microsoft"; }}
             >
               Re-authorize Microsoft 365
+            </Button>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Core missing (mail/calendar not granted) */}
+      {statuses && ms?.state === "permission_missing" && (
+        <Card className="border-amber-400/30 bg-amber-500/5">
+          <CardContent className="py-5 text-center space-y-3">
+            <p className="font-medium text-amber-700">Some Microsoft 365 permissions are missing</p>
+            <p className="text-sm text-muted-foreground">
+              Re-authorize to grant Outlook Mail and Calendar access.
+            </p>
+            <Button
+              className="bg-amber-600 hover:bg-amber-700 text-white"
+              onClick={() => { window.location.href = "/api/auth/microsoft"; }}
+            >
+              Re-authorize Microsoft 365
+            </Button>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Teams missing but core is fine — gentle nudge */}
+      {statuses && ms?.state === "connected" && ms?.microsoft && !(ms as {microsoft?: {teams?: boolean}}).microsoft?.teams && (
+        <Card className="border-blue-200 bg-blue-50/50">
+          <CardContent className="py-4 flex items-start gap-3">
+            <span className="text-blue-500 text-lg mt-0.5">ℹ️</span>
+            <div className="flex-1 space-y-1">
+              <p className="text-sm font-medium text-blue-800">Teams access not yet granted</p>
+              <p className="text-xs text-blue-700/80">
+                Mail, Calendar and OneDrive are connected. To enable Teams messages, add{" "}
+                <span className="font-mono bg-blue-100 px-0.5 rounded">Chat.Read</span>{" "}
+                <span className="font-mono bg-blue-100 px-0.5 rounded">Team.ReadBasic.All</span>{" "}
+                to your Azure AD app, grant admin consent, then re-authorize.
+              </p>
+            </div>
+            <Button size="sm" variant="outline" className="shrink-0 border-blue-300 text-blue-700"
+              onClick={() => { window.location.href = "/api/auth/microsoft"; }}>
+              Re-authorize
             </Button>
           </CardContent>
         </Card>

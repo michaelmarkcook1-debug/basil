@@ -199,6 +199,35 @@ export async function getOutlookTodayEvents(): Promise<OutlookCalendarEvent[]> {
 /**
  * Fetch events for the next `days` days starting from today (Europe/London).
  */
+/**
+ * Returns online-meeting events from the past `daysBack` days.
+ * Used by the Teams signal layer (equivalent to Zoom summaries).
+ * Requires Calendars.ReadWrite scope (already granted).
+ */
+export async function getOutlookPastMeetings(daysBack = 30): Promise<OutlookCalendarEvent[]> {
+  const now      = new Date();
+  const startDate = new Date(now.getTime() - daysBack * 86_400_000);
+
+  const params = new URLSearchParams({
+    startDateTime: isoDate(startDate),
+    endDateTime:   isoDate(now),
+    $top:          "50",
+    $select:       EVENT_SELECT,
+    $filter:       "isOnlineMeeting eq true",
+  });
+
+  try {
+    const data = await graphGet<GraphListResponse<GraphEvent>>(
+      `/me/calendarView?${params}`
+    );
+    if (!data) return [];
+    return (data.value || []).map((e) => mapEvent(e, ""));
+  } catch (err) {
+    console.error("[outlook-calendar] getOutlookPastMeetings error:", err instanceof Error ? err.message : err);
+    return [];
+  }
+}
+
 export async function getOutlookEventsForDays(days: number): Promise<OutlookCalendarEvent[]> {
   const now         = new Date();
   const todayStr    = now.toLocaleDateString("en-CA", { timeZone: TZ });

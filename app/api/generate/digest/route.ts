@@ -5,6 +5,7 @@ import { getEventsForMonth } from "@/lib/google/calendar";
 import { getRecentEmails } from "@/lib/google/gmail";
 import { getRecentSlackMessages } from "@/lib/slack/client";
 import { getZoomSummariesFromGmail } from "@/lib/google/zoom-summaries";
+import { getTeamsMeetings, type TeamsMeeting } from "@/lib/microsoft/teams";
 import { listActions, isActionStalled } from "@/lib/actions/store";
 import { listDecisions } from "@/lib/decisions/store";
 import { listMemories } from "@/lib/memory/store";
@@ -114,6 +115,7 @@ export async function POST() {
     emails,
     slackMessages,
     zoomSummaries,
+    teamsMeetings,
     actionsResult,
     decisionsResult,
     memoriesResult,
@@ -170,6 +172,15 @@ export async function POST() {
         return await getZoomSummariesFromGmail(14, 8);
       } catch (e) {
         console.error("Failed to fetch Zoom summaries:", e);
+        return [];
+      }
+    })(),
+
+    (async (): Promise<TeamsMeeting[]> => {
+      try {
+        return await getTeamsMeetings(14);
+      } catch (e) {
+        console.error("Failed to fetch Teams meetings:", e);
         return [];
       }
     })(),
@@ -342,6 +353,7 @@ export async function POST() {
     emails.length +
     slackMessages.length +
     zoomSummaries.length +
+    teamsMeetings.length +
     completedThisWeek.length +
     allOpenActions.length +
     recentDecisions.length;
@@ -362,6 +374,10 @@ export async function POST() {
     formatEmailBlock(emails, "RECENT EMAILS (last 7 days)"),
     formatSlackBlock(slackMessages),
     zoomSummaries.length > 0 ? formatZoomBlock(zoomSummaries) : "",
+    teamsMeetings.length > 0
+      ? `=== MICROSOFT TEAMS MEETINGS (last 14 days, ${teamsMeetings.length} found) ===\n` +
+        teamsMeetings.map((m) => `- [${m.date}] ${m.title}\n  ${m.body}`).join("\n") + "\n"
+      : "",
     actionsBlock,
     decisionsBlock,
     memoryBlock,
@@ -435,6 +451,7 @@ Return ONLY valid JSON, no markdown code fences.`;
         emails: emails.length,
         slackMessages: slackMessages.length,
         zoomSummaries: zoomSummaries.length,
+        teamsMeetings: teamsMeetings.length,
         completedActions: completedThisWeek.length,
         openActions: allOpenActions.length,
         recentDecisions: recentDecisions.length,
