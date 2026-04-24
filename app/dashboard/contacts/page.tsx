@@ -20,7 +20,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
-import { Search, Mail, MapPin, Users, Brain, CheckSquare, AlertTriangle, Activity, Flame, RefreshCw, Loader2, Wifi, Sparkles, Plus, X, Phone, Briefcase, Home, ArrowRightLeft, MessageCircle, Wand2, Check, ChevronLeft, Pencil } from "lucide-react";
+import { Search, Mail, MapPin, Users, Brain, CheckSquare, AlertTriangle, Activity, Flame, RefreshCw, Loader2, Wifi, Sparkles, Plus, X, Phone, Briefcase, Home, ArrowRightLeft, MessageCircle, Wand2, Check, ChevronLeft, ChevronDown, ChevronUp, Pencil } from "lucide-react";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { Textarea } from "@/components/ui/textarea";
 import {
@@ -752,6 +752,10 @@ export default function ContactsPage() {
   const [dismissedIds, setDismissedIds] = useState<string[]>([]);
   const [userContacts, setUserContacts] = useState<Contact[]>([]);
   const [overrides, setOverrides] = useState<Record<string, ProfileOverride>>({});
+  const [healthCollapsed, setHealthCollapsed] = useState<boolean>(() => {
+    if (typeof window === "undefined") return false;
+    try { return localStorage.getItem("sage-health-collapsed") === "true"; } catch { return false; }
+  });
 
   // Merge seed + user-added contacts — this is the effective "all contacts" list.
   const contacts = useMemo<Contact[]>(
@@ -1008,7 +1012,7 @@ export default function ContactsPage() {
       >
         {/* Directory switcher — keeps work contacts (Slack/Gmail signal) and
             personal contacts (WhatsApp, friends, family) in separate views. */}
-        <div className="grid grid-cols-2 border-b border-border">
+        <div className="grid grid-cols-2 border-b border-border shrink-0">
           {(["work", "personal"] as const).map((dir) => {
             const active = activeDirectory === dir;
             const count = counts[dir];
@@ -1035,7 +1039,7 @@ export default function ContactsPage() {
           })}
         </div>
 
-        <div className="p-4 space-y-3 border-b border-border">
+        <div className="p-4 space-y-3 border-b border-border shrink-0">
           <div className="relative">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
             <Input
@@ -1062,31 +1066,45 @@ export default function ContactsPage() {
             {directoryContacts.length === 1 ? "" : "s"}
           </p>
         </div>
+        {/* Scrollable area: relationship health + suggestions + contact list */}
+        <div className="flex-1 overflow-y-auto min-h-0">
         {/* Relationship Heat Map */}
         <div className="px-4 py-3 border-b border-border">
           <div className="flex items-center justify-between mb-2">
-            <p className="text-[12px] font-semibold tracking-widest uppercase text-muted-foreground flex items-center gap-1">
+            <button
+              onClick={() => {
+                const next = !healthCollapsed;
+                setHealthCollapsed(next);
+                try { localStorage.setItem("sage-health-collapsed", String(next)); } catch { /* ignore */ }
+              }}
+              className="text-[12px] font-semibold tracking-widest uppercase text-muted-foreground flex items-center gap-1 hover:text-foreground transition-colors"
+            >
               <Flame className="h-3 w-3" /> Relationship Health
-              {isLive && (
+              {isLive && !healthCollapsed && (
                 <Badge className="bg-emerald-500/15 text-emerald-500 border-emerald-500/30 text-[12px] ml-1 py-0 px-1 gap-0.5">
                   <Wifi className="h-2 w-2" /> Live
                 </Badge>
               )}
-            </p>
-            <button
-              onClick={refreshActivity}
-              disabled={activityLoading}
-              className="text-muted-foreground/50 hover:text-[oklch(0.72_0.15_85)] transition-colors"
-              title="Refresh from Calendar, Gmail & Slack"
-            >
-              {activityLoading ? (
-                <Loader2 className="h-3 w-3 animate-spin" />
-              ) : (
-                <RefreshCw className="h-3 w-3" />
-              )}
+              {healthCollapsed
+                ? <ChevronDown className="h-3 w-3 ml-1 text-muted-foreground/60" />
+                : <ChevronUp className="h-3 w-3 ml-1 text-muted-foreground/60" />}
             </button>
+            {!healthCollapsed && (
+              <button
+                onClick={refreshActivity}
+                disabled={activityLoading}
+                className="text-muted-foreground/50 hover:text-[oklch(0.72_0.15_85)] transition-colors"
+                title="Refresh from Calendar, Gmail & Slack"
+              >
+                {activityLoading ? (
+                  <Loader2 className="h-3 w-3 animate-spin" />
+                ) : (
+                  <RefreshCw className="h-3 w-3" />
+                )}
+              </button>
+            )}
           </div>
-          <div className="flex flex-wrap gap-1.5">
+          {!healthCollapsed && <div className="flex flex-wrap gap-1.5">
             {[...directoryContacts]
               .sort((a, b) => {
                 const ia = getLastInteraction(a.id, a.lastInteraction);
@@ -1130,7 +1148,7 @@ export default function ContactsPage() {
                   </Tooltip>
                 );
               })}
-          </div>
+          </div>}
         </div>
         {/* Suggested contacts — people with real email/Slack signal not yet
             tracked. Only shown in the Work directory because the signal sources
@@ -1231,9 +1249,10 @@ export default function ContactsPage() {
           </div>
         )}
 
-        <div className="flex-1 overflow-y-auto p-2">
+        <div className="p-2">
           <ContactList contacts={filtered} selected={selectedId} onSelect={handleMobileSelect} />
         </div>
+        </div>{/* end scrollable area */}
       </div>
 
       {/* Right panel — contact detail.
