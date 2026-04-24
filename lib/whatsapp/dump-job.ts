@@ -554,3 +554,64 @@ export async function resetDump(): Promise<void> {
     contactCount: 0,
   };
 }
+
+/**
+ * Returns up to `limit` recent messages from the WhatsApp snapshot that
+ * belong to a specific person — for use as personality-profiling signal.
+ *
+ * Matching strategy (fuzzy — WhatsApp names are user-set):
+ *   1. Direct 1:1 chat whose display name contains the contact's name
+ *   2. Group messages where the author name contains the contact's name
+ *   3. Phone-number match via the JID (@s.whatsapp.net suffix stripped)
+ */
+export async function getWhatsAppSignalForContact(
+  name: string,
+  phone?: string,
+  limit = 40
+): Promise<string[]> {
+  const snapshot = await getSnapshot();
+  if (!snapshot) return [];
+
+  const nameLower  = name.trim().toLowerCase();
+  const firstName  = nameLower.split(/\s+/)[0];
+  // Normalise phone: keep digits only for comparison
+  const phoneDigits = phone ? phone.replace(/\D/g, "").slice(-9) : null;
+
+  const lines: string[] = [];
+
+  for (const chat of snapshot.chats) {
+    const chatNameLower = (chat.name ?? "").toLowerCase();
+    const chatJidPhone  = chat.id.split("@")[0].replace(/\D/g, "");
+
+    // Match 1: direct chat (non-group) whose name matches the contact
+    const isDirect =
+      !chat.isGroup &&
+      (chatNameLower.includes(nameLower) ||
+        (firstName.length >= 3 && chatNameLower.includes(firstName)) ||
+        (phoneDigits && chatJidPhone.endsWith(phoneDigits)));
+
+    for (const msg of chat.messages) {
+      if (!msg.text) continue;
+
+      if (isDirect) {
+        // Every message in a direct chat is from or to this person
+        const speaker = msg.fromMe ? "Michael" : (chat.name || "Them");
+        lines.push(`[${msg.timestamp?.slice(0, 10)}] ${speaker}: ${msg.text}`);
+      } else if (chat.isGroup) {
+        // In a group, only include messages authored by the contact
+        const authorLower = (msg.authorName ?? "").toLowerCase();
+        if (
+          authorLower.includes(nameLower) ||
+          (firstName.length >= 3 && authorLower.includes(firstName))
+        ) {
+          lines.push(`[${msg.timestamp?.slice(0, 10)}] ${msg.authorName} (in ${chat.name}): ${msg.text}`);
+        }
+      }
+
+      if (lines.length >= limit) break;
+    }
+    if (lines.length >= limit) break;
+  }
+
+  return lines;
+}

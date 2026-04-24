@@ -20,7 +20,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
-import { Search, Mail, MapPin, Users, Brain, CheckSquare, AlertTriangle, Activity, Flame, RefreshCw, Loader2, Wifi, Sparkles, Plus, X, Phone, Briefcase, Home, ArrowRightLeft, MessageCircle, Wand2, Check, ChevronLeft } from "lucide-react";
+import { Search, Mail, MapPin, Users, Brain, CheckSquare, AlertTriangle, Activity, Flame, RefreshCw, Loader2, Wifi, Sparkles, Plus, X, Phone, Briefcase, Home, ArrowRightLeft, MessageCircle, Wand2, Check, ChevronLeft, Pencil } from "lucide-react";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { Textarea } from "@/components/ui/textarea";
 import {
@@ -85,7 +85,9 @@ function ContactDetail({
   liveSources,
   lastInteraction,
   canMove,
+  isUserContact,
   onMove,
+  onRename,
   override,
   onSaveOverride,
   onClearOverride,
@@ -94,9 +96,12 @@ function ContactDetail({
   liveItems: string[];
   liveSources: string[];
   lastInteraction?: string;
-  /** True if this is a user-added contact that can be reassigned. */
+  /** True if this is a user-added contact that can be reassigned / renamed. */
   canMove: boolean;
+  isUserContact: boolean;
   onMove: (target: ContactDirectory) => void;
+  /** Called after a successful rename so the parent can refresh the list. */
+  onRename: (newName: string) => void;
   override?: ProfileOverride;
   onSaveOverride: (patch: ProfileOverride) => void;
   onClearOverride: () => void;
@@ -115,13 +120,30 @@ function ContactDetail({
   const [genError, setGenError] = useState("");
   const [preview, setPreview] = useState<ProfileOverride | null>(null);
 
+  // Inline name editing — only for user-added contacts.
+  const [editingName, setEditingName] = useState(false);
+  const [nameInput, setNameInput] = useState(contact.name);
+  const [nameSaving, setNameSaving] = useState(false);
+
+  async function saveName() {
+    const trimmed = nameInput.trim();
+    if (!trimmed || trimmed === contact.name) { setEditingName(false); return; }
+    setNameSaving(true);
+    await updateUserContact(contact.id, { name: trimmed });
+    onRename(trimmed);
+    setEditingName(false);
+    setNameSaving(false);
+  }
+
   // Reset generator UI when the selected contact changes.
   useEffect(() => {
     setGenOpen(false);
     setGenNotes("");
     setGenError("");
     setPreview(null);
-  }, [contact.id]);
+    setEditingName(false);
+    setNameInput(contact.name);
+  }, [contact.id, contact.name]);
 
   async function generateProfile() {
     setGenLoading(true);
@@ -177,7 +199,37 @@ function ContactDetail({
         <div className="flex-1 min-w-0">
           <div className="flex items-start justify-between gap-3">
             <div>
-              <h2 className="text-xl font-semibold">{contact.name}</h2>
+              {/* Inline name edit — only for user-added contacts */}
+              {editingName ? (
+                <div className="flex items-center gap-1.5">
+                  <input
+                    autoFocus
+                    value={nameInput}
+                    onChange={e => setNameInput(e.target.value)}
+                    onKeyDown={e => { if (e.key === "Enter") saveName(); if (e.key === "Escape") setEditingName(false); }}
+                    className="text-xl font-semibold bg-transparent border-b-2 border-[oklch(0.72_0.15_85)] outline-none w-48"
+                  />
+                  <button onClick={saveName} disabled={nameSaving} className="text-emerald-600 hover:text-emerald-700 disabled:opacity-50">
+                    <Check className="h-4 w-4" />
+                  </button>
+                  <button onClick={() => setEditingName(false)} className="text-muted-foreground hover:text-foreground">
+                    <X className="h-4 w-4" />
+                  </button>
+                </div>
+              ) : (
+                <div className="flex items-center gap-1.5 group">
+                  <h2 className="text-xl font-semibold">{contact.name}</h2>
+                  {isUserContact && (
+                    <button
+                      onClick={() => { setNameInput(contact.name); setEditingName(true); }}
+                      className="opacity-0 group-hover:opacity-100 transition-opacity text-muted-foreground hover:text-foreground"
+                      title="Edit name"
+                    >
+                      <Pencil className="h-3.5 w-3.5" />
+                    </button>
+                  )}
+                </div>
+              )}
               <p className="text-sm text-[oklch(0.72_0.15_85)]">{contact.title}</p>
               <p className="text-sm text-muted-foreground">{contact.company}</p>
             </div>
@@ -1058,7 +1110,12 @@ export default function ContactsPage() {
             liveSources={getLiveSources(selected.id)}
             lastInteraction={getLastInteraction(selected.id, selected.lastInteraction)}
             canMove={isSelectedUserContact}
+            isUserContact={isSelectedUserContact}
             onMove={(target) => handleMoveDirectory(selected.id, target)}
+            onRename={(newName) => {
+              setUserContacts(getUserContacts());
+              notifyContacts();
+            }}
             override={selectedOverride}
             onSaveOverride={(patch) => handleSaveOverride(selected.id, patch)}
             onClearOverride={() => handleClearOverride(selected.id)}

@@ -7,6 +7,7 @@ import {
   searchSlackMessages,
 } from "@/lib/slack/client";
 import { getZoomSummaries, filterByAttendees } from "@/lib/google/zoom-summaries";
+import { getWhatsAppSignalForContact } from "@/lib/whatsapp/dump-job";
 
 // Given a contact (name + optional email + directory + optional free-text
 // notes), pull every bit of signal we can reach and ask Basil to write the
@@ -49,7 +50,7 @@ export async function POST(req: Request) {
   // personal-only WhatsApp contact from Gmail would just be noise.
   const shouldPullWorkSignal = directory === "work" || !!email;
 
-  const [emailsAll, slackRecent, slackSearched, zoomAll] = await Promise.all([
+  const [emailsAll, slackRecent, slackSearched, zoomAll, whatsappLines] = await Promise.all([
     shouldPullWorkSignal
       ? getRecentEmails(40).catch(() => [])
       : Promise.resolve([]),
@@ -62,6 +63,8 @@ export async function POST(req: Request) {
     shouldPullWorkSignal
       ? getZoomSummaries(30).catch(() => [])
       : Promise.resolve([]),
+    // WhatsApp signal is available for any contact regardless of directory.
+    getWhatsAppSignalForContact(name, body.phone, 40).catch(() => [] as string[]),
   ]);
 
   // Filter emails: match sender/recipient against name or email
@@ -130,7 +133,11 @@ export async function POST(req: Request) {
         .join("\n\n")
     : null;
 
-  const signalCount = emails.length + slackMsgs.length + zoom.length;
+  const whatsappBlock = whatsappLines.length
+    ? whatsappLines.join("\n")
+    : null;
+
+  const signalCount = emails.length + slackMsgs.length + zoom.length + whatsappLines.length;
 
   const promptText = `Generate a personality profile for one of Michael's contacts. Match the style of his existing, hand-authored profiles — specific, observational, written like a great chief of staff's notes. No fluff.
 
@@ -165,6 +172,13 @@ ${
   zoomBlock
     ? `## ZOOM AI COMPANION SUMMARIES mentioning them
 ${zoomBlock}
+`
+    : ""
+}
+${
+  whatsappBlock
+    ? `## WHATSAPP SIGNAL (${whatsappLines.length} messages — direct chats and group appearances)
+${whatsappBlock}
 `
     : ""
 }
