@@ -19,11 +19,23 @@ import { withLock } from "@/lib/events/lock";
 const CONTACTS_FILE = "sage-user-contacts.json";
 const LOCK_KEY = "user-contacts";
 
-// ── Back-compat normaliser ────────────────────────────────────────────────────
-// Older records written by the old localStorage helper may be missing `directory`.
+// ── Normaliser ───────────────────────────────────────────────────────────────
+// 1. Back-compat: older records may be missing `directory`.
+// 2. Domain tagging: any contact with a @talentgenius.io email is automatically
+//    marked as internal with company "TalentGenius" and directory "work".
 function normalize(c: Contact): Contact {
-  if (!c.directory) return { ...c, directory: "work" };
-  return c;
+  let out = c.directory ? c : { ...c, directory: "work" as const };
+
+  if (out.email && out.email.toLowerCase().endsWith("@talentgenius.io")) {
+    out = {
+      ...out,
+      type: "internal",
+      company: out.company && out.company !== "—" ? out.company : "TalentGenius",
+      directory: "work",
+    };
+  }
+
+  return out;
 }
 
 async function readAll(): Promise<Contact[]> {
