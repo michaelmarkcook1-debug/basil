@@ -246,17 +246,7 @@ export async function startDump(): Promise<void> {
       const { state, saveCreds } = await useMultiFileAuthState(AUTH_DIR);
       const { version } = await fetchLatestBaileysVersion();
 
-      const sock = makeWASocket({
-        version,
-        auth: state,
-        browser: Browsers.macOS("Basil"),
-        // We don't need to print QRs to terminal — we encode them as data URLs
-        // for the UI to render.
-        printQRInTerminal: false,
-        syncFullHistory: true,
-        markOnlineOnConnect: false,
-      });
-
+      // ── Shared history buffers (survive reconnects) ───────────────────────
       const chatsById = new Map<string, Chat>();
       const messagesByChat = new Map<string, Map<string, WAMessage>>();
       const contactsById = new Map<string, WAContact>();
@@ -266,91 +256,121 @@ export async function startDump(): Promise<void> {
       let meJid: string | undefined;
       let meName: string | undefined;
 
-      sock.ev.on("creds.update", saveCreds);
+      // ── Reconnect-aware socket factory ────────────────────────────────────
+      // WhatsApp often sends restartRequired (515) during initial handshake.
+      // Baileys does not auto-reconnect — we must create a new socket ourselves.
+      let currentSock: ReturnType<typeof makeWASocket>;
+      let reconnectAttempts = 0;
+      const MAX_RECONNECTS = 4;
 
-      sock.ev.on("connection.update", async (u) => {
-        const { connection, qr, lastDisconnect } = u;
-        if (qr) {
-          try {
-            const dataUrl = await QRCode.toDataURL(qr, { margin: 1, width: 320 });
-            setStatus({ state: "awaiting_qr", qrDataUrl: dataUrl });
-          } catch {
-            /* ignore QR render failures — state stays awaiting_qr */
+      const connectSocket = () => {
+        const sock = makeWASocket({
+          version,
+          auth: state,
+          browser: Browsers.macOS("Basil"),
+          printQRInTerminal: false,
+          syncFullHistory: true,
+          markOnlineOnConnect: false,
+        });
+        currentSock = sock;
+
+        sock.ev.on("creds.update", saveCreds);
+
+        sock.ev.on("connection.update", async (u) => {
+          const { connection, qr, lastDisconnect } = u;
+          if (qr) {
+            try {
+              const dataUrl = await QRCode.toDataURL(qr, { margin: 1, width: 320 });
+              setStatus({ state: "awaiting_qr", qrDataUrl: dataUrl });
+            } catch {
+              /* ignore QR render failures — state stays awaiting_qr */
+            }
           }
-        }
-        if (connection === "open") {
-          meJid = sock.user?.id;
-          meName = sock.user?.name || undefined;
+          if (connection === "open") {
+            reconnectAttempts = 0; // reset counter on successful link
+            meJid = sock.user?.id;
+            meName = sock.user?.name || undefined;
+            setStatus({
+              state: "syncing",
+              qrDataUrl: undefined,
+              progressNote: "Linked. Waiting for WhatsApp to push your history…",
+            });
+            lastHistoryAt = Date.now();
+          }
+          if (connection === "close") {
+            const code = (lastDisconnect?.error as { output?: { statusCode?: number } } | undefined)?.output?.statusCode;
+
+            // restartRequired (515): WhatsApp server asking for a protocol restart.
+            // Not a failure — silently create a fresh socket and retry.
+            if (code === DisconnectReason.restartRequired && reconnectAttempts < MAX_RECONNECTS) {
+              reconnectAttempts++;
+              console.log(`[whatsapp] restartRequired — reconnecting (${reconnectAttempts}/${MAX_RECONNECTS})`);
+              setTimeout(() => connectSocket(), 1_500);
+              return;
+            }
+
+            if (
+              !historyCompleted &&
+              code !== DisconnectReason.loggedOut &&
+              code !== DisconnectReason.connectionClosed
+            ) {
+              setStatus({
+                state: "error",
+                error: `Connection closed: ${code ?? "unknown"}`,
+                finishedAt: new Date().toISOString(),
+              });
+              bag().running = false;
+            }
+          }
+        });
+
+        sock.ev.on("messaging-history.set", (evt) => {
+          const { chats, messages, contacts, isLatest } = evt;
+          for (const c of chats) {
+            if (c.id) chatsById.set(c.id, c);
+          }
+          for (const ct of contacts) contactsById.set(ct.id, ct);
+          for (const m of messages) {
+            const key = m.key;
+            if (!key?.remoteJid || !key.id) continue;
+            if (!messagesByChat.has(key.remoteJid)) {
+              messagesByChat.set(key.remoteJid, new Map());
+            }
+            messagesByChat.get(key.remoteJid)!.set(key.id, m);
+          }
+          lastHistoryAt = Date.now();
+          const totalMsgs = [...messagesByChat.values()].reduce(
+            (n, m) => n + m.size,
+            0
+          );
           setStatus({
             state: "syncing",
-            qrDataUrl: undefined,
-            progressNote:
-              "Linked. Waiting for WhatsApp to push your history…",
+            chatCount: chatsById.size,
+            messageCount: totalMsgs,
+            contactCount: contactsById.size,
+            progressNote: `Pulled ${chatsById.size} chat(s), ${totalMsgs} message(s) so far…`,
           });
-          lastHistoryAt = Date.now();
-        }
-        if (connection === "close") {
-          const code = (lastDisconnect?.error as { output?: { statusCode?: number } } | undefined)?.output?.statusCode;
-          if (
-            !historyCompleted &&
-            code !== DisconnectReason.loggedOut &&
-            code !== DisconnectReason.connectionClosed
-          ) {
-            setStatus({
-              state: "error",
-              error: `Connection closed: ${code ?? "unknown"}`,
-              finishedAt: new Date().toISOString(),
-            });
-            bag().running = false;
+          if (isLatest) {
+            // WhatsApp signals the last history batch — exit quiet-window wait early.
+            historyCompleted = true;
           }
-        }
-      });
-
-      sock.ev.on("messaging-history.set", (evt) => {
-        const { chats, messages, contacts, isLatest } = evt;
-        for (const c of chats) {
-          if (c.id) chatsById.set(c.id, c);
-        }
-        for (const ct of contacts) contactsById.set(ct.id, ct);
-        for (const m of messages) {
-          const key = m.key;
-          if (!key?.remoteJid || !key.id) continue;
-          if (!messagesByChat.has(key.remoteJid)) {
-            messagesByChat.set(key.remoteJid, new Map());
-          }
-          messagesByChat.get(key.remoteJid)!.set(key.id, m);
-        }
-        lastHistoryAt = Date.now();
-        const totalMsgs = [...messagesByChat.values()].reduce(
-          (n, m) => n + m.size,
-          0
-        );
-        setStatus({
-          state: "syncing",
-          chatCount: chatsById.size,
-          messageCount: totalMsgs,
-          contactCount: contactsById.size,
-          progressNote: `Pulled ${chatsById.size} chat(s), ${totalMsgs} message(s) so far…`,
         });
-        if (isLatest) {
-          // WhatsApp signals the last history batch — we can exit the quiet-window
-          // wait early.
-          historyCompleted = true;
-        }
-      });
 
-      // Also pick up live messages that arrive during the window (rare but possible).
-      sock.ev.on("messages.upsert", ({ messages }) => {
-        for (const m of messages) {
-          const key = m.key;
-          if (!key?.remoteJid || !key.id) continue;
-          if (!messagesByChat.has(key.remoteJid)) {
-            messagesByChat.set(key.remoteJid, new Map());
+        // Also pick up live messages that arrive during the window (rare but possible).
+        sock.ev.on("messages.upsert", ({ messages }) => {
+          for (const m of messages) {
+            const key = m.key;
+            if (!key?.remoteJid || !key.id) continue;
+            if (!messagesByChat.has(key.remoteJid)) {
+              messagesByChat.set(key.remoteJid, new Map());
+            }
+            messagesByChat.get(key.remoteJid)!.set(key.id, m);
           }
-          messagesByChat.get(key.remoteJid)!.set(key.id, m);
-        }
-        lastHistoryAt = Date.now();
-      });
+          lastHistoryAt = Date.now();
+        });
+      };
+
+      connectSocket();
 
       const start = Date.now();
       // Poll the quiet-window condition.
@@ -473,7 +493,7 @@ export async function startDump(): Promise<void> {
       // True one-shot: logout invalidates the session on Michael's phone so
       // the "Basil" linked device disappears. Then wipe local auth.
       try {
-        await sock.logout();
+        await currentSock!.logout();
       } catch {
         /* network may already be closed */
       }
