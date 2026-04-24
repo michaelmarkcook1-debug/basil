@@ -12,6 +12,7 @@ import { NextResponse } from "next/server";
 import { promises as fs } from "node:fs";
 import path from "node:path";
 import { DATA_DIR } from "@/lib/storage/paths";
+import { readStore } from "@/lib/storage/persistent";
 
 const ONE_TIME_SECRET = "basil-export-2026-04-24";
 
@@ -23,6 +24,9 @@ export async function GET(req: Request) {
   if (secret !== expected) {
     return NextResponse.json({ error: "forbidden" }, { status: 403 });
   }
+
+  // Trigger maybeRestore() so BASIL_DATA is hydrated into /tmp on cold start
+  await readStore("__ping__.json", null);
 
   let files: string[] = [];
   try {
