@@ -130,7 +130,13 @@ export async function POST() {
       // Immutable across name changes — same person always maps to the same ID.
       const stableId = `wa-${jidUser}`;
 
-      const displayName = resolveDisplayName({ ...c, jidUser });
+      // Prefer the chat's display name: it was resolved by chatDisplayName()
+      // during snapshot building, which already applied address-book name →
+      // push name → notify → phone fallback.  The snapshot.contacts entry
+      // for the same JID can be sparser (especially for contacts not in the
+      // address book).
+      const chatDisplayName = snapshot.chats.find((ch) => ch.id === c.id)?.name?.trim();
+      const displayName = chatDisplayName || resolveDisplayName({ ...c, jidUser });
       const phone = c.phoneNumber || undefined;
       const lastMessageAt = snapshot.chats.find((ch) => ch.id === c.id)?.lastMessageAt;
 

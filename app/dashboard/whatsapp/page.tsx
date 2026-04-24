@@ -241,10 +241,18 @@ export default function WhatsAppPage() {
 
       // ── Auto-generate personality profiles (smart — skip existing) ───────
       // Only run for WhatsApp contacts that don't already have a real profile.
-      // This means re-importing is safe: existing profiles are never clobbered.
-      const toProfile = allContacts.filter(
-        (c: Contact) => c.tags?.includes("whatsapp") && (!c.personality || c.personality === "—")
-      );
+      // Capped at 12, sorted by most-recent interaction, so the most active
+      // contacts get profiled first. Re-importing is safe: existing profiles
+      // (personality !== "—") are never clobbered.
+      const AUTO_PROFILE_LIMIT = 12;
+      const toProfile = allContacts
+        .filter((c: Contact) => c.tags?.includes("whatsapp") && (!c.personality || c.personality === "—"))
+        .sort((a: Contact, b: Contact) => {
+          const da = a.lastInteraction ? new Date(a.lastInteraction).getTime() : 0;
+          const db = b.lastInteraction ? new Date(b.lastInteraction).getTime() : 0;
+          return db - da; // most recent first
+        })
+        .slice(0, AUTO_PROFILE_LIMIT);
 
       if (toProfile.length === 0) return;
       setProfileProgress({ done: 0, total: toProfile.length });
@@ -286,6 +294,7 @@ export default function WhatsAppPage() {
           })
         );
       }
+
     } catch (e) {
       console.error("Import to personal contacts failed:", e);
       setImportPreview({ added: 0 });

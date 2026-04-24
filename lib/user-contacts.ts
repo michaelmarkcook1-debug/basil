@@ -103,12 +103,38 @@ export async function loadUserContactsFromServer(): Promise<Contact[]> {
       return current;
     }
 
-    // Merge: server wins for records it knows about; preserve local-only records
-    // (e.g. contacts written to localStorage by the import POST before a full
-    // server round-trip could confirm them).
-    const serverIds = new Set(serverContacts.map((c) => c.id));
+    // Profile fields that are written optimistically by the client-side AI
+    // profile generator.  On Vercel, PATCH calls for these can hit a warm
+    // instance that hasn't yet picked up the latest BASIL_DATA, causing the
+    // server to return "—" for fields that were successfully updated locally.
+    // Rule: server wins when it has real data; local wins when server still
+    // says "—" but local already has a generated value — never clobber good
+    // local data with a stale-instance placeholder.
+    const PROFILE_FIELDS = [
+      "personality", "whatMakesThemTick", "watchOut", "recentActivity", "activitySource",
+    ] as const;
+
+    const localById = new Map(current.map((c) => [c.id, c]));
+    const serverWithProfileProtection = serverContacts.map((sc) => {
+      const lc = localById.get(sc.id);
+      if (!lc) return sc;
+      const result = { ...sc };
+      for (const field of PROFILE_FIELDS) {
+        const sv = sc[field] as string | undefined;
+        const lv = lc[field] as string | undefined;
+        // Promote local value only when server still has a blank placeholder.
+        if ((!sv || sv === "—") && lv && lv !== "—") {
+          (result as Record<string, unknown>)[field] = lv;
+        }
+      }
+      return result;
+    });
+
+    // Merge: server (with profile protection) wins for records it knows about;
+    // preserve local-only records not yet confirmed by the server.
+    const serverIds = new Set(serverWithProfileProtection.map((c) => c.id));
     const localOnly = current.filter((c) => !serverIds.has(c.id));
-    const merged = [...serverContacts, ...localOnly];
+    const merged = [...serverWithProfileProtection, ...localOnly];
 
     localStorage.setItem(USER_CONTACTS_KEY, JSON.stringify(merged));
     return merged;
