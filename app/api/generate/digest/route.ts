@@ -1,6 +1,7 @@
 import { generateText } from "ai";
 import { getSystemPrompt } from "@/lib/ai/system-prompt";
 import { parseAIJson } from "@/lib/ai/parse-json";
+import { getSettings } from "@/lib/settings/store";
 import { getEventsForMonth } from "@/lib/google/calendar";
 import { getRecentEmails } from "@/lib/google/gmail";
 import { getRecentSlackMessages } from "@/lib/slack/client";
@@ -9,6 +10,7 @@ import { getTeamsMeetings, type TeamsMeeting } from "@/lib/microsoft/teams";
 import { listActions, isActionStalled } from "@/lib/actions/store";
 import { listDecisions } from "@/lib/decisions/store";
 import { listMemories } from "@/lib/memory/store";
+import { getSessionUser } from "@/lib/auth";
 import type { CalendarEvent } from "@/lib/google/calendar";
 import type { GmailMessage } from "@/lib/google/gmail";
 import type { SlackMessage } from "@/lib/slack/client";
@@ -17,12 +19,12 @@ import type { Memory } from "@/lib/memory/types";
 
 // ── Helpers ──
 
-function formatDate(d: Date): string {
+function formatDate(d: Date, tz = "Europe/London"): string {
   return d.toLocaleDateString("en-GB", {
     weekday: "short",
     day: "numeric",
     month: "short",
-    timeZone: "Europe/London",
+    timeZone: tz,
   });
 }
 
@@ -30,7 +32,7 @@ function eventDateStr(event: CalendarEvent): string {
   return (event.start || "").substring(0, 10);
 }
 
-function formatCalendarBlock(events: CalendarEvent[], label: string): string {
+function formatCalendarBlock(events: CalendarEvent[], label: string, tz = "Europe/London"): string {
   if (events.length === 0) return `=== ${label} ===\n(No events found)\n`;
 
   const lines = events.map((e) => {
@@ -39,7 +41,7 @@ function formatCalendarBlock(events: CalendarEvent[], label: string): string {
       : new Date(e.start).toLocaleTimeString("en-GB", {
           hour: "2-digit",
           minute: "2-digit",
-          timeZone: "Europe/London",
+          timeZone: tz,
         });
     const attendees =
       e.attendeeCount > 0 ? ` [${e.attendees.slice(0, 5).join(", ")}]` : "";
@@ -50,14 +52,14 @@ function formatCalendarBlock(events: CalendarEvent[], label: string): string {
   return `=== ${label} (${events.length} events) ===\n${lines.join("\n")}\n`;
 }
 
-function formatEmailBlock(emails: GmailMessage[], label = "RECENT EMAILS"): string {
+function formatEmailBlock(emails: GmailMessage[], label = "RECENT EMAILS", tz = "Europe/London"): string {
   if (emails.length === 0) return `=== ${label} ===\n(No emails found)\n`;
 
   const lines = emails.map((e) => {
     const date = new Date(e.date).toLocaleDateString("en-GB", {
       day: "numeric",
       month: "short",
-      timeZone: "Europe/London",
+      timeZone: tz,
     });
     const unread = e.unread ? " [UNREAD]" : "";
     return `- ${date} from ${e.from}: ${e.subject}${unread}\n  ${e.snippet.substring(0, 180)}`;
@@ -66,11 +68,11 @@ function formatEmailBlock(emails: GmailMessage[], label = "RECENT EMAILS"): stri
   return `=== ${label} (${emails.length}) ===\n${lines.join("\n")}\n`;
 }
 
-function formatZoomBlock(summaries: ZoomSummary[]): string {
+function formatZoomBlock(summaries: ZoomSummary[], tz = "Europe/London"): string {
   if (summaries.length === 0) return "=== ZOOM MEETING SUMMARIES ===\n(No Zoom summaries found)\n";
   const lines = summaries.map((s) => {
     const date = new Date(s.date).toLocaleDateString("en-GB", {
-      day: "numeric", month: "short", timeZone: "Europe/London",
+      day: "numeric", month: "short", timeZone: tz,
     });
     const body = s.body.length > 600 ? s.body.slice(0, 600) + "…" : s.body;
     return `- [${date}] ${s.title}\n  ${body}`;
@@ -78,7 +80,7 @@ function formatZoomBlock(summaries: ZoomSummary[]): string {
   return `=== ZOOM MEETING SUMMARIES (last 14 days, ${summaries.length} found) ===\n${lines.join("\n")}\n`;
 }
 
-function formatSlackBlock(messages: SlackMessage[]): string {
+function formatSlackBlock(messages: SlackMessage[], tz = "Europe/London"): string {
   if (messages.length === 0)
     return "=== RECENT SLACK MESSAGES ===\n(No messages found)\n";
 
@@ -86,7 +88,7 @@ function formatSlackBlock(messages: SlackMessage[]): string {
     const date = new Date(m.date).toLocaleDateString("en-GB", {
       day: "numeric",
       month: "short",
-      timeZone: "Europe/London",
+      timeZone: tz,
     });
     const mention = m.isMention ? " [MENTIONS MICHAEL]" : "";
     return `- ${date} ${m.channel} — ${m.author}: ${m.text.substring(0, 220)}${mention}`;
@@ -98,7 +100,26 @@ function formatSlackBlock(messages: SlackMessage[]): string {
 // ── Route handler ──
 
 export async function POST() {
+  const username = (await getSessionUser());
+  if (!username) return Response.json({ error: "Unauthorised" }, { status: 401 });
+
+  const settings    = await getSettings(username).catch(() => null);
+  const tz          = settings?.timezone || "Europe/London";
+
   const now = new Date();
+  // Align windows to the start of the current calendar week (Monday) in user's timezone,
+  // so "this week" always means Mon–Sun, not a rolling 7-day window.
+  const todayStr     = now.toLocaleDateString("en-CA", { timeZone: tz }); // YYYY-MM-DD
+  const nowLocal     = new Date(todayStr + "T00:00:00"); // midnight local (used for Mon calc)
+  const dayOfWeek    = nowLocal.getDay(); // 0=Sun,1=Mon,...6=Sat
+  const daysFromMon  = dayOfWeek === 0 ? 6 : dayOfWeek - 1; // days since last Monday
+  const weekStart    = new Date(now);
+  weekStart.setDate(now.getDate() - daysFromMon);
+  weekStart.setHours(0, 0, 0, 0);
+  const weekEnd = new Date(weekStart);
+  weekEnd.setDate(weekStart.getDate() + 6);
+  weekEnd.setHours(23, 59, 59, 999);
+
   const sevenDaysAgo = new Date(now);
   sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
   const sevenDaysAhead = new Date(now);
@@ -124,11 +145,12 @@ export async function POST() {
       try {
         const currentYear = now.getFullYear();
         const currentMonth = now.getMonth();
-        const currentMonthEvents = await getEventsForMonth(currentYear, currentMonth);
+        const currentMonthEvents = await getEventsForMonth(username, currentYear, currentMonth);
 
         let prevMonthEvents: CalendarEvent[] = [];
         if (sevenDaysAgo.getMonth() !== currentMonth) {
           prevMonthEvents = await getEventsForMonth(
+            username,
             sevenDaysAgo.getFullYear(),
             sevenDaysAgo.getMonth()
           );
@@ -137,6 +159,7 @@ export async function POST() {
         let nextMonthEvents: CalendarEvent[] = [];
         if (sevenDaysAhead.getMonth() !== currentMonth) {
           nextMonthEvents = await getEventsForMonth(
+            username,
             sevenDaysAhead.getFullYear(),
             sevenDaysAhead.getMonth()
           );
@@ -151,7 +174,7 @@ export async function POST() {
 
     (async (): Promise<GmailMessage[]> => {
       try {
-        return await getRecentEmails(30);
+        return await getRecentEmails(username, 30);
       } catch (e) {
         console.error("Failed to fetch emails:", e);
         return [];
@@ -160,7 +183,7 @@ export async function POST() {
 
     (async (): Promise<SlackMessage[]> => {
       try {
-        return await getRecentSlackMessages(30);
+        return await getRecentSlackMessages(username, 30);
       } catch (e) {
         console.error("Failed to fetch Slack messages:", e);
         return [];
@@ -169,7 +192,7 @@ export async function POST() {
 
     (async (): Promise<ZoomSummary[]> => {
       try {
-        return await getZoomSummariesFromGmail(14, 8);
+        return await getZoomSummariesFromGmail(username, 14, 8);
       } catch (e) {
         console.error("Failed to fetch Zoom summaries:", e);
         return [];
@@ -178,7 +201,7 @@ export async function POST() {
 
     (async (): Promise<TeamsMeeting[]> => {
       try {
-        return await getTeamsMeetings(14);
+        return await getTeamsMeetings(username, 14);
       } catch (e) {
         console.error("Failed to fetch Teams meetings:", e);
         return [];
@@ -195,7 +218,7 @@ export async function POST() {
       return [];
     }),
 
-    listMemories().catch((e) => {
+    listMemories(username).catch((e) => {
       console.error("Failed to fetch memories:", e);
       return [] as Memory[];
     }),
@@ -203,9 +226,10 @@ export async function POST() {
 
   // ── Calendar: split past vs upcoming ──────────────────────────────────────
 
-  const todayStr = now.toLocaleDateString("en-CA", { timeZone: "Europe/London" });
-  const sevenDaysAgoStr = sevenDaysAgo.toLocaleDateString("en-CA", { timeZone: "Europe/London" });
-  const sevenDaysAheadStr = sevenDaysAhead.toLocaleDateString("en-CA", { timeZone: "Europe/London" });
+  // todayStr already computed above; derive other date strings for calendar filtering
+  const weekStartStr    = weekStart.toLocaleDateString("en-CA", { timeZone: tz });
+  const sevenDaysAgoStr = sevenDaysAgo.toLocaleDateString("en-CA", { timeZone: tz });
+  const sevenDaysAheadStr = sevenDaysAhead.toLocaleDateString("en-CA", { timeZone: tz });
 
   const pastEvents = calendarEvents.filter((e) => {
     const d = eventDateStr(e);
@@ -217,23 +241,23 @@ export async function POST() {
     return d >= todayStr && d <= sevenDaysAheadStr;
   });
 
-  // ── Actions: 5 buckets ────────────────────────────────────────────────────
-  // Bucket 1: completed this week
+  // ── Actions: 5 buckets — all scoped to the current Mon–Sun calendar week ──
+  // Bucket 1: completed this week (since Monday)
   const completedThisWeek = actionsResult.filter((a) => {
     if (a.status !== "done") return false;
     const updated = a.updatedAt ?? a.createdAt;
     if (!updated) return false;
-    return new Date(updated).getTime() >= sevenDaysAgo.getTime();
+    return new Date(updated).getTime() >= weekStart.getTime();
   });
 
-  // Bucket 2: opened/created this week (not yet done)
+  // Bucket 2: opened/created this week (since Monday, not yet done)
   const openedThisWeek = actionsResult.filter((a) => {
     if (a.status === "done") return false;
     if (!a.createdAt) return false;
-    return new Date(a.createdAt).getTime() >= sevenDaysAgo.getTime();
+    return new Date(a.createdAt).getTime() >= weekStart.getTime();
   });
 
-  const todayIso = now.toISOString().split("T")[0];
+  const todayIso = todayStr; // already YYYY-MM-DD in user's timezone
   const PORDER: Record<string, number> = { high: 0, medium: 1, low: 2 };
 
   // Bucket 3: overdue (open with past due date)
@@ -366,7 +390,7 @@ export async function POST() {
     "╚══════════════════════════════════════╝",
     "",
     `Generated: ${now.toISOString()}`,
-    `Window: ${formatDate(sevenDaysAgo)} → ${formatDate(now)} (recap) | ${formatDate(now)} → ${formatDate(sevenDaysAhead)} (forward)`,
+    `Window: ${formatDate(sevenDaysAgo, tz)} → ${formatDate(now, tz)} (recap) | ${formatDate(now, tz)} → ${formatDate(sevenDaysAhead, tz)} (forward)`,
     `Signal density: ${totalSignal} live items + ${recentMemories.length} memory note(s).`,
     "",
     formatCalendarBlock(pastEvents, "PAST 7 DAYS — CALENDAR"),
@@ -433,7 +457,7 @@ Return ONLY valid JSON, no markdown code fences.`;
 
   const result = await generateText({
     model: "anthropic/claude-sonnet-4.6",
-    system: await getSystemPrompt(),
+    system: await getSystemPrompt(username),
     prompt,
     providerOptions: {
       gateway: { tags: ["feature:digest", "env:production"] },
@@ -445,6 +469,8 @@ Return ONLY valid JSON, no markdown code fences.`;
     return Response.json({
       ...parsed,
       generatedAt: now.toISOString(),
+      weekStart: weekStart.toLocaleDateString("en-GB", { day: "numeric", month: "short", timeZone: tz }),
+      weekEnd:   weekEnd.toLocaleDateString("en-GB",   { day: "numeric", month: "short", timeZone: tz }),
       dataSources: {
         calendarPast: pastEvents.length,
         calendarUpcoming: upcomingEvents.length,

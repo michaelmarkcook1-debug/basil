@@ -5,21 +5,34 @@ import {
   stepCountIs,
 } from "ai";
 import { getSystemPrompt } from "@/lib/ai/system-prompt";
-import { assistantTools } from "@/lib/ai/tools";
+import { buildAssistantTools } from "@/lib/ai/tools";
+import { getSessionUser } from "@/lib/auth";
+import { getSettings } from "@/lib/settings/store";
 
 export async function POST(req: Request) {
-  const { messages }: { messages: UIMessage[] } = await req.json();
+  let messages: UIMessage[];
+  try {
+    ({ messages } = await req.json());
+  } catch {
+    return Response.json({ error: "Invalid JSON body" }, { status: 400 });
+  }
 
-  const [system, modelMessages] = await Promise.all([
-    getSystemPrompt(),
+  const username = (await getSessionUser());
+  if (!username) return Response.json({ error: "Unauthorised" }, { status: 401 });
+
+  const [system, settings, modelMessages] = await Promise.all([
+    getSystemPrompt(username),
+    getSettings(username),
     convertToModelMessages(messages),
   ]);
+
+  const firstName = settings.name.split(" ")[0] ?? settings.name;
 
   const result = streamText({
     model: "anthropic/claude-sonnet-4.6",
     system,
     messages: modelMessages,
-    tools: assistantTools,
+    tools: buildAssistantTools(username, firstName),
     stopWhen: stepCountIs(5),
     providerOptions: {
       gateway: { tags: ["feature:chat", "env:production"] },

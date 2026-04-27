@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { getRecentEmails } from "@/lib/google/gmail";
 import { getRecentSlackMessages } from "@/lib/slack/client";
+import { getSessionUser } from "@/lib/auth";
 import { contacts } from "@/lib/contacts-data";
 import { isSelf } from "@/lib/self-identity";
 import { findContactByName } from "@/lib/contacts-lookup";
@@ -64,9 +65,12 @@ function slugify(source: string): string {
 }
 
 export async function GET() {
+  const username = (await getSessionUser());
+  if (!username) return NextResponse.json({ error: "Unauthorised" }, { status: 401 });
+
   const [emails, slacks] = await Promise.all([
-    getRecentEmails(100).catch(() => []),
-    getRecentSlackMessages(100).catch(() => []),
+    getRecentEmails(username, 100).catch(() => []),
+    getRecentSlackMessages(username, 100).catch(() => []),
   ]);
 
   // Keyed by a stable identity — email when we have it, else slugified name.

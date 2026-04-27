@@ -23,7 +23,8 @@ export async function POST() {
     );
   }
 
-  const auth = await getAuthedClient();
+  // TODO: resolve username from session once multi-user is fully live
+  const auth = await getAuthedClient("michael");
   if (!auth) {
     return NextResponse.json(
       { error: "Calendar not connected" },

@@ -29,6 +29,9 @@ import {
   ExternalLink,
   Copy,
   ClipboardCheck,
+  Lock,
+  Eye,
+  EyeOff,
 } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import type { IntegrationStatus, IntegrationState } from "@/lib/integrations/types";
@@ -155,6 +158,9 @@ export default function SettingsPage() {
   const [showAzureGuide, setShowAzureGuide] = useState(false);
   const [copiedEnvVar, setCopiedEnvVar] = useState<string | null>(null);
 
+  // ── Account info (read-only) ─────────────────────────────────────────────
+  const [account, setAccount] = useState<{ username: string; email: string } | null>(null);
+
   // ── Profile/settings state ────────────────────────────────────────────────
   const [profile, setProfile]         = useState<UserSettings | null>(null);
   const [editing, setEditing]         = useState(false);
@@ -162,15 +168,112 @@ export default function SettingsPage() {
   const [saving, setSaving]           = useState(false);
   const [saveError, setSaveError]     = useState<string | null>(null);
 
+  async function handleGoogleDisconnect() {
+    await fetch("/api/auth/google", { method: "DELETE" });
+    // Optimistically update — avoids snapshot propagation race on serverless
+    setStatuses((prev) => prev ? {
+      ...prev,
+      google: { ...(prev.google ?? {}), id: "google", state: "disconnected", lastCheckedAt: new Date().toISOString() },
+    } : prev);
+    setTimeout(() => void loadStatuses(), 1500);
+  }
+
+  async function handleMicrosoftDisconnect() {
+    await fetch("/api/auth/microsoft", { method: "DELETE" });
+    setStatuses((prev) => prev ? {
+      ...prev,
+      microsoft: { ...(prev.microsoft ?? {}), id: "microsoft", state: "disconnected", lastCheckedAt: new Date().toISOString() },
+    } : prev);
+    setTimeout(() => void loadStatuses(), 1500);
+  }
+
+  async function handleSlackDisconnect() {
+    await fetch("/api/auth/slack", { method: "DELETE" });
+    setStatuses((prev) => prev ? {
+      ...prev,
+      slack: { id: "slack", state: "disconnected", lastCheckedAt: new Date().toISOString() },
+    } : prev);
+    setTimeout(() => void loadStatuses(), 1500);
+  }
+
+  // ── Password change state ─────────────────────────────────────────────────
+  const [pwForm, setPwForm] = useState({ current: "", next: "", confirm: "" });
+  const [pwSaving, setPwSaving] = useState(false);
+  const [pwError, setPwError] = useState<string | null>(null);
+  const [pwSuccess, setPwSuccess] = useState(false);
+  const [showPw, setShowPw] = useState(false);
+
+  // Delete account
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [deleteConfirmText, setDeleteConfirmText] = useState("");
+  const [deleting, setDeleting] = useState(false);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
+
+  async function handleDeleteAccount() {
+    if (deleteConfirmText.toLowerCase() !== "delete my account") return;
+    setDeleting(true);
+    setDeleteError(null);
+    try {
+      const res = await fetch("/api/profile", { method: "DELETE" });
+      if (res.ok) {
+        window.location.href = "/login";
+      } else {
+        const data = await res.json().catch(() => ({}));
+        setDeleteError(data.error || "Failed to delete account");
+        setDeleting(false);
+      }
+    } catch {
+      setDeleteError("Network error — please try again");
+      setDeleting(false);
+    }
+  }
+
+  async function handlePasswordChange(e: React.FormEvent) {
+    e.preventDefault();
+    setPwError(null);
+    if (pwForm.next.length < 8) {
+      setPwError("New password must be at least 8 characters.");
+      return;
+    }
+    if (pwForm.next !== pwForm.confirm) {
+      setPwError("New passwords don't match.");
+      return;
+    }
+    setPwSaving(true);
+    try {
+      const res = await fetch("/api/profile/password", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ currentPassword: pwForm.current, newPassword: pwForm.next }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setPwError(data.error ?? "Password change failed.");
+        return;
+      }
+      setPwSuccess(true);
+      setPwForm({ current: "", next: "", confirm: "" });
+      // All sessions revoked — redirect to login after a moment
+      setTimeout(() => { window.location.href = "/login"; }, 2000);
+    } catch {
+      setPwError("Network error. Please try again.");
+    } finally {
+      setPwSaving(false);
+    }
+  }
+
   // Timezone validation is checked inline as the user types
   const timezoneInvalid =
     editing && draft?.timezone !== undefined && !isValidTimezone(draft.timezone);
 
   async function loadSettings() {
     try {
-      const res = await fetch("/api/settings", { cache: "no-store" });
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      setProfile(await res.json() as UserSettings);
+      const [settingsRes, profileRes] = await Promise.all([
+        fetch("/api/settings", { cache: "no-store" }),
+        fetch("/api/profile",  { cache: "no-store" }),
+      ]);
+      if (settingsRes.ok) setProfile(await settingsRes.json() as UserSettings);
+      if (profileRes.ok)  setAccount(await profileRes.json());
     } catch {
       // Non-fatal — page still works, profile just shows nothing
     }
@@ -254,13 +357,49 @@ export default function SettingsPage() {
     const error     = params.get("error");
     const connected = params.get("connected");
 
-    if (connected === "microsoft") {
+    if (connected === "slack") {
+      setUrlNotice({ type: "success", message: "Slack connected successfully." });
+      // Optimistically mark Slack as connected immediately — avoids serverless
+      // cold-start race where the status check runs before the snapshot propagates.
+      setStatuses((prev) => prev ? {
+        ...prev,
+        slack: { id: "slack", state: "connected", lastCheckedAt: new Date().toISOString() },
+      } : prev);
+      // Then refresh for real after a short delay
+      setTimeout(() => void loadStatuses(), 1500);
+    } else if (connected === "microsoft") {
       setUrlNotice({ type: "success", message: "Microsoft 365 connected successfully." });
+      setStatuses((prev) => prev ? {
+        ...prev,
+        microsoft: { ...(prev.microsoft ?? {}), id: "microsoft", state: "connected", lastCheckedAt: new Date().toISOString() },
+      } : prev);
+      setTimeout(() => void loadStatuses(), 1500);
+    } else if (connected === "google") {
+      setUrlNotice({ type: "success", message: "Google connected successfully." });
+      setStatuses((prev) => prev ? {
+        ...prev,
+        google: { ...(prev.google ?? {}), id: "google", state: "connected", lastCheckedAt: new Date().toISOString() },
+      } : prev);
+      setTimeout(() => void loadStatuses(), 1500);
+    } else if (error === "slack_auth") {
+      const slackErr = params.get("slack_error");
+      setUrlNotice({ type: "error", message: `Slack authorization failed${slackErr ? ` (${slackErr})` : ""} — please try connecting again.` });
+    } else if (error === "slack_not_configured") {
+      setUrlNotice({
+        type: "error",
+        message: "Slack OAuth is not configured. Add SLACK_CLIENT_ID and SLACK_CLIENT_SECRET to your Vercel environment variables.",
+      });
     } else if (error === "microsoft_not_configured") {
       setUrlNotice({
         type: "error",
         message:
           "Microsoft 365 is not configured yet. Register an Azure AD app and add MICROSOFT_CLIENT_ID + MICROSOFT_CLIENT_SECRET to your Vercel environment variables, then redeploy.",
+      });
+    } else if (error === "microsoft_admin_consent") {
+      setUrlNotice({
+        type: "error",
+        message:
+          "Microsoft blocked the connection — your Azure AD app needs admin consent. In the Azure portal go to App registrations → API permissions → Grant admin consent for your tenant, then try connecting again.",
       });
     } else if (error === "microsoft_auth") {
       setUrlNotice({ type: "error", message: "Microsoft 365 authorization failed — please try connecting again." });
@@ -286,7 +425,7 @@ export default function SettingsPage() {
     description: string;
     color:       string;
     status:      IntegrationStatus | null;
-    note?:       string;
+    note?:       string | null;
     group:       "google" | "microsoft" | "other";
   }[] = [
     // ── Google Workspace ─────────────────────────────────────────────────────
@@ -377,7 +516,7 @@ export default function SettingsPage() {
       color:       "text-emerald-500",
       group:       "other",
       status:      statuses?.slack ?? null,
-      note:        "Add SLACK_BOT_TOKEN and SLACK_USER_TOKEN to your environment variables to connect Slack.",
+      note:        null,
     },
     {
       key:         "zoom",
@@ -447,223 +586,129 @@ export default function SettingsPage() {
         </div>
       )}
 
-      {/* ── Google connect / re-auth CTAs ─────────────────────────────────── */}
-      {statuses && g?.state === "disconnected" && (
-        <Card className="border-[oklch(0.72_0.15_85)]/30 bg-[oklch(0.72_0.15_85)]/5">
-          <CardContent className="py-6 text-center space-y-3">
-            <p className="font-medium">Connect Google to unlock Calendar, Gmail, and Drive</p>
-            <p className="text-sm text-muted-foreground">
-              One-time authorization — grants access to your calendar, emails, and documents.
-            </p>
-            <Button
-              className="bg-[oklch(0.22_0.05_250)] hover:bg-[oklch(0.28_0.06_250)] text-white"
-              onClick={() => { window.location.href = "/api/auth/google"; }}
-            >
-              Connect Google Account
-            </Button>
-          </CardContent>
-        </Card>
-      )}
-      {statuses && g?.state === "permission_missing" && (
-        <Card className="border-amber-400/30 bg-amber-500/5">
-          <CardContent className="py-5 text-center space-y-3">
-            <p className="font-medium text-amber-700">Some Google permissions are missing</p>
-            <p className="text-sm text-muted-foreground">
-              Re-authorize to grant Calendar, Gmail, and Drive access.
-            </p>
-            <Button
-              className="bg-amber-600 hover:bg-amber-700 text-white"
-              onClick={() => { window.location.href = "/api/auth/google"; }}
-            >
-              Re-authorize Google
-            </Button>
-          </CardContent>
-        </Card>
-      )}
 
-      {/* ── Microsoft 365 connect / re-auth CTAs ───────────────────────────── */}
-      {/* Show connect for: never connected, disconnected, OR error state */}
-      {statuses && (!ms || ms.state === "disconnected" || ms.state === "error") && (
-        <Card className="border-blue-500/30 bg-blue-500/5">
-          <CardContent className="py-6 space-y-4">
-            <div className="text-center space-y-3">
-              <div className="flex items-center justify-center gap-2">
-                <Building2 className="h-5 w-5 text-blue-500" />
-                <p className="font-medium">Connect Microsoft 365</p>
-              </div>
-              <p className="text-sm text-muted-foreground">
-                Grants access to Outlook Mail, Outlook Calendar, OneDrive, and Teams — alongside or instead of Google.
-              </p>
-              {ms?.state === "error" && ms.error && (
-                <p className="text-xs text-red-600 bg-red-50 rounded px-3 py-1.5">{ms.error}</p>
-              )}
-              <Button
-                className="bg-blue-600 hover:bg-blue-700 text-white"
-                onClick={() => { window.location.href = "/api/auth/microsoft"; }}
-              >
-                Connect Microsoft 365
-              </Button>
-            </div>
-
-            {/* Azure AD setup guide — collapsed by default */}
-            <div className="border-t border-blue-200/60 pt-4">
-              <button
-                onClick={() => setShowAzureGuide(v => !v)}
-                className="flex items-center gap-1.5 text-xs text-blue-700 hover:text-blue-900 font-medium w-full"
-              >
-                {showAzureGuide
-                  ? <ChevronDown className="h-3.5 w-3.5" />
-                  : <ChevronRight className="h-3.5 w-3.5" />}
-                Need to set up Azure AD? Follow the 5-minute guide
-              </button>
-              {showAzureGuide && (
-                <div className="mt-3 text-xs text-left space-y-3 text-blue-900/80">
-                  <p className="font-semibold text-blue-800">One-time setup (free, ~5 min):</p>
-                  <ol className="space-y-2.5 list-none">
-                    <AzureStep n={1}>
-                      Go to{" "}
-                      <a href="https://portal.azure.com" target="_blank" rel="noreferrer"
-                        className="underline inline-flex items-center gap-0.5">
-                        portal.azure.com <ExternalLink className="h-3 w-3" />
-                      </a>{" "}
-                      → search <span className="font-mono bg-blue-100 px-1 rounded">App registrations</span>{" "}
-                      → <strong>New registration</strong>
-                    </AzureStep>
-                    <AzureStep n={2}>
-                      Name: anything (e.g. <em>Basil</em>). Supported account types:{" "}
-                      <strong>"Accounts in any organizational directory … and personal Microsoft accounts"</strong>
-                    </AzureStep>
-                    <AzureStep n={3}>
-                      Redirect URI → <strong>Web</strong> →{" "}
-                      <CopyableCode
-                        value="https://basil-app.vercel.app/api/auth/microsoft/callback"
-                        copiedEnvVar={copiedEnvVar}
-                        setCopiedEnvVar={setCopiedEnvVar}
-                      />
-                    </AzureStep>
-                    <AzureStep n={4}>
-                      Click <strong>Register</strong>. On the overview page, copy{" "}
-                      <span className="font-mono bg-blue-100 px-1 rounded">Application (client) ID</span>{" "}
-                      → this is your <strong>MICROSOFT_CLIENT_ID</strong>
-                    </AzureStep>
-                    <AzureStep n={5}>
-                      <strong>Certificates &amp; secrets</strong> → <strong>New client secret</strong> →
-                      copy the <em>Value</em> (not the ID) → this is your <strong>MICROSOFT_CLIENT_SECRET</strong>
-                    </AzureStep>
-                    <AzureStep n={6}>
-                      <strong>API permissions</strong> → <strong>Add a permission</strong> →{" "}
-                      <strong>Microsoft Graph</strong> → <strong>Delegated</strong> → add these scopes:{" "}
-                      <span className="font-mono bg-blue-100 px-1 rounded text-[11px] block mt-1 leading-relaxed">
-                        Mail.Read · Mail.ReadWrite · Mail.Send · Calendars.ReadWrite · Files.Read.All
-                        · Chat.Read · Chat.ReadBasic · Team.ReadBasic.All · Channel.ReadBasic.All
-                        · ChannelMessage.Read.All · User.Read · offline_access
-                      </span>
-                    </AzureStep>
-                    <AzureStep n={7}>
-                      Still in <strong>API permissions</strong>, click{" "}
-                      <strong>Grant admin consent for [your tenant]</strong> and confirm.
-                      This is required for Teams scopes (Chat.Read etc.) to be granted during OAuth.
-                    </AzureStep>
-                    <AzureStep n={8}>
-                      In the{" "}
-                      <a href="https://vercel.com/dashboard" target="_blank" rel="noreferrer"
-                        className="underline inline-flex items-center gap-0.5">
-                        Vercel dashboard <ExternalLink className="h-3 w-3" />
-                      </a>
-                      , add both env vars to <strong>Production</strong> and redeploy.
-                    </AzureStep>
-                  </ol>
-                  <p className="text-blue-700 bg-blue-50 rounded px-3 py-2 mt-2">
-                    Once both env vars are set and deployed, click <strong>Connect Microsoft 365</strong> above.
-                  </p>
-                </div>
-              )}
-            </div>
-          </CardContent>
-        </Card>
-      )}
-      {/* Session expired — needs full re-auth */}
-      {statuses && ms?.state === "token_expired" && (
-        <Card className="border-amber-400/30 bg-amber-500/5">
-          <CardContent className="py-5 text-center space-y-3">
-            <p className="font-medium text-amber-700">Microsoft 365 session expired</p>
-            <p className="text-sm text-muted-foreground">
-              Re-authorize to restore Outlook, OneDrive, and Teams access.
-            </p>
-            <Button
-              className="bg-amber-600 hover:bg-amber-700 text-white"
-              onClick={() => { window.location.href = "/api/auth/microsoft"; }}
-            >
-              Re-authorize Microsoft 365
-            </Button>
-          </CardContent>
-        </Card>
-      )}
-
-      {/* Core missing (mail/calendar not granted) */}
-      {statuses && ms?.state === "permission_missing" && (
-        <Card className="border-amber-400/30 bg-amber-500/5">
-          <CardContent className="py-5 text-center space-y-3">
-            <p className="font-medium text-amber-700">Some Microsoft 365 permissions are missing</p>
-            <p className="text-sm text-muted-foreground">
-              Re-authorize to grant Outlook Mail and Calendar access.
-            </p>
-            <Button
-              className="bg-amber-600 hover:bg-amber-700 text-white"
-              onClick={() => { window.location.href = "/api/auth/microsoft"; }}
-            >
-              Re-authorize Microsoft 365
-            </Button>
-          </CardContent>
-        </Card>
-      )}
-
-      {/* Teams missing but core is fine — gentle nudge */}
-      {statuses && ms?.state === "connected" && ms?.microsoft && !(ms as {microsoft?: {teams?: boolean}}).microsoft?.teams && (
-        <Card className="border-blue-200 bg-blue-50/50">
-          <CardContent className="py-4 flex items-start gap-3">
-            <span className="text-blue-500 text-lg mt-0.5">ℹ️</span>
-            <div className="flex-1 space-y-1">
-              <p className="text-sm font-medium text-blue-800">Teams access not yet granted</p>
-              <p className="text-xs text-blue-700/80">
-                Mail, Calendar and OneDrive are connected. To enable Teams messages, add{" "}
-                <span className="font-mono bg-blue-100 px-0.5 rounded">Chat.Read</span>{" "}
-                <span className="font-mono bg-blue-100 px-0.5 rounded">Team.ReadBasic.All</span>{" "}
-                to your Azure AD app, grant admin consent, then re-authorize.
-              </p>
-            </div>
-            <Button size="sm" variant="outline" className="shrink-0 border-blue-300 text-blue-700"
-              onClick={() => { window.location.href = "/api/auth/microsoft"; }}>
-              Re-authorize
-            </Button>
-          </CardContent>
-        </Card>
-      )}
 
       {/* ── Integrations grouped by provider ─────────────────────────────── */}
       {(["google", "microsoft", "other"] as const).map((group) => {
         const items = integrations.filter((i) => i.group === group);
+
+        // Group-level connection state
+        const googleState   = g?.state ?? "disconnected";
+        const microsoftState = ms?.state ?? "disconnected";
+        const groupConnected =
+          group === "google"    ? (googleState === "connected" || googleState === "permission_missing") :
+          group === "microsoft" ? (microsoftState === "connected" || microsoftState === "permission_missing") :
+          true;
+        const groupNeedsReauth =
+          group === "google"    ? (googleState === "token_expired" || googleState === "permission_missing") :
+          group === "microsoft" ? (microsoftState === "token_expired" || microsoftState === "permission_missing") :
+          false;
+
         const groupLabel =
           group === "google"    ? "Google Workspace" :
           group === "microsoft" ? "Microsoft 365" :
                                   "Other integrations";
         const groupIcon =
-          group === "google"    ? null :
-          group === "microsoft" ? Building2 :
-                                  null;
+          group === "microsoft" ? Building2 : null;
         const GroupIcon = groupIcon;
 
         return (
           <Card key={group} className="shadow-sm">
-            <CardHeader className="pb-3">
+            <CardHeader className="pb-3 flex flex-row items-center justify-between gap-2">
               <CardTitle className="text-sm font-medium flex items-center gap-2">
                 {GroupIcon && <GroupIcon className="h-4 w-4 text-muted-foreground" />}
                 {groupLabel}
               </CardTitle>
+
+              {/* Group-level connect / disconnect / re-authorize */}
+              {group === "google" && (
+                groupConnected ? (
+                  <div className="flex items-center gap-2">
+                    {groupNeedsReauth && (
+                      <Button size="sm" variant="outline"
+                        className="h-7 px-2.5 text-xs text-amber-600 border-amber-300 hover:bg-amber-50"
+                        onClick={() => { window.location.href = "/api/auth/google?from=settings"; }}>
+                        Re-authorize
+                      </Button>
+                    )}
+                    <Button size="sm" variant="ghost"
+                      className="h-7 px-2.5 text-xs text-muted-foreground hover:text-red-600"
+                      onClick={handleGoogleDisconnect}>
+                      Disconnect
+                    </Button>
+                  </div>
+                ) : (
+                  <Button size="sm" variant="outline"
+                    className="h-7 px-2.5 text-xs text-[oklch(0.58_0.15_85)] border-[oklch(0.72_0.15_85)]/40 hover:bg-[oklch(0.72_0.15_85)]/8"
+                    onClick={() => { window.location.href = "/api/auth/google?from=settings"; }}>
+                    Connect →
+                  </Button>
+                )
+              )}
+
+              {group === "microsoft" && (
+                groupConnected ? (
+                  <div className="flex items-center gap-2">
+                    {groupNeedsReauth && (
+                      <Button size="sm" variant="outline"
+                        className="h-7 px-2.5 text-xs text-amber-600 border-amber-300 hover:bg-amber-50"
+                        onClick={() => { window.location.href = "/api/auth/microsoft?from=settings"; }}>
+                        Re-authorize
+                      </Button>
+                    )}
+                    <Button size="sm" variant="ghost"
+                      className="h-7 px-2.5 text-xs text-muted-foreground hover:text-red-600"
+                      onClick={handleMicrosoftDisconnect}>
+                      Disconnect
+                    </Button>
+                  </div>
+                ) : (
+                  <div className="flex items-center gap-2">
+                    <Button size="sm" variant="outline"
+                      className="h-7 px-2.5 text-xs text-blue-600 border-blue-200 hover:bg-blue-50"
+                      onClick={() => { window.location.href = "/api/auth/microsoft?from=settings"; }}>
+                      Connect →
+                    </Button>
+                    <button
+                      onClick={() => setShowAzureGuide(v => !v)}
+                      className="text-xs text-muted-foreground hover:text-foreground underline"
+                    >
+                      Setup guide
+                    </button>
+                  </div>
+                )
+              )}
             </CardHeader>
+
+            {/* Azure AD setup guide — shown below header when toggled */}
+            {group === "microsoft" && showAzureGuide && !groupConnected && (
+              <div className="mx-4 mb-4 rounded-lg border border-blue-200 bg-blue-50/60 p-4 text-xs text-blue-900/80 space-y-3">
+                <p className="font-semibold text-blue-800">One-time Azure AD setup (~5 min):</p>
+                <ol className="space-y-2 list-none">
+                  <AzureStep n={1}>
+                    Go to <a href="https://portal.azure.com" target="_blank" rel="noreferrer" className="underline inline-flex items-center gap-0.5">portal.azure.com <ExternalLink className="h-3 w-3" /></a> → <strong>App registrations</strong> → <strong>New registration</strong>
+                  </AzureStep>
+                  <AzureStep n={2}>
+                    Supported account types: <strong>"Accounts in any organizational directory … and personal Microsoft accounts"</strong>
+                  </AzureStep>
+                  <AzureStep n={3}>
+                    Redirect URI → <strong>Web</strong> → <CopyableCode value="https://basil-app.vercel.app/api/auth/microsoft/callback" copiedEnvVar={copiedEnvVar} setCopiedEnvVar={setCopiedEnvVar} />
+                  </AzureStep>
+                  <AzureStep n={4}>Copy <span className="font-mono bg-blue-100 px-1 rounded">Application (client) ID</span> → <strong>MICROSOFT_CLIENT_ID</strong></AzureStep>
+                  <AzureStep n={5}><strong>Certificates &amp; secrets</strong> → New client secret → copy Value → <strong>MICROSOFT_CLIENT_SECRET</strong></AzureStep>
+                  <AzureStep n={6}>
+                    <strong>API permissions</strong> → Microsoft Graph → Delegated → add:{" "}
+                    <span className="font-mono bg-blue-100 px-1 rounded text-[11px]">Mail.Read Mail.ReadWrite Mail.Send Calendars.ReadWrite Files.Read.All Chat.Read User.Read offline_access</span>
+                  </AzureStep>
+                  <AzureStep n={7}>Add both env vars in <a href="https://vercel.com/dashboard" target="_blank" rel="noreferrer" className="underline inline-flex items-center gap-0.5">Vercel dashboard <ExternalLink className="h-3 w-3" /></a> and redeploy, then click Connect.</AzureStep>
+                </ol>
+              </div>
+            )}
+
             <CardContent className="space-y-4">
               {items.map((integration, i) => {
-                const isNotConnected = !integration.status || integration.status.state !== "connected";
+                const isConnected = integration.status?.state === "connected";
+                const isStatic = integration.key === "zoom" || integration.key === "claude";
                 return (
                 <div key={integration.key}>
                   <div className="flex items-start gap-3">
@@ -678,20 +723,37 @@ export default function SettingsPage() {
                         <p className="text-xs text-red-600 mt-0.5 truncate">{integration.status.error}</p>
                       )}
                     </div>
-                    {/* Microsoft rows: show Connect button when not connected */}
-                    {group === "microsoft" && isNotConnected ? (
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        className="shrink-0 text-xs h-7 px-2.5 text-blue-600 border-blue-200 hover:bg-blue-50 hover:border-blue-400"
-                        onClick={() => { window.location.href = "/api/auth/microsoft"; }}
-                      >
-                        Connect →
-                      </Button>
+
+                    {/* Per-row action — static rows just show badge */}
+                    {isStatic ? (
+                      <StateBadge state={integration.status ? integration.status.state : "loading"} />
+                    ) : integration.key === "slack" ? (
+                      /* Slack: standalone OAuth */
+                      isConnected ? (
+                        <div className="flex items-center gap-2 shrink-0">
+                          <StateBadge state="connected" />
+                          <Button size="sm" variant="ghost"
+                            className="h-7 px-2 text-xs text-muted-foreground hover:text-red-600"
+                            onClick={handleSlackDisconnect}>
+                            Disconnect
+                          </Button>
+                        </div>
+                      ) : (
+                        <Button size="sm" variant="outline"
+                          className="shrink-0 text-xs h-9 sm:h-7 px-3 sm:px-2.5 text-emerald-600 border-emerald-200 hover:bg-emerald-50 hover:border-emerald-400 gap-1.5"
+                          onClick={() => { window.location.href = "/api/auth/slack/oauth?from=settings"; }}>
+                          <svg viewBox="0 0 24 24" className="h-3.5 w-3.5 fill-current" aria-hidden="true">
+                            <path d="M5.04 15.17a2.52 2.52 0 0 1-2.52 2.52A2.52 2.52 0 0 1 0 15.17a2.52 2.52 0 0 1 2.52-2.52h2.52v2.52zm1.26 0a2.52 2.52 0 0 1 2.52-2.52 2.52 2.52 0 0 1 2.52 2.52v6.31A2.52 2.52 0 0 1 8.82 24a2.52 2.52 0 0 1-2.52-2.52v-6.31zM8.82 5.04a2.52 2.52 0 0 1-2.52-2.52A2.52 2.52 0 0 1 8.82 0a2.52 2.52 0 0 1 2.52 2.52v2.52H8.82zm0 1.26a2.52 2.52 0 0 1 2.52 2.52 2.52 2.52 0 0 1-2.52 2.52H2.52A2.52 2.52 0 0 1 0 8.82a2.52 2.52 0 0 1 2.52-2.52h6.3zm10.13 2.52a2.52 2.52 0 0 1 2.52-2.52A2.52 2.52 0 0 1 24 8.82a2.52 2.52 0 0 1-2.52 2.52h-2.52V8.82zm-1.26 0a2.52 2.52 0 0 1-2.52 2.52 2.52 2.52 0 0 1-2.52-2.52V2.52A2.52 2.52 0 0 1 15.17 0a2.52 2.52 0 0 1 2.52 2.52v6.3zm-2.52 10.13a2.52 2.52 0 0 1 2.52 2.52A2.52 2.52 0 0 1 15.17 24a2.52 2.52 0 0 1-2.52-2.52v-2.52h2.52zm0-1.26a2.52 2.52 0 0 1-2.52-2.52 2.52 2.52 0 0 1 2.52-2.52h6.31A2.52 2.52 0 0 1 24 15.17a2.52 2.52 0 0 1-2.52 2.52h-6.31z"/>
+                          </svg>
+                          Connect with Slack
+                        </Button>
+                      )
                     ) : (
+                      /* Google / Microsoft sub-integrations: badge only (connect/disconnect at group level) */
                       <StateBadge state={integration.status ? integration.status.state : "loading"} />
                     )}
                   </div>
+
                   {i < items.length - 1 && <Separator className="mt-4" />}
                 </div>
                 );
@@ -713,7 +775,7 @@ export default function SettingsPage() {
               size="sm"
               onClick={startEdit}
               disabled={!profile}
-              className="gap-1.5 text-xs text-muted-foreground h-7 px-2"
+              className="gap-1.5 text-xs text-muted-foreground h-9 sm:h-7 px-3 sm:px-2"
             >
               <Pencil className="h-3 w-3" />
               Edit
@@ -725,7 +787,7 @@ export default function SettingsPage() {
                 size="sm"
                 onClick={cancelEdit}
                 disabled={saving}
-                className="gap-1 text-xs text-muted-foreground h-7 px-2"
+                className="gap-1 text-xs text-muted-foreground h-9 sm:h-7 px-3 sm:px-2"
               >
                 <X className="h-3 w-3" />
                 Cancel
@@ -734,7 +796,7 @@ export default function SettingsPage() {
                 size="sm"
                 onClick={saveEdit}
                 disabled={saving || timezoneInvalid}
-                className="gap-1 text-xs h-7 px-2 bg-[oklch(0.72_0.15_85)] text-[oklch(0.18_0.04_250)] hover:bg-[oklch(0.78_0.12_85)]"
+                className="gap-1 text-xs h-9 sm:h-7 px-3 sm:px-2 bg-[oklch(0.72_0.15_85)] text-[oklch(0.18_0.04_250)] hover:bg-[oklch(0.78_0.12_85)]"
               >
                 {saving
                   ? <Loader2 className="h-3 w-3 animate-spin" />
@@ -750,14 +812,28 @@ export default function SettingsPage() {
             <p className="text-xs text-red-600 rounded bg-red-50 px-2 py-1">{saveError}</p>
           )}
 
+          {/* Username */}
+          <div className="flex items-center justify-between gap-4 min-h-[44px] sm:min-h-[28px]">
+            <span className="text-muted-foreground shrink-0">Username</span>
+            <span className="font-medium font-mono text-sm">{account?.username ?? "—"}</span>
+          </div>
+          <Separator />
+
+          {/* Email */}
+          <div className="flex items-center justify-between gap-4 min-h-[44px] sm:min-h-[28px]">
+            <span className="text-muted-foreground shrink-0">Email</span>
+            <span className="font-medium text-sm">{account?.email || "—"}</span>
+          </div>
+          <Separator />
+
           {/* Name */}
-          <div className="flex items-center justify-between gap-4 min-h-[28px]">
+          <div className="flex items-center justify-between gap-4 min-h-[44px] sm:min-h-[28px]">
             <span className="text-muted-foreground shrink-0">Name</span>
             {editing && draft ? (
               <Input
                 value={draft.name}
                 onChange={(e) => setDraft({ ...draft, name: e.target.value })}
-                className="h-7 text-sm text-right max-w-[220px]"
+                className="h-9 sm:h-7 text-[16px] sm:text-sm text-right max-w-[220px] sm:max-w-[220px] w-full"
               />
             ) : (
               <span className="font-medium">{profile?.name ?? "—"}</span>
@@ -766,7 +842,7 @@ export default function SettingsPage() {
           <Separator />
 
           {/* Timezone */}
-          <div className="flex items-start justify-between gap-4 min-h-[28px]">
+          <div className="flex items-start justify-between gap-4 min-h-[44px] sm:min-h-[28px]">
             <span className="text-muted-foreground shrink-0 mt-1">Timezone</span>
             {editing && draft ? (
               <div className="flex flex-col items-end gap-1">
@@ -774,7 +850,7 @@ export default function SettingsPage() {
                   value={draft.timezone}
                   onChange={(e) => setDraft({ ...draft, timezone: e.target.value })}
                   placeholder="Europe/London"
-                  className={`h-7 text-sm text-right max-w-[220px] ${
+                  className={`h-9 sm:h-7 text-[16px] sm:text-sm text-right w-full max-w-[220px] ${
                     timezoneInvalid ? "border-red-400 focus-visible:ring-red-400" : ""
                   }`}
                 />
@@ -791,7 +867,7 @@ export default function SettingsPage() {
           <Separator />
 
           {/* Work hours */}
-          <div className="flex items-center justify-between gap-4 min-h-[28px]">
+          <div className="flex items-center justify-between gap-4 min-h-[44px] sm:min-h-[28px]">
             <span className="text-muted-foreground shrink-0">Work hours</span>
             {editing && draft ? (
               <div className="flex items-center gap-1.5">
@@ -799,14 +875,14 @@ export default function SettingsPage() {
                   value={draft.workStart}
                   onChange={(e) => setDraft({ ...draft, workStart: e.target.value })}
                   placeholder="12:00"
-                  className="h-7 text-sm text-right w-[72px]"
+                  className="h-9 sm:h-7 text-[16px] sm:text-sm text-right w-[72px]"
                 />
                 <span className="text-muted-foreground text-xs">–</span>
                 <Input
                   value={draft.workEnd}
                   onChange={(e) => setDraft({ ...draft, workEnd: e.target.value })}
                   placeholder="20:00"
-                  className="h-7 text-sm text-right w-[72px]"
+                  className="h-9 sm:h-7 text-[16px] sm:text-sm text-right w-[72px]"
                 />
               </div>
             ) : (
@@ -820,14 +896,14 @@ export default function SettingsPage() {
           <Separator />
 
           {/* Video tool */}
-          <div className="flex items-center justify-between gap-4 min-h-[28px]">
+          <div className="flex items-center justify-between gap-4 min-h-[44px] sm:min-h-[28px]">
             <span className="text-muted-foreground shrink-0">Video calls</span>
             {editing && draft ? (
               <Input
                 value={draft.videoTool}
                 onChange={(e) => setDraft({ ...draft, videoTool: e.target.value })}
                 placeholder="Zoom"
-                className="h-7 text-sm text-right max-w-[220px]"
+                className="h-9 sm:h-7 text-[16px] sm:text-sm text-right max-w-[220px] sm:max-w-[220px] w-full"
               />
             ) : (
               <span className="font-medium">
@@ -846,10 +922,104 @@ export default function SettingsPage() {
                   value={draft.meetingUrl}
                   onChange={(e) => setDraft({ ...draft, meetingUrl: e.target.value })}
                   placeholder="https://zoom.us/j/..."
-                  className="h-7 text-xs"
+                  className="h-9 sm:h-7 text-[16px] sm:text-xs"
                 />
               </div>
             </>
+          )}
+        </CardContent>
+      </Card>
+
+      {/* ── Security — password change ───────────────────────────────────── */}
+      <Card className="shadow-sm">
+        <CardHeader className="pb-2">
+          <CardTitle className="text-sm font-medium flex items-center gap-2">
+            <Lock className="h-4 w-4 text-muted-foreground" />
+            Security
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="text-sm">
+          <p className="text-xs text-muted-foreground mb-4">
+            Change your password. After saving, all active sessions will be signed out
+            and you&apos;ll need to log in again with your new password.
+          </p>
+
+          {pwSuccess ? (
+            <div className="flex items-center gap-2 rounded-lg bg-green-50 border border-green-200 text-green-700 px-4 py-3 text-sm dark:bg-green-950/30 dark:border-green-800 dark:text-green-400">
+              <CheckCircle2 className="h-4 w-4 shrink-0" />
+              Password updated. Redirecting to login&hellip;
+            </div>
+          ) : (
+            <form onSubmit={handlePasswordChange} className="space-y-3">
+              {pwError && (
+                <p className="text-xs text-destructive rounded bg-destructive/10 px-3 py-2">{pwError}</p>
+              )}
+
+              {/* Current password */}
+              <div className="flex items-center justify-between gap-4 min-h-[44px] sm:min-h-[28px]">
+                <label className="text-muted-foreground shrink-0 text-sm">Current password</label>
+                <div className="relative">
+                  <Input
+                    type={showPw ? "text" : "password"}
+                    value={pwForm.current}
+                    onChange={(e) => setPwForm(f => ({ ...f, current: e.target.value }))}
+                    placeholder="••••••••"
+                    required
+                    className="h-9 sm:h-7 text-[16px] sm:text-sm pr-8 w-full max-w-[220px]"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowPw(v => !v)}
+                    className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                    tabIndex={-1}
+                    aria-label={showPw ? "Hide password" : "Show password"}
+                  >
+                    {showPw ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
+                  </button>
+                </div>
+              </div>
+              <Separator />
+
+              {/* New password */}
+              <div className="flex items-center justify-between gap-4 min-h-[44px] sm:min-h-[28px]">
+                <label className="text-muted-foreground shrink-0 text-sm">New password</label>
+                <Input
+                  type={showPw ? "text" : "password"}
+                  value={pwForm.next}
+                  onChange={(e) => setPwForm(f => ({ ...f, next: e.target.value }))}
+                  placeholder="Min. 8 characters"
+                  required
+                  minLength={8}
+                  className="h-9 sm:h-7 text-[16px] sm:text-sm text-right w-full max-w-[220px]"
+                />
+              </div>
+              <Separator />
+
+              {/* Confirm new password */}
+              <div className="flex items-center justify-between gap-4 min-h-[44px] sm:min-h-[28px]">
+                <label className="text-muted-foreground shrink-0 text-sm">Confirm new</label>
+                <Input
+                  type={showPw ? "text" : "password"}
+                  value={pwForm.confirm}
+                  onChange={(e) => setPwForm(f => ({ ...f, confirm: e.target.value }))}
+                  placeholder="Repeat new password"
+                  required
+                  className="h-9 sm:h-7 text-[16px] sm:text-sm text-right w-full max-w-[220px]"
+                />
+              </div>
+
+              <div className="pt-1">
+                <Button
+                  type="submit"
+                  size="sm"
+                  disabled={pwSaving || !pwForm.current || !pwForm.next || !pwForm.confirm}
+                  className="gap-1.5 bg-[oklch(0.72_0.15_85)] text-[oklch(0.18_0.04_250)] hover:bg-[oklch(0.78_0.12_85)]"
+                >
+                  {pwSaving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Lock className="h-3.5 w-3.5" />}
+                  {pwSaving ? "Saving…" : "Update password"}
+                </Button>
+              </div>
+            </form>
           )}
         </CardContent>
       </Card>
@@ -886,6 +1056,67 @@ export default function SettingsPage() {
             <RefreshCw className={`h-3.5 w-3.5 ${reprocessing ? "animate-spin" : ""}`} />
             {reprocessing ? "Queuing…" : "Re-process recent events"}
           </Button>
+        </CardContent>
+      </Card>
+
+      {/* ── Danger zone — delete account ─────────────────────────────────── */}
+      <Card className="shadow-sm border-red-200 dark:border-red-900/50">
+        <CardHeader className="pb-2">
+          <CardTitle className="text-sm font-medium flex items-center gap-2 text-red-600 dark:text-red-400">
+            <XCircle className="h-4 w-4" />
+            Danger zone
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="text-sm space-y-3">
+          <p className="text-xs text-muted-foreground">
+            Permanently delete your account and all associated data (tokens, settings, events).
+            This action cannot be undone.
+          </p>
+          {!showDeleteConfirm ? (
+            <Button
+              variant="outline"
+              size="sm"
+              className="text-xs border-red-300 text-red-600 hover:bg-red-50 hover:border-red-400 dark:border-red-800 dark:text-red-400 dark:hover:bg-red-950/30"
+              onClick={() => setShowDeleteConfirm(true)}
+            >
+              Delete my account
+            </Button>
+          ) : (
+            <div className="space-y-3 rounded-lg border border-red-200 dark:border-red-900 bg-red-50/50 dark:bg-red-950/20 p-4">
+              <p className="text-xs text-red-700 dark:text-red-400 font-medium">
+                Type <strong>delete my account</strong> to confirm:
+              </p>
+              <input
+                type="text"
+                value={deleteConfirmText}
+                onChange={(e) => { setDeleteConfirmText(e.target.value); setDeleteError(null); }}
+                placeholder="delete my account"
+                className="w-full rounded-lg border border-red-200 dark:border-red-800 bg-white dark:bg-red-950/20 px-3 py-2 text-sm text-red-700 dark:text-red-300 placeholder:text-red-300 dark:placeholder:text-red-700 outline-none focus:border-red-400 focus:ring-1 focus:ring-red-400/30"
+              />
+              {deleteError && (
+                <p className="text-xs text-red-600 dark:text-red-400">{deleteError}</p>
+              )}
+              <div className="flex gap-2">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="text-xs"
+                  onClick={() => { setShowDeleteConfirm(false); setDeleteConfirmText(""); setDeleteError(null); }}
+                  disabled={deleting}
+                >
+                  Cancel
+                </Button>
+                <Button
+                  size="sm"
+                  className="text-xs bg-red-600 hover:bg-red-700 text-white"
+                  onClick={handleDeleteAccount}
+                  disabled={deleting || deleteConfirmText.toLowerCase() !== "delete my account"}
+                >
+                  {deleting ? <><Loader2 className="h-3.5 w-3.5 animate-spin mr-1" />Deleting…</> : "Confirm delete"}
+                </Button>
+              </div>
+            </div>
+          )}
         </CardContent>
       </Card>
 

@@ -50,17 +50,17 @@ function clip(s: string, max = 2000): string {
 }
 
 /** Gmail-side Zoom recaps from the last `days` days. */
-export async function getZoomSummariesFromGmail(days = 14, maxResults = 8): Promise<ZoomSummary[]> {
+export async function getZoomSummariesFromGmail(username: string, days = 14, maxResults = 8): Promise<ZoomSummary[]> {
   try {
     const query = `${ZOOM_GMAIL_QUERY} newer_than:${days}d`;
-    const messages = await searchEmails(query, maxResults);
+    const messages = await searchEmails(username, query, maxResults);
     if (messages.length === 0) return [];
 
     // Pull full body for each — the summary is the whole point.
     const bodies = await Promise.all(
       messages.map(async (m) => {
         try {
-          const full = await getEmailBody(m.id);
+          const full = await getEmailBody(username, m.id);
           return { m, full };
         } catch {
           return { m, full: null };
@@ -84,9 +84,9 @@ export async function getZoomSummariesFromGmail(days = 14, maxResults = 8): Prom
 
 /** Drive-side: Google Docs whose title suggests they're Zoom recordings or
  *  summaries. Bodies aren't fetched — just surface the title + link. */
-export async function getZoomDocsFromDrive(maxResults = 5): Promise<ZoomSummary[]> {
+export async function getZoomDocsFromDrive(username: string, maxResults = 5): Promise<ZoomSummary[]> {
   try {
-    const files = await searchDriveFiles("Zoom", maxResults);
+    const files = await searchDriveFiles(username, "Zoom", maxResults);
     return files
       .filter((f) => /zoom/i.test(f.name))
       .map((f) => ({
@@ -103,10 +103,10 @@ export async function getZoomDocsFromDrive(maxResults = 5): Promise<ZoomSummary[
 }
 
 /** Combined fetch. Returns sorted newest-first. */
-export async function getZoomSummaries(days = 14): Promise<ZoomSummary[]> {
+export async function getZoomSummaries(username: string, days = 14): Promise<ZoomSummary[]> {
   const [gmail, drive] = await Promise.all([
-    getZoomSummariesFromGmail(days),
-    getZoomDocsFromDrive(),
+    getZoomSummariesFromGmail(username, days),
+    getZoomDocsFromDrive(username),
   ]);
   return [...gmail, ...drive].sort((a, b) => b.date.localeCompare(a.date));
 }

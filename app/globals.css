@@ -122,17 +122,26 @@
 @layer base {
   * {
     @apply border-border outline-ring/50;
+    /* Remove grey tap flash on iOS/Android */
+    -webkit-tap-highlight-color: transparent;
   }
   body {
     @apply bg-background text-foreground;
     font-feature-settings: "ss01", "ss02", "cv11";
+    /* Momentum scrolling on iOS for the whole page */
+    -webkit-overflow-scrolling: touch;
+    /* Prevent rubber-band overscroll on the body when content is in a scroll container */
+    overscroll-behavior: none;
   }
   html {
     @apply font-sans;
     /* Fluid base: 17.5px on small screens → 22px on ultra-wide.
        Every Tailwind size (text-xs…text-4xl) scales in lockstep since they use rem.
        Bumped from 17→17.5 floor / 21→22 ceiling for readability — the app runs in
-       dashboard context where text density was cramping. */
+       dashboard context where text density was cramping.
+       Mobile note: at 360px viewport this yields ~16.6px — just above the 16px iOS
+       auto-zoom threshold, so inputs using text-sm (0.875rem ≈ 14.5px) are overridden
+       explicitly with text-[16px] in login/register/chat to prevent zoom-on-focus. */
     font-size: clamp(17.5px, 15px + 0.45vw, 22px);
   }
   h1, h2, h3 {
@@ -204,4 +213,27 @@
 .basil-hairline {
   height: 1px;
   background: linear-gradient(to right, transparent, oklch(0.90 0.008 240), transparent);
+}
+
+/* ── Mobile-first utilities ── */
+
+/* Add bottom padding so content clears the iPhone home indicator */
+.basil-safe-bottom {
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+}
+
+/* Scrollable container that respects safe areas */
+.basil-scroll {
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior-y: contain;
+}
+
+/* Minimum touch target size (44×44px) — WCAG 2.5.5 */
+.basil-touch {
+  min-height: 44px;
+  min-width: 44px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
 }

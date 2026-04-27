@@ -1,5 +1,7 @@
 import { NextResponse } from "next/server";
 import { getMicrosoftAuthUrl } from "@/lib/microsoft/auth";
+import { getSessionUser } from "@/lib/auth";
+import { writeUserStore } from "@/lib/storage/user-store";
 
 // GET /api/auth/microsoft — redirects to Microsoft OAuth consent screen
 export async function GET(req: Request) {
@@ -11,8 +13,19 @@ export async function GET(req: Request) {
 
   // Derive the app base URL from the incoming request so OAuth works on any
   // Vercel preview URL without requiring MICROSOFT_REDIRECT_URI / NEXT_PUBLIC_APP_URL.
-  const { origin } = new URL(req.url);
-  const url = getMicrosoftAuthUrl(origin);
-  console.log(`[microsoft-auth] Initiating OAuth → redirect_uri: ${origin}/api/auth/microsoft/callback`);
-  return NextResponse.redirect(url);
+  const reqUrl = new URL(req.url);
+  const from = reqUrl.searchParams.get("from") ?? "";
+  const url = getMicrosoftAuthUrl(reqUrl.origin);
+  console.log(`[microsoft-auth] Initiating OAuth → redirect_uri: ${reqUrl.origin}/api/auth/microsoft/callback`);
+  const res = NextResponse.redirect(url);
+  if (from) res.cookies.set("basil_auth_from", from, { path: "/", httpOnly: true, maxAge: 600 });
+  return res;
+}
+
+// DELETE /api/auth/microsoft — removes stored Microsoft tokens for the current user
+export async function DELETE() {
+  const username = await getSessionUser();
+  if (!username) return NextResponse.json({ error: "Unauthorised" }, { status: 401 });
+  await writeUserStore(username, "microsoft-tokens.json", null);
+  return NextResponse.json({ ok: true });
 }

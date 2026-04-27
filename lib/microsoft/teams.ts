@@ -103,8 +103,9 @@ export interface TeamsChatMessage {
  * chats where the contact is a member. Used in contact profiling.
  */
 export async function getTeamsChatSignalForContact(
-  name: string,
-  limit = 40
+  username: string,
+  name:     string,
+  limit =   40
 ): Promise<string[]> {
   const nameLower = name.trim().toLowerCase();
   const firstName = nameLower.split(/\s+/)[0];
@@ -113,6 +114,7 @@ export async function getTeamsChatSignalForContact(
   let chats: GraphChat[] = [];
   try {
     const res = await graphGet<{ value: GraphChat[] }>(
+      username,
       "/me/chats?$expand=members&$top=50"
     );
     chats = res?.value ?? [];
@@ -149,6 +151,7 @@ export async function getTeamsChatSignalForContact(
 
     try {
       const msgRes = await graphGet<{ value: GraphChatMessage[] }>(
+        username,
         `/me/chats/${chat.id}/messages?$top=30&$orderby=createdDateTime desc`
       );
       for (const m of msgRes?.value ?? []) {
@@ -171,8 +174,9 @@ export async function getTeamsChatSignalForContact(
  * scopes are not granted.
  */
 export async function getTeamsChannelSignalForContact(
-  name: string,
-  limit = 20
+  username: string,
+  name:     string,
+  limit =   20
 ): Promise<string[]> {
   const nameLower = name.trim().toLowerCase();
   const firstName = nameLower.split(/\s+/)[0];
@@ -180,7 +184,7 @@ export async function getTeamsChannelSignalForContact(
 
   let teams: GraphTeam[] = [];
   try {
-    const res = await graphGet<{ value: GraphTeam[] }>("/me/joinedTeams?$top=20");
+    const res = await graphGet<{ value: GraphTeam[] }>(username, "/me/joinedTeams?$top=20");
     teams = res?.value ?? [];
   } catch {
     return []; // scope not granted
@@ -190,6 +194,7 @@ export async function getTeamsChannelSignalForContact(
     let channels: GraphChannel[] = [];
     try {
       const res = await graphGet<{ value: GraphChannel[] }>(
+        username,
         `/teams/${team.id}/channels?$top=20`
       );
       channels = res?.value ?? [];
@@ -200,6 +205,7 @@ export async function getTeamsChannelSignalForContact(
     for (const channel of channels.slice(0, 3)) {
       try {
         const res = await graphGet<{ value: GraphChatMessage[] }>(
+          username,
           `/teams/${team.id}/channels/${channel.id}/messages?$top=50`
         );
         for (const m of res?.value ?? []) {
@@ -250,9 +256,9 @@ export interface TeamsMeeting {
  * Uses the already-granted Calendars.ReadWrite scope — no extra scopes needed.
  * This is the equivalent of getZoomSummaries() for Microsoft users.
  */
-export async function getTeamsMeetings(daysBack = 30): Promise<TeamsMeeting[]> {
+export async function getTeamsMeetings(username: string, daysBack = 30): Promise<TeamsMeeting[]> {
   try {
-    const events = await getOutlookPastMeetings(daysBack);
+    const events = await getOutlookPastMeetings(username, daysBack);
     return events.map((e) => ({
       source:    "teams" as const,
       title:     e.summary,

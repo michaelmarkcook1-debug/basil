@@ -1,6 +1,7 @@
 import { type NextRequest, NextResponse } from "next/server";
 import { isGoogleConnected } from "@/lib/google/auth";
 import { getEventsForMonth } from "@/lib/google/calendar";
+import { getSessionUser } from "@/lib/auth";
 
 // GET /api/calendar/month?year=2026&month=3  (month is 0-indexed)
 export async function GET(request: NextRequest) {
@@ -25,7 +26,10 @@ export async function GET(request: NextRequest) {
     );
   }
 
-  if (!(await isGoogleConnected())) {
+  const username = (await getSessionUser());
+  if (!username) return NextResponse.json({ error: "Unauthorised" }, { status: 401 });
+
+  if (!(await isGoogleConnected(username))) {
     return NextResponse.json({
       connected: false,
       events: [],
@@ -34,7 +38,7 @@ export async function GET(request: NextRequest) {
   }
 
   try {
-    const events = await getEventsForMonth(year, month);
+    const events = await getEventsForMonth(username, year, month);
     return NextResponse.json({
       connected: true,
       events,

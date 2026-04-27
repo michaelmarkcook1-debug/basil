@@ -21,6 +21,8 @@ import type { SlackIntelligence, SlackSignalCategory } from "@/lib/teams/classif
 // ── Input / output types ───────────────────────────────────────────────────────
 
 export interface MaterializeTeamsInput {
+  /** Username to scope memory writes to. Defaults to "michael" on webhook paths. */
+  username?: string;
   intelligence: SlackIntelligence;
   /** Full sourceRef: "teams:<channelId>:<messageId>" */
   sourceRef: string;
@@ -71,7 +73,7 @@ const EXPLICIT_ONLY_ACTION_CATEGORIES = new Set<SlackSignalCategory>([
 export async function materializeTeamsIntelligence(
   input: MaterializeTeamsInput
 ): Promise<MaterializeTeamsResult> {
-  const { intelligence: intel, sourceRef, eventId, channelName, from, date } = input;
+  const { intelligence: intel, sourceRef, eventId, channelName, from, date, username = "michael" } = input;
   const dateShort = date.slice(0, 10);
   const channelLabel = channelName.startsWith("Teams:")
     ? channelName
@@ -245,7 +247,7 @@ export async function materializeTeamsIntelligence(
     if (!mem.content.trim()) continue;
     if (mTier === "skip") continue;
     try {
-      await createMemory({
+      await createMemory(username, {
         kind: "context",
         content: mem.content,
         entity: mem.entity,

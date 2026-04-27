@@ -203,6 +203,8 @@ function parseIntelligence(raw: string): EmailIntelligence {
 // ── Core classification function ───────────────────────────────────────────────
 
 export interface ClassifyEmailInput {
+  /** Username to scope the system prompt to. Defaults to "michael". */
+  username?: string;
   subject: string;
   from: string;
   date: string;
@@ -219,7 +221,7 @@ export interface ClassifyEmailInput {
 export async function classifyEmail(
   input: ClassifyEmailInput
 ): Promise<EmailIntelligence> {
-  const { subject, from, date, snippet, body } = input;
+  const { subject, from, date, snippet, body, username = "michael" } = input;
 
   // Clip to 4 000 chars — enough for rich emails, bounded AI cost
   const bodyClip = (body || snippet || "").trim().slice(0, 4_000);
@@ -286,7 +288,7 @@ Respond with ONLY valid JSON — no markdown fences, no explanation:
 }`;
 
   try {
-    const system = await getSystemPrompt();
+    const system = await getSystemPrompt(username);
     const { text } = await generateText({
       model: "anthropic/claude-sonnet-4.6",
       system,

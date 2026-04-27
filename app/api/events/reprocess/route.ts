@@ -69,7 +69,9 @@ export async function POST(_req: Request) {
           ? externalId.replace("outlook:", "")
           : externalId.replace("gmail:", "");
 
+        // TODO: resolve username from event owner once multi-user is fully live
         await processRegularEmail({
+          username:        "michael",
           gmailId:         msgId,
           externalId,
           eventId:         ev.id,
@@ -77,7 +79,7 @@ export async function POST(_req: Request) {
           from:            ev.entityName || "",
           dateFallback:    ev.createdAt,
           snippetFallback: (ev.payload as { body?: string })?.body || ev.context?.slice(0, 200) || "",
-          bodyFetcher:     isOutlook ? () => getOutlookMessageBody(msgId) : undefined,
+          bodyFetcher:     isOutlook ? () => getOutlookMessageBody("michael", msgId) : undefined,
         });
         processed++;
       } catch (err) {

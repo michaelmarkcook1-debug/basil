@@ -59,7 +59,9 @@ export async function POST(req: Request) {
       // Skip if already ingested
       if (await hasExternalId(externalId)) continue;
 
+      // TODO: resolve username from subscription owner once multi-user is fully live
       const ev = await graphGet<GraphCalendarEvent>(
+        "michael",
         `/me/events/${eventId}?$select=id,subject,start,end,attendees,isOnlineMeeting,organizer`
       );
       if (!ev) continue;

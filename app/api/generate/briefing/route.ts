@@ -16,12 +16,14 @@
 import { generateText, type ModelMessage } from "ai";
 import { getSystemPrompt } from "@/lib/ai/system-prompt";
 import { parseAIJson } from "@/lib/ai/parse-json";
+import { getSettings } from "@/lib/settings/store";
 import { getTodayEvents, type CalendarEvent } from "@/lib/google/calendar";
 import { getRecentEmails, type GmailMessage } from "@/lib/google/gmail";
 import {
   getRecentSlackMessages,
   type SlackMessage,
 } from "@/lib/slack/client";
+import { getSessionUser } from "@/lib/auth";
 import { listActions, isActionStalled } from "@/lib/actions/store";
 import { listDecisions } from "@/lib/decisions/store";
 import { getZoomSummariesFromGmail } from "@/lib/google/zoom-summaries";
@@ -36,19 +38,19 @@ import {
 
 // ── Format helpers ─────────────────────────────────────────────────────────────
 
-function fmtTime(iso: string): string {
+function fmtTime(iso: string, tz = "Europe/London"): string {
   return new Date(iso).toLocaleTimeString("en-GB", {
-    timeZone: "Europe/London",
+    timeZone: tz,
     hour: "2-digit",
     minute: "2-digit",
   });
 }
 
-function formatCalendarBlock(events: CalendarEvent[]): string {
+function formatCalendarBlock(events: CalendarEvent[], tz = "Europe/London"): string {
   if (events.length === 0) return "No events on today's calendar.";
   return events
     .map((e) => {
-      const time = e.isAllDay ? "All day" : `${fmtTime(e.start)} – ${fmtTime(e.end)}`;
+      const time = e.isAllDay ? "All day" : `${fmtTime(e.start, tz)} – ${fmtTime(e.end, tz)}`;
       const video = e.hasVideo ? " [VIDEO]" : "";
       const attendees = e.attendees.length
         ? ` — with ${e.attendees.slice(0, 5).join(", ")}`
@@ -58,12 +60,12 @@ function formatCalendarBlock(events: CalendarEvent[]): string {
     .join("\n");
 }
 
-function formatEmailBlock(emails: GmailMessage[], snippetLen = 160): string {
+function formatEmailBlock(emails: GmailMessage[], snippetLen = 160, tz = "Europe/London"): string {
   if (emails.length === 0) return "";
   return emails
     .map((e) => {
       const date = new Date(e.date).toLocaleString("en-GB", {
-        timeZone: "Europe/London",
+        timeZone: tz,
         day: "numeric",
         month: "short",
         hour: "2-digit",
@@ -92,14 +94,14 @@ function formatSlackBlock(messages: SlackMessage[]): string {
     .join("\n");
 }
 
-function formatZoomBlock(summaries: ZoomSummary[]): string {
+function formatZoomBlock(summaries: ZoomSummary[], tz = "Europe/London"): string {
   if (summaries.length === 0) return "";
   return summaries
     .map((s) => {
       const date = new Date(s.date).toLocaleDateString("en-GB", {
         day: "numeric",
         month: "short",
-        timeZone: "Europe/London",
+        timeZone: tz,
       });
       const body = s.body.length > 350 ? s.body.slice(0, 350) + "…" : s.body;
       return `- [${date}] ${s.title}\n  ${body}`;
@@ -110,14 +112,21 @@ function formatZoomBlock(summaries: ZoomSummary[]): string {
 // ── Route ──────────────────────────────────────────────────────────────────────
 
 export async function POST(req: Request) {
+  const username = (await getSessionUser());
+  if (!username) return Response.json({ error: "Unauthorised" }, { status: 401 });
+
+  const settings  = await getSettings(username).catch(() => null);
+  const tz        = settings?.timezone || "Europe/London";
+
   const today = new Date().toLocaleDateString("en-GB", {
-    timeZone: "Europe/London",
+    timeZone: tz,
     weekday: "long",
     day: "numeric",
     month: "long",
     year: "numeric",
   });
-  const todayDate = new Date().toISOString().split("T")[0];
+  // Derive today's date string in the user's timezone (avoids UTC midnight drift)
+  const todayDate = new Date().toLocaleDateString("en-CA", { timeZone: tz });
 
   // Accept multipart FormData (extra context) or no body (simple trigger).
   let extra: ExtraContext = {
@@ -147,17 +156,17 @@ export async function POST(req: Request) {
     zoomResult,
     memoriesResult,
   ] = await Promise.all([
-    getTodayEvents().catch((err) => {
+    getTodayEvents(username).catch((err) => {
       console.error("Calendar fetch failed:", err);
       return null;
     }),
     // 20 emails gives enough signal to split unread / read meaningfully
-    getRecentEmails(20).catch((err) => {
+    getRecentEmails(username, 20).catch((err) => {
       console.error("Email fetch failed:", err);
       return null;
     }),
     // 25 messages — DMs and @mentions surfaced first inside the block
-    getRecentSlackMessages(25).catch((err) => {
+    getRecentSlackMessages(username, 25).catch((err) => {
       console.error("Slack fetch failed:", err);
       return null;
     }),
@@ -170,11 +179,11 @@ export async function POST(req: Request) {
       return [];
     }),
     // 8 summaries from the last 7 days — richer Zoom context for today's attendees
-    getZoomSummariesFromGmail(7, 8).catch((err) => {
+    getZoomSummariesFromGmail(username, 7, 8).catch((err) => {
       console.error("Zoom summaries fetch failed:", err);
       return [];
     }),
-    listMemories().catch((err) => {
+    listMemories(username).catch((err) => {
       console.error("Memories fetch failed:", err);
       return [] as Memory[];
     }),
@@ -184,7 +193,7 @@ export async function POST(req: Request) {
   const calendarBlock =
     calendarResult === null
       ? "Google Calendar not connected."
-      : formatCalendarBlock(calendarResult);
+      : formatCalendarBlock(calendarResult, tz);
 
   // ── Emails — unread (full snippet) vs recently-read ──────────────────────
   const emails = emailResult ?? [];
@@ -198,10 +207,10 @@ export async function POST(req: Request) {
         ? "Inbox is quiet — no recent emails."
         : [
             unreadEmails.length > 0
-              ? `UNREAD (${unreadEmails.length}):\n${formatEmailBlock(unreadEmails, 200)}`
+              ? `UNREAD (${unreadEmails.length}):\n${formatEmailBlock(unreadEmails, 200, tz)}`
               : "No unread emails.",
             readEmails.length > 0
-              ? `\nRECENTLY READ:\n${formatEmailBlock(readEmails, 120)}`
+              ? `\nRECENTLY READ:\n${formatEmailBlock(readEmails, 120, tz)}`
               : "",
           ]
             .filter(Boolean)
@@ -233,7 +242,7 @@ export async function POST(req: Request) {
             .join("\n");
 
   // ── Zoom summaries ────────────────────────────────────────────────────────
-  const zoomBlock = zoomResult.length > 0 ? formatZoomBlock(zoomResult) : "";
+  const zoomBlock = zoomResult.length > 0 ? formatZoomBlock(zoomResult, tz) : "";
 
   // ── Actions — three buckets by urgency ───────────────────────────────────
   const openActions = actionsResult.filter((a) => a.status !== "done");
@@ -471,7 +480,7 @@ Return ONLY valid JSON, no markdown code fences:
 
   const result = await generateText({
     model: "anthropic/claude-sonnet-4.6",
-    system: await getSystemPrompt(),
+    system: await getSystemPrompt(username),
     ...(messages ? { messages } : { prompt: promptText }),
     providerOptions: {
       gateway: { tags: ["feature:briefing", "env:production"] },

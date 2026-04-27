@@ -1,27 +1,23 @@
 /**
- * GET /api/admin/export-state?secret=<ADMIN_EXPORT_SECRET>
+ * GET /api/admin/export-state
  *
  * Returns all .json files from DATA_DIR as a JSON object — the same shape
  * as the BASIL_DATA snapshot. Use this to capture live /tmp state before a
  * redeployment that would trigger a cold start.
  *
- * Protected by ADMIN_EXPORT_SECRET env var (or the query param fallback
- * defined below for one-time use).
+ * Protected by the session cookie (same auth as the rest of the app).
+ * The proxy already enforces auth for all /api routes, but we re-check here
+ * as defence-in-depth since this endpoint exports the full data store.
  */
 import { NextResponse } from "next/server";
 import { promises as fs } from "node:fs";
 import path from "node:path";
 import { DATA_DIR } from "@/lib/storage/paths";
 import { readStore } from "@/lib/storage/persistent";
+import { verifySession } from "@/lib/auth";
 
-const ONE_TIME_SECRET = "basil-export-2026-04-24";
-
-export async function GET(req: Request) {
-  const { searchParams } = new URL(req.url);
-  const secret = searchParams.get("secret") ?? "";
-  const expected = process.env.ADMIN_EXPORT_SECRET ?? ONE_TIME_SECRET;
-
-  if (secret !== expected) {
+export async function GET() {
+  if (!(await verifySession())) {
     return NextResponse.json({ error: "forbidden" }, { status: 403 });
   }
 

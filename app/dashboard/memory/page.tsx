@@ -13,6 +13,9 @@ import {
   Heart,
   Bookmark,
   Compass,
+  Upload,
+  X,
+  CheckCircle2,
 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
@@ -63,6 +66,36 @@ export default function MemoryPage() {
   const [filter, setFilter] = useState<MemoryKind | "all">("all");
   const [search, setSearch] = useState("");
   const [showForm, setShowForm] = useState(false);
+
+  // ── Import from another LLM ───────────────────────────────────────────────
+  const [showImport, setShowImport]       = useState(false);
+  const [importText, setImportText]       = useState("");
+  const [importing, setImporting]         = useState(false);
+  const [importResult, setImportResult]   = useState<{ count: number } | null>(null);
+  const [importError, setImportError]     = useState<string | null>(null);
+
+  async function handleImport(e: React.FormEvent) {
+    e.preventDefault();
+    setImporting(true);
+    setImportError(null);
+    setImportResult(null);
+    try {
+      const res = await fetch("/api/memory/import", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ text: importText }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Import failed");
+      setImportResult({ count: data.imported });
+      setImportText("");
+      load();
+    } catch (err) {
+      setImportError(err instanceof Error ? err.message : "Something went wrong");
+    } finally {
+      setImporting(false);
+    }
+  }
 
   const load = useCallback(async () => {
     try {
@@ -141,9 +174,16 @@ export default function MemoryPage() {
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             placeholder="Search memories…"
-            className="w-full h-10 rounded-lg border border-border bg-background pl-9 pr-3 text-sm focus:outline-none focus:border-[oklch(0.72_0.15_85)]/40 focus:ring-4 focus:ring-[oklch(0.72_0.15_85)]/10"
+            className="w-full h-10 rounded-lg border border-border bg-background pl-9 pr-3 text-[16px] sm:text-sm focus:outline-none focus:border-[oklch(0.72_0.15_85)]/40 focus:ring-4 focus:ring-[oklch(0.72_0.15_85)]/10"
           />
         </div>
+        <button
+          onClick={() => { setShowImport((v) => !v); setImportResult(null); setImportError(null); }}
+          className="inline-flex items-center gap-1.5 rounded-lg border border-border bg-background text-sm font-medium px-3.5 py-2 hover:bg-muted transition text-muted-foreground"
+        >
+          <Upload className="h-4 w-4" />
+          Import from AI
+        </button>
         <button
           onClick={() => setShowForm((v) => !v)}
           className="inline-flex items-center gap-1.5 rounded-lg bg-[oklch(0.72_0.15_85)] text-[oklch(0.18_0.04_250)] text-sm font-semibold px-3.5 py-2 hover:brightness-105 transition"
@@ -152,6 +192,79 @@ export default function MemoryPage() {
           {showForm ? "Cancel" : "Remember something"}
         </button>
       </div>
+
+      {/* Import panel */}
+      {showImport && (
+        <div className="rounded-xl border border-border bg-muted/30 p-5 space-y-4">
+          <div className="flex items-start justify-between gap-3">
+            <div>
+              <p className="text-sm font-semibold flex items-center gap-2">
+                <Upload className="h-4 w-4 text-muted-foreground" />
+                Import memories from another AI
+              </p>
+              <p className="text-xs text-muted-foreground mt-0.5">
+                Paste a conversation from ChatGPT, Claude.ai, Gemini, or any other AI tool.
+                Basil will extract facts, preferences, people, and context and add them to memory.
+              </p>
+            </div>
+            <button onClick={() => setShowImport(false)} className="text-muted-foreground hover:text-foreground shrink-0">
+              <X className="h-4 w-4" />
+            </button>
+          </div>
+
+          {importResult ? (
+            <div className="flex items-center gap-3 rounded-lg bg-emerald-50 border border-emerald-200 px-4 py-3">
+              <CheckCircle2 className="h-5 w-5 text-emerald-600 shrink-0" />
+              <div>
+                <p className="text-sm font-medium text-emerald-800">
+                  {importResult.count === 0
+                    ? "No memorable information found in that conversation."
+                    : `${importResult.count} memor${importResult.count === 1 ? "y" : "ies"} extracted and saved.`}
+                </p>
+                <button
+                  onClick={() => { setImportResult(null); setImportText(""); }}
+                  className="text-xs text-emerald-600 underline mt-0.5"
+                >
+                  Import another conversation
+                </button>
+              </div>
+            </div>
+          ) : (
+            <form onSubmit={handleImport} className="space-y-3">
+              <textarea
+                value={importText}
+                onChange={(e) => setImportText(e.target.value)}
+                placeholder={"Paste your conversation here…\n\nWorks with:\n• ChatGPT (copy from browser)\n• Claude.ai (copy from browser)\n• Gemini, Copilot, Perplexity\n• Any plain text conversation"}
+                rows={10}
+                className="w-full rounded-lg border border-border bg-background px-3.5 py-2.5 text-sm resize-y focus:outline-none focus:border-[oklch(0.72_0.15_85)]/40 focus:ring-4 focus:ring-[oklch(0.72_0.15_85)]/10 placeholder:text-muted-foreground/50 font-mono text-xs leading-relaxed"
+              />
+              {importError && (
+                <p className="text-xs text-red-600 flex items-center gap-1.5">
+                  <X className="h-3 w-3" /> {importError}
+                </p>
+              )}
+              <div className="flex items-center gap-3">
+                <button
+                  type="submit"
+                  disabled={importing || importText.trim().length < 20}
+                  className="inline-flex items-center gap-1.5 rounded-lg bg-[oklch(0.72_0.15_85)] text-[oklch(0.18_0.04_250)] text-sm font-semibold px-4 py-2 hover:brightness-105 transition disabled:opacity-40"
+                >
+                  {importing ? (
+                    <><Loader2 className="h-4 w-4 animate-spin" /> Extracting…</>
+                  ) : (
+                    <><Sparkles className="h-4 w-4" /> Extract memories</>
+                  )}
+                </button>
+                <p className="text-xs text-muted-foreground">
+                  {importText.trim().length > 0
+                    ? `${importText.trim().split(/\s+/).length} words pasted`
+                    : "Supports any conversation format"}
+                </p>
+              </div>
+            </form>
+          )}
+        </div>
+      )}
 
       {/* Kind filter tabs */}
       <div className="flex items-center gap-1 border-b border-border">
@@ -382,7 +495,7 @@ function NewMemoryForm({
             onChange={(e) => setContent(e.target.value)}
             placeholder="e.g. Michael prefers Zoom over Google Meet for all video calls."
             rows={3}
-            className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm resize-y focus:outline-none focus:border-[oklch(0.72_0.15_85)]/40 focus:ring-4 focus:ring-[oklch(0.72_0.15_85)]/10"
+            className="w-full rounded-lg border border-border bg-background px-3 py-2 text-[16px] sm:text-sm resize-y focus:outline-none focus:border-[oklch(0.72_0.15_85)]/40 focus:ring-4 focus:ring-[oklch(0.72_0.15_85)]/10"
             autoFocus
           />
           {(kind === "person" || kind === "context") && (
@@ -395,7 +508,7 @@ function NewMemoryForm({
                   ? "Who is this about? (e.g. Malcolm Frank)"
                   : "What is this about? (e.g. AG v1.0 launch)"
               }
-              className="w-full h-10 rounded-lg border border-border bg-background px-3 text-sm focus:outline-none focus:border-[oklch(0.72_0.15_85)]/40 focus:ring-4 focus:ring-[oklch(0.72_0.15_85)]/10"
+              className="w-full h-10 rounded-lg border border-border bg-background px-3 text-[16px] sm:text-sm focus:outline-none focus:border-[oklch(0.72_0.15_85)]/40 focus:ring-4 focus:ring-[oklch(0.72_0.15_85)]/10"
             />
           )}
           <div className="flex items-center gap-2">

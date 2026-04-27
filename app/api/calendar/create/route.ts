@@ -2,10 +2,14 @@ import { NextResponse } from "next/server";
 import { isGoogleConnected } from "@/lib/google/auth";
 import { createCalendarEvent } from "@/lib/google/calendar";
 import { emitAuditEvent } from "@/lib/events/audit";
+import { getSessionUser } from "@/lib/auth";
 
 // POST /api/calendar/create — create a calendar event
 export async function POST(req: Request) {
-  if (!(await isGoogleConnected())) {
+  const username = (await getSessionUser());
+  if (!username) return NextResponse.json({ error: "Unauthorised" }, { status: 401 });
+
+  if (!(await isGoogleConnected(username))) {
     return NextResponse.json(
       { error: "Google Calendar not connected." },
       { status: 401 }
@@ -23,7 +27,7 @@ export async function POST(req: Request) {
       );
     }
 
-    const result = await createCalendarEvent({
+    const result = await createCalendarEvent(username, {
       title,
       attendees: attendees || [],
       date,

@@ -59,6 +59,10 @@ export interface Digest {
   /** What next week needs: prep items, open threads to close, momentum to carry forward. */
   nextWeekNeeds:       string | null;
   generatedAt: string;
+  /** Human-readable week start date (e.g. "28 Apr"), computed server-side in user's timezone. */
+  weekStart?: string;
+  /** Human-readable week end date (e.g. "4 May"), computed server-side in user's timezone. */
+  weekEnd?: string;
   dataSources?: {
     calendarPast:       number;
     calendarUpcoming:   number;

@@ -95,6 +95,14 @@ export default function WhatsAppPage() {
   const [qrSecondsLeft, setQrSecondsLeft] = useState<number | null>(null);
   const qrTimerRef = useRef<number | null>(null);
   const lastQrUrlRef = useRef<string | null>(null);
+  // Sticky QR: once we receive a QR image, keep rendering it for 30s even if
+  // subsequent polls return status without qrDataUrl (e.g. from another instance).
+  // Cleared only when we leave awaiting_qr state entirely.
+  const [stickyQrUrl, setStickyQrUrl] = useState<string | null>(null);
+  // When polling is active, importStartedAt guards against stale responses from
+  // other Vercel instances. Stored in a ref so loadStatus can access it without
+  // being re-created on every render.
+  const importStartedAtRef = useRef<number | null>(null);
 
   const loadSnapshot = useCallback(async () => {
     setSnapshotLoading(true);
@@ -114,17 +122,42 @@ export default function WhatsAppPage() {
       const res = await fetch("/api/whatsapp/dump/status", { cache: "no-store" });
       const data = await res.json();
       const s = data.status as DumpStatus;
+
+      // ── Stale-instance guard ────────────────────────────────────────────────
+      // On Vercel, multiple function instances run concurrently. The dump runs
+      // on the instance that received the POST; polls can land on any instance.
+      // Instances that never ran the dump return "idle" (default bag state).
+      // Applying this "idle" to the React state immediately wipes the QR display.
+      //
+      // Fix: if importStartedAtRef is set (poll is active) and the response has
+      // no matching startedAt (or a stale one), skip the setStatus call entirely.
+      if (importStartedAtRef.current !== null) {
+        const importStartedAt = importStartedAtRef.current;
+        const dumpStartedAt = s.startedAt ? new Date(s.startedAt).getTime() : 0;
+        const isStale = dumpStartedAt < importStartedAt - 5_000;
+        if (isStale) {
+          // Don't update React state — UI keeps showing whatever it showed before.
+          return s;
+        }
+      }
+
       setStatus(s);
+
+      // Clear the sticky QR once we leave awaiting_qr (scan succeeded or error).
+      if (s.state !== "awaiting_qr") {
+        setStickyQrUrl(null);
+      }
 
       // Start (or restart) the QR expiry countdown whenever a new QR arrives.
       if (s?.state === "awaiting_qr" && s.qrDataUrl && s.qrDataUrl !== lastQrUrlRef.current) {
         lastQrUrlRef.current = s.qrDataUrl;
         qrSeenAtRef.current = Date.now();
+        setStickyQrUrl(s.qrDataUrl); // Latch the image so it persists across stale polls
         if (qrTimerRef.current) window.clearInterval(qrTimerRef.current);
-        setQrSecondsLeft(60);
+        setQrSecondsLeft(30);
         qrTimerRef.current = window.setInterval(() => {
           const elapsed = Math.floor((Date.now() - (qrSeenAtRef.current ?? Date.now())) / 1000);
-          const left = Math.max(0, 60 - elapsed);
+          const left = Math.max(0, 30 - elapsed);
           setQrSecondsLeft(left);
           if (left === 0 && qrTimerRef.current) {
             window.clearInterval(qrTimerRef.current);
@@ -155,32 +188,32 @@ export default function WhatsAppPage() {
 
   const startImport = useCallback(async () => {
     setImportPreview(null);
-    // Record when *this* import session started so we can reject stale "done"
-    // responses from Vercel warm instances that ran a previous dump.
-    const importStartedAt = Date.now();
+    setStickyQrUrl(null);
+    lastQrUrlRef.current = null;
+
+    // Record when this import session started. loadStatus() reads this ref to
+    // skip stale-instance responses before calling setStatus.
+    importStartedAtRef.current = Date.now();
 
     const res = await fetch("/api/whatsapp/dump", { method: "POST" });
     const initData = await res.json() as { status?: DumpStatus };
-    // Immediately apply the POST response status — this gives the UI instant
-    // "awaiting_qr" state from the same instance that actually started the dump,
-    // before any poll can return a stale "idle" or "done" from a different instance.
+    // Apply the POST response immediately — this comes from the instance that
+    // actually started the dump, so it's always authoritative.
     if (initData.status) setStatus(initData.status);
 
-    // Start polling for status updates; stop when done or errored.
+    // Start polling. Stale-instance filtering is handled inside loadStatus()
+    // via importStartedAtRef, so the poll only needs to react to real transitions.
     if (pollRef.current) window.clearInterval(pollRef.current);
     pollRef.current = window.setInterval(async () => {
       const s = await loadStatus();
       if (!s) return;
+
       if (s.state === "done" || s.state === "error") {
-        // Guard against stale "done" from a different Vercel warm instance:
-        // only accept completion if the dump started AFTER we pressed the button.
-        const dumpStartedAt = s.startedAt ? new Date(s.startedAt).getTime() : 0;
-        if (dumpStartedAt < importStartedAt - 5_000) {
-          // This is a stale "done" from a previous run — ignore and keep polling.
-          return;
-        }
+        // loadStatus() already applied the stale guard — if we get here the
+        // status is from the right instance and should be trusted.
         if (pollRef.current) window.clearInterval(pollRef.current);
         pollRef.current = null;
+        importStartedAtRef.current = null; // Clear guard when done
         if (s.state === "done") await loadSnapshot();
       }
     }, 1200);
@@ -191,6 +224,9 @@ export default function WhatsAppPage() {
       window.clearInterval(pollRef.current);
       pollRef.current = null;
     }
+    importStartedAtRef.current = null; // Allow loadStatus to update state freely
+    setStickyQrUrl(null);
+    lastQrUrlRef.current = null;
     await fetch("/api/whatsapp/reset", { method: "POST" });
     await loadStatus();
   }, [loadStatus]);
@@ -380,26 +416,32 @@ export default function WhatsAppPage() {
           </p>
         </div>
         <div className="flex items-center gap-2 shrink-0">
-          {snapshot && !inProgress && (
+          {!inProgress && (
             <>
               <Button
-                variant="outline"
+                variant={snapshot ? "outline" : "default"}
                 size="sm"
                 onClick={startImport}
-                className="gap-1.5"
+                className={`gap-1.5 ${!snapshot ? "bg-[oklch(0.72_0.15_85)] text-[oklch(0.18_0.04_250)] hover:bg-[oklch(0.78_0.12_85)]" : ""}`}
               >
-                <RefreshCw className="h-3.5 w-3.5" />
-                Re-import
+                {snapshot ? (
+                  <RefreshCw className="h-3.5 w-3.5" />
+                ) : (
+                  <QrCode className="h-3.5 w-3.5" />
+                )}
+                {snapshot ? "Re-import" : "Start import"}
               </Button>
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={deleteSnapshot}
-                className="gap-1.5 text-destructive hover:text-destructive"
-              >
-                <Trash2 className="h-3.5 w-3.5" />
-                Delete snapshot
-              </Button>
+              {snapshot && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={deleteSnapshot}
+                  className="gap-1.5 text-destructive hover:text-destructive"
+                >
+                  <Trash2 className="h-3.5 w-3.5" />
+                  Delete snapshot
+                </Button>
+              )}
             </>
           )}
         </div>
@@ -447,7 +489,7 @@ export default function WhatsAppPage() {
               </div>
             )}
 
-            {status.state === "awaiting_qr" && status.qrDataUrl && (
+            {status.state === "awaiting_qr" && (status.qrDataUrl || stickyQrUrl) && (
               <div className="flex flex-col items-center gap-3 py-4">
                 {/* Stale QR warning */}
                 {qrSecondsLeft === 0 && (
@@ -459,7 +501,7 @@ export default function WhatsAppPage() {
                 <div className={`relative rounded-xl ring-1 bg-white p-3 shadow-sm transition-all ${qrSecondsLeft === 0 ? "ring-amber-400 opacity-40 grayscale" : "ring-border"}`}>
                   {/* eslint-disable-next-line @next/next/no-img-element */}
                   <img
-                    src={status.qrDataUrl}
+                    src={(status.qrDataUrl || stickyQrUrl)!}
                     alt="WhatsApp link QR"
                     className="h-64 w-64"
                   />
@@ -477,7 +519,7 @@ export default function WhatsAppPage() {
               </div>
             )}
 
-            {status.state === "awaiting_qr" && !status.qrDataUrl && (
+            {status.state === "awaiting_qr" && !status.qrDataUrl && !stickyQrUrl && (
               <div className="flex items-center gap-2 text-[13px] text-muted-foreground">
                 <QrCode className="h-4 w-4" />
                 Waiting for WhatsApp to issue a QR code…
@@ -542,15 +584,8 @@ export default function WhatsAppPage() {
             <p className="text-sm text-muted-foreground max-w-md mx-auto leading-relaxed">
               Link your phone once, Basil pulls the recent history WhatsApp
               pushes on link (typically the last few weeks of chats), then
-              unlinks cleanly.
+              unlinks cleanly. Use the <strong>Start import</strong> button above.
             </p>
-            <Button
-              onClick={startImport}
-              className="gap-1.5 bg-[oklch(0.72_0.15_85)] text-[oklch(0.18_0.04_250)] hover:bg-[oklch(0.78_0.12_85)]"
-            >
-              <QrCode className="h-3.5 w-3.5" />
-              Start one-shot import
-            </Button>
           </CardContent>
         </Card>
       )}

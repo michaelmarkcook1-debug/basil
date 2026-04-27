@@ -60,11 +60,13 @@ function deriveActionType(event: BasilEvent): EventActionType {
  * Execute an approved event.
  *
  * @param event     The BasilEvent to execute.
+ * @param username  The logged-in user approving the event (used for per-user integrations).
  * @param draftBody User-edited body content (may differ from event.draft.body).
  *                  Ignored for non-draft action types.
  */
 export async function executeEvent(
-  event: BasilEvent,
+  event:     BasilEvent,
+  username:  string,
   draftBody?: string
 ): Promise<ExecutionResult> {
   const actionType = deriveActionType(event);
@@ -98,7 +100,7 @@ export async function executeEvent(
         };
       }
       try {
-        const result = await sendEmail(to, subject ?? "(no subject)", resolvedBody);
+        const result = await sendEmail(username, to, subject ?? "(no subject)", resolvedBody);
         return {
           ok: true,
           summary: `Email sent to ${to}`,
@@ -138,7 +140,7 @@ export async function executeEvent(
         };
       }
       try {
-        const result = await sendSlackMessage(to, resolvedBody);
+        const result = await sendSlackMessage(username, to, resolvedBody);
         if (!result.ok) {
           return {
             ok: false,
@@ -230,7 +232,7 @@ export async function executeEvent(
         return { ok: false, error: "No content to store as memory.", summary: "" };
       }
       try {
-        const memory = await createMemory({
+        const memory = await createMemory(username, {
           kind: "fact",
           content,
           entity: event.entityName,

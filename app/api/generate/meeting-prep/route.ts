@@ -33,9 +33,13 @@ import {
   type ExtraContext,
 } from "@/lib/ai/extra-context";
 import { getMemoriesForEntity, listMemories } from "@/lib/memory/store";
+import { getSessionUser } from "@/lib/auth";
 import type { Memory } from "@/lib/memory/types";
 
 export async function POST(req: Request) {
+  const username = (await getSessionUser());
+  if (!username) return Response.json({ error: "Unauthorised" }, { status: 401 });
+
   // Two ingress shapes:
   //  - JSON body (back-compat for anything still calling without extras)
   //  - multipart/form-data (new — includes free-text notes + file uploads)
@@ -116,23 +120,23 @@ export async function POST(req: Request) {
   // summaries + decisions in parallel. Targeted search is critical — relying
   // only on the last 60 recent messages buries any conversation older than a day.
   const [emails, slackMessages, todaysCal, zoomSummariesAll, teamsMeetingsAll, perAttendeeSlack, allDecisions, allActions, perAttendeeMemories, allMemories] = await Promise.all([
-    getRecentEmails(50, MEETING_PREP_EMAIL_DAYS).catch((err) => {
+    getRecentEmails(username, 50, MEETING_PREP_EMAIL_DAYS).catch((err) => {
       console.error("Failed to fetch emails for meeting prep:", err);
       return [];
     }),
-    getRecentSlackMessages(60).catch((err) => {
+    getRecentSlackMessages(username, 60).catch((err) => {
       console.error("Failed to fetch Slack messages for meeting prep:", err);
       return [];
     }),
-    getTodayEvents().catch((err) => {
+    getTodayEvents(username).catch((err) => {
       console.error("Failed to fetch today's calendar:", err);
       return [];
     }),
-    getZoomSummaries(14).catch((err) => {
+    getZoomSummaries(username, 14).catch((err) => {
       console.error("Failed to fetch Zoom summaries:", err);
       return [];
     }),
-    getTeamsMeetings(14).catch((err) => {
+    getTeamsMeetings(username, 14).catch((err) => {
       console.error("Failed to fetch Teams meetings:", err);
       return [];
     }),
@@ -140,7 +144,7 @@ export async function POST(req: Request) {
     // so we capture conversations older than the 60-message recent window.
     Promise.all(
       attendeeNames.map((name: string) =>
-        searchSlackMessages(name, 15).catch((err) => {
+        searchSlackMessages(username, name, 15).catch((err) => {
           console.error(`Slack search failed for ${name}:`, err);
           return [];
         })
@@ -162,12 +166,12 @@ export async function POST(req: Request) {
     // Per-attendee memories — relationship context, prior person signals
     Promise.all(
       attendeeNames.map((name: string) =>
-        getMemoriesForEntity(name).catch((): Memory[] => [])
+        getMemoriesForEntity(username, name).catch((): Memory[] => [])
       )
     ),
 
     // All memories — scan for active blockers (last 30 days)
-    listMemories().catch((err) => {
+    listMemories(username).catch((err) => {
       console.error("Failed to fetch memories for meeting prep:", err);
       return [] as Memory[];
     }),
@@ -542,7 +546,7 @@ Return ONLY valid JSON, no markdown code fences:
 
   const result = await generateText({
     model: "anthropic/claude-sonnet-4.6",
-    system: await getSystemPrompt(),
+    system: await getSystemPrompt(username),
     ...(messages ? { messages } : { prompt: promptText }),
     providerOptions: {
       gateway: { tags: ["feature:meeting-prep", "env:production"] },

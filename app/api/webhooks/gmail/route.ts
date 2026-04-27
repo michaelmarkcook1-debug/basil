@@ -1,4 +1,4 @@
-import { NextResponse } from "next/server";
+import { NextResponse, after } from "next/server";
 import { google } from "googleapis";
 import { getAuthedClient } from "@/lib/google/auth";
 import { createEvent, hasExternalId } from "@/lib/events/store";
@@ -59,7 +59,9 @@ export async function POST(req: Request) {
   const newHistoryId = payload.historyId;
   if (!newHistoryId) return NextResponse.json({ ok: true });
 
-  const auth = await getAuthedClient();
+  // TODO: resolve username from emailAddress payload once multi-user is fully live
+  const webhookUsername = "michael";
+  const auth = await getAuthedClient(webhookUsername);
   if (!auth) return NextResponse.json({ ok: true, note: "gmail not connected" });
   const gmail = google.gmail({ version: "v1", auth });
 
@@ -140,21 +142,21 @@ export async function POST(req: Request) {
         // stores. This is what creates durable records — the event above is just a receipt.
         // Both paths are idempotent: stores dedup by sourceRef + text similarity.
         if (source === "zoom_email") {
-          void processZoomEmail({
+          after(processZoomEmail({
             gmailId: id,
             externalId,
             eventId: event.id,
             subject: subject || "(no subject)",
-          });
+          }));
         } else {
-          void processRegularEmail({
+          after(processRegularEmail({
             gmailId: id,
             externalId,
             eventId: event.id,
             subject: subject || "(no subject)",
             from: extractName(fromRaw),
             snippetFallback: snippet,
-          });
+          }));
         }
       } catch (e) {
         console.error("Gmail message fetch failed:", e instanceof Error ? e.message : e);

@@ -1,13 +1,18 @@
 import { NextResponse } from "next/server";
 import { listMemories, createMemory } from "@/lib/memory/store";
+import { getSessionUser } from "@/lib/auth";
 import type { MemoryKind } from "@/lib/memory/types";
 
 export async function GET() {
-  const memories = await listMemories();
+  const username = (await getSessionUser());
+  if (!username) return NextResponse.json({ error: "Unauthorised" }, { status: 401 });
+  const memories = await listMemories(username);
   return NextResponse.json({ memories });
 }
 
 export async function POST(req: Request) {
+  const username = (await getSessionUser());
+  if (!username) return NextResponse.json({ error: "Unauthorised" }, { status: 401 });
   try {
     const body = await req.json();
     const { kind, content, entity, source } = body as {
@@ -32,7 +37,7 @@ export async function POST(req: Request) {
       );
     }
 
-    const memory = await createMemory({
+    const memory = await createMemory(username, {
       kind,
       content,
       entity,

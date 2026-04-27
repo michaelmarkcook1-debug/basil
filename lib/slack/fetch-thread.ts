@@ -15,7 +15,7 @@
  */
 
 import type { WebClient } from "@slack/web-api";
-import { getSlackBotClient, getSlackUserClient } from "./client";
+import { getSlackBotClientForUser, getSlackUserClientForUser } from "./client";
 
 const MAX_THREAD_MESSAGES = 20;
 const MAX_CHARS_PER_MSG = 500;
@@ -61,12 +61,17 @@ export interface SlackThreadMessage {
  * Returns empty array on any API failure.
  */
 export async function fetchSlackThread(
+  username:  string,
   channelId: string,
   messageTs: string
 ): Promise<SlackThreadMessage[]> {
-  const web = getSlackUserClient() || getSlackBotClient();
+  const [botWeb, userWeb] = await Promise.all([
+    getSlackBotClientForUser(username),
+    getSlackUserClientForUser(username),
+  ]);
+  const web = userWeb || botWeb;
   if (!web) return [];
-  const lookupWeb = getSlackBotClient() || web;
+  const lookupWeb = botWeb || web;
 
   try {
     const res = await web.conversations.replies({

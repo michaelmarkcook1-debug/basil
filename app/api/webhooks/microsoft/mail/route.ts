@@ -1,4 +1,4 @@
-import { NextResponse } from "next/server";
+import { NextResponse, after } from "next/server";
 import { graphGet } from "@/lib/microsoft/auth";
 import { getWatchState } from "@/lib/microsoft/watch-state";
 import { createEvent, hasExternalId } from "@/lib/events/store";
@@ -60,7 +60,9 @@ export async function POST(req: Request) {
       // Skip if already ingested (e.g. poll-ingest ran first)
       if (await hasExternalId(externalId)) continue;
 
+      // TODO: resolve username from subscription owner once multi-user is fully live
       const msg = await graphGet<GraphMailMessage>(
+        "michael",
         `/me/messages/${msgId}?$select=id,subject,from,bodyPreview,receivedDateTime,isRead`
       );
       if (!msg) continue;
@@ -77,8 +79,10 @@ export async function POST(req: Request) {
       const event = await createEvent(shaped);
       publish(event);
 
-      // Fire-and-forget: classify + materialize into canonical Action/Decision/Memory stores.
-      void processRegularEmail({
+      // Classify + materialize into canonical Action/Decision/Memory stores after response.
+      // TODO: resolve username from subscription owner once multi-user is fully live
+      after(processRegularEmail({
+        username: "michael",
         gmailId: msgId,
         externalId,
         eventId: event.id,
@@ -86,7 +90,7 @@ export async function POST(req: Request) {
         from,
         dateFallback: msg.receivedDateTime,
         snippetFallback: msg.bodyPreview || "",
-      });
+      }));
     } catch (e) {
       console.error(
         "[ms-mail-webhook] failed to process notification:",

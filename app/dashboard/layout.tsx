@@ -33,7 +33,7 @@ export default function DashboardLayout({
       {/* Page area: mobile top bar + scrollable content */}
       <div className="flex flex-1 flex-col min-w-0 overflow-hidden">
         {/* Mobile top bar — hidden on lg+ */}
-        <header className="lg:hidden flex items-center h-14 px-4 border-b border-sidebar-border/60 bg-sidebar shrink-0">
+        <header className="lg:hidden flex items-center h-14 px-4 border-b border-sidebar-border/60 bg-sidebar shrink-0 pt-[env(safe-area-inset-top)]">
           <button
             onClick={() => setMobileOpen(true)}
             className="rounded-md p-2 -ml-2 text-sidebar-foreground/70 hover:text-sidebar-foreground hover:bg-sidebar-accent/40 transition-colors"
@@ -56,7 +56,7 @@ export default function DashboardLayout({
           </div>
         </header>
 
-        <main className="flex-1 overflow-y-auto">{children}</main>
+        <main className="flex-1 overflow-y-auto basil-scroll">{children}</main>
       </div>
     </div>
   );

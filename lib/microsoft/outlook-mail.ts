@@ -72,10 +72,11 @@ function toGraphDateFilter(ageDays: number): string {
  * Defaults: last 2 days, 10 results — suitable for ingestion polling.
  */
 export async function getRecentOutlookMessages(
+  username:   string,
   maxResults = 10,
   maxAgeDays = 2
 ): Promise<OutlookMessage[]> {
-  return searchOutlookMessages(undefined, maxResults, maxAgeDays);
+  return searchOutlookMessages(username, undefined, maxResults, maxAgeDays);
 }
 
 /**
@@ -85,6 +86,7 @@ export async function getRecentOutlookMessages(
  * When no query is given, $filter by receivedDateTime is applied.
  */
 export async function searchOutlookMessages(
+  username:    string,
   query?:      string,
   maxResults = 10,
   maxAgeDays?: number
@@ -107,7 +109,7 @@ export async function searchOutlookMessages(
   const path = `/me/mailFolders/inbox/messages?${params}`;
 
   try {
-    const data = await graphGet<GraphListResponse<GraphMessage>>(path);
+    const data = await graphGet<GraphListResponse<GraphMessage>>(username, path);
     if (!data) return [];
     return (data.value || []).map(mapMessage);
   } catch (err) {
@@ -120,9 +122,9 @@ export async function searchOutlookMessages(
  * Fetch the full body of a specific message.
  * Returns EmailBody (same shape as getEmailBody in gmail.ts).
  */
-export async function getOutlookMessageBody(messageId: string): Promise<EmailBody> {
+export async function getOutlookMessageBody(username: string, messageId: string): Promise<EmailBody> {
   const select = "id,subject,from,toRecipients,receivedDateTime,body";
-  const data = await graphGet<GraphMessage>(`/me/messages/${messageId}?$select=${select}`);
+  const data = await graphGet<GraphMessage>(username, `/me/messages/${messageId}?$select=${select}`);
   if (!data) throw new Error("Microsoft not connected");
 
   return {
@@ -139,11 +141,12 @@ export async function getOutlookMessageBody(messageId: string): Promise<EmailBod
  * Returns the Graph-assigned message id.
  */
 export async function createOutlookDraft(
-  to:      string,
-  subject: string,
-  body:    string
+  username: string,
+  to:       string,
+  subject:  string,
+  body:     string
 ): Promise<{ id: string }> {
-  const res = await graphFetch("/me/messages", {
+  const res = await graphFetch(username, "/me/messages", {
     method: "POST",
     body:   JSON.stringify({
       subject,
@@ -168,11 +171,12 @@ export async function createOutlookDraft(
  * generated from the current timestamp.
  */
 export async function sendOutlookEmail(
-  to:      string,
-  subject: string,
-  body:    string
+  username: string,
+  to:       string,
+  subject:  string,
+  body:     string
 ): Promise<{ id: string }> {
-  const res = await graphFetch("/me/sendMail", {
+  const res = await graphFetch(username, "/me/sendMail", {
     method: "POST",
     body:   JSON.stringify({
       message: {

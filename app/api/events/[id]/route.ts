@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { deleteEvent, getEvent, updateEvent, updateEventStatus } from "@/lib/events/store";
 import { executeEvent } from "@/lib/events/executor";
 import { createAction } from "@/lib/actions/store";
+import { getSessionUser } from "@/lib/auth";
 import type { EventStatus } from "@/lib/events/types";
 import type { ActionItem } from "@/lib/types/action";
 
@@ -94,8 +95,10 @@ export async function PATCH(
   // Immediately mark as executing so the UI can show a spinner.
   await updateEvent(id, { status: "executing" });
 
+  const username = (await getSessionUser());
+  if (!username) return NextResponse.json({ error: "Unauthorised" }, { status: 401 });
   const executedAt = new Date().toISOString();
-  const result = await executeEvent(event, body.draftBody);
+  const result = await executeEvent(event, username, body.draftBody);
 
   if (!result.ok) {
     console.error(

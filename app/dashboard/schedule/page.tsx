@@ -633,7 +633,7 @@ export default function SchedulePage() {
                   value={basilInput}
                   onChange={(e) => setBasilInput(e.target.value)}
                   placeholder="e.g. Schedule a 30 min call with Ed tomorrow at 2pm..."
-                  className="min-h-20 resize-none text-sm leading-relaxed"
+                  className="min-h-20 resize-none text-[16px] sm:text-sm leading-relaxed"
                   rows={3}
                 />
                 <div className="flex items-center justify-between gap-3">

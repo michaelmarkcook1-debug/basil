@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
-import { getSlackClient, getSlackUserClient, getRecentSlackMessages } from "@/lib/slack/client";
+import { isSlackConnected, getRecentSlackMessages } from "@/lib/slack/client";
+import { getSessionUser } from "@/lib/auth";
 
 // AG-related keywords for prioritisation
 const AG_KEYWORDS = [
@@ -8,9 +9,10 @@ const AG_KEYWORDS = [
 ];
 
 export async function GET() {
-  const client = getSlackClient() || getSlackUserClient();
+  const username = (await getSessionUser());
+  if (!username) return NextResponse.json({ error: "Unauthorised" }, { status: 401 });
 
-  if (!client) {
+  if (!(await isSlackConnected(username))) {
     return NextResponse.json({
       connected: false,
       messages: [],
@@ -20,7 +22,7 @@ export async function GET() {
 
   try {
     // Fetch messages from the last 3 days max — keeps results fresh
-    const allMessages = await getRecentSlackMessages(30, 3);
+    const allMessages = await getRecentSlackMessages(username, 30, 3);
 
     // For DMs: keep only the most recent message per conversation to avoid
     // 3 consecutive "DM: Ed Baum" entries. For channels: keep all (different topics).
@@ -28,7 +30,6 @@ export async function GET() {
     const dedupedDMs: typeof allMessages = [];
     const channelMsgs: typeof allMessages = [];
 
-    // allMessages is already sorted newest-first from the client
     for (const m of allMessages) {
       const isDM = m.channel.startsWith("DM:") || m.channel === "Group DM";
       if (isDM) {
@@ -46,18 +47,12 @@ export async function GET() {
       const textLower = msg.text.toLowerCase();
       const channelLower = msg.channel.toLowerCase();
 
-      if (isDM) score += 20; // mild DM boost within its own bucket
+      if (isDM) score += 20;
 
-      // AG-related content
       if (AG_KEYWORDS.some((kw) => textLower.includes(kw) || channelLower.includes(kw))) score += 50;
-
-      // Mentions of Michael
       if (msg.isMention) score += 30;
-
-      // AG channels
       if (channelLower.includes("ag-") || channelLower.includes("ag_")) score += 40;
 
-      // Recency bonus — strongly prefer recent messages
       const ageHours = (Date.now() - new Date(msg.date).getTime()) / 3600000;
       if (ageHours < 4) score += 40;
       else if (ageHours < 12) score += 25;
@@ -70,12 +65,10 @@ export async function GET() {
     const scoredDMs = dedupedDMs.map((m) => scoreMsg(m, true)).sort((a, b) => b.score - a.score);
     const scoredChannels = channelMsgs.map((m) => scoreMsg(m, false)).sort((a, b) => b.score - a.score);
 
-    // Take up to 4 from each bucket, backfill if one has fewer
     const maxPerBucket = 4;
     const topDMs = scoredDMs.slice(0, maxPerBucket);
     const topChannels = scoredChannels.slice(0, maxPerBucket);
 
-    // Backfill: if DMs < 4, give extra slots to channels and vice versa
     const remaining = 8 - topDMs.length - topChannels.length;
     const extraDMs = scoredDMs.slice(maxPerBucket, maxPerBucket + Math.max(0, remaining));
     const extraChannels = scoredChannels.slice(
@@ -84,7 +77,6 @@ export async function GET() {
     );
 
     const merged = [...topDMs, ...extraDMs, ...topChannels, ...extraChannels];
-    // Final sort: most recent first for display
     merged.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
 
     const topMessages = merged.slice(0, 8).map(({ score, ...msg }) => msg);

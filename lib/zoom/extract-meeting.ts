@@ -176,7 +176,8 @@ function parseExtract(
  */
 export async function extractZoomMeeting(
   emailBody: string,
-  metadata: { subject: string; date: string }
+  metadata: { subject: string; date: string },
+  username = "michael"
 ): Promise<ZoomMeetingExtract> {
   if (!emailBody?.trim()) {
     return emptyExtract(metadata.subject, metadata.date);
@@ -229,7 +230,7 @@ Respond with ONLY valid JSON — no markdown fences, no explanation, no preamble
 }`;
 
   try {
-    const system = await getSystemPrompt();
+    const system = await getSystemPrompt(username);
     const { text } = await generateText({
       model: "anthropic/claude-sonnet-4.6",
       system,

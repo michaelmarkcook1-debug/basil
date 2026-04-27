@@ -1,22 +1,24 @@
 import { NextResponse } from "next/server";
 import { getSettings, patchSettings } from "@/lib/settings/store";
+import { getSessionUser } from "@/lib/auth";
 import type { UserSettings } from "@/lib/settings/store";
 
-/** GET /api/settings — returns the full UserSettings object. */
+/** GET /api/settings — returns the full UserSettings object for the current user. */
 export async function GET() {
-  const settings = await getSettings();
+  const username = (await getSessionUser());
+  if (!username) return NextResponse.json({ error: "Unauthorised" }, { status: 401 });
+  const settings = await getSettings(username);
   return NextResponse.json(settings);
 }
 
 /**
- * PATCH /api/settings — writes a partial update.
+ * PATCH /api/settings — writes a partial update for the current user.
  * Body: Partial<UserSettings> — only the supplied keys are changed.
  * Returns the full updated settings object.
- *
- * Validation errors (e.g. invalid timezone) → 400 Bad Request.
- * System errors (e.g. store write failure) → 500 Internal Server Error.
  */
 export async function PATCH(req: Request) {
+  const username = (await getSessionUser());
+  if (!username) return NextResponse.json({ error: "Unauthorised" }, { status: 401 });
   let body: Partial<UserSettings>;
   try {
     body = (await req.json()) as Partial<UserSettings>;
@@ -25,18 +27,12 @@ export async function PATCH(req: Request) {
   }
 
   try {
-    const updated = await patchSettings(body);
+    const updated = await patchSettings(username, body);
     return NextResponse.json(updated);
   } catch (e) {
     const message = e instanceof Error ? e.message : "Update failed";
     console.error("[api/settings] PATCH failed:", message);
-
-    // Validation errors from patchSettings start with "Invalid" and should
-    // be returned to the client as 400 so the UI can display them.
-    const isValidationError =
-      message.startsWith("Invalid timezone") ||
-      message.startsWith("Invalid ");
-
+    const isValidationError = message.startsWith("Invalid ");
     return NextResponse.json(
       { error: message },
       { status: isValidationError ? 400 : 500 }

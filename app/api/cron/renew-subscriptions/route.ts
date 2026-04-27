@@ -37,7 +37,9 @@ async function handle(req: Request) {
     return new NextResponse("forbidden", { status: 403 });
   }
 
-  const auth = await getAuthedClient();
+  // TODO: iterate over all registered users once multi-user is fully live
+  const cronUsername = "michael";
+  const auth = await getAuthedClient(cronUsername);
   if (!auth) {
     return NextResponse.json({ ok: false, reason: "google not connected" });
   }
@@ -116,7 +118,7 @@ async function handle(req: Request) {
   }
 
   // ── Microsoft 365: renew mail + calendar subscriptions if expiring within 2 days ──
-  const msToken = await getAccessToken();
+  const msToken = await getAccessToken(cronUsername);
   if (msToken) {
     const msState = await getMsWatchState();
     const threeDaysMs = 3 * 86400_000;
@@ -130,7 +132,7 @@ async function handle(req: Request) {
 
     if (msMailExpiring && process.env.MICROSOFT_MAIL_WEBHOOK_URL) {
       try {
-        const res = await graphFetch("https://graph.microsoft.com/v1.0/subscriptions", {
+        const res = await graphFetch(cronUsername, "https://graph.microsoft.com/v1.0/subscriptions", {
           method: "POST",
           body: JSON.stringify({
             changeType: "created",
@@ -170,7 +172,7 @@ async function handle(req: Request) {
 
     if (msCalExpiring && process.env.MICROSOFT_CALENDAR_WEBHOOK_URL) {
       try {
-        const res = await graphFetch("https://graph.microsoft.com/v1.0/subscriptions", {
+        const res = await graphFetch(cronUsername, "https://graph.microsoft.com/v1.0/subscriptions", {
           method: "POST",
           body: JSON.stringify({
             changeType: "created,updated",

@@ -14,6 +14,7 @@ import {
   getTeamsMeetings,
   filterTeamsMeetingsByAttendees,
 } from "@/lib/microsoft/teams";
+import { getSessionUser } from "@/lib/auth";
 
 // Given a contact (name + optional email + directory + optional free-text
 // notes), pull every bit of signal we can reach and ask Basil to write the
@@ -35,6 +36,9 @@ interface ReqBody {
 }
 
 export async function POST(req: Request) {
+  const username = (await getSessionUser());
+  if (!username) return Response.json({ error: "Unauthorised" }, { status: 401 });
+
   let body: ReqBody;
   try {
     body = (await req.json()) as ReqBody;
@@ -58,28 +62,28 @@ export async function POST(req: Request) {
 
   const [emailsAll, slackRecent, slackSearched, zoomAll, whatsappLines, teamsChatLines, teamsChannelLines, teamsAllMeetings] = await Promise.all([
     shouldPullWorkSignal
-      ? getRecentEmails(40).catch(() => [])
+      ? getRecentEmails(username, 40).catch(() => [])
       : Promise.resolve([]),
     shouldPullWorkSignal
-      ? getRecentSlackMessages(80).catch(() => [])
+      ? getRecentSlackMessages(username, 80).catch(() => [])
       : Promise.resolve([]),
     shouldPullWorkSignal
-      ? searchSlackMessages(name, 20).catch(() => [])
+      ? searchSlackMessages(username, name, 20).catch(() => [])
       : Promise.resolve([]),
     shouldPullWorkSignal
-      ? getZoomSummaries(30).catch(() => [])
+      ? getZoomSummaries(username, 30).catch(() => [])
       : Promise.resolve([]),
     // WhatsApp signal is available for any contact regardless of directory.
     getWhatsAppSignalForContact(name, body.phone, 40).catch(() => [] as string[]),
     // Teams chat messages — work contacts only
     shouldPullWorkSignal
-      ? getTeamsChatSignalForContact(name, 30).catch(() => [] as string[])
+      ? getTeamsChatSignalForContact(username, name, 30).catch(() => [] as string[])
       : Promise.resolve([] as string[]),
     shouldPullWorkSignal
-      ? getTeamsChannelSignalForContact(name, 20).catch(() => [] as string[])
+      ? getTeamsChannelSignalForContact(username, name, 20).catch(() => [] as string[])
       : Promise.resolve([] as string[]),
     shouldPullWorkSignal
-      ? getTeamsMeetings(30).catch(() => [])
+      ? getTeamsMeetings(username, 30).catch(() => [])
       : Promise.resolve([]),
   ]);
 
@@ -96,7 +100,7 @@ export async function POST(req: Request) {
   // Also a targeted Gmail search by name / email — catches things outside the
   // most-recent 40 that still matter.
   const targetedEmails = shouldPullWorkSignal
-    ? await searchEmails(email ? `from:${email} OR to:${email}` : name, 15).catch(
+    ? await searchEmails(username, email ? `from:${email} OR to:${email}` : name, 15).catch(
         () => []
       )
     : [];
@@ -276,7 +280,7 @@ Return ONLY valid JSON, no markdown fences:
   try {
     const result = await generateText({
       model: "anthropic/claude-sonnet-4.6",
-      system: await getSystemPrompt(),
+      system: await getSystemPrompt(username),
       prompt: promptText,
       providerOptions: {
         gateway: { tags: ["feature:contact-profile", "env:production"] },

@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { getEvent, updateEvent } from "@/lib/events/store";
 import { generateDraftForEvent } from "@/lib/events/drafter";
 import { publish } from "@/lib/events/bus";
+import { getSessionUser } from "@/lib/auth";
 
 /**
  * POST /api/events/:id/draft
@@ -32,7 +33,9 @@ export async function POST(
 
   console.log(`[draft/regenerate] generating draft for event ${id}`);
 
-  const result = await generateDraftForEvent(event);
+  const username = (await getSessionUser());
+  if (!username) return NextResponse.json({ error: "Unauthorised" }, { status: 401 });
+  const result = await generateDraftForEvent(event, username);
 
   if (!result.body) {
     // Generation failed entirely — return the caveat but don't corrupt the stored draft

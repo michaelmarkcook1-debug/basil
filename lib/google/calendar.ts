@@ -52,7 +52,7 @@ function mapEvent(e: any, dateLabel: string): CalendarEvent { // eslint-disable-
   };
 }
 
-export async function createCalendarEvent(params: {
+export async function createCalendarEvent(username: string, params: {
   title: string;
   attendees: string[];
   date: string;       // YYYY-MM-DD
@@ -60,7 +60,7 @@ export async function createCalendarEvent(params: {
   duration: number;   // minutes
   zoomLink?: string;
 }): Promise<{ id: string; htmlLink: string }> {
-  const auth = await getAuthedClient();
+  const auth = await getAuthedClient(username);
   if (!auth) throw new Error("Google Calendar not connected");
 
   const calendar = google.calendar({ version: "v3", auth });
@@ -111,8 +111,8 @@ export async function createCalendarEvent(params: {
   };
 }
 
-export async function getEventsForMonth(year: number, month: number): Promise<CalendarEvent[]> {
-  const auth = await getAuthedClient();
+export async function getEventsForMonth(username: string, year: number, month: number): Promise<CalendarEvent[]> {
+  const auth = await getAuthedClient(username);
   if (!auth) return [];
 
   const calendar = google.calendar({ version: "v3", auth });
@@ -130,8 +130,8 @@ export async function getEventsForMonth(year: number, month: number): Promise<Ca
   });
 
   const now = new Date();
-  const todayStr = now.toLocaleDateString("en-CA", { timeZone: "Europe/London" });
-  const londonToday = new Date(now.toLocaleDateString("en-CA", { timeZone: "Europe/London" }) + "T00:00:00+01:00");
+  const todayStr    = now.toLocaleDateString("en-CA", { timeZone: "Europe/London" });
+  const { start: londonToday } = londonDayBounds(todayStr);
   const tomorrowDate = new Date(londonToday);
   tomorrowDate.setDate(tomorrowDate.getDate() + 1);
   const tomorrowStr = tomorrowDate.toLocaleDateString("en-CA", { timeZone: "Europe/London" });
@@ -155,23 +155,44 @@ export async function getEventsForMonth(year: number, month: number): Promise<Ca
   });
 }
 
-export async function getTodayEvents(): Promise<CalendarEvent[]> {
-  return getEventsForDays(1);
+export async function getTodayEvents(username: string): Promise<CalendarEvent[]> {
+  return getEventsForDays(username, 1);
 }
 
 /**
  * Return all events on a specific calendar date (YYYY-MM-DD).
  * Uses Europe/London for the day boundary so it matches the user's wall clock.
  */
-export async function getEventsForDate(dateStr: string): Promise<CalendarEvent[]> {
-  const auth = await getAuthedClient();
+/** Returns the Europe/London UTC offset in hours for a given date (e.g. +1 for BST, 0 for GMT). */
+function londonOffsetHours(date: Date): number {
+  const utcMs  = new Date(date.toLocaleString("en-US", { timeZone: "UTC" })).getTime();
+  const lonMs  = new Date(date.toLocaleString("en-US", { timeZone: "Europe/London" })).getTime();
+  return (lonMs - utcMs) / 3_600_000;
+}
+
+/** Build a Date representing midnight or end-of-day in Europe/London for a YYYY-MM-DD string. */
+function londonDayBounds(dateStr: string): { start: Date; end: Date } {
+  const noon      = new Date(`${dateStr}T12:00:00Z`);
+  const offsetH   = londonOffsetHours(noon);
+  const sign      = offsetH >= 0 ? "+" : "-";
+  const absH      = Math.abs(offsetH);
+  const hh        = String(Math.floor(absH)).padStart(2, "0");
+  const mm        = String(Math.round((absH % 1) * 60)).padStart(2, "0");
+  const offsetStr = `${sign}${hh}:${mm}`;
+  return {
+    start: new Date(`${dateStr}T00:00:00${offsetStr}`),
+    end:   new Date(`${dateStr}T23:59:59${offsetStr}`),
+  };
+}
+
+export async function getEventsForDate(username: string, dateStr: string): Promise<CalendarEvent[]> {
+  const auth = await getAuthedClient(username);
   if (!auth) return [];
 
   const calendar = google.calendar({ version: "v3", auth });
 
-  // Build inclusive day window in London time
-  const dayStart = new Date(`${dateStr}T00:00:00`);
-  const dayEnd   = new Date(`${dateStr}T23:59:59`);
+  // Build inclusive day window anchored to Europe/London midnight (handles BST/GMT)
+  const { start: dayStart, end: dayEnd } = londonDayBounds(dateStr);
 
   const res = await calendar.events.list({
     calendarId: "primary",
@@ -209,16 +230,17 @@ export async function getEventsForDate(dateStr: string): Promise<CalendarEvent[]
  * Maximum 100 results, ordered by start time.
  */
 export async function getEventsForDateRange(
+  username: string,
   startDate: string,
   endDate:   string
 ): Promise<CalendarEvent[]> {
-  const auth = await getAuthedClient();
+  const auth = await getAuthedClient(username);
   if (!auth) return [];
 
   const calendar = google.calendar({ version: "v3", auth });
 
-  const timeMin = new Date(`${startDate}T00:00:00`);
-  const timeMax = new Date(`${endDate}T23:59:59`);
+  const { start: timeMin } = londonDayBounds(startDate);
+  const { end:   timeMax } = londonDayBounds(endDate);
 
   const res = await calendar.events.list({
     calendarId: "primary",
@@ -251,14 +273,15 @@ export async function getEventsForDateRange(
   });
 }
 
-export async function getEventsForDays(days: number): Promise<CalendarEvent[]> {
-  const auth = await getAuthedClient();
+export async function getEventsForDays(username: string, days: number): Promise<CalendarEvent[]> {
+  const auth = await getAuthedClient(username);
   if (!auth) return [];
 
   const calendar = google.calendar({ version: "v3", auth });
 
   const now = new Date();
-  const londonToday = new Date(now.toLocaleDateString("en-CA", { timeZone: "Europe/London" }) + "T00:00:00+01:00");
+  const todayDateStr = now.toLocaleDateString("en-CA", { timeZone: "Europe/London" });
+  const { start: londonToday } = londonDayBounds(todayDateStr);
   const endDate = new Date(londonToday);
   endDate.setDate(endDate.getDate() + days);
 
@@ -268,7 +291,7 @@ export async function getEventsForDays(days: number): Promise<CalendarEvent[]> {
     timeMax: endDate.toISOString(),
     singleEvents: true,
     orderBy: "startTime",
-    maxResults: 50,
+    maxResults: 200,
   });
 
   const todayStr = now.toLocaleDateString("en-CA", { timeZone: "Europe/London" });

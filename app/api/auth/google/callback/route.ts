@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { exchangeCode } from "@/lib/google/auth";
+import { getSessionUser } from "@/lib/auth";
 
 // GET /api/auth/google/callback — handles Google OAuth callback
 export async function GET(req: Request) {
@@ -10,11 +11,21 @@ export async function GET(req: Request) {
     return NextResponse.redirect(new URL("/dashboard/settings?error=no_code", req.url));
   }
 
+  const from = req.headers.get("cookie")?.match(/basil_auth_from=([^;]+)/)?.[1] ?? "";
+  const successDest = from === "onboarding" ? "/onboarding?connected=google" : "/dashboard/settings?connected=google";
+  const errorDest   = from === "onboarding" ? "/onboarding?error=google_auth" : "/dashboard/settings?error=oauth_failed";
+
   try {
-    await exchangeCode(code);
-    return NextResponse.redirect(new URL("/dashboard/settings?connected=google", req.url));
+    const username = (await getSessionUser());
+  if (!username) return NextResponse.json({ error: "Unauthorised" }, { status: 401 });
+    await exchangeCode(code, username);
+    const res = NextResponse.redirect(new URL(successDest, req.url));
+    res.cookies.set("basil_auth_from", "", { path: "/", maxAge: 0 });
+    return res;
   } catch (e) {
     console.error("Google OAuth error:", e);
-    return NextResponse.redirect(new URL("/dashboard/settings?error=oauth_failed", req.url));
+    const res = NextResponse.redirect(new URL(errorDest, req.url));
+    res.cookies.set("basil_auth_from", "", { path: "/", maxAge: 0 });
+    return res;
   }
 }

@@ -25,10 +25,11 @@ export interface DriveActivity {
  * Excludes files modified by the user themselves — we only want signal from others.
  */
 export async function getRecentDriveActivity(
+  username: string,
   sinceDaysAgo = 30,
   maxResults = 100
 ): Promise<DriveActivity[]> {
-  const auth = await getAuthedClient();
+  const auth = await getAuthedClient(username);
   if (!auth) return [];
 
   const drive = google.drive({ version: "v3", auth });
@@ -63,8 +64,8 @@ export async function getRecentDriveActivity(
   }
 }
 
-export async function searchDriveFiles(query: string, maxResults = 10): Promise<DriveFile[]> {
-  const auth = await getAuthedClient();
+export async function searchDriveFiles(username: string, query: string, maxResults = 10): Promise<DriveFile[]> {
+  const auth = await getAuthedClient(username);
   if (!auth) return [];
 
   const drive = google.drive({ version: "v3", auth });

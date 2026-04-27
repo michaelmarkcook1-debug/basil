@@ -1,9 +1,13 @@
 import { NextResponse } from "next/server";
 import { isGoogleConnected } from "@/lib/google/auth";
 import { getTodayEvents } from "@/lib/google/calendar";
+import { getSessionUser } from "@/lib/auth";
 
 export async function GET() {
-  if (!(await isGoogleConnected())) {
+  const username = (await getSessionUser());
+  if (!username) return NextResponse.json({ error: "Unauthorised" }, { status: 401 });
+
+  if (!(await isGoogleConnected(username))) {
     return NextResponse.json({
       connected: false,
       events: [],
@@ -12,7 +16,7 @@ export async function GET() {
   }
 
   try {
-    const events = await getTodayEvents();
+    const events = await getTodayEvents(username);
     return NextResponse.json({
       connected: true,
       events,

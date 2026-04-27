@@ -215,6 +215,8 @@ function parseIntelligence(raw: string): SlackIntelligence {
 // ── Core classification function ───────────────────────────────────────────────
 
 export interface ClassifySlackInput {
+  /** Username to scope the system prompt to. Defaults to "michael". */
+  username?: string;
   /** Display name of the channel (e.g. "#eng-team", "DM: Ed Baum"). */
   channelName: string;
   /**
@@ -239,7 +241,7 @@ export interface ClassifySlackInput {
 export async function classifySlack(
   input: ClassifySlackInput
 ): Promise<SlackIntelligence> {
-  const { channelName, transcript, isDM, isMention, date } = input;
+  const { channelName, transcript, isDM, isMention, date, username = "michael" } = input;
 
   if (!transcript.trim()) return emptyIntelligence();
 
@@ -316,7 +318,7 @@ Respond with ONLY valid JSON — no markdown fences, no explanation:
 }`;
 
   try {
-    const system = await getSystemPrompt();
+    const system = await getSystemPrompt(username);
     const { text } = await generateText({
       model: "anthropic/claude-sonnet-4.6",
       system,

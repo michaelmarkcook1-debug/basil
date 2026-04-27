@@ -197,6 +197,11 @@ function bag(): GlobalBag {
   return g[GLOBAL_KEY]!;
 }
 
+// File key used to persist status across Vercel instances.
+// Polls hitting a different instance than the one running the dump will fall
+// back to this file rather than returning stale "idle".
+export const WHATSAPP_STATUS_FILE = "whatsapp-status.json";
+
 export function getStatus(): DumpStatus {
   return bag().status;
 }
@@ -204,6 +209,10 @@ export function getStatus(): DumpStatus {
 function setStatus(patch: Partial<DumpStatus>): void {
   const b = bag();
   b.status = { ...b.status, ...patch };
+  // Persist to file store so status polls landing on any Vercel instance
+  // can return the real state (not the stale "idle" from Instance B).
+  // Fire-and-forget — we never wait on this; the in-memory bag is authoritative.
+  void writeStore<DumpStatus>(WHATSAPP_STATUS_FILE, b.status);
 }
 
 export async function getSnapshot(): Promise<Snapshot | null> {
@@ -313,19 +322,26 @@ function chatDisplayName(
   return jidToPhone(id) || id;
 }
 
-const QUIET_WINDOW_MS = 12_000; // if no history events for 12s, consider done
+const QUIET_WINDOW_MS = 20_000; // if no history events for 20s, consider done (batched history can gap >12s)
 const MAX_WAIT_MS = 240_000;  // absolute ceiling — 4 min (Vercel limit is 300s)
 
 /**
  * Run one snapshot job. Safe to call while a job is running (returns immediately).
  * All state changes flow through the in-memory status singleton so the UI
  * polls /api/whatsapp/dump/status for updates.
+ *
+ * Returns the background Promise so the caller can pass it to `after()`,
+ * which tells Vercel to keep the function instance alive until the dump
+ * finishes — without this the instance is recycled as soon as the HTTP
+ * response is sent, killing the sync before WhatsApp finishes pushing history.
  */
-export async function startDump(): Promise<void> {
+export function startDump(): { alreadyRunning: boolean; task: () => Promise<void> } {
   const b = bag();
-  if (b.running) return;
+  if (b.running) return { alreadyRunning: true, task: () => Promise.resolve() };
   b.running = true;
 
+  // Set status synchronously so the POST response captures the initial
+  // "awaiting_qr" state before after() defers execution of the task.
   setStatus({
     state: "awaiting_qr",
     qrDataUrl: undefined,
@@ -338,8 +354,11 @@ export async function startDump(): Promise<void> {
     progressNote: "Starting session…",
   });
 
-  // Run the dump off the request path so POST can return immediately.
-  (async () => {
+  // Return a CALLBACK (not an already-running Promise) so after() can defer
+  // execution until after the HTTP response is sent.  Passing an already-
+  // running Promise to after() means Vercel sees the work as already in flight
+  // before it can register lifetime extension — it may not extend correctly.
+  const task = () => (async () => {
     const b = bag();
     b.cancelRequested = false; // Clear any leftover cancel flag from a previous run
     try {
@@ -380,6 +399,13 @@ export async function startDump(): Promise<void> {
           printQRInTerminal: false,
           syncFullHistory: true,
           markOnlineOnConnect: false,
+          // Keep all QR codes valid for 60s — Baileys default rotates to 20s
+          // after the first QR, which is too short for the user to scan.
+          qrTimeout: 60_000,
+          // Allow 45s for the initial TCP/TLS handshake. The Baileys default
+          // of 20s is too tight for Vercel cold starts where the Node process
+          // needs extra time before it can open a WebSocket connection.
+          connectTimeoutMs: 45_000,
         });
         currentSock = sock;
         b.currentSocket = sock; // Expose to resetDump() for force-close
@@ -720,7 +746,10 @@ export async function startDump(): Promise<void> {
       }
     }
   })();
+
+  return { alreadyRunning: false, task };
 }
+
 
 export async function resetDump(): Promise<void> {
   const b = bag();

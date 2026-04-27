@@ -1116,7 +1116,22 @@ export default function ContactsPage() {
               .map((c) => {
                 const interaction = getLastInteraction(c.id, c.lastInteraction);
                 const days = interaction
-                  ? Math.floor((Date.now() - new Date(interaction).getTime()) / 86400000)
+                  ? (() => {
+                      // Count only weekdays (Mon–Fri) between lastInteraction and now
+                      const start = new Date(interaction);
+                      const end = new Date();
+                      let weekdays = 0;
+                      const cur = new Date(start);
+                      cur.setHours(0, 0, 0, 0);
+                      const endDay = new Date(end);
+                      endDay.setHours(0, 0, 0, 0);
+                      while (cur < endDay) {
+                        const dow = cur.getDay();
+                        if (dow !== 0 && dow !== 6) weekdays++;
+                        cur.setDate(cur.getDate() + 1);
+                      }
+                      return weekdays;
+                    })()
                   : 999;
                 const ringColor = days <= 5 ? "ring-emerald-500" : days <= 10 ? "ring-amber-500" : "ring-red-500";
                 const liveSources = getLiveSources(c.id);
@@ -1126,7 +1141,7 @@ export default function ContactsPage() {
                     <TooltipTrigger asChild>
                       <button
                         onClick={() => setSelectedId(c.id)}
-                        className={`ring-2 ${ringColor} rounded-full transition-transform hover:scale-110`}
+                        className={`ring-[3px] ring-offset-1 ring-offset-transparent ${ringColor} rounded-full transition-transform hover:scale-110`}
                       >
                         <Avatar className="h-7 w-7">
                           <AvatarFallback className={`text-[12px] text-white font-medium ${c.color}`}>

@@ -11,6 +11,7 @@ import { getRecentSlackMessages } from "@/lib/slack/client";
 import { isSelf } from "@/lib/self-identity";
 import { ZOOM_GMAIL_QUERY, detectZoomEmail } from "@/lib/google/zoom-email-detector";
 import { processRegularEmail, processZoomEmail } from "@/lib/email/process-gmail-message";
+import { getSessionUser } from "@/lib/auth";
 import { fetchSlackThread, formatThreadTranscript } from "@/lib/slack/fetch-thread";
 import { classifySlack, shouldClassifySlack, shouldMaterializeSlack } from "@/lib/slack/classify-slack";
 import { materializeSlackIntelligence } from "@/lib/slack/materialize-slack";
@@ -43,18 +44,23 @@ import { materializeTeamsIntelligence } from "@/lib/teams/materialize-teams";
 
 
 export async function POST() {
+  // TODO: iterate over all registered users once multi-user is fully live.
+  // Cron and webhook callers run without sessions, so we fall back to the admin user.
+  const username = (await getSessionUser());
+  if (!username) return NextResponse.json({ error: "Unauthorised" }, { status: 401 });
+
   // ── Parallel source fetch ────────────────────────────────────────────────────
   // Zoom emails are fetched separately so they can be excluded from the regular
   // email loop and processed with full-body extraction.
   // Microsoft sources (Outlook + Teams) are fetched concurrently — they return
   // empty arrays silently when Microsoft is not connected, so they never block.
   const [emails, slacks, calEvents, zoomEmails, outlookEmails, teamsMessages] = await Promise.all([
-    getRecentEmails(20).catch(() => []),
-    getRecentSlackMessages(30).catch(() => []),
-    getTodayEvents().catch(() => []),
-    searchEmails(ZOOM_GMAIL_QUERY, 8).catch(() => []),
-    getRecentOutlookMessages(20, 2).catch(() => []),
-    getRecentTeamsMessages(30, 3).catch(() => []),
+    getRecentEmails(username, 20).catch(() => []),
+    getRecentSlackMessages(username, 30).catch(() => []),
+    getTodayEvents(username).catch(() => []),
+    searchEmails(username, ZOOM_GMAIL_QUERY, 8).catch(() => []),
+    getRecentOutlookMessages(username, 20, 2).catch(() => []),
+    getRecentTeamsMessages(username, 30, 3).catch(() => []),
   ]);
 
   // Build a Set of Gmail message IDs confirmed as Zoom emails so the regular
@@ -301,6 +307,7 @@ export async function POST() {
           ? externalId.replace("outlook:", "")
           : externalId.replace("gmail:", "");
         await processRegularEmail({
+          username,
           gmailId: msgId,
           externalId,
           eventId,
@@ -309,7 +316,7 @@ export async function POST() {
           dateFallback: payload.date,
           snippetFallback: payload.body,
           bodyFetcher: isOutlook
-            ? () => getOutlookMessageBody(msgId)
+            ? () => getOutlookMessageBody(username, msgId)
             : undefined,
         });
       }
@@ -327,7 +334,7 @@ export async function POST() {
       for (const { payload, eventId, channelId, messageTs, channelName } of slacksToClassify) {
         try {
           // Fetch full thread — gives the AI conversation context, not just a snippet
-          const threadMessages = await fetchSlackThread(channelId, messageTs);
+          const threadMessages = await fetchSlackThread(username, channelId, messageTs);
 
           // If no thread replies fetched, fall back to the snippet we already have
           const transcript =
@@ -385,7 +392,7 @@ export async function POST() {
     after(async () => {
       for (const { payload, eventId, chatOrChannelId, channelId, messageId, channelName } of teamsToClassify) {
         try {
-          const threadMessages = await fetchTeamsThread(chatOrChannelId, channelId, messageId);
+          const threadMessages = await fetchTeamsThread(username, chatOrChannelId, channelId, messageId);
           const transcript =
             threadMessages.length > 0
               ? formatTeamsTranscript(threadMessages, channelName)
@@ -436,7 +443,7 @@ export async function POST() {
     await Promise.allSettled(
       draftEvents.map(async (event) => {
         try {
-          const result = await generateDraftForEvent(event);
+          const result = await generateDraftForEvent(event, username);
           const updated = await updateEvent(event.id, {
             draft: {
               ...event.draft!,
@@ -484,6 +491,7 @@ export async function POST() {
     const zoomDate = p.date;
     after(async () => {
       await processZoomEmail({
+        username,
         gmailId,
         externalId: zoomExternalId,
         eventId: zoomEventId,

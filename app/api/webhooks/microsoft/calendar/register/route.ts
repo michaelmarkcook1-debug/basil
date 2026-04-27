@@ -49,7 +49,9 @@ async function handle(req: Request): Promise<Response> {
   ).toISOString();
 
   try {
+    // TODO: resolve username from session once multi-user is fully live
     const res = await graphFetch(
+      "michael",
       "https://graph.microsoft.com/v1.0/subscriptions",
       {
         method: "POST",

@@ -52,6 +52,8 @@ function stripHtml(s: string): string {
 // ── Regular email materialization ─────────────────────────────────────────────
 
 export interface ProcessEmailOpts {
+  /** Username to scope Google API calls to. Defaults to "michael" for webhook paths. */
+  username?: string;
   /** Raw message ID (no source prefix). Only used when bodyFetcher is absent. */
   gmailId: string;
   /** Full external ID, e.g. "gmail:<id>" or "outlook:<id>" — used as sourceRef. */
@@ -92,7 +94,7 @@ export interface ProcessEmailOpts {
  * Called via next/server `after()` after the event record is created.
  */
 export async function processRegularEmail(opts: ProcessEmailOpts): Promise<void> {
-  const { gmailId, externalId, eventId, subject, from, dateFallback, snippetFallback, bodyFetcher } = opts;
+  const { gmailId, externalId, eventId, subject, from, dateFallback, snippetFallback, bodyFetcher, username = "michael" } = opts;
 
   try {
     let body = snippetFallback || "";
@@ -101,7 +103,7 @@ export async function processRegularEmail(opts: ProcessEmailOpts): Promise<void>
     try {
       // Use the caller-supplied fetcher when available (e.g. Outlook Graph API),
       // otherwise fall back to the Gmail API.
-      const fullEmail = bodyFetcher ? await bodyFetcher() : await getEmailBody(gmailId);
+      const fullEmail = bodyFetcher ? await bodyFetcher() : await getEmailBody(username, gmailId);
       if (fullEmail?.body) {
         body = fullEmail.body.includes("<") ? stripHtml(fullEmail.body) : fullEmail.body;
       }
@@ -148,6 +150,8 @@ export async function processRegularEmail(opts: ProcessEmailOpts): Promise<void>
 // ── Zoom email materialization ─────────────────────────────────────────────────
 
 export interface ProcessZoomEmailOpts {
+  /** Username to scope Google API calls to. Defaults to "michael" for webhook paths. */
+  username?: string;
   /** Raw Gmail message ID (no "gmail:" prefix). */
   gmailId: string;
   /** "gmail:<id>" — used as sourceRef on every created record. */
@@ -174,10 +178,10 @@ export interface ProcessZoomEmailOpts {
  * Called fire-and-forget after the event record is created.
  */
 export async function processZoomEmail(opts: ProcessZoomEmailOpts): Promise<void> {
-  const { gmailId, externalId, eventId, subject, dateFallback } = opts;
+  const { gmailId, externalId, eventId, subject, dateFallback, username = "michael" } = opts;
 
   try {
-    const fullEmail = await getEmailBody(gmailId);
+    const fullEmail = await getEmailBody(username, gmailId);
     if (!fullEmail?.body) {
       console.warn(`[zoom-process] body empty for ${externalId} — skipping extraction`);
       return;
@@ -320,7 +324,7 @@ export async function processZoomEmail(opts: ProcessZoomEmailOpts): Promise<void
           ? ` Attendees: ${extract.attendees.slice(0, 6).join(", ")}.`
           : "";
       try {
-        await createMemory({
+        await createMemory(username, {
           kind: "context",
           content: `[Zoom meeting — ${extract.meetingTitle}]${attendeeNote} ${extract.summary.trim()}`,
           source: "inferred",
@@ -345,7 +349,7 @@ export async function processZoomEmail(opts: ProcessZoomEmailOpts): Promise<void
         .slice(0, 8);
       for (const attendee of participants) {
         try {
-          await createMemory({
+          await createMemory(username, {
             kind: "person",
             content: `Zoom meeting participant: "${extract.meetingTitle}" on ${meetingDateStr}.`,
             entity: attendee.trim(),

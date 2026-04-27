@@ -527,18 +527,18 @@ export default function ActionsPage() {
                 placeholder="Owner"
                 value={form.owner}
                 onChange={(e) => setForm(f => ({ ...f, owner: e.target.value }))}
-                className="flex-1 min-w-28"
+                className="flex-1 min-w-28 text-[16px] sm:text-sm"
               />
               <Input
                 type="date"
                 value={form.due}
                 onChange={(e) => setForm(f => ({ ...f, due: e.target.value }))}
-                className="w-38"
+                className="w-full sm:w-38 text-[16px] sm:text-sm"
               />
               <select
                 value={form.priority}
                 onChange={(e) => setForm(f => ({ ...f, priority: e.target.value as NonNullable<ActionItem["priority"]> }))}
-                className="h-10 rounded-lg border border-border bg-background px-3 text-sm"
+                className="h-10 rounded-lg border border-border bg-background px-3 text-[16px] sm:text-sm"
               >
                 <option value="high">🔴 High</option>
                 <option value="medium">🟡 Medium</option>
@@ -547,7 +547,7 @@ export default function ActionsPage() {
               <select
                 value={form.source}
                 onChange={(e) => setForm(f => ({ ...f, source: e.target.value as ActionItem["source"] }))}
-                className="h-10 rounded-lg border border-border bg-background px-3 text-sm"
+                className="h-10 rounded-lg border border-border bg-background px-3 text-[16px] sm:text-sm"
               >
                 <option value="manual">Manual</option>
                 <option value="meeting">Meeting</option>

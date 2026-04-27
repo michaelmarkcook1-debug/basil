@@ -1,29 +1,33 @@
 import { randomUUID } from "node:crypto";
 import type { Memory, MemoryKind } from "./types";
 import { withLock } from "@/lib/events/lock";
-import { readStore, writeStore } from "@/lib/storage/persistent";
+import { readUserStore, writeUserStore } from "@/lib/storage/user-store";
 
 const MEMORY_FILE = "sage-memory.json";
-const LOCK_KEY = "memory";
 
-async function readAll(): Promise<Memory[]> {
-  return readStore<Memory[]>(MEMORY_FILE, []);
+// Lock key is per-user so concurrent writes from different users don't block each other
+function lockKey(username: string) {
+  return `memory:${username}`;
 }
 
-async function writeAll(items: Memory[]): Promise<void> {
-  await writeStore(MEMORY_FILE, items);
+async function readAll(username: string): Promise<Memory[]> {
+  return readUserStore<Memory[]>(username, MEMORY_FILE, []);
 }
 
-export async function listMemories(): Promise<Memory[]> {
-  const items = await readAll();
+async function writeAll(username: string, items: Memory[]): Promise<void> {
+  await writeUserStore(username, MEMORY_FILE, items);
+}
+
+export async function listMemories(username: string): Promise<Memory[]> {
+  const items = await readAll(username);
   // Newest first
   return items.sort(
     (a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime()
   );
 }
 
-export async function getMemoriesForEntity(entity: string): Promise<Memory[]> {
-  const items = await readAll();
+export async function getMemoriesForEntity(username: string, entity: string): Promise<Memory[]> {
+  const items = await readAll(username);
   const target = entity.toLowerCase();
   return items.filter((m) => m.entity?.toLowerCase() === target);
 }
@@ -43,9 +47,9 @@ export interface CreateMemoryInput {
   sourceRef?: string;
 }
 
-export async function createMemory(input: CreateMemoryInput): Promise<Memory> {
-  return withLock(LOCK_KEY, async () => {
-    const items = await readAll();
+export async function createMemory(username: string, input: CreateMemoryInput): Promise<Memory> {
+  return withLock(lockKey(username), async () => {
+    const items = await readAll(username);
     const now = new Date().toISOString();
 
     // Dedupe: if an identical content+entity already exists, just bump updatedAt
@@ -56,7 +60,7 @@ export async function createMemory(input: CreateMemoryInput): Promise<Memory> {
     );
     if (existingIdx !== -1) {
       items[existingIdx] = { ...items[existingIdx], updatedAt: now };
-      await writeAll(items);
+      await writeAll(username, items);
       return items[existingIdx];
     }
 
@@ -74,17 +78,18 @@ export async function createMemory(input: CreateMemoryInput): Promise<Memory> {
       sourceRef: input.sourceRef,
     };
     items.unshift(memory);
-    await writeAll(items);
+    await writeAll(username, items);
     return memory;
   });
 }
 
 export async function updateMemory(
+  username: string,
   id: string,
   patch: Partial<Pick<Memory, "content" | "kind" | "entity">>
 ): Promise<Memory | null> {
-  return withLock(LOCK_KEY, async () => {
-    const items = await readAll();
+  return withLock(lockKey(username), async () => {
+    const items = await readAll(username);
     const idx = items.findIndex((m) => m.id === id);
     if (idx === -1) return null;
     items[idx] = {
@@ -92,17 +97,17 @@ export async function updateMemory(
       ...patch,
       updatedAt: new Date().toISOString(),
     };
-    await writeAll(items);
+    await writeAll(username, items);
     return items[idx];
   });
 }
 
-export async function deleteMemory(id: string): Promise<boolean> {
-  return withLock(LOCK_KEY, async () => {
-    const items = await readAll();
+export async function deleteMemory(username: string, id: string): Promise<boolean> {
+  return withLock(lockKey(username), async () => {
+    const items = await readAll(username);
     const next = items.filter((m) => m.id !== id);
     if (next.length === items.length) return false;
-    await writeAll(next);
+    await writeAll(username, next);
     return true;
   });
 }
@@ -113,8 +118,8 @@ const PROMPT_MAX_PER_KIND = 10;
 const PROMPT_MAX_TOTAL = 40;
 
 /** Compact, AI-prompt-friendly serialization. */
-export async function memoriesForPrompt(): Promise<string> {
-  const items = await listMemories(); // already newest-first
+export async function memoriesForPrompt(username: string): Promise<string> {
+  const items = await listMemories(username); // already newest-first
   if (items.length === 0) return "";
 
   const byKind: Record<MemoryKind, Memory[]> = {

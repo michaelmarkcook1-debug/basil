@@ -1,4 +1,4 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import { Geist, Geist_Mono, Fraunces } from "next/font/google";
 import { ThemeProvider } from "next-themes";
 import { TooltipProvider } from "@/components/ui/tooltip";
@@ -23,6 +23,17 @@ const fraunces = Fraunces({
 export const metadata: Metadata = {
   title: "Basil",
   description: "Your personal executive assistant",
+};
+
+export const viewport: Viewport = {
+  width: "device-width",
+  initialScale: 1,
+  // Allow user zoom for accessibility — iOS input-zoom is handled by font-size
+  // themeColor mirrors the app's primary background for a seamless status bar
+  themeColor: [
+    { media: "(prefers-color-scheme: light)", color: "#f8f7f4" },
+    { media: "(prefers-color-scheme: dark)",  color: "#1c1e2a" },
+  ],
 };
 
 export default function RootLayout({

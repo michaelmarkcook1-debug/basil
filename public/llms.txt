@@ -1,0 +1,134 @@
+# Basil — Personal Executive Assistant
+
+## What is Basil?
+
+Basil is an AI-powered personal executive assistant built for busy professionals. It connects to your email, calendar, messaging tools, and documents to give you a single intelligent workspace. Basil reads your communications, prepares your day, drafts replies for your approval, and surfaces the information you need before you know you need it.
+
+Basil runs as a private, self-hosted web application — your data never leaves your own infrastructure. It is powered by Anthropic Claude.
+
+---
+
+## Core Features
+
+### Morning Briefing
+Every morning, Basil generates a prioritised briefing of everything that happened overnight: emails that need your attention, meetings coming up today, decisions pending, and any relevant context from your connected tools. The briefing is read in under two minutes and designed to replace the "inbox scan" most executives do first thing each day.
+
+### Daily Digest
+A deeper, structured summary of the past 24–48 hours across all connected channels. Organised by priority: action items, FYI items, calendar changes, and key signals from Slack or Teams.
+
+### Smart Schedule
+Your calendar in a clean timeline view. For each meeting, Basil shows who is attending, what was discussed last time, any open action items, and relevant emails or documents. One click generates a full meeting brief.
+
+### Meeting Preparation
+Before any meeting, Basil automatically prepares:
+- Attendee intelligence: who they are, your relationship history, their role and context
+- Agenda summary based on recent email threads
+- Open items from last meeting
+- Relevant documents from Drive or OneDrive
+- Suggested talking points
+
+### AI Chat (Basil Chat)
+A conversational interface where you can ask Basil anything about your work:
+- "What's on this week?"
+- "Summarise my emails from Acme Corp"
+- "Draft a reply to the board update from Sarah"
+- "What did we discuss with the legal team last month?"
+- "Find the contract David sent last week"
+
+Basil has full context of your calendar, email, Slack, Teams, and connected documents.
+
+### Email Management
+Basil reads your inbox and surfaces what matters. It can draft replies in your voice and communication style, which land in the Actions queue for your approval before anything is sent. Basil never sends email autonomously.
+
+### Actions & Approvals
+Every draft reply, suggested calendar change, or automated action Basil wants to take is queued for your explicit approval. You review, edit if needed, and approve. Nothing irreversible happens without you saying yes.
+
+### Contact Intelligence
+Basil builds relationship context over time: who you communicate with most, what you've discussed, when you last spoke, and any follow-ups outstanding. Before a call with a new contact, Basil researches them from your email history.
+
+### Memory
+A scratchpad of facts Basil always keeps in mind: your preferences, recurring contacts, standing instructions ("always CC the legal team on contracts"), and anything you've told it to remember.
+
+### Decisions Log
+A record of significant decisions made in emails, meetings, and messages — extracted and stored so nothing gets lost.
+
+---
+
+## Integrations
+
+### Google Workspace
+- **Gmail**: read inbox, search emails, draft replies
+- **Google Calendar**: view schedule, create/update events, meeting prep
+- **Google Drive**: search and read documents for context
+
+### Microsoft 365
+- **Outlook**: read mail, draft replies
+- **Outlook Calendar**: view and manage schedule
+- **OneDrive**: search files
+- **Microsoft Teams**: read DMs and channel messages
+
+### Slack
+- Read messages across channels and DMs
+- Search conversations
+- Send messages on your behalf (requires approval)
+
+### Anthropic Claude
+Basil is powered by Claude (claude-sonnet-4) for all AI reasoning, summarisation, drafting, and chat.
+
+---
+
+## How to Use Basil — Best Practices
+
+### Daily Workflow
+
+1. **Start with the Briefing** — Open Basil each morning. Read the overnight briefing (2 min). The most important emails, decisions, and schedule changes are surfaced for you.
+
+2. **Review the Schedule** — Click into any meeting to get the AI prep. Basil shows who will be there, relevant context, and a ready-made talking-points doc.
+
+3. **Process the Actions queue** — Any draft replies Basil prepared are waiting. Review, tweak, approve. You stay in control; Basil does the heavy lifting.
+
+4. **Use Chat for research** — Instead of digging through email, just ask. "What's the status of the Series B?" or "Who was the lawyer on the Lagos deal?" gets you an answer in seconds.
+
+5. **End of day: Digest** — The Daily Digest gives you a clean close-of-day summary so you can switch off without worrying you've missed something.
+
+### Power Tips
+
+- **Tell Basil facts about yourself** in Memory: your preferences, your direct reports, recurring meeting types. The more context it has, the better its drafts and prep.
+
+- **Use the Chat tab as a research assistant**: "Find all emails about the renewal clause", "Who have I not replied to in the last week?", "What was the outcome of the board meeting on April 10th?"
+
+- **Meeting prep is automatic** — if you're in Google Calendar or Outlook, Basil prepares a brief for every event before it starts. Check the Schedule tab the morning of any important meeting.
+
+- **Approve, don't write** — let Basil draft first, then edit. Over time it learns your voice and the edits get smaller.
+
+- **Pinned contacts** — pin your most important relationships in Contact Intelligence. Basil will keep a live dossier of your history with them.
+
+---
+
+## Architecture
+
+- **Frontend**: Next.js 15 App Router, React, Tailwind CSS
+- **AI**: Anthropic Claude (claude-sonnet-4) via the Anthropic API
+- **Auth**: Custom JWT sessions (bcrypt passwords, session versioning)
+- **Storage**: File-based persistent store with Vercel snapshot support
+- **Integrations**: Google APIs (gmail, calendar, drive), Microsoft Graph API, Slack Web API
+- **Deployment**: Vercel (Fluid Compute)
+
+---
+
+## Privacy & Data
+
+- Basil runs entirely in your own Vercel account
+- Email and calendar data is never stored on third-party servers
+- Data is only sent to the Anthropic Claude API for AI processing (using your own API key)
+- OAuth tokens are stored per-user in your deployment's data store
+- Passwords are bcrypt-hashed (cost factor 12)
+- Sessions use signed JWTs with 30-day expiry and server-side version validation
+
+---
+
+## Deployment
+
+Basil is deployed at: https://ag-contracts.vercel.app
+
+Login is required to access the dashboard. This file is publicly accessible as a machine-readable description of the product.

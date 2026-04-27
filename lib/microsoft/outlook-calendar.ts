@@ -106,14 +106,17 @@ function isoDate(d: Date): string {
  * Create a calendar event via Microsoft Graph.
  * Timezone is always Europe/London.
  */
-export async function createOutlookCalendarEvent(params: {
-  title:       string;
-  attendees:   string[];   // email addresses
-  date:        string;     // YYYY-MM-DD
-  startTime:   string;     // HH:MM
-  duration:    number;     // minutes
-  teamsLink?:  string;
-}): Promise<{ id: string }> {
+export async function createOutlookCalendarEvent(
+  username: string,
+  params: {
+    title:       string;
+    attendees:   string[];   // email addresses
+    date:        string;     // YYYY-MM-DD
+    startTime:   string;     // HH:MM
+    duration:    number;     // minutes
+    teamsLink?:  string;
+  }
+): Promise<{ id: string }> {
   const [sh, sm] = params.startTime.split(":").map((n) => parseInt(n, 10));
   const totalStartMin = sh * 60 + sm;
   const totalEndMin   = totalStartMin + params.duration;
@@ -143,7 +146,7 @@ export async function createOutlookCalendarEvent(params: {
     body.isOnlineMeeting = true;
   }
 
-  const res = await graphFetch("/me/events", {
+  const res = await graphFetch(username, "/me/events", {
     method: "POST",
     body:   JSON.stringify(body),
   });
@@ -162,8 +165,9 @@ export async function createOutlookCalendarEvent(params: {
  * Fetch all events for a given calendar month.
  */
 export async function getOutlookEventsForMonth(
-  year:  number,
-  month: number  // 0-based (same as Date constructor)
+  username: string,
+  year:     number,
+  month:    number  // 0-based (same as Date constructor)
 ): Promise<OutlookCalendarEvent[]> {
   const startOfMonth = new Date(year, month, 1);
   const endOfMonth   = new Date(year, month + 1, 0, 23, 59, 59);
@@ -177,6 +181,7 @@ export async function getOutlookEventsForMonth(
 
   try {
     const data = await graphGet<GraphListResponse<GraphEvent>>(
+      username,
       `/me/calendarView?${params}`
     );
     if (!data) return [];
@@ -192,43 +197,50 @@ export async function getOutlookEventsForMonth(
 /**
  * Fetch today's events.
  */
-export async function getOutlookTodayEvents(): Promise<OutlookCalendarEvent[]> {
-  return getOutlookEventsForDays(1);
+export async function getOutlookTodayEvents(username: string): Promise<OutlookCalendarEvent[]> {
+  return getOutlookEventsForDays(username, 1);
 }
 
-/**
- * Fetch events for the next `days` days starting from today (Europe/London).
- */
 /**
  * Returns online-meeting events from the past `daysBack` days.
  * Used by the Teams signal layer (equivalent to Zoom summaries).
  * Requires Calendars.ReadWrite scope (already granted).
  */
-export async function getOutlookPastMeetings(daysBack = 30): Promise<OutlookCalendarEvent[]> {
+export async function getOutlookPastMeetings(
+  username: string,
+  daysBack = 30
+): Promise<OutlookCalendarEvent[]> {
   const now      = new Date();
   const startDate = new Date(now.getTime() - daysBack * 86_400_000);
 
+  // calendarView does not support arbitrary $filter — only startDateTime/endDateTime
+  // are valid query params. Filter isOnlineMeeting client-side instead.
   const params = new URLSearchParams({
     startDateTime: isoDate(startDate),
     endDateTime:   isoDate(now),
-    $top:          "50",
+    $top:          "100",
     $select:       EVENT_SELECT,
-    $filter:       "isOnlineMeeting eq true",
   });
 
   try {
     const data = await graphGet<GraphListResponse<GraphEvent>>(
+      username,
       `/me/calendarView?${params}`
     );
     if (!data) return [];
-    return (data.value || []).map((e) => mapEvent(e, ""));
+    return (data.value || [])
+      .filter((e) => e.isOnlineMeeting || e.onlineMeetingUrl)
+      .map((e) => mapEvent(e, ""));
   } catch (err) {
     console.error("[outlook-calendar] getOutlookPastMeetings error:", err instanceof Error ? err.message : err);
     return [];
   }
 }
 
-export async function getOutlookEventsForDays(days: number): Promise<OutlookCalendarEvent[]> {
+export async function getOutlookEventsForDays(
+  username: string,
+  days:     number
+): Promise<OutlookCalendarEvent[]> {
   const now         = new Date();
   const todayStr    = now.toLocaleDateString("en-CA", { timeZone: TZ });
   const londonToday = new Date(`${todayStr}T00:00:00`);
@@ -244,6 +256,7 @@ export async function getOutlookEventsForDays(days: number): Promise<OutlookCale
 
   try {
     const data = await graphGet<GraphListResponse<GraphEvent>>(
+      username,
       `/me/calendarView?${params}`
     );
     if (!data) return [];

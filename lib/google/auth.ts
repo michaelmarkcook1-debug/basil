@@ -1,5 +1,5 @@
 import { google } from "googleapis";
-import { readStore, writeStore } from "@/lib/storage/persistent";
+import { readUserStore, writeUserStore } from "@/lib/storage/user-store";
 import type { IntegrationStatus } from "@/lib/integrations/types";
 
 // ── Constants ────────────────────────────────────────────────────────────────
@@ -48,58 +48,39 @@ export function getAuthUrl(): string {
 // ── Token persistence ────────────────────────────────────────────────────────
 
 /**
- * Exchange an OAuth authorization code for tokens and persist them via the
- * shared store so they survive Vercel cold starts (included in BASIL_DATA
- * snapshot automatically by writeStore → persistSnapshot).
+ * Exchange an OAuth authorization code for tokens and persist them to the
+ * user's scoped store so they survive Vercel cold starts.
  */
-export async function exchangeCode(code: string): Promise<GoogleTokens> {
+export async function exchangeCode(code: string, username: string): Promise<GoogleTokens> {
   const client = getOAuth2Client();
   const { tokens } = await client.getToken(code);
-  await writeStore<GoogleTokens>(TOKENS_FILE, tokens as GoogleTokens);
+  await writeUserStore<GoogleTokens>(username, TOKENS_FILE, tokens as GoogleTokens);
   return tokens as GoogleTokens;
 }
 
 /**
- * Read stored Google OAuth tokens.
- *
- * Priority:
- * 1. Shared persistent store (`DATA_DIR/google-tokens.json`), which is
- *    restored from BASIL_DATA env var on Vercel cold starts.
- * 2. Manual `GOOGLE_TOKENS` env var fallback (for pre-BASIL_DATA deployments
- *    or emergency manual override — set once via `vercel env add`).
+ * Read stored Google OAuth tokens for a specific user.
+ * Strictly user-scoped — no global fallback to prevent data bleed across users.
  */
-export async function getStoredTokens(): Promise<GoogleTokens | null> {
-  // readStore calls maybeRestore() internally, so cold-start tokens are
-  // hydrated from BASIL_DATA before the file read happens.
-  const fromStore = await readStore<GoogleTokens | null>(TOKENS_FILE, null);
-  if (fromStore?.refresh_token) return fromStore;
-
-  // Manual env var fallback — never written by the app, only read.
-  if (process.env.GOOGLE_TOKENS) {
-    try {
-      const parsed = JSON.parse(process.env.GOOGLE_TOKENS) as GoogleTokens;
-      if (parsed?.refresh_token) return parsed;
-    } catch {
-      /* ignore malformed value */
-    }
-  }
-
+export async function getStoredTokens(username: string): Promise<GoogleTokens | null> {
+  const fromUserStore = await readUserStore<GoogleTokens | null>(username, TOKENS_FILE, null);
+  if (fromUserStore?.refresh_token) return fromUserStore;
   return null;
 }
 
 // ── Scope helpers ─────────────────────────────────────────────────────────────
 
 /** Returns the list of OAuth scopes granted by the user. Empty if no token. */
-export async function getGrantedScopes(): Promise<string[]> {
-  const tokens = await getStoredTokens();
+export async function getGrantedScopes(username: string): Promise<string[]> {
+  const tokens = await getStoredTokens(username);
   if (!tokens?.scope || typeof tokens.scope !== "string") return [];
   return tokens.scope.split(/\s+/).filter(Boolean);
 }
 
 // ── Connection status ─────────────────────────────────────────────────────────
 
-export async function isGoogleConnected(): Promise<boolean> {
-  const tokens = await getStoredTokens();
+export async function isGoogleConnected(username: string): Promise<boolean> {
+  const tokens = await getStoredTokens(username);
   return !!tokens?.refresh_token;
 }
 
@@ -107,10 +88,10 @@ export async function isGoogleConnected(): Promise<boolean> {
  * Returns a normalized IntegrationStatus for Google.
  * Never throws — always resolves to a concrete state.
  */
-export async function getGoogleConnectionStatus(): Promise<IntegrationStatus> {
+export async function getGoogleConnectionStatus(username: string): Promise<IntegrationStatus> {
   const now = new Date().toISOString();
   try {
-    const tokens = await getStoredTokens();
+    const tokens = await getStoredTokens(username);
 
     if (!tokens?.refresh_token) {
       return {
@@ -151,10 +132,10 @@ export async function getGoogleConnectionStatus(): Promise<IntegrationStatus> {
 
 /**
  * Returns a configured OAuth2Client ready to use with googleapis, or null if
- * Google is not connected.  Callers must `await` this.
+ * Google is not connected for this user.  Callers must `await` this.
  */
-export async function getAuthedClient() {
-  const tokens = await getStoredTokens();
+export async function getAuthedClient(username: string) {
+  const tokens = await getStoredTokens(username);
   if (!tokens?.refresh_token) return null;
 
   const client = getOAuth2Client();

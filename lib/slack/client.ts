@@ -1,7 +1,37 @@
 import { WebClient, LogLevel } from "@slack/web-api";
+import { readUserStore, writeUserStore } from "@/lib/storage/user-store";
 
-let botClient: WebClient | null = null;
-let userClient: WebClient | null = null;
+// ── Per-user Slack config ────────────────────────────────────────────────────
+
+const SLACK_CONFIG_FILE = "slack-config.json";
+
+export interface SlackConfig {
+  botToken?:  string;
+  userToken?: string;
+}
+
+export async function getSlackConfig(username: string): Promise<SlackConfig> {
+  // Strictly user-scoped — no env var fallback to prevent data bleed across users.
+  const stored = await readUserStore<SlackConfig | null>(username, SLACK_CONFIG_FILE, null);
+  return {
+    botToken:  stored?.botToken,
+    userToken: stored?.userToken,
+  };
+}
+
+export async function saveSlackConfig(username: string, config: SlackConfig): Promise<void> {
+  await writeUserStore<SlackConfig>(username, SLACK_CONFIG_FILE, config);
+  // Invalidate cached clients for this user
+  botClientCache.delete(username);
+  userClientCache.delete(username);
+}
+
+export async function isSlackConnected(username: string): Promise<boolean> {
+  const config = await getSlackConfig(username);
+  return !!(config.botToken || config.userToken);
+}
+
+// ── Client caches (per-user) ─────────────────────────────────────────────────
 
 // Fail fast instead of silently retrying under rate limits —
 // a hung Slack call blocks the entire dashboard and meeting-prep generation.
@@ -11,18 +41,43 @@ const clientOptions = {
   logLevel: LogLevel.ERROR,
 } as const;
 
+const botClientCache  = new Map<string, WebClient>();
+const userClientCache = new Map<string, WebClient>();
+
+export async function getSlackBotClientForUser(username: string): Promise<WebClient | null> {
+  const cached = botClientCache.get(username);
+  if (cached) return cached;
+  const config = await getSlackConfig(username);
+  if (!config.botToken) return null;
+  const client = new WebClient(config.botToken, clientOptions);
+  botClientCache.set(username, client);
+  return client;
+}
+
+export async function getSlackUserClientForUser(username: string): Promise<WebClient | null> {
+  const cached = userClientCache.get(username);
+  if (cached) return cached;
+  const config = await getSlackConfig(username);
+  if (!config.userToken) return null;
+  const client = new WebClient(config.userToken, clientOptions);
+  userClientCache.set(username, client);
+  return client;
+}
+
+// ── Legacy (env-var based) helpers kept for backward compat ──────────────────
+
+/** @deprecated Use getSlackBotClientForUser(username) */
 export function getSlackBotClient(): WebClient | null {
   const token = process.env.SLACK_BOT_TOKEN;
   if (!token) return null;
-  if (!botClient) botClient = new WebClient(token, clientOptions);
-  return botClient;
+  return new WebClient(token, clientOptions);
 }
 
+/** @deprecated Use getSlackUserClientForUser(username) */
 export function getSlackUserClient(): WebClient | null {
   const token = process.env.SLACK_USER_TOKEN;
   if (!token) return null;
-  if (!userClient) userClient = new WebClient(token, clientOptions);
-  return userClient;
+  return new WebClient(token, clientOptions);
 }
 
 export function getSlackClient(): WebClient | null {
@@ -76,11 +131,19 @@ const CACHE_TTL_MS = 60_000; // 60s
 // ── Read recent messages across all conversation types ──
 // Fetches channels AND DMs separately to ensure DMs aren't crowded out.
 // Filters out messages older than `maxAgeDays` to keep results fresh.
-export async function getRecentSlackMessages(limit = 10, maxAgeDays = 7): Promise<SlackMessage[]> {
-  const web = getSlackUserClient() || getSlackBotClient();
+export async function getRecentSlackMessages(
+  username:   string,
+  limit      = 10,
+  maxAgeDays = 7
+): Promise<SlackMessage[]> {
+  const [botWeb, userWeb] = await Promise.all([
+    getSlackBotClientForUser(username),
+    getSlackUserClientForUser(username),
+  ]);
+  const web = userWeb || botWeb;
   if (!web) return [];
 
-  const cacheKey = `${limit}:${maxAgeDays}`;
+  const cacheKey = `${username}:${limit}:${maxAgeDays}`;
   const cached = messageCache.get(cacheKey);
   if (cached && Date.now() - cached.fetchedAt < CACHE_TTL_MS) {
     return cached.data;
@@ -89,8 +152,8 @@ export async function getRecentSlackMessages(limit = 10, maxAgeDays = 7): Promis
   const cutoff = Date.now() - maxAgeDays * 86400000;
 
   try {
-    const hasUserToken = !!getSlackUserClient();
-    const lookupWeb = getSlackBotClient() || web;
+    const hasUserToken = !!userWeb;
+    const lookupWeb = botWeb || web;
 
     // Fetch channels and DMs in separate calls to ensure both are represented
     const [channelsRes, dmsRes, groupDmsRes] = await Promise.all([
@@ -200,7 +263,7 @@ export async function getRecentSlackMessages(limit = 10, maxAgeDays = 7): Promis
             date: msg.ts
               ? new Date(parseFloat(msg.ts) * 1000).toISOString()
               : new Date().toISOString(),
-            isMention: (msg.text || "").toLowerCase().includes("michael"),
+            isMention: (msg.text || "").toLowerCase().includes(username),
           });
         }
       } catch {
@@ -224,12 +287,17 @@ export async function getRecentSlackMessages(limit = 10, maxAgeDays = 7): Promis
 // ── Read last N messages from a specific channel/conversation ──
 // Used by the click-to-expand UI on pinned Slack rows.
 export async function getChannelHistory(
+  username:  string,
   channelId: string,
-  limit = 10
+  limit =    10
 ): Promise<SlackMessage[]> {
-  const web = getSlackUserClient() || getSlackBotClient();
+  const [botWeb, userWeb] = await Promise.all([
+    getSlackBotClientForUser(username),
+    getSlackUserClientForUser(username),
+  ]);
+  const web = userWeb || botWeb;
   if (!web) return [];
-  const lookupWeb = getSlackBotClient() || web;
+  const lookupWeb = botWeb || web;
 
   try {
     // Resolve channel metadata for display name
@@ -272,7 +340,7 @@ export async function getChannelHistory(
         date: msg.ts
           ? new Date(parseFloat(msg.ts) * 1000).toISOString()
           : new Date().toISOString(),
-        isMention: (msg.text || "").toLowerCase().includes("michael"),
+        isMention: (msg.text || "").toLowerCase().includes(username),
       });
     }
     return out;
@@ -283,9 +351,17 @@ export async function getChannelHistory(
 }
 
 // ── Full search (user token has search:read, bot has search:read.*) ──
-export async function searchSlackMessages(query: string, limit = 10): Promise<SlackMessage[]> {
+export async function searchSlackMessages(
+  username: string,
+  query:    string,
+  limit =   10
+): Promise<SlackMessage[]> {
+  const [botWeb, userWeb] = await Promise.all([
+    getSlackBotClientForUser(username),
+    getSlackUserClientForUser(username),
+  ]);
   // Try user token first (search:read), then bot (search:read.*)
-  const searchWeb = getSlackUserClient() || getSlackBotClient();
+  const searchWeb = userWeb || botWeb;
   if (!searchWeb) return [];
 
   try {
@@ -297,20 +373,21 @@ export async function searchSlackMessages(query: string, limit = 10): Promise<Sl
       author: m.username || "Unknown",
       text: cleanSlackText(m.text || ""),
       date: m.ts ? new Date(parseFloat(m.ts) * 1000).toISOString() : new Date().toISOString(),
-      isMention: (m.text || "").toLowerCase().includes("michael"),
+      isMention: (m.text || "").toLowerCase().includes(username),
     }));
   } catch (e) {
     console.error("Slack search error:", e);
-    return getRecentSlackMessages(limit);
+    return getRecentSlackMessages(username, limit);
   }
 }
 
 // ── Send message (bot: chat:write.public works without being in channel) ──
 export async function sendSlackMessage(
-  channel: string,
-  text: string
+  username: string,
+  channel:  string,
+  text:     string
 ): Promise<{ ok: boolean; error?: string }> {
-  const web = getSlackBotClient();
+  const web = await getSlackBotClientForUser(username);
   if (!web) return { ok: false, error: "Slack not connected" };
 
   try {
@@ -350,10 +427,11 @@ export async function sendSlackMessage(
 
 // ── Send DM to a specific user ──
 export async function sendSlackDM(
-  userId: string,
-  text: string
+  username: string,
+  userId:   string,
+  text:     string
 ): Promise<{ ok: boolean; error?: string }> {
-  const web = getSlackBotClient();
+  const web = await getSlackBotClientForUser(username);
   if (!web) return { ok: false, error: "Slack not connected" };
 
   try {
@@ -367,14 +445,17 @@ export async function sendSlackDM(
 }
 
 // ── Look up user profiles ──
-export async function getUserProfile(nameOrEmail: string): Promise<{
+export async function getUserProfile(
+  username:     string,
+  nameOrEmail:  string
+): Promise<{
   name: string;
   email?: string;
   title?: string;
   status?: string;
   tz?: string;
 } | null> {
-  const web = getSlackBotClient();
+  const web = await getSlackBotClientForUser(username);
   if (!web) return null;
 
   try {

@@ -50,15 +50,16 @@ interface GraphMeResponse {
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
-// Module-level cache for own user id (avoids re-fetching on every call)
-let cachedOwnUserId: string | null = null;
+// Per-user cache for own user id (avoids re-fetching on every call)
+const ownUserIdCache = new Map<string, string>();
 
-async function getOwnUserId(): Promise<string | null> {
-  if (cachedOwnUserId) return cachedOwnUserId;
+async function getOwnUserId(username: string): Promise<string | null> {
+  const cached = ownUserIdCache.get(username);
+  if (cached) return cached;
   try {
-    const me = await graphGet<GraphMeResponse>("/me?$select=id");
-    if (me?.id) cachedOwnUserId = me.id;
-    return cachedOwnUserId;
+    const me = await graphGet<GraphMeResponse>(username, "/me?$select=id");
+    if (me?.id) ownUserIdCache.set(username, me.id);
+    return me?.id ?? null;
   } catch {
     return null;
   }
@@ -83,11 +84,12 @@ function toActivity(item: GraphDriveItem): DriveFileActivity {
  * Excludes files modified by the user themselves — only signal from others.
  */
 export async function getRecentOneDriveActivity(
+  username:    string,
   sinceDaysAgo = 30,
   maxResults   = 100
 ): Promise<DriveFileActivity[]> {
   const cutoff    = new Date(Date.now() - sinceDaysAgo * 86400000).toISOString();
-  const ownUserId = await getOwnUserId();
+  const ownUserId = await getOwnUserId(username);
 
   const params = new URLSearchParams({
     $select: "id,name,lastModifiedBy,lastModifiedDateTime,webUrl,file,folder",
@@ -96,6 +98,7 @@ export async function getRecentOneDriveActivity(
 
   try {
     const data = await graphGet<GraphDeltaResponse>(
+      username,
       `/me/drive/root/delta?${params}`
     );
     if (!data) return [];
@@ -125,6 +128,7 @@ export async function getRecentOneDriveActivity(
  * Search OneDrive for files matching a text query.
  */
 export async function searchOneDriveFiles(
+  username:   string,
   query:      string,
   maxResults = 10
 ): Promise<DriveFileActivity[]> {
@@ -137,6 +141,7 @@ export async function searchOneDriveFiles(
 
   try {
     const data = await graphGet<GraphDeltaResponse>(
+      username,
       `/me/drive/root/search(q='${encodedQuery}')?${params}`
     );
     if (!data) return [];

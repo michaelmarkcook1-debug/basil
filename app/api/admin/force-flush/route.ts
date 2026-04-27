@@ -28,7 +28,7 @@ export async function POST(req: Request) {
     readStore("sage-actions.json", []),
     readStore("sage-decisions.json", []),
     readStore("sage-memory.json", []),
-    readStore("sage-whatsapp-snapshot.json", null),
+    readStore("whatsapp-snapshot.json", null),
   ]);
 
   const before = Date.now();

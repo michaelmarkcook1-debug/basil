@@ -1,7 +1,11 @@
 import { NextResponse } from "next/server";
 import { sendSlackMessage, sendSlackDM } from "@/lib/slack/client";
+import { getSessionUser } from "@/lib/auth";
 
 export async function POST(req: Request) {
+  const username = (await getSessionUser());
+  if (!username) return NextResponse.json({ error: "Unauthorised" }, { status: 401 });
+
   try {
     const { channel, message, userId } = await req.json() as {
       channel?: string;
@@ -15,7 +19,7 @@ export async function POST(req: Request) {
 
     // Direct DM by Slack user ID
     if (userId) {
-      const result = await sendSlackDM(userId, message.trim());
+      const result = await sendSlackDM(username, userId, message.trim());
       return NextResponse.json(result);
     }
 
@@ -23,8 +27,7 @@ export async function POST(req: Request) {
       return NextResponse.json({ ok: false, error: "Channel or userId is required" }, { status: 400 });
     }
 
-    // Channel name or display name (sendSlackMessage handles lookup)
-    const result = await sendSlackMessage(channel.trim(), message.trim());
+    const result = await sendSlackMessage(username, channel.trim(), message.trim());
     return NextResponse.json(result);
   } catch (e) {
     console.error("Slack send error:", e);

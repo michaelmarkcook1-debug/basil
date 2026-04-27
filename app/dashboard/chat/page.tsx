@@ -26,12 +26,11 @@ import {
   Paperclip,
 } from "lucide-react";
 
-// CLASSIFICATION: disposable UX convenience — chat history persisted so the
-// conversation survives navigating away and back on the same device.
-// NOT assistant truth: actions/decisions/memory created in chat are immediately
-// written to their respective server stores.  Clearing this key loses only
-// the displayed conversation thread, never any committed state.
-const CHAT_STORAGE_KEY = "sage-chat-messages-v1";
+// Per-session localStorage key — intentionally includes no username because
+// the server is now the source of truth.  This is only a same-tab fast cache
+// so navigating away and back restores messages instantly without a network hit.
+// It is cleared on sign-out and never used as cross-device or cross-user storage.
+const CHAT_STORAGE_KEY = "sage-chat-session-v2";
 
 const toolIcons: Record<string, typeof Calendar> = {
   getCalendarEvents: Calendar,
@@ -99,6 +98,7 @@ function ChatPageInner() {
   const scrollRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const hydrated = useRef(false);
+  const serverSaved = useRef(false); // prevents saving before initial load finishes
   /** Ensures the incoming ?q= param is consumed exactly once per mount. */
   const queryConsumed = useRef(false);
 
@@ -145,21 +145,45 @@ function ChatPageInner() {
     domainsToNotify.forEach((d) => emitChange(d));
   }, [status, messages]);
 
-  // Hydrate messages from localStorage on mount — keeps the conversation alive
-  // when the user clicks away to another sidebar page and back.
+  // Hydrate messages on mount:
+  // 1. Show session cache immediately (same tab, zero latency)
+  // 2. Then replace with authoritative server history (cross-device, per-user)
   useEffect(() => {
     if (hydrated.current) return;
     hydrated.current = true;
+
+    // Fast path: restore same-session cache while server loads
     try {
       const cached = localStorage.getItem(CHAT_STORAGE_KEY);
-      if (!cached) return;
-      const parsed = JSON.parse(cached);
-      if (Array.isArray(parsed) && parsed.length > 0) {
-        setMessages(parsed);
+      if (cached) {
+        const parsed = JSON.parse(cached);
+        if (Array.isArray(parsed) && parsed.length > 0) setMessages(parsed);
       }
-    } catch {
-      /* ignore bad cache */
-    }
+    } catch { /* ignore */ }
+
+    // Authoritative path: load per-user history from server
+    fetch("/api/chat/history")
+      .then((r) => r.ok ? r.json() : null)
+      .then((data) => {
+        if (!data?.messages || !Array.isArray(data.messages)) return;
+        if (data.messages.length === 0) return;
+        // Convert StoredMessage → UIMessage format
+        const uiMessages = data.messages.map((m: { id: string; role: string; content: string; createdAt: string }) => ({
+          id: m.id,
+          role: m.role as "user" | "assistant",
+          parts: [{ type: "text" as const, text: m.content }],
+          content: m.content,
+          createdAt: new Date(m.createdAt),
+        }));
+        setMessages(uiMessages);
+        // Sync session cache with server data
+        try { localStorage.setItem(CHAT_STORAGE_KEY, JSON.stringify(uiMessages)); } catch { /* ignore */ }
+        serverSaved.current = true;
+      })
+      .catch(() => {
+        // Server unavailable — session cache is the fallback, mark as ready
+        serverSaved.current = true;
+      });
   }, [setMessages]);
 
   // Consume the ?q= query param injected by dashboard search / quick-action
@@ -184,20 +208,39 @@ function ChatPageInner() {
     sendMessage({ text: q });
   }, [searchParams, router, sendMessage]);
 
-  // Persist messages whenever they change. Skip the initial render so we
-  // don't clobber existing cache with an empty array before hydration lands.
+  // Save to server whenever a stream exchange completes (status → "ready").
+  // Also keeps the session cache in sync for same-tab fast restore.
+  const prevStatusRef2 = useRef(status);
   useEffect(() => {
-    if (!hydrated.current) return;
-    try {
-      if (messages.length === 0) {
-        localStorage.removeItem(CHAT_STORAGE_KEY);
-      } else {
-        localStorage.setItem(CHAT_STORAGE_KEY, JSON.stringify(messages));
-      }
-    } catch {
-      /* localStorage full or unavailable */
-    }
-  }, [messages]);
+    const prev = prevStatusRef2.current;
+    prevStatusRef2.current = status;
+    if (status !== "ready" || prev === "ready") return;
+    if (!hydrated.current || messages.length === 0) return;
+
+    // Session cache — instant same-tab restore
+    try { localStorage.setItem(CHAT_STORAGE_KEY, JSON.stringify(messages)); } catch { /* ignore */ }
+
+    // Server — durable, cross-device, per-user (PUT = full replace)
+    const storedMessages = messages
+      .filter((m) => m.role === "user" || m.role === "assistant")
+      .map((m) => {
+        // In AI SDK v6, text content is always in parts — there is no .content shorthand
+        const textPart = m.parts?.find((p) => (p as { type: string }).type === "text") as { type: string; text: string } | undefined;
+        return {
+          id: m.id,
+          role: m.role as "user" | "assistant",
+          content: textPart?.text ?? "",
+          createdAt: new Date().toISOString(),
+        };
+      })
+      .filter((m) => m.content.trim().length > 0);
+
+    fetch("/api/chat/history", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ messages: storedMessages }),
+    }).then(() => { serverSaved.current = true; }).catch(() => { /* best-effort */ });
+  }, [status, messages]);
 
   useEffect(() => {
     if (scrollRef.current) {
@@ -207,11 +250,9 @@ function ChatPageInner() {
 
   function clearChat() {
     setMessages([]);
-    try {
-      localStorage.removeItem(CHAT_STORAGE_KEY);
-    } catch {
-      /* ignore */
-    }
+    try { localStorage.removeItem(CHAT_STORAGE_KEY); } catch { /* ignore */ }
+    // Clear server-side history so other devices/sessions also start fresh
+    fetch("/api/chat/history", { method: "DELETE" }).catch(() => { /* best-effort */ });
   }
 
   function handleSubmit(e: React.FormEvent) {
@@ -272,10 +313,10 @@ function ChatPageInner() {
 
   return (
     <div className="flex h-full flex-col">
-      <header className="border-b border-border px-6 py-4 flex items-start justify-between gap-3">
+      <header className="border-b border-border px-4 sm:px-6 py-3 sm:py-4 flex items-start justify-between gap-3">
         <div>
-          <h1 className="text-lg font-semibold bg-gradient-to-r from-[oklch(0.22_0.05_250)] to-[oklch(0.35_0.06_250)] bg-clip-text text-transparent">Chat</h1>
-          <p className="text-sm text-muted-foreground">
+          <h1 className="text-lg font-semibold text-foreground">Chat with Basil</h1>
+          <p className="text-sm text-muted-foreground hidden sm:block">
             Ask me anything about your day, meetings, emails, or Slack.
           </p>
         </div>
@@ -504,7 +545,7 @@ function ChatPageInner() {
         </div>
       </ScrollArea>
 
-      <div className="border-t border-border px-4 py-4 bg-background/80 backdrop-blur-sm">
+      <div className="border-t border-border px-4 py-4 pb-[max(1rem,env(safe-area-inset-bottom))] bg-background/80 backdrop-blur-sm">
         <form
           onSubmit={handleSubmit}
           className="max-w-3xl mx-auto space-y-2"
@@ -561,7 +602,7 @@ function ChatPageInner() {
               disabled={isActive}
               onClick={() => fileInputRef.current?.click()}
               aria-label="Attach file"
-              className="h-12 w-10 shrink-0 text-muted-foreground hover:text-foreground"
+              className="h-12 w-12 shrink-0 text-muted-foreground hover:text-foreground"
             >
               <Paperclip className="h-4 w-4" />
             </Button>
@@ -570,7 +611,11 @@ function ChatPageInner() {
               onChange={(e) => setInput(e.target.value)}
               onKeyDown={handleKeyDown}
               placeholder="Ask me anything..."
-              className="min-h-12 max-h-40 resize-none border-[oklch(0.72_0.15_85)]/20 focus-visible:ring-[oklch(0.72_0.15_85)] py-3"
+              enterKeyHint="send"
+              autoComplete="off"
+              autoCorrect="on"
+              spellCheck
+              className="min-h-12 max-h-40 resize-none border-[oklch(0.72_0.15_85)]/20 focus-visible:ring-[oklch(0.72_0.15_85)] py-3 text-[16px] sm:text-sm"
               rows={1}
             />
             <Button

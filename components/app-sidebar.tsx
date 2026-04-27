@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { useEffect, useState } from "react";
 import {
   LayoutDashboard,
   MessageSquare,
@@ -15,6 +16,7 @@ import {
   Scale,
   Brain,
   Settings,
+  Shield,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { ThemeToggle } from "@/components/theme-toggle";
@@ -134,6 +136,14 @@ export function AppSidebar({
   const isActive = (href: string) =>
     href === "/dashboard" ? pathname === "/dashboard" : pathname.startsWith(href);
 
+  // Show admin link only for the admin account
+  const [isAdmin, setIsAdmin] = useState(false);
+  useEffect(() => {
+    fetch("/api/admin/users", { method: "GET" })
+      .then((r) => setIsAdmin(r.ok))
+      .catch(() => setIsAdmin(false));
+  }, []);
+
   return (
     <aside
       className={cn(
@@ -223,6 +233,14 @@ export function AppSidebar({
           expanded={expanded}
           onNavigate={onNavigate}
         />
+        {isAdmin && (
+          <SidebarLink
+            item={{ href: "/admin", label: "Admin", icon: Shield }}
+            active={pathname.startsWith("/admin")}
+            expanded={expanded}
+            onNavigate={onNavigate}
+          />
+        )}
       </div>
     </aside>
   );

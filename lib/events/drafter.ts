@@ -54,11 +54,11 @@ function extractEmail(from: string | undefined): string | null {
 }
 
 /** Fetch the full body of a Gmail message, with a safe fallback. */
-async function fetchFullEmailBody(sourceRef: string | undefined): Promise<string | null> {
+async function fetchFullEmailBody(username: string, sourceRef: string | undefined): Promise<string | null> {
   const gmailId = extractGmailId(sourceRef);
   if (!gmailId) return null;
   try {
-    const msg = await getEmailBody(gmailId);
+    const msg = await getEmailBody(username, gmailId);
     return msg.body || null;
   } catch {
     return null;
@@ -72,11 +72,13 @@ async function fetchFullEmailBody(sourceRef: string | undefined): Promise<string
  * Uses snippets only (not full bodies) — enough to establish thread continuity.
  */
 async function fetchRecentExchanges(
+  username: string,
   senderEmail: string,
   limit = 3
 ): Promise<string> {
   try {
     const emails = await searchEmails(
+      username,
       `(from:${senderEmail} OR to:${senderEmail})`,
       limit
     );
@@ -116,7 +118,7 @@ function getToneGuidance(senderName: string | undefined): string {
  * Never throws — returns a `caveat` and empty/minimal body on failure so the
  * UI always has something to show.
  */
-export async function generateDraftForEvent(event: BasilEvent): Promise<DraftResult> {
+export async function generateDraftForEvent(event: BasilEvent, username = "michael"): Promise<DraftResult> {
   const now = new Date().toISOString();
   const payload = event.payload as {
     title?: string; body?: string; from?: string;
@@ -137,7 +139,7 @@ export async function generateDraftForEvent(event: BasilEvent): Promise<DraftRes
   // Full email body (much richer than the 200-char snippet stored in payload)
   let messageBody = snippetBody;
   if (isEmail) {
-    const full = await fetchFullEmailBody(event.sourceRef);
+    const full = await fetchFullEmailBody(username, event.sourceRef);
     if (full) {
       messageBody = full;
     } else {
@@ -150,7 +152,7 @@ export async function generateDraftForEvent(event: BasilEvent): Promise<DraftRes
   if (isEmail) {
     const senderEmail = extractEmail(from);
     if (senderEmail) {
-      const exchanges = await fetchRecentExchanges(senderEmail);
+      const exchanges = await fetchRecentExchanges(username, senderEmail);
       if (exchanges) {
         recentExchangesBlock = `\n\n## Recent exchanges with ${from}\n${exchanges}`;
       } else {
@@ -204,7 +206,7 @@ CRITICAL: The reply must address the specific content of THIS message. If you fi
   // ── 3. Generate ──────────────────────────────────────────────────────────
 
   try {
-    const system = await getSystemPrompt();
+    const system = await getSystemPrompt(username);
     const { text } = await generateText({
       model: "anthropic/claude-sonnet-4.6",
       system,

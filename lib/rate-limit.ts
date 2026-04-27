@@ -1,0 +1,65 @@
+/**
+ * Simple in-memory IP-based rate limiter.
+ *
+ * Designed for auth endpoints where a small burst of legitimate retries is
+ * acceptable but brute-force attacks should be blocked quickly.
+ *
+ * Limits: 10 attempts per 60-second sliding window per IP.
+ * Memory: entries auto-expire; module-level map is fine for a single-instance
+ * deployment (Vercel Fluid Compute reuses instances across concurrent requests).
+ */
+
+interface Entry {
+  count: number;
+  resetAt: number; // epoch ms
+}
+
+const store = new Map<string, Entry>();
+
+const WINDOW_MS  = 60_000; // 1 minute
+const MAX_ATTEMPTS = 10;
+
+/** Prune expired entries (runs inline on every check — cheap for low traffic). */
+function prune() {
+  const now = Date.now();
+  for (const [key, entry] of store) {
+    if (entry.resetAt < now) store.delete(key);
+  }
+}
+
+/**
+ * Check whether the given key (typically an IP address) is within rate limits.
+ *
+ * @returns `{ allowed: true }` or `{ allowed: false, retryAfter: <seconds> }`
+ */
+export function checkRateLimit(
+  key: string
+): { allowed: true } | { allowed: false; retryAfter: number } {
+  prune();
+  const now = Date.now();
+
+  let entry = store.get(key);
+  if (!entry || entry.resetAt < now) {
+    entry = { count: 1, resetAt: now + WINDOW_MS };
+    store.set(key, entry);
+    return { allowed: true };
+  }
+
+  entry.count += 1;
+  if (entry.count > MAX_ATTEMPTS) {
+    const retryAfter = Math.ceil((entry.resetAt - now) / 1000);
+    return { allowed: false, retryAfter };
+  }
+
+  return { allowed: true };
+}
+
+/** Extract the real client IP from common proxy headers or fall back to a constant. */
+export function getClientIp(req: Request): string {
+  const headers = req instanceof Request ? req.headers : new Headers();
+  return (
+    headers.get("x-forwarded-for")?.split(",")[0]?.trim() ||
+    headers.get("x-real-ip") ||
+    "unknown"
+  );
+}

@@ -1,4 +1,4 @@
-import { NextResponse } from "next/server";
+import { NextResponse, after } from "next/server";
 import { verifySlackSignature } from "@/lib/slack/verify";
 import { createEvent, hasExternalId } from "@/lib/events/store";
 import { eventFromIngest } from "@/lib/events/rules";
@@ -81,9 +81,10 @@ export async function POST(req: Request) {
             tags: event.tags,
           })
         ) {
-          void (async () => {
+          after(async () => {
             try {
-              const threadMessages = await fetchSlackThread(channelId, messageTs);
+              // TODO: resolve username from Slack team/user mapping once multi-user is fully live
+              const threadMessages = await fetchSlackThread("michael", channelId, messageTs);
               const channelName = payload.channel || payload.title || "Slack";
               const transcript =
                 threadMessages.length > 0
@@ -122,7 +123,7 @@ export async function POST(req: Request) {
             } catch (err) {
               console.error("[webhook/slack] intelligence failed:", err);
             }
-          })();
+          });
         }
       }
     } catch (e) {

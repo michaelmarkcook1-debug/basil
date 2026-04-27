@@ -1,9 +1,13 @@
 import { NextResponse } from "next/server";
 import { isGoogleConnected } from "@/lib/google/auth";
 import { getRecentEmails } from "@/lib/google/gmail";
+import { getSessionUser } from "@/lib/auth";
 
 export async function GET() {
-  if (!(await isGoogleConnected())) {
+  const username = (await getSessionUser());
+  if (!username) return NextResponse.json({ error: "Unauthorised" }, { status: 401 });
+
+  if (!(await isGoogleConnected(username))) {
     return NextResponse.json({
       connected: false,
       emails: [],
@@ -12,7 +16,7 @@ export async function GET() {
   }
 
   try {
-    const emails = await getRecentEmails(8);
+    const emails = await getRecentEmails(username, 8);
     return NextResponse.json({
       connected: true,
       emails,

@@ -54,7 +54,7 @@ export default function DashboardPage() {
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
               placeholder="Ask Basil anything — search, draft, schedule…"
-              className="w-full h-12 rounded-xl border border-border bg-card/60 backdrop-blur pl-11 pr-20 text-sm placeholder:text-muted-foreground/60 shadow-sm focus:outline-none focus:border-[oklch(0.72_0.15_85)]/40 focus:ring-4 focus:ring-[oklch(0.72_0.15_85)]/10 transition-all"
+              className="w-full h-12 rounded-xl border border-border bg-card/60 backdrop-blur pl-11 pr-4 md:pr-20 text-[16px] sm:text-sm placeholder:text-muted-foreground/60 shadow-sm focus:outline-none focus:border-[oklch(0.72_0.15_85)]/40 focus:ring-4 focus:ring-[oklch(0.72_0.15_85)]/10 transition-all"
             />
             <kbd className="absolute right-3 top-1/2 -translate-y-1/2 hidden md:inline-flex items-center gap-1 rounded-md border border-border bg-background px-1.5 py-0.5 text-[12px] font-mono text-muted-foreground">
               ⏎

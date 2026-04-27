@@ -89,6 +89,7 @@ function mapMessage(msg: GraphChatMessage, isReply: boolean): TeamsThreadMessage
  * Returns empty array on any failure — never throws.
  */
 export async function fetchTeamsThread(
+  username:     string,
   chatOrTeamId: string,
   channelId:    string | null,
   messageId:    string
@@ -105,8 +106,8 @@ export async function fetchTeamsThread(
       : `/me/chats/${chatOrTeamId}/messages/${messageId}/replies?$top=${MAX_THREAD_REPLIES}`;
 
     const [parentData, repliesData] = await Promise.all([
-      graphGet<GraphChatMessage>(parentPath).catch(() => null),
-      graphGet<GraphListResponse<GraphChatMessage>>(repliesPath).catch(() => null),
+      graphGet<GraphChatMessage>(username, parentPath).catch(() => null),
+      graphGet<GraphListResponse<GraphChatMessage>>(username, repliesPath).catch(() => null),
     ]);
 
     const result: TeamsThreadMessage[] = [];

@@ -21,6 +21,8 @@ import type { EmailIntelligence, EmailCategory } from "./classify-email";
 // ── Input / output types ───────────────────────────────────────────────────────
 
 export interface MaterializeEmailInput {
+  /** Username to scope memory writes to. Defaults to "michael" on webhook paths. */
+  username?: string;
   intelligence: EmailIntelligence;
   /** Gmail message ID (without "gmail:" prefix). */
   messageId: string;
@@ -70,7 +72,7 @@ const EXPLICIT_ONLY_ACTION_CATEGORIES = new Set<EmailCategory>([
 export async function materializeEmailIntelligence(
   input: MaterializeEmailInput
 ): Promise<MaterializeEmailResult> {
-  const { intelligence: intel, messageId, eventId, subject, from, date } = input;
+  const { intelligence: intel, messageId, eventId, subject, from, date, username = "michael" } = input;
   const sourceRef = `gmail:${messageId}`;
   const dateShort = date.slice(0, 10);
   const shortSubject = subject.length > 60 ? subject.slice(0, 57) + "…" : subject;
@@ -228,7 +230,7 @@ export async function materializeEmailIntelligence(
     if (!mem.content.trim()) continue;
     if (mTier === "skip") continue;
     try {
-      await createMemory({
+      await createMemory(username, {
         kind: "context",
         content: mem.content,
         entity: mem.entity,

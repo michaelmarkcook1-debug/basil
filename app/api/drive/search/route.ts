@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { searchDriveFiles } from "@/lib/google/drive";
 import { isGoogleConnected } from "@/lib/google/auth";
+import { getSessionUser } from "@/lib/auth";
 
 /**
  * GET /api/drive/search?q=query
@@ -19,7 +20,10 @@ export async function GET(req: Request) {
     );
   }
 
-  if (!(await isGoogleConnected())) {
+  const username = (await getSessionUser());
+  if (!username) return NextResponse.json({ error: "Unauthorised" }, { status: 401 });
+
+  if (!(await isGoogleConnected(username))) {
     return NextResponse.json({
       connected: false,
       files: [],
@@ -28,7 +32,7 @@ export async function GET(req: Request) {
   }
 
   try {
-    const files = await searchDriveFiles(query.trim(), 15);
+    const files = await searchDriveFiles(username, query.trim(), 15);
     return NextResponse.json({
       connected: true,
       files,

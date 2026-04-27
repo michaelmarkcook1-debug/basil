@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getChannelHistory } from "@/lib/slack/client";
+import { getSessionUser } from "@/lib/auth";
 
 /**
  * GET /api/slack/history?channelId=...&limit=10
@@ -15,6 +16,8 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: "channelId required" }, { status: 400 });
   }
 
-  const messages = await getChannelHistory(channelId, limit);
+  const username = (await getSessionUser());
+  if (!username) return NextResponse.json({ error: "Unauthorised" }, { status: 401 });
+  const messages = await getChannelHistory(username, channelId, limit);
   return NextResponse.json({ channelId, messages });
 }

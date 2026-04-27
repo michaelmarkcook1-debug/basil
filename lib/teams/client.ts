@@ -137,6 +137,7 @@ function mapChatMessage(
  * Never throws — returns empty array on any failure.
  */
 export async function getRecentTeamsMessages(
+  username:   string,
   limit      = 30,
   maxAgeDays = 3
 ): Promise<TeamsMessage[]> {
@@ -147,6 +148,7 @@ export async function getRecentTeamsMessages(
 
   try {
     const chatsData = await graphGet<GraphListResponse<GraphChat>>(
+      username,
       "/me/chats?$top=20&$expand=lastMessagePreview"
     );
 
@@ -161,6 +163,7 @@ export async function getRecentTeamsMessages(
       for (const chat of sortedChats.slice(0, 20)) {
         try {
           const msgsData = await graphGet<GraphListResponse<GraphChatMessage>>(
+            username,
             `/me/chats/${chat.id}/messages?$top=10`
           );
 
@@ -173,6 +176,7 @@ export async function getRecentTeamsMessages(
           if (isOneOnOne) {
             try {
               const membersData = await graphGet<GraphListResponse<GraphChatMember>>(
+                username,
                 `/me/chats/${chat.id}/members`
               );
               const others = (membersData?.value || []).filter(
@@ -206,6 +210,7 @@ export async function getRecentTeamsMessages(
 
   try {
     const teamsData = await graphGet<GraphListResponse<GraphTeam>>(
+      username,
       "/me/joinedTeams?$top=10"
     );
 
@@ -213,6 +218,7 @@ export async function getRecentTeamsMessages(
       for (const team of teamsData.value) {
         try {
           const channelsData = await graphGet<GraphListResponse<GraphChannel>>(
+            username,
             `/teams/${team.id}/channels?$top=10`
           );
 
@@ -221,6 +227,7 @@ export async function getRecentTeamsMessages(
           for (const channel of channelsData.value) {
             try {
               const msgsData = await graphGet<GraphListResponse<GraphChatMessage>>(
+                username,
                 `/teams/${team.id}/channels/${channel.id}/messages?$top=10`
               );
 
@@ -270,11 +277,12 @@ export async function getRecentTeamsMessages(
  * Never throws — returns empty array on any failure.
  */
 export async function searchTeamsMessages(
-  query: string,
-  limit = 10
+  username: string,
+  query:    string,
+  limit =   10
 ): Promise<TeamsMessage[]> {
   try {
-    const res = await graphFetch("https://graph.microsoft.com/v1.0/search/query", {
+    const res = await graphFetch(username, "https://graph.microsoft.com/v1.0/search/query", {
       method: "POST",
       body:   JSON.stringify({
         requests: [
@@ -329,10 +337,11 @@ export async function searchTeamsMessages(
  * Send a message to a Teams chat.
  */
 export async function sendTeamsMessage(
-  chatId: string,
-  text:   string
+  username: string,
+  chatId:   string,
+  text:     string
 ): Promise<{ id: string }> {
-  const res = await graphFetch(`/me/chats/${chatId}/messages`, {
+  const res = await graphFetch(username, `/me/chats/${chatId}/messages`, {
     method: "POST",
     body:   JSON.stringify({ body: { content: text } }),
   });
@@ -350,9 +359,13 @@ export async function sendTeamsMessage(
 /**
  * Get the display names of all members in a Teams chat.
  */
-export async function getTeamsChatMembers(chatId: string): Promise<string[]> {
+export async function getTeamsChatMembers(
+  username: string,
+  chatId:   string
+): Promise<string[]> {
   try {
     const data = await graphGet<GraphListResponse<GraphChatMember>>(
+      username,
       `/me/chats/${chatId}/members`
     );
     return (data?.value || [])

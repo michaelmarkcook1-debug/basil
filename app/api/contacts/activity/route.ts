@@ -4,6 +4,7 @@ import { searchEmails } from "@/lib/google/gmail";
 import { getRecentDriveActivity } from "@/lib/google/drive";
 import { getRecentSlackMessages } from "@/lib/slack/client";
 import { listMemories } from "@/lib/memory/store";
+import { getSessionUser } from "@/lib/auth";
 import { contacts } from "@/lib/contacts-data";
 
 /**
@@ -39,6 +40,9 @@ function nameMatchesContact(
 }
 
 export async function GET() {
+  const username = (await getSessionUser());
+  if (!username) return NextResponse.json({ error: "Unauthorised" }, { status: 401 });
+
   const now = new Date();
   const currentYear = now.getFullYear();
   const currentMonth = now.getMonth();
@@ -53,32 +57,32 @@ export async function GET() {
       (async () => {
         try {
           // Get current and previous month to cover ~30 days
-          const current = await getEventsForMonth(currentYear, currentMonth);
+          const current = await getEventsForMonth(username, currentYear, currentMonth);
           const prevMonth = currentMonth === 0 ? 11 : currentMonth - 1;
           const prevYear = currentMonth === 0 ? currentYear - 1 : currentYear;
-          const prev = await getEventsForMonth(prevYear, prevMonth);
+          const prev = await getEventsForMonth(username, prevYear, prevMonth);
           return [...prev, ...current];
         } catch (e) {
           console.error("Calendar fetch failed:", e);
           return [];
         }
       })(),
-      searchEmails("in:inbox OR in:sent", 200).catch((e) => {
+      searchEmails(username, "in:inbox OR in:sent", 200).catch((e) => {
         console.error("Email fetch failed:", e);
         return [];
       }),
-      getRecentSlackMessages(200, 30).catch((e) => {
+      getRecentSlackMessages(username, 200, 30).catch((e) => {
         console.error("Slack fetch failed:", e);
         return [];
       }),
-      getRecentDriveActivity(30, 100).catch((e) => {
+      getRecentDriveActivity(username, 30, 100).catch((e) => {
         console.error("Drive activity fetch failed:", e);
         return [];
       }),
       // Memory store: "person" memories written by the Zoom materialization path.
       // These represent actual meeting participants, not incidental text mentions.
       // Content format: 'Zoom meeting participant: "{title}" on YYYY-MM-DD.'
-      listMemories().then((all) =>
+      listMemories(username).then((all) =>
         all.filter(
           (m) =>
             m.kind === "person" &&

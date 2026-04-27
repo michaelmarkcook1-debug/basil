@@ -14,7 +14,8 @@ export async function GET(req: Request) {
   }
 
   try {
-    const messages = await getRecentSlackMessages(200, 30);
+    // TODO: iterate over all registered users instead of hardcoding admin
+    const messages = await getRecentSlackMessages("michael", 200, 30);
     return NextResponse.json({
       ok: true,
       count: messages.length,

@@ -1,8 +1,8 @@
 /**
  * Microsoft Identity Platform OAuth 2.0 authentication and Graph API helpers.
  *
- * Tokens are persisted via the shared store so they survive Vercel cold starts
- * (included in the BASIL_DATA snapshot automatically by writeStore → persistSnapshot).
+ * Tokens are persisted per-user via the user store so they survive Vercel cold
+ * starts and remain isolated between users.
  *
  * Required env vars:
  *   MICROSOFT_CLIENT_ID
@@ -12,13 +12,19 @@
  *   NEXT_PUBLIC_APP_URL      (optional fallback when MICROSOFT_REDIRECT_URI is not set)
  */
 
-import { readStore, writeStore } from "@/lib/storage/persistent";
+import { readUserStore, writeUserStore } from "@/lib/storage/user-store";
 import type { IntegrationStatus } from "@/lib/integrations/types";
 
 // ── Constants ────────────────────────────────────────────────────────────────
 
 const TOKENS_FILE = "microsoft-tokens.json";
 
+// Teams channel scopes (Team.ReadBasic.All, Channel.ReadBasic.All,
+// ChannelMessage.Read.All) require admin consent for Azure AD work accounts.
+// We request them here and handle 403 gracefully in the Teams code so that:
+//  - Personal Microsoft accounts: granted automatically
+//  - Work accounts where the signed-in user IS the tenant admin: granted on consent
+//  - Work accounts without admin consent: OAuth succeeds, channel reads return []
 const SCOPES = [
   "openid",
   "profile",
@@ -29,18 +35,19 @@ const SCOPES = [
   "Mail.Send",
   "Calendars.ReadWrite",
   "Files.Read.All",
+  "Chat.Read",
+  "Chat.ReadBasic",
   "Team.ReadBasic.All",
   "Channel.ReadBasic.All",
   "ChannelMessage.Read.All",
-  "Chat.Read",
-  "Chat.ReadBasic",
 ].join(" ");
 
 export const MICROSOFT_SCOPE = {
-  mail:      "Mail.Read",
-  calendar:  "Calendars.ReadWrite",
-  drive:     "Files.Read.All",
-  teams:     "Chat.Read",
+  mail:            "Mail.Read",
+  calendar:        "Calendars.ReadWrite",
+  drive:           "Files.Read.All",
+  teams:           "Chat.Read",
+  teamsChannels:   "Team.ReadBasic.All",
 } as const;
 
 const GRAPH_BASE = "https://graph.microsoft.com/v1.0";
@@ -104,13 +111,15 @@ export function getMicrosoftAuthUrl(appBaseUrl?: string): string {
 // ── Token exchange ────────────────────────────────────────────────────────────
 
 /**
- * Exchange an OAuth authorization code for tokens and persist them via the
- * shared store so they survive Vercel cold starts.
+ * Exchange an OAuth authorization code for tokens and persist them to the
+ * user's scoped store so they survive Vercel cold starts.
  *
+ * @param code        The authorization code from the OAuth callback.
+ * @param username    The logged-in user to store tokens for.
  * @param appBaseUrl  Same origin passed to getMicrosoftAuthUrl() so both ends
  *                    of the OAuth flow use an identical redirect_uri.
  */
-export async function exchangeCode(code: string, appBaseUrl?: string): Promise<MicrosoftTokens> {
+export async function exchangeCode(code: string, username: string, appBaseUrl?: string): Promise<MicrosoftTokens> {
   const res = await fetch(getTokenEndpoint(), {
     method:  "POST",
     headers: { "Content-Type": "application/x-www-form-urlencoded" },
@@ -144,31 +153,30 @@ export async function exchangeCode(code: string, appBaseUrl?: string): Promise<M
     token_type:     data.token_type,
   };
 
-  await writeStore<MicrosoftTokens>(TOKENS_FILE, tokens);
+  await writeUserStore<MicrosoftTokens>(username, TOKENS_FILE, tokens);
   return tokens;
 }
 
 // ── Token persistence ─────────────────────────────────────────────────────────
 
 /**
- * Read stored Microsoft OAuth tokens.
- * readStore calls maybeRestore() internally, so cold-start tokens are
- * hydrated from BASIL_DATA before the file read happens.
+ * Read stored Microsoft OAuth tokens for a specific user.
+ * Strictly user-scoped — no global fallback to prevent data bleed across users.
  */
-export async function getStoredTokens(): Promise<MicrosoftTokens | null> {
-  const fromStore = await readStore<MicrosoftTokens | null>(TOKENS_FILE, null);
-  if (fromStore?.access_token) return fromStore;
+export async function getStoredTokens(username: string): Promise<MicrosoftTokens | null> {
+  const fromUserStore = await readUserStore<MicrosoftTokens | null>(username, TOKENS_FILE, null);
+  if (fromUserStore?.access_token) return fromUserStore;
   return null;
 }
 
 // ── Access token (auto-refresh) ───────────────────────────────────────────────
 
 /**
- * Returns a valid access token, refreshing automatically if within 5 minutes
- * of expiry. Returns null if no tokens are stored or refresh fails.
+ * Returns a valid access token for the user, refreshing automatically if within
+ * 5 minutes of expiry. Returns null if no tokens are stored or refresh fails.
  */
-export async function getAccessToken(): Promise<string | null> {
-  const tokens = await getStoredTokens();
+export async function getAccessToken(username: string): Promise<string | null> {
+  const tokens = await getStoredTokens(username);
   if (!tokens) return null;
 
   // Still valid — not within 5-minute expiry window
@@ -214,7 +222,7 @@ export async function getAccessToken(): Promise<string | null> {
       token_type:    data.token_type,
     };
 
-    await writeStore<MicrosoftTokens>(TOKENS_FILE, refreshed);
+    await writeUserStore<MicrosoftTokens>(username, TOKENS_FILE, refreshed);
     return refreshed.access_token;
   } catch (err) {
     console.error("[microsoft-auth] Token refresh error:", err instanceof Error ? err.message : err);
@@ -230,10 +238,11 @@ export async function getAccessToken(): Promise<string | null> {
  * Returns null if not authenticated.
  */
 export async function graphFetch(
+  username: string,
   path: string,
   options: RequestInit = {}
 ): Promise<Response | null> {
-  const token = await getAccessToken();
+  const token = await getAccessToken(username);
   if (!token) return null;
 
   const url = path.startsWith("https://") ? path : `${GRAPH_BASE}${path}`;
@@ -251,8 +260,8 @@ export async function graphFetch(
  * GET convenience wrapper.  Returns null if not authenticated.
  * Throws a descriptive error on non-2xx HTTP responses.
  */
-export async function graphGet<T>(path: string): Promise<T | null> {
-  const res = await graphFetch(path, { method: "GET" });
+export async function graphGet<T>(username: string, path: string): Promise<T | null> {
+  const res = await graphFetch(username, path, { method: "GET" });
   if (res === null) return null;
 
   if (!res.ok) {
@@ -269,11 +278,11 @@ export async function graphGet<T>(path: string): Promise<T | null> {
  * Returns a normalized IntegrationStatus for Microsoft 365.
  * Never throws — always resolves to a concrete state.
  */
-export async function getMicrosoftConnectionStatus(): Promise<IntegrationStatus> {
+export async function getMicrosoftConnectionStatus(username: string): Promise<IntegrationStatus> {
   const now = new Date().toISOString();
   try {
     // Step 1: check whether tokens are stored at all.
-    const tokens = await getStoredTokens();
+    const tokens = await getStoredTokens(username);
     if (!tokens?.access_token) {
       return { id: "microsoft", state: "disconnected", lastCheckedAt: now };
     }
@@ -282,7 +291,7 @@ export async function getMicrosoftConnectionStatus(): Promise<IntegrationStatus>
     // near expiry). If this returns null the stored tokens are unusable —
     // either the refresh token is invalid or MICROSOFT_CLIENT_SECRET is wrong.
     // This is the check that prevents false-positive "connected" badges.
-    const liveToken = await getAccessToken();
+    const liveToken = await getAccessToken(username);
     if (!liveToken) {
       return {
         id:            "microsoft",
@@ -307,7 +316,6 @@ export async function getMicrosoftConnectionStatus(): Promise<IntegrationStatus>
     // Drive and Teams are optional — their individual tiles show their own
     // status. Only fall to permission_missing if the core is absent.
     const coreGranted = hasMail && hasCalendar;
-    const allGranted  = coreGranted && hasDrive && hasTeams;
 
     return {
       id:            "microsoft",

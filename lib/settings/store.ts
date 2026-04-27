@@ -1,19 +1,14 @@
 /**
- * Persistent store for Michael's profile / assistant-configuration settings.
+ * Per-user assistant-configuration settings.
  *
- * Previously these values were hardcoded in two places:
- *   - app/dashboard/settings/page.tsx   (display)
- *   - lib/ai/system-prompt.ts           (AI context)
+ * Each user's settings live at  DATA_DIR/users/<username>/sage-settings.json
+ * so their profile, timezone, and preferences are fully isolated.
  *
- * Now they live in the server store.  The system prompt reads them at call
- * time; the settings UI reads and writes them through /api/settings.
- *
- * All fields have defaults so the system works on a fresh deploy with no
- * prior configuration.  Partial patches are fine — only the supplied keys
- * are overwritten.
+ * New users automatically get defaults derived from their username —
+ * they are never addressed as another user's name.
  */
 
-import { readStore, writeStore } from "@/lib/storage/persistent";
+import { readUserStore, writeUserStore } from "@/lib/storage/user-store";
 
 const SETTINGS_FILE = "sage-settings.json";
 
@@ -32,31 +27,36 @@ export interface UserSettings {
   meetingUrl: string;
 }
 
-/** Production defaults — match the previously-hardcoded values exactly. */
-const DEFAULTS: UserSettings = {
-  name:       "Michael Cook",
+/** Base defaults — used as fallback for any unset field. */
+const BASE_DEFAULTS: Omit<UserSettings, "name"> = {
   timezone:   "Europe/London",
-  workStart:  "12:00",
-  workEnd:    "20:00",
+  workStart:  "09:00",
+  workEnd:    "18:00",
   videoTool:  "Zoom",
-  meetingUrl: "https://us06web.zoom.us/j/8588489477?pwd=p5SrgLfrDLBXKCvbFOFGGfMaoQ1MkI.1",
+  meetingUrl: "",
 };
+
+/**
+ * Returns user-specific defaults.
+ * The display name is derived from the username so new users are never
+ * addressed as a different user.
+ */
+function defaultsForUser(username: string): UserSettings {
+  // "michael_cook" → "Michael Cook", "alice" → "Alice"
+  const displayName = username
+    .replace(/[_.-]/g, " ")
+    .replace(/\b\w/g, (c) => c.toUpperCase());
+  return { name: displayName, ...BASE_DEFAULTS };
+}
 
 // ── Validation helpers ─────────────────────────────────────────────────────
 
 /**
  * Returns true if `tz` is a valid IANA timezone identifier.
- *
- * Uses Intl.DateTimeFormat as the authoritative source — it internally validates
- * against the Unicode CLDR timezone list. Any invalid string throws RangeError.
- *
- * Examples of valid values: "Europe/London", "America/New_York", "UTC", "Asia/Tokyo".
- * Examples of invalid values: "London", "EST", "GMT+5", "America/NewYork".
  */
 export function isValidIANATimezone(tz: string): boolean {
   if (!tz || typeof tz !== "string") return false;
   try {
-    // Intl.DateTimeFormat throws RangeError for invalid timezone identifiers.
     Intl.DateTimeFormat(undefined, { timeZone: tz });
     return true;
   } catch {
@@ -64,24 +64,22 @@ export function isValidIANATimezone(tz: string): boolean {
   }
 }
 
-/** Returns the stored settings merged over defaults (partial stores are safe). */
-export async function getSettings(): Promise<UserSettings> {
-  const stored = await readStore<Partial<UserSettings>>(SETTINGS_FILE, {});
-  return { ...DEFAULTS, ...stored };
+/** Returns the stored settings for this user, merged over their defaults. */
+export async function getSettings(username: string): Promise<UserSettings> {
+  const stored = await readUserStore<Partial<UserSettings>>(username, SETTINGS_FILE, {});
+  return { ...defaultsForUser(username), ...stored };
 }
 
 /**
- * Writes a partial update and returns the full resulting settings object.
- * Unknown keys in `patch` are silently ignored — only `UserSettings` fields
- * are persisted.
+ * Writes a partial update for this user and returns the full resulting settings.
+ * Unknown keys in `patch` are silently ignored.
  */
 export async function patchSettings(
+  username: string,
   patch: Partial<UserSettings>
 ): Promise<UserSettings> {
-  const current = await getSettings();
-  // Allow only known keys through so rogue POST bodies can't inject arbitrary data.
-  // Validate timezone before persisting — an invalid IANA string will
-  // break every Intl.DateTimeFormat call in briefing/digest rendering.
+  const current = await getSettings(username);
+
   if (patch.timezone !== undefined && !isValidIANATimezone(patch.timezone)) {
     throw new Error(
       `Invalid timezone: "${patch.timezone}". ` +
@@ -97,6 +95,6 @@ export async function patchSettings(
     if (patch[k] !== undefined) safe[k] = patch[k] as string;
   }
   const updated: UserSettings = { ...current, ...safe };
-  await writeStore(SETTINGS_FILE, updated);
+  await writeUserStore(username, SETTINGS_FILE, updated);
   return updated;
 }

@@ -92,13 +92,16 @@ async function maybeRestore(): Promise<void> {
   try {
     const snapshot = JSON.parse(Buffer.from(raw, "base64").toString("utf8")) as Record<string, unknown>;
     await ensureDir();
-    const files = Object.keys(snapshot);
+    const keys = Object.keys(snapshot);
     await Promise.all(
-      Object.entries(snapshot).map(([filename, data]) =>
-        fs.writeFile(path.join(DATA_DIR, filename), JSON.stringify(data, null, 2), "utf8")
-      )
+      Object.entries(snapshot).map(async ([key, data]) => {
+        // Keys may now be paths like "users/michael/sage-memory.json" — create parent dirs
+        const dest = path.join(DATA_DIR, key);
+        await fs.mkdir(path.dirname(dest), { recursive: true });
+        await fs.writeFile(dest, JSON.stringify(data, null, 2), "utf8");
+      })
     );
-    console.log(`[snapshot] Restored ${files.length} store file(s) from BASIL_DATA: ${files.join(", ")}`);
+    console.log(`[snapshot] Restored ${keys.length} store file(s) from BASIL_DATA: ${keys.join(", ")}`);
   } catch (err) {
     const reason = err instanceof Error ? err.message : String(err);
     console.error(`[snapshot] Cold-start restore failed: ${reason}. Starting with empty stores.`);
@@ -145,20 +148,46 @@ async function persistSnapshot(): Promise<void> {
     // Total env vars share a 64KB budget; leaving ~10KB headroom for other vars.
     const PAYLOAD_HARD_CAP = 52_000;
 
-    let files: string[];
-    try {
-      files = await fs.readdir(DATA_DIR);
-    } catch (err) {
-      throw new Error(`readdir(${DATA_DIR}) failed: ${err instanceof Error ? err.message : err}`);
+    /**
+     * Recursively collect all JSON files under a directory.
+     * Returns entries as { key: relative-path-from-DATA_DIR, absPath }.
+     */
+    async function collectJsonFiles(dir: string, relBase = ""): Promise<Array<{ key: string; absPath: string }>> {
+      let entries: string[];
+      try {
+        entries = await fs.readdir(dir);
+      } catch {
+        return [];
+      }
+      const results: Array<{ key: string; absPath: string }> = [];
+      for (const entry of entries) {
+        const absPath = path.join(dir, entry);
+        const relPath = relBase ? `${relBase}/${entry}` : entry;
+        let stat: Awaited<ReturnType<typeof fs.stat>>;
+        try {
+          stat = await fs.stat(absPath);
+        } catch {
+          continue;
+        }
+        if (stat.isDirectory()) {
+          const nested = await collectJsonFiles(absPath, relPath);
+          results.push(...nested);
+        } else if (entry.endsWith(".json") && !SNAPSHOT_EXCLUDE.has(entry)) {
+          results.push({ key: relPath, absPath });
+        }
+      }
+      return results;
     }
 
+    const allFiles = await collectJsonFiles(DATA_DIR);
+
     const snapshot: Record<string, unknown> = {};
-    for (const f of files.filter((f) => f.endsWith(".json") && !SNAPSHOT_EXCLUDE.has(f))) {
+    for (const { key, absPath } of allFiles) {
       try {
-        const raw = await fs.readFile(path.join(DATA_DIR, f), "utf8");
-        snapshot[f] = JSON.parse(raw);
+        const raw = await fs.readFile(absPath, "utf8");
+        snapshot[key] = JSON.parse(raw);
       } catch {
-        console.warn(`[snapshot] Skipping unreadable file: ${f}`);
+        console.warn(`[snapshot] Skipping unreadable file: ${key}`);
       }
     }
 
@@ -169,21 +198,24 @@ async function persistSnapshot(): Promise<void> {
     // Trim the oldest entries from sage-events.json until we fit.  This only
     // affects the BASIL_DATA backup — the on-disk file is untouched — so no
     // permanent data loss occurs while the instance stays warm.
-    if (payloadBytes > PAYLOAD_HARD_CAP && Array.isArray(snapshot["sage-events.json"])) {
-      const events = snapshot["sage-events.json"] as unknown[];
-      let trimmed = events;
-      while (payloadBytes > PAYLOAD_HARD_CAP && trimmed.length > 0) {
-        // Drop the oldest quarter each iteration — fast convergence.
-        const drop = Math.max(1, Math.floor(trimmed.length / 4));
-        trimmed = trimmed.slice(drop);
-        snapshot["sage-events.json"] = trimmed;
-        encoded      = Buffer.from(JSON.stringify(snapshot)).toString("base64");
-        payloadBytes = encoded.length;
+    if (payloadBytes > PAYLOAD_HARD_CAP) {
+      // Try trimming top-level sage-events.json first
+      const eventsKey = Object.keys(snapshot).find((k) => k === "sage-events.json" || k.endsWith("/sage-events.json"));
+      if (eventsKey && Array.isArray(snapshot[eventsKey])) {
+        const events = snapshot[eventsKey] as unknown[];
+        let trimmed = events;
+        while (payloadBytes > PAYLOAD_HARD_CAP && trimmed.length > 0) {
+          const drop = Math.max(1, Math.floor(trimmed.length / 4));
+          trimmed = trimmed.slice(drop);
+          snapshot[eventsKey] = trimmed;
+          encoded      = Buffer.from(JSON.stringify(snapshot)).toString("base64");
+          payloadBytes = encoded.length;
+        }
+        console.warn(
+          `[snapshot] Auto-compacted ${eventsKey} from ${events.length} → ${trimmed.length} entries ` +
+          `to fit under ${PAYLOAD_HARD_CAP}B cap.`
+        );
       }
-      console.warn(
-        `[snapshot] Auto-compacted sage-events.json from ${events.length} → ${trimmed.length} entries ` +
-        `to fit under ${PAYLOAD_HARD_CAP}B cap.`
-      );
     }
 
     if (payloadBytes > PAYLOAD_ERROR_BYTES) {
@@ -275,11 +307,12 @@ async function persistSnapshot(): Promise<void> {
 
 // ── Public API ─────────────────────────────────────────────────────────────
 
-export async function readStore<T>(filename: string, fallback: T): Promise<T> {
+export async function readStore<T>(filename: string, fallback: T, subdir?: string): Promise<T> {
   await maybeRestore();
   await ensureDir();
+  const dir = subdir ? path.join(DATA_DIR, subdir) : DATA_DIR;
   try {
-    const raw    = await fs.readFile(path.join(DATA_DIR, filename), "utf8");
+    const raw    = await fs.readFile(path.join(dir, filename), "utf8");
     const parsed = JSON.parse(raw);
     return (Array.isArray(fallback) ? (Array.isArray(parsed) ? parsed : fallback) : parsed) as T;
   } catch {
@@ -287,12 +320,11 @@ export async function readStore<T>(filename: string, fallback: T): Promise<T> {
   }
 }
 
-export async function writeStore<T>(filename: string, data: T): Promise<void> {
+export async function writeStore<T>(filename: string, data: T, subdir?: string): Promise<void> {
   await ensureDir();
-  await fs.writeFile(path.join(DATA_DIR, filename), JSON.stringify(data, null, 2), "utf8");
-  // Fire-and-forget snapshot — never blocks the response.
-  // For long-running after() pipelines, call forceFlushSnapshot() explicitly
-  // at the end to guarantee the snapshot completes within the function lifetime.
+  const dir = subdir ? path.join(DATA_DIR, subdir) : DATA_DIR;
+  if (subdir) await fs.mkdir(dir, { recursive: true });
+  await fs.writeFile(path.join(dir, filename), JSON.stringify(data, null, 2), "utf8");
   persistSnapshot().catch((err) => {
     console.error("[snapshot] Unexpected error in persistSnapshot:", err);
   });

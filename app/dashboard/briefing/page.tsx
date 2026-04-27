@@ -299,7 +299,7 @@ export default function BriefingPage() {
           <p className="basil-eyebrow flex items-center gap-2 text-[13px]">
             <Newspaper className="h-3.5 w-3.5" /> Daily Briefing
           </p>
-          <h1 className="basil-display text-5xl lg:text-6xl leading-[1.05] text-foreground">
+          <h1 className="basil-display text-3xl sm:text-5xl lg:text-6xl leading-[1.05] text-foreground">
             {today.split(",")[0]}
             <span className="text-[oklch(0.72_0.15_85)]">.</span>
           </h1>

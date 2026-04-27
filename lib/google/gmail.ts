@@ -17,10 +17,11 @@ export interface GmailMessage {
  * Pass `maxAgeDays: 7` for meeting-prep and briefing to widen the window.
  */
 export async function getRecentEmails(
+  username: string,
   maxResults = 10,
   maxAgeDays = 2
 ): Promise<GmailMessage[]> {
-  return searchEmails(undefined, maxResults, maxAgeDays);
+  return searchEmails(username, undefined, maxResults, maxAgeDays);
 }
 
 /**
@@ -29,11 +30,12 @@ export async function getRecentEmails(
  * and the date window is `maxAgeDays` (default 30 days for searches).
  */
 export async function searchEmails(
+  username: string,
   query: string | undefined,
   maxResults = 10,
   maxAgeDays?: number
 ): Promise<GmailMessage[]> {
-  const auth = await getAuthedClient();
+  const auth = await getAuthedClient(username);
   if (!auth) return [];
 
   const gmail = google.gmail({ version: "v1", auth });
@@ -127,8 +129,8 @@ function extractBody(payload: { mimeType?: string | null; body?: { data?: string
   return "";
 }
 
-export async function getEmailBody(messageId: string): Promise<EmailBody> {
-  const auth = await getAuthedClient();
+export async function getEmailBody(username: string, messageId: string): Promise<EmailBody> {
+  const auth = await getAuthedClient(username);
   if (!auth) throw new Error("Gmail not connected");
 
   const gmail = google.gmail({ version: "v1", auth });
@@ -162,8 +164,8 @@ export async function getEmailBody(messageId: string): Promise<EmailBody> {
   };
 }
 
-export async function createDraft(to: string, subject: string, body: string): Promise<{ id: string }> {
-  const auth = await getAuthedClient();
+export async function createDraft(username: string, to: string, subject: string, body: string): Promise<{ id: string }> {
+  const auth = await getAuthedClient(username);
   if (!auth) throw new Error("Gmail not connected");
 
   const gmail = google.gmail({ version: "v1", auth });
@@ -185,11 +187,12 @@ export async function createDraft(to: string, subject: string, body: string): Pr
  * Requires the gmail.send OAuth scope (included in gmail.modify).
  */
 export async function sendEmail(
+  username: string,
   to: string,
   subject: string,
   body: string
 ): Promise<{ id: string }> {
-  const auth = await getAuthedClient();
+  const auth = await getAuthedClient(username);
   if (!auth) throw new Error("Gmail not connected");
 
   const gmail = google.gmail({ version: "v1", auth });

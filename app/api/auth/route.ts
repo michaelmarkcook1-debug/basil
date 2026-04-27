@@ -1,34 +1,38 @@
 import { NextResponse } from "next/server";
-import { SignJWT } from "jose";
-
-const secret = new TextEncoder().encode(
-  process.env.AUTH_SECRET || "dev-secret-change-me"
-);
+import { createSession } from "@/lib/auth";
+import { validateCredentials, updateUser } from "@/lib/users";
+import { checkRateLimit, getClientIp } from "@/lib/rate-limit";
 
 export async function POST(req: Request) {
-  const { password } = await req.json();
-  const expected = process.env.APP_PASSWORD || "execauto2024";
-
-  if (password !== expected) {
-    return NextResponse.json({ error: "Invalid password" }, { status: 401 });
+  // Rate limit by IP — 10 attempts per minute
+  const ip = getClientIp(req);
+  const rl = checkRateLimit(`login:${ip}`);
+  if (!rl.allowed) {
+    return NextResponse.json(
+      { error: `Too many login attempts — please wait ${rl.retryAfter} seconds.` },
+      { status: 429, headers: { "Retry-After": String(rl.retryAfter) } }
+    );
   }
 
-  const token = await new SignJWT({ authenticated: true })
-    .setProtectedHeader({ alg: "HS256" })
-    .setIssuedAt()
-    .setExpirationTime("30d")
-    .sign(secret);
+  const { username, password } = await req.json();
 
-  const headers = new Headers();
-  headers.append("Content-Type", "application/json");
-  headers.append(
-    "Set-Cookie",
-    `execauto_session=${token}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${60 * 60 * 24 * 30}`
-  );
+  if (!username || !password) {
+    return NextResponse.json({ error: "Username and password required" }, { status: 400 });
+  }
 
-  return new Response(JSON.stringify({ success: true }), {
-    status: 200,
-    headers,
+  const user = await validateCredentials(username, password);
+  if (!user) {
+    return NextResponse.json({ error: "Wrong username or password" }, { status: 401 });
+  }
+
+  // Record last login time (best-effort, non-blocking)
+  updateUser(username, { lastLoginAt: new Date().toISOString() }).catch(() => {});
+
+  await createSession(username, user.sessionVersion ?? 1);
+  return NextResponse.json({
+    success: true,
+    username,
+    onboardingCompleted: user.onboardingCompleted ?? false,
   });
 }
 

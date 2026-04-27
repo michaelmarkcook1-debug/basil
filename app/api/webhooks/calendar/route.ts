@@ -31,7 +31,8 @@ export async function POST(req: Request) {
     return NextResponse.json({ ok: true, bootstrap: true });
   }
 
-  const auth = await getAuthedClient();
+  // TODO: resolve username from session once multi-user is fully live
+  const auth = await getAuthedClient("michael");
   if (!auth) return NextResponse.json({ ok: true, note: "calendar not connected" });
   const cal = google.calendar({ version: "v3", auth });
 

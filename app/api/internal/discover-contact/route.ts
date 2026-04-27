@@ -22,12 +22,15 @@ export async function GET(req: NextRequest) {
   const name = searchParams.get("name") || undefined;
   const queries = [email, name].filter(Boolean) as string[];
 
-  const profile = email ? await getUserProfile(email) : null;
+  // Dev-only route — always uses admin user "michael"
+  const devUsername = "michael";
+
+  const profile = email ? await getUserProfile(devUsername, email) : null;
 
   const slackResults: Record<string, unknown> = {};
   for (const q of queries) {
     try {
-      const msgs = await searchSlackMessages(q, 20);
+      const msgs = await searchSlackMessages(devUsername, q, 20);
       slackResults[q] = msgs.map((m) => ({
         channel: m.channel,
         author: m.author,
@@ -42,14 +45,14 @@ export async function GET(req: NextRequest) {
   const driveResults: Record<string, unknown> = {};
   for (const q of queries) {
     try {
-      const files = await searchDriveFiles(q, 10);
+      const files = await searchDriveFiles(devUsername, q, 10);
       driveResults[q] = files;
     } catch (e) {
       driveResults[q] = `error: ${e instanceof Error ? e.message : e}`;
     }
   }
 
-  const emails = await getRecentEmails(100).catch(() => []);
+  const emails = await getRecentEmails(devUsername, 100).catch(() => []);
   const matchedEmails = emails
     .filter((e) => {
       const hay = `${e.from} ${e.subject} ${e.snippet}`.toLowerCase();

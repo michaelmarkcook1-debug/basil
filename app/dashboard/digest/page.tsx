@@ -207,13 +207,21 @@ export default function DigestPage() {
     setTimeout(() => setCopied(false), 2000);
   }
 
+  // Use week range returned from the API (computed server-side in user's timezone).
+  // Fall back to client-side computation if no digest exists yet.
   const weekLabel = (() => {
-    const mon = new Date();
-    mon.setDate(mon.getDate() - mon.getDay() + 1); // Monday
+    if (digest?.weekStart && digest?.weekEnd) {
+      return `${digest.weekStart} – ${digest.weekEnd}`;
+    }
+    // Client-side fallback (before first generation)
+    const d   = new Date();
+    const dow = d.getDay();
+    const mon = new Date(d);
+    mon.setDate(d.getDate() - (dow === 0 ? 6 : dow - 1));
     const sun = new Date(mon);
-    sun.setDate(sun.getDate() + 6);
-    const fmt = (d: Date) =>
-      d.toLocaleDateString("en-GB", { day: "numeric", month: "short", timeZone: "Europe/London" });
+    sun.setDate(mon.getDate() + 6);
+    const fmt = (dt: Date) =>
+      dt.toLocaleDateString("en-GB", { day: "numeric", month: "short" });
     return `${fmt(mon)} – ${fmt(sun)}`;
   })();
 
@@ -225,7 +233,7 @@ export default function DigestPage() {
           <p className="basil-eyebrow flex items-center gap-2 text-[13px]">
             <BarChart3 className="h-3.5 w-3.5" /> Weekly Summary
           </p>
-          <h1 className="basil-display text-5xl lg:text-6xl leading-[1.05] text-foreground">
+          <h1 className="basil-display text-3xl sm:text-5xl lg:text-6xl leading-[1.05] text-foreground">
             This Week<span className="text-[oklch(0.72_0.15_85)]">.</span>
           </h1>
           <p className="text-base text-muted-foreground">
