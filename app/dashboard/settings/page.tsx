@@ -107,14 +107,15 @@ interface SnapshotDiagnostics {
   payloadBytes:      number | null;
 }
 
-// Mirrors UserSettings from lib/settings/store.ts — all fields are strings.
+// Mirrors UserSettings from lib/settings/store.ts
 interface UserSettings {
-  name:       string;
-  timezone:   string;
-  workStart:  string;
-  workEnd:    string;
-  videoTool:  string;
-  meetingUrl: string;
+  name:          string;
+  timezone:      string;
+  workStart:     string;
+  workEnd:       string;
+  videoTool:     string;
+  meetingUrl:    string;
+  useIpTimezone?: boolean;
 }
 
 // ── Timezone validation ───────────────────────────────────────────────────────
@@ -863,6 +864,39 @@ export default function SettingsPage() {
             ) : (
               <span className="font-medium">{profile?.timezone ?? "—"}</span>
             )}
+          </div>
+          <Separator />
+
+          {/* Use IP timezone */}
+          <div className="flex items-center justify-between gap-4 min-h-[44px] sm:min-h-[28px]">
+            <div className="flex flex-col gap-0.5">
+              <span className="text-muted-foreground shrink-0">Detect timezone from location</span>
+              <span className="text-xs text-muted-foreground/60">Auto-detects your timezone on each request using your IP address</span>
+            </div>
+            <button
+              type="button"
+              role="switch"
+              aria-checked={!!(editing && draft ? draft.useIpTimezone : profile?.useIpTimezone)}
+              onClick={async () => {
+                const next = !(editing && draft ? draft.useIpTimezone : profile?.useIpTimezone);
+                if (editing && draft) {
+                  setDraft({ ...draft, useIpTimezone: next });
+                } else {
+                  // Toggle without entering edit mode — instant save
+                  await fetch("/api/settings", {
+                    method: "PATCH",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ useIpTimezone: next }),
+                  });
+                  setProfile((p) => p ? { ...p, useIpTimezone: next } : p);
+                }
+              }}
+              className={`relative inline-flex h-6 w-11 shrink-0 rounded-full border-2 border-transparent transition-colors duration-200 focus:outline-none focus-visible:ring-2 focus-visible:ring-ring ${(editing && draft ? draft.useIpTimezone : profile?.useIpTimezone) ? "bg-primary" : "bg-input"}`}
+            >
+              <span
+                className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow-lg ring-0 transition duration-200 ${(editing && draft ? draft.useIpTimezone : profile?.useIpTimezone) ? "translate-x-5" : "translate-x-0"}`}
+              />
+            </button>
           </div>
           <Separator />
 

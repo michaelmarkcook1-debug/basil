@@ -1,9 +1,11 @@
-import { NextResponse } from "next/server";
+import { type NextRequest, NextResponse } from "next/server";
 import { isGoogleConnected } from "@/lib/google/auth";
 import { getTodayEvents } from "@/lib/google/calendar";
 import { getSessionUser } from "@/lib/auth";
+import { getSettings } from "@/lib/settings/store";
+import { resolveTimezone } from "@/lib/timezone";
 
-export async function GET() {
+export async function GET(req: NextRequest) {
   const username = (await getSessionUser());
   if (!username) return NextResponse.json({ error: "Unauthorised" }, { status: 401 });
 
@@ -16,7 +18,9 @@ export async function GET() {
   }
 
   try {
-    const events = await getTodayEvents(username);
+    const settings = await getSettings(username);
+    const timezone = resolveTimezone(settings, req);
+    const events = await getTodayEvents(username, timezone);
     return NextResponse.json({
       connected: true,
       events,

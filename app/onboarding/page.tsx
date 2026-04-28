@@ -8,6 +8,7 @@ interface FormData {
   jobTitle: string;
   company: string;
   timezone: string;
+  useIpTimezone: boolean;
   workStart: string;
   workEnd: string;
   communicationStyle: "formal" | "balanced" | "casual" | "";
@@ -187,6 +188,7 @@ export default function OnboardingPage() {
     jobTitle: "",
     company: "",
     timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+    useIpTimezone: false,
     workStart: "09:00",
     workEnd: "18:00",
     communicationStyle: "",
@@ -261,6 +263,7 @@ export default function OnboardingPage() {
           jobTitle: form.jobTitle,
           company: form.company,
           timezone: form.timezone,
+          useIpTimezone: form.useIpTimezone,
           workStart: form.workStart,
           workEnd: form.workEnd,
           communicationStyle: form.communicationStyle || "balanced",
@@ -338,6 +341,21 @@ export default function OnboardingPage() {
               <option key={tz} value={tz} style={{ background: "oklch(0.24 0.05 250)" }}>{tz}</option>
             ))}
           </select>
+          {/* IP timezone toggle */}
+          <button
+            type="button"
+            onClick={() => setField("useIpTimezone", !form.useIpTimezone)}
+            className="mt-2 flex items-center gap-2 text-sm text-white/60 hover:text-white/80 transition-colors"
+          >
+            <span
+              className={`relative inline-flex h-5 w-9 shrink-0 rounded-full border-2 border-transparent transition-colors duration-200 focus:outline-none ${form.useIpTimezone ? "bg-indigo-500" : "bg-white/20"}`}
+            >
+              <span
+                className={`pointer-events-none inline-block h-4 w-4 transform rounded-full bg-white shadow transition duration-200 ${form.useIpTimezone ? "translate-x-4" : "translate-x-0"}`}
+              />
+            </span>
+            <span>Use my location to detect timezone automatically</span>
+          </button>
         </div>
         <div className="grid grid-cols-2 gap-3">
           <div>

@@ -41,7 +41,7 @@ import { findContactByName } from "@/lib/contacts-lookup";
  * @param username  The authenticated user's login name (e.g. "michael").
  * @param firstName Optional display first name override. Derived from username if omitted.
  */
-export function buildAssistantTools(username: string, firstName?: string) {
+export function buildAssistantTools(username: string, firstName?: string, timezone = "Europe/London") {
   // Derive a readable first name from the username if not explicitly provided.
   // "michael" → "Michael", "alice_jones" → "Alice"
   const name = firstName
@@ -74,14 +74,14 @@ export function buildAssistantTools(username: string, firstName?: string) {
         }
         try {
           if (date && endDate) {
-            const events = await getEventsForDateRange(username, date, endDate);
+            const events = await getEventsForDateRange(username, date, endDate, timezone);
             return { events, count: events.length, dateRange: `${date} → ${endDate}` };
           }
           if (date) {
-            const events = await getEventsForDate(username, date);
+            const events = await getEventsForDate(username, date, timezone);
             return { events, count: events.length, date };
           }
-          const events = await getTodayEvents(username);
+          const events = await getTodayEvents(username, timezone);
           return { events, count: events.length, date: "today" };
         } catch (e) {
           return { error: `Calendar fetch failed: ${e instanceof Error ? e.message : String(e)}` };

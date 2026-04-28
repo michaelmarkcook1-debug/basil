@@ -111,14 +111,23 @@ export async function createCalendarEvent(username: string, params: {
   };
 }
 
-export async function getEventsForMonth(username: string, year: number, month: number): Promise<CalendarEvent[]> {
+export async function getEventsForMonth(
+  username: string,
+  year: number,
+  month: number,
+  timezone = "Europe/London",
+): Promise<CalendarEvent[]> {
   const auth = await getAuthedClient(username);
   if (!auth) return [];
 
   const calendar = google.calendar({ version: "v3", auth });
 
-  const startOfMonth = new Date(year, month, 1);
-  const endOfMonth = new Date(year, month + 1, 0, 23, 59, 59);
+  // Use timezone-aware day bounds for the first and last day of the month
+  const firstDay = `${year}-${String(month + 1).padStart(2, "0")}-01`;
+  const lastDayDate = new Date(year, month + 1, 0);
+  const lastDay = `${year}-${String(month + 1).padStart(2, "0")}-${String(lastDayDate.getDate()).padStart(2, "0")}`;
+  const { start: startOfMonth } = tzDayBounds(firstDay, timezone);
+  const { end:   endOfMonth   } = tzDayBounds(lastDay,  timezone);
 
   const res = await calendar.events.list({
     calendarId: "primary",
@@ -130,11 +139,11 @@ export async function getEventsForMonth(username: string, year: number, month: n
   });
 
   const now = new Date();
-  const todayStr    = now.toLocaleDateString("en-CA", { timeZone: "Europe/London" });
-  const { start: londonToday } = londonDayBounds(todayStr);
-  const tomorrowDate = new Date(londonToday);
+  const todayStr    = now.toLocaleDateString("en-CA", { timeZone: timezone });
+  const { start: tzToday } = tzDayBounds(todayStr, timezone);
+  const tomorrowDate = new Date(tzToday);
   tomorrowDate.setDate(tomorrowDate.getDate() + 1);
-  const tomorrowStr = tomorrowDate.toLocaleDateString("en-CA", { timeZone: "Europe/London" });
+  const tomorrowStr = tomorrowDate.toLocaleDateString("en-CA", { timeZone: timezone });
 
   return (res.data.items || []).map((e) => {
     const eventDate = (e.start?.dateTime || e.start?.date || "").substring(0, 10);
@@ -148,32 +157,35 @@ export async function getEventsForMonth(username: string, year: number, month: n
         weekday: "long",
         day: "numeric",
         month: "long",
-        timeZone: "Europe/London",
+        timeZone: timezone,
       });
     }
     return mapEvent(e, dateLabel);
   });
 }
 
-export async function getTodayEvents(username: string): Promise<CalendarEvent[]> {
-  return getEventsForDays(username, 1);
+export async function getTodayEvents(username: string, timezone = "Europe/London"): Promise<CalendarEvent[]> {
+  return getEventsForDays(username, 1, timezone);
 }
 
 /**
  * Return all events on a specific calendar date (YYYY-MM-DD).
  * Uses Europe/London for the day boundary so it matches the user's wall clock.
  */
-/** Returns the Europe/London UTC offset in hours for a given date (e.g. +1 for BST, 0 for GMT). */
-function londonOffsetHours(date: Date): number {
-  const utcMs  = new Date(date.toLocaleString("en-US", { timeZone: "UTC" })).getTime();
-  const lonMs  = new Date(date.toLocaleString("en-US", { timeZone: "Europe/London" })).getTime();
-  return (lonMs - utcMs) / 3_600_000;
+/** Returns the UTC offset in hours for a given timezone + date (e.g. +1 for BST, -5 for EST). */
+function tzOffsetHours(date: Date, timeZone: string): number {
+  const utcMs = new Date(date.toLocaleString("en-US", { timeZone: "UTC" })).getTime();
+  const tzMs  = new Date(date.toLocaleString("en-US", { timeZone })).getTime();
+  return (tzMs - utcMs) / 3_600_000;
 }
 
-/** Build a Date representing midnight or end-of-day in Europe/London for a YYYY-MM-DD string. */
-function londonDayBounds(dateStr: string): { start: Date; end: Date } {
-  const noon      = new Date(`${dateStr}T12:00:00Z`);
-  const offsetH   = londonOffsetHours(noon);
+/**
+ * Build a Date representing midnight (start) and 23:59:59 (end) in the given
+ * IANA timezone for a YYYY-MM-DD string.  Handles DST transitions correctly.
+ */
+function tzDayBounds(dateStr: string, timeZone: string): { start: Date; end: Date } {
+  const noon      = new Date(`${dateStr}T12:00:00Z`); // use noon UTC as stable DST reference
+  const offsetH   = tzOffsetHours(noon, timeZone);
   const sign      = offsetH >= 0 ? "+" : "-";
   const absH      = Math.abs(offsetH);
   const hh        = String(Math.floor(absH)).padStart(2, "0");
@@ -185,40 +197,44 @@ function londonDayBounds(dateStr: string): { start: Date; end: Date } {
   };
 }
 
-export async function getEventsForDate(username: string, dateStr: string): Promise<CalendarEvent[]> {
+export async function getEventsForDate(
+  username: string,
+  dateStr: string,
+  timezone = "Europe/London",
+): Promise<CalendarEvent[]> {
   const auth = await getAuthedClient(username);
   if (!auth) return [];
 
   const calendar = google.calendar({ version: "v3", auth });
 
-  // Build inclusive day window anchored to Europe/London midnight (handles BST/GMT)
-  const { start: dayStart, end: dayEnd } = londonDayBounds(dateStr);
+  // Midnight-to-midnight boundaries in the user's actual timezone
+  const { start: dayStart, end: dayEnd } = tzDayBounds(dateStr, timezone);
 
   const res = await calendar.events.list({
-    calendarId: "primary",
-    timeMin:     dayStart.toISOString(),
-    timeMax:     dayEnd.toISOString(),
-    timeZone:    "Europe/London",
+    calendarId:   "primary",
+    timeMin:      dayStart.toISOString(),
+    timeMax:      dayEnd.toISOString(),
+    timeZone:     timezone,
     singleEvents: true,
-    orderBy:     "startTime",
-    maxResults:  50,
+    orderBy:      "startTime",
+    maxResults:   50,
   });
 
   const now = new Date();
-  const todayStr    = now.toLocaleDateString("en-CA", { timeZone: "Europe/London" });
-  const londonToday = new Date(todayStr + "T00:00:00");
-  const tomorrowDate = new Date(londonToday);
+  const todayStr    = now.toLocaleDateString("en-CA", { timeZone: timezone });
+  const { start: tzToday } = tzDayBounds(todayStr, timezone);
+  const tomorrowDate = new Date(tzToday);
   tomorrowDate.setDate(tomorrowDate.getDate() + 1);
-  const tomorrowStr = tomorrowDate.toLocaleDateString("en-CA", { timeZone: "Europe/London" });
+  const tomorrowStr = tomorrowDate.toLocaleDateString("en-CA", { timeZone: timezone });
 
   return (res.data.items || []).map((e) => {
     const eventDate = (e.start?.dateTime || e.start?.date || "").substring(0, 10);
     let dateLabel: string;
-    if (eventDate === todayStr)    dateLabel = "Today";
-    else if (eventDate === tomorrowStr) dateLabel = "Tomorrow";
+    if (eventDate === todayStr)          dateLabel = "Today";
+    else if (eventDate === tomorrowStr)  dateLabel = "Tomorrow";
     else {
       dateLabel = new Date(eventDate + "T12:00:00").toLocaleDateString("en-GB", {
-        weekday: "long", day: "numeric", month: "long", timeZone: "Europe/London",
+        weekday: "long", day: "numeric", month: "long", timeZone: timezone,
       });
     }
     return mapEvent(e, dateLabel);
@@ -232,32 +248,33 @@ export async function getEventsForDate(username: string, dateStr: string): Promi
 export async function getEventsForDateRange(
   username: string,
   startDate: string,
-  endDate:   string
+  endDate:   string,
+  timezone = "Europe/London",
 ): Promise<CalendarEvent[]> {
   const auth = await getAuthedClient(username);
   if (!auth) return [];
 
   const calendar = google.calendar({ version: "v3", auth });
 
-  const { start: timeMin } = londonDayBounds(startDate);
-  const { end:   timeMax } = londonDayBounds(endDate);
+  const { start: timeMin } = tzDayBounds(startDate, timezone);
+  const { end:   timeMax } = tzDayBounds(endDate,   timezone);
 
   const res = await calendar.events.list({
     calendarId: "primary",
     timeMin:     timeMin.toISOString(),
     timeMax:     timeMax.toISOString(),
-    timeZone:    "Europe/London",
+    timeZone:    timezone,
     singleEvents: true,
     orderBy:     "startTime",
     maxResults:  100,
   });
 
   const now = new Date();
-  const todayStr    = now.toLocaleDateString("en-CA", { timeZone: "Europe/London" });
-  const londonToday = new Date(todayStr + "T00:00:00");
-  const tomorrowDate = new Date(londonToday);
+  const todayStr    = now.toLocaleDateString("en-CA", { timeZone: timezone });
+  const { start: tzToday } = tzDayBounds(todayStr, timezone);
+  const tomorrowDate = new Date(tzToday);
   tomorrowDate.setDate(tomorrowDate.getDate() + 1);
-  const tomorrowStr = tomorrowDate.toLocaleDateString("en-CA", { timeZone: "Europe/London" });
+  const tomorrowStr = tomorrowDate.toLocaleDateString("en-CA", { timeZone: timezone });
 
   return (res.data.items || []).map((e) => {
     const eventDate = (e.start?.dateTime || e.start?.date || "").substring(0, 10);
@@ -266,38 +283,38 @@ export async function getEventsForDateRange(
     else if (eventDate === tomorrowStr) dateLabel = "Tomorrow";
     else {
       dateLabel = new Date(eventDate + "T12:00:00").toLocaleDateString("en-GB", {
-        weekday: "long", day: "numeric", month: "long", timeZone: "Europe/London",
+        weekday: "long", day: "numeric", month: "long", timeZone: timezone,
       });
     }
     return mapEvent(e, dateLabel);
   });
 }
 
-export async function getEventsForDays(username: string, days: number): Promise<CalendarEvent[]> {
+export async function getEventsForDays(username: string, days: number, timezone = "Europe/London"): Promise<CalendarEvent[]> {
   const auth = await getAuthedClient(username);
   if (!auth) return [];
 
   const calendar = google.calendar({ version: "v3", auth });
 
   const now = new Date();
-  const todayDateStr = now.toLocaleDateString("en-CA", { timeZone: "Europe/London" });
-  const { start: londonToday } = londonDayBounds(todayDateStr);
-  const endDate = new Date(londonToday);
+  const todayDateStr = now.toLocaleDateString("en-CA", { timeZone: timezone });
+  const { start: tzToday } = tzDayBounds(todayDateStr, timezone);
+  const endDate = new Date(tzToday);
   endDate.setDate(endDate.getDate() + days);
 
   const res = await calendar.events.list({
     calendarId: "primary",
-    timeMin: londonToday.toISOString(),
+    timeMin: tzToday.toISOString(),
     timeMax: endDate.toISOString(),
     singleEvents: true,
     orderBy: "startTime",
     maxResults: 200,
   });
 
-  const todayStr = now.toLocaleDateString("en-CA", { timeZone: "Europe/London" });
-  const tomorrowDate = new Date(londonToday);
+  const todayStr = now.toLocaleDateString("en-CA", { timeZone: timezone });
+  const tomorrowDate = new Date(tzToday);
   tomorrowDate.setDate(tomorrowDate.getDate() + 1);
-  const tomorrowStr = tomorrowDate.toLocaleDateString("en-CA", { timeZone: "Europe/London" });
+  const tomorrowStr = tomorrowDate.toLocaleDateString("en-CA", { timeZone: timezone });
 
   return (res.data.items || []).map((e) => {
     const eventDate = (e.start?.dateTime || e.start?.date || "").substring(0, 10);
@@ -311,7 +328,7 @@ export async function getEventsForDays(username: string, days: number): Promise<
         weekday: "long",
         day: "numeric",
         month: "long",
-        timeZone: "Europe/London",
+        timeZone: timezone,
       });
     }
     return mapEvent(e, dateLabel);

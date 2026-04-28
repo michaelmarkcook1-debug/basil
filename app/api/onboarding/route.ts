@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { getSessionUser, verifySession } from "@/lib/auth";
 import { updateUser } from "@/lib/users";
+import { patchSettings } from "@/lib/settings/store";
 import type { UserProfile } from "@/lib/users";
 
 /** POST /api/onboarding — save profile data and mark onboarding complete. */
@@ -26,7 +27,16 @@ export async function POST(req: Request) {
     facts:               Array.isArray(body.facts) ? body.facts.filter(Boolean) : undefined,
   };
 
-  await updateUser(username, { profile, onboardingCompleted: true });
+  // Save profile (user store) + timezone/IP preference (settings store) in parallel
+  await Promise.all([
+    updateUser(username, { profile, onboardingCompleted: true }),
+    patchSettings(username, {
+      timezone:       body.timezone   || undefined,
+      workStart:      body.workStart  || undefined,
+      workEnd:        body.workEnd    || undefined,
+      useIpTimezone:  typeof body.useIpTimezone === "boolean" ? body.useIpTimezone : false,
+    }),
+  ]);
 
   return NextResponse.json({ success: true });
 }

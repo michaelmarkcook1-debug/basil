@@ -1,12 +1,14 @@
-import { type NextRequest, NextResponse } from "next/server";
+import { NextResponse } from "next/server";
 import { isGoogleConnected } from "@/lib/google/auth";
 import { getEventsForMonth } from "@/lib/google/calendar";
 import { getSessionUser } from "@/lib/auth";
+import { getSettings } from "@/lib/settings/store";
+import { resolveTimezone } from "@/lib/timezone";
 
 // GET /api/calendar/month?year=2026&month=3  (month is 0-indexed)
-export async function GET(request: NextRequest) {
-  const searchParams = request.nextUrl.searchParams;
-  const yearParam = searchParams.get("year");
+export async function GET(request: Request) {
+  const { searchParams } = new URL(request.url);
+  const yearParam  = searchParams.get("year");
   const monthParam = searchParams.get("month");
 
   if (!yearParam || !monthParam) {
@@ -16,7 +18,7 @@ export async function GET(request: NextRequest) {
     );
   }
 
-  const year = parseInt(yearParam, 10);
+  const year  = parseInt(yearParam,  10);
   const month = parseInt(monthParam, 10);
 
   if (isNaN(year) || isNaN(month) || month < 0 || month > 11) {
@@ -26,7 +28,7 @@ export async function GET(request: NextRequest) {
     );
   }
 
-  const username = (await getSessionUser());
+  const username = await getSessionUser();
   if (!username) return NextResponse.json({ error: "Unauthorised" }, { status: 401 });
 
   if (!(await isGoogleConnected(username))) {
@@ -38,7 +40,9 @@ export async function GET(request: NextRequest) {
   }
 
   try {
-    const events = await getEventsForMonth(username, year, month);
+    const settings  = await getSettings(username);
+    const timezone  = resolveTimezone(settings, request);
+    const events    = await getEventsForMonth(username, year, month, timezone);
     return NextResponse.json({
       connected: true,
       events,

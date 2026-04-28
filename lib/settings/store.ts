@@ -25,15 +25,23 @@ export interface UserSettings {
   videoTool: string;
   /** Full Zoom (or other) room URL — included in calendar invites and the system prompt. */
   meetingUrl: string;
+  /**
+   * When true, Basil detects the user's timezone from their IP address on each request
+   * (via Vercel's x-vercel-ip-timezone header) and uses that instead of the stored
+   * `timezone` field for calendar date boundaries and the system prompt.
+   * Falls back to `timezone` if the IP lookup fails.
+   */
+  useIpTimezone?: boolean;
 }
 
 /** Base defaults — used as fallback for any unset field. */
 const BASE_DEFAULTS: Omit<UserSettings, "name"> = {
-  timezone:   "Europe/London",
-  workStart:  "09:00",
-  workEnd:    "18:00",
-  videoTool:  "Zoom",
-  meetingUrl: "",
+  timezone:      "Europe/London",
+  workStart:     "09:00",
+  workEnd:       "18:00",
+  videoTool:     "Zoom",
+  meetingUrl:    "",
+  useIpTimezone: false,
 };
 
 /**
@@ -89,10 +97,14 @@ export async function patchSettings(
 
   const safe: Partial<UserSettings> = {};
   const keys: Array<keyof UserSettings> = [
-    "name", "timezone", "workStart", "workEnd", "videoTool", "meetingUrl",
+    "name", "timezone", "workStart", "workEnd", "videoTool", "meetingUrl", "useIpTimezone",
   ];
   for (const k of keys) {
-    if (patch[k] !== undefined) safe[k] = patch[k] as string;
+    if (patch[k] !== undefined) {
+      // useIpTimezone is boolean; all other keys are strings
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      (safe as any)[k] = patch[k];
+    }
   }
   const updated: UserSettings = { ...current, ...safe };
   await writeUserStore(username, SETTINGS_FILE, updated);

@@ -2,10 +2,12 @@ import { NextResponse } from "next/server";
 import { isGoogleConnected } from "@/lib/google/auth";
 import { getEventsForDays } from "@/lib/google/calendar";
 import { getSessionUser } from "@/lib/auth";
+import { getSettings } from "@/lib/settings/store";
+import { resolveTimezone } from "@/lib/timezone";
 
 // GET /api/calendar/upcoming — returns rolling 14-day window of events
-export async function GET() {
-  const username = (await getSessionUser());
+export async function GET(req: Request) {
+  const username = await getSessionUser();
   if (!username) return NextResponse.json({ error: "Unauthorised" }, { status: 401 });
 
   if (!(await isGoogleConnected(username))) {
@@ -17,7 +19,9 @@ export async function GET() {
   }
 
   try {
-    const events = await getEventsForDays(username, 14);
+    const settings  = await getSettings(username);
+    const timezone  = resolveTimezone(settings, req);
+    const events    = await getEventsForDays(username, 14, timezone);
     return NextResponse.json({
       connected: true,
       events,

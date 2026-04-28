@@ -2,12 +2,20 @@ import { getAllPersonaSummaries } from "@/lib/contacts-lookup";
 import { memoriesForPrompt } from "@/lib/memory/store";
 import { getSettings } from "@/lib/settings/store";
 
-export async function getSystemPrompt(username: string): Promise<string> {
+/**
+ * @param username     The authenticated user.
+ * @param timezoneOverride  Effective timezone resolved from IP (if useIpTimezone is on).
+ *                          Falls back to the stored settings timezone when omitted.
+ */
+export async function getSystemPrompt(username: string, timezoneOverride?: string): Promise<string> {
   const [personas, memories, settings] = await Promise.all([
     Promise.resolve(getAllPersonaSummaries()),
     memoriesForPrompt(username),
     getSettings(username),
   ]);
+
+  // Use the IP-resolved timezone when available, otherwise fall back to the stored setting.
+  const effectiveTimezone = timezoneOverride || settings.timezone;
 
   // Derive first name from display name ("Michael Cook" → "Michael", "Alice" → "Alice")
   const firstName = settings.name.split(" ")[0] ?? settings.name;
@@ -38,7 +46,7 @@ No memories have been saved for ${firstName} yet. Actively watch for things wort
 When you spot any of these, call \`rememberThis\` immediately and confirm: "Got it — I've saved that."
 Do not wait to be asked.`;
 
-  const workHours = `${settings.workStart}–${settings.workEnd} ${settings.timezone.replace("Europe/", "")} time`;
+  const workHours = `${settings.workStart}–${settings.workEnd} ${effectiveTimezone.replace("Europe/", "")} time`;
   const videoNote = settings.meetingUrl
     ? `${settings.videoTool} only (never Google Meet). Room: ${settings.meetingUrl}`
     : `${settings.videoTool} only (never Google Meet).`;
@@ -49,7 +57,7 @@ Do not wait to be asked.`;
 - CEO of AnalystGenius (AG) — AI-native industry analyst platform targeting AR professionals. Pre-launch, V1.0.
 - VP of Product at TalentGenius (holding company) — oversight across AG, AgentPowered/TalentGenius (AP/TG), and BoardRadar (BR).
 - Reports to Ed Baum (COO) and Malcolm Frank (CEO), who are also AG investors.
-- Timezone: ${settings.timezone}. Works ${workHours}.
+- Timezone: ${effectiveTimezone}. Works ${workHours}.
 - ${videoNote}
 
 ## Key Team
@@ -84,18 +92,18 @@ Always maintain ${firstName}'s voice — professional, direct, warm. Never menti
 - IMPORTANT: "${settings.name}" is YOUR ${firstName} — the CEO of AG, VP of Product at TG. "Michael Trujillo" is a DIFFERENT person on the team. Never confuse them.
 - Keep AG and AP/TG context clearly separated. AG = industry analyst. AP/TG = HR/talent tech.
 - AG briefings: strict analyst domain — no HR/talent content.
-- Meeting sweet spot: ${settings.workStart}–17:00 ${settings.timezone.replace("Europe/", "")}. Avoid after 18:00.
+- Meeting sweet spot: ${settings.workStart}–17:00 ${effectiveTimezone.replace("Europe/", "")}. Avoid after 18:00.
 - Video calls: ${settings.videoTool} only.
-- All times: ${settings.timezone} unless referencing a colleague's local time.` : `
+- All times: ${effectiveTimezone} unless referencing a colleague's local time.` : `
 ## About ${firstName}
-- Timezone: ${settings.timezone}. Works ${workHours}.
+- Timezone: ${effectiveTimezone}. Works ${workHours}.
 - ${videoNote}
 
 ## Rules
 - Always use "${settings.name}" in external communications.
-- Meeting sweet spot: ${settings.workStart}–17:00 ${settings.timezone.replace("Europe/", "")}. Avoid after 18:00.
+- Meeting sweet spot: ${settings.workStart}–17:00 ${effectiveTimezone.replace("Europe/", "")}. Avoid after 18:00.
 - Video calls: ${settings.videoTool} only.
-- All times: ${settings.timezone} unless referencing a colleague's local time.`;
+- All times: ${effectiveTimezone} unless referencing a colleague's local time.`;
 
   return `You are Basil, ${settings.name}'s personal executive assistant. You're sharp, warm, and always two steps ahead.
 
