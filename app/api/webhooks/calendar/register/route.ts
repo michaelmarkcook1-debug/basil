@@ -24,7 +24,7 @@ export async function POST() {
   }
 
   // TODO: resolve username from session once multi-user is fully live
-  const auth = await getAuthedClient("michael");
+  const auth = await getAuthedClient(process.env.WEBHOOK_USERNAME ?? "michael");
   if (!auth) {
     return NextResponse.json(
       { error: "Calendar not connected" },

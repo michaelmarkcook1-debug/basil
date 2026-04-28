@@ -74,7 +74,6 @@ export async function GET() {
   const t0 = Date.now();
   const snapshot = await getSnapshot();
   if (!snapshot) {
-    console.log("[wa/import-contacts GET] no snapshot");
     return NextResponse.json(
       { error: "No snapshot yet — import WhatsApp first" },
       { status: 404 }
@@ -98,9 +97,6 @@ export async function GET() {
 
   const withChat = candidates.filter((c) => c.hasChat);
   const noChat = candidates.filter((c) => !c.hasChat);
-  console.log(
-    `[wa/import-contacts GET] ${withChat.length} with-chat, ${noChat.length} no-chat (${Date.now() - t0}ms)`
-  );
   return NextResponse.json({
     capturedAt: snapshot.capturedAt,
     withChat,
@@ -114,7 +110,6 @@ export async function POST() {
   const t0 = Date.now();
   const snapshot = await getSnapshot();
   if (!snapshot) {
-    console.log("[wa/import-contacts POST] no snapshot");
     return NextResponse.json({ error: "No snapshot" }, { status: 404 });
   }
 
@@ -170,11 +165,9 @@ export async function POST() {
   const phonePattern = /^\+?\d[\d\s\-(). ]{4,}$/;
   const unresolved = stubs.filter((s) => phonePattern.test(s.name.trim())).length;
 
-  console.log(`[wa/import-contacts POST] built ${stubs.length} stubs (${unresolved} unresolved names) from snapshot`);
 
   // Write to canonical store (server file-system + in-memory).
   const imported = await bulkImportUserContacts(stubs);
-  console.log(`[wa/import-contacts POST] imported ${imported} new contacts (${stubs.length - imported} already existed)`);
 
   // ── Build compact signal index ───────────────────────────────────────────
   // The full whatsapp-snapshot.json is excluded from BASIL_DATA (too large).
@@ -189,7 +182,6 @@ export async function POST() {
   // promise resolves, leaving BASIL_DATA stale and contacts lost on cold start.
   await forceFlushSnapshot();
 
-  console.log(`[wa/import-contacts POST] done — ${imported} imported, snapshot flushed (${Date.now() - t0}ms)`);
   // Return the full stubs list so the client can seed localStorage directly
   // without a second GET that might hit a stale Vercel instance.
   return NextResponse.json(

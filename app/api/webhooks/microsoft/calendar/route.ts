@@ -61,7 +61,7 @@ export async function POST(req: Request) {
 
       // TODO: resolve username from subscription owner once multi-user is fully live
       const ev = await graphGet<GraphCalendarEvent>(
-        "michael",
+        process.env.WEBHOOK_USERNAME ?? "michael",
         `/me/events/${eventId}?$select=id,subject,start,end,attendees,isOnlineMeeting,organizer`
       );
       if (!ev) continue;

@@ -31,7 +31,6 @@ export async function POST(
     );
   }
 
-  console.log(`[draft/regenerate] generating draft for event ${id}`);
 
   const username = (await getSessionUser());
   if (!username) return NextResponse.json({ error: "Unauthorised" }, { status: 401 });
@@ -62,7 +61,6 @@ export async function POST(
   }
 
   publish(updated);
-  console.log(`[draft/regenerate] draft updated for event ${id}`);
 
   return NextResponse.json({ draft: updated.draft });
 }

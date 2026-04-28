@@ -32,7 +32,6 @@ export async function GET(req: Request) {
     const username = (await getSessionUser());
   if (!username) return NextResponse.json({ error: "Unauthorised" }, { status: 401 });
     await exchangeCode(code, username, origin);
-    console.log("[microsoft-callback] OAuth exchange successful");
     const res = NextResponse.redirect(new URL(successDest, req.url));
     res.cookies.set("basil_auth_from", "", { path: "/", maxAge: 0 });
     return res;

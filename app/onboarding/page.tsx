@@ -43,8 +43,9 @@ const PRIORITIES = [
 const TOTAL_STEPS = 8;
 
 // ── Demo video ────────────────────────────────────────────────────────────────
-// Replace with your actual YouTube video ID (the part after ?v= in the URL)
-const DEMO_VIDEO_ID = "dQw4w9WgXcQ"; // TODO: swap for real Basil demo video
+// Set NEXT_PUBLIC_DEMO_VIDEO_ID in Vercel environment variables to show a real
+// walkthrough video on the final onboarding screen. Leave unset to hide the player.
+const DEMO_VIDEO_ID = process.env.NEXT_PUBLIC_DEMO_VIDEO_ID ?? "";
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -577,7 +578,7 @@ export default function OnboardingPage() {
       </div>
 
       {/* ── Demo video ────────────────────────────────────────────────────── */}
-      <DemoVideo videoId={DEMO_VIDEO_ID} />
+      {DEMO_VIDEO_ID && <DemoVideo videoId={DEMO_VIDEO_ID} />}
 
       {/* ── Power tips ───────────────────────────────────────────────────── */}
       <div className="mt-5 grid grid-cols-1 gap-2">

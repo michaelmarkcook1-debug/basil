@@ -351,11 +351,6 @@ export async function POST() {
             date: payload.date || new Date().toISOString(),
           });
 
-          console.log(
-            `[poll-ingest] slack classified: ${payload.externalId} → ` +
-            `${intel.category} (confidence=${intel.confidence})`
-          );
-
           if (!shouldMaterializeSlack(intel)) continue;
 
           const sourceRef = payload.externalId!;
@@ -369,13 +364,6 @@ export async function POST() {
             date: payload.date || new Date().toISOString(),
           });
 
-          if (result.actionsCreated + result.decisionsCreated + result.memoriesCreated > 0) {
-            console.log(
-              `[poll-ingest] slack materialized: ${payload.externalId} → ` +
-              `${result.actionsCreated} action(s), ${result.decisionsCreated} decision(s), ` +
-              `${result.memoriesCreated} memory item(s)`
-            );
-          }
         } catch (err) {
           console.error(
             `[poll-ingest] slack intelligence failed for ${payload.externalId}:`,
@@ -406,11 +394,6 @@ export async function POST() {
             date: payload.date || new Date().toISOString(),
           });
 
-          console.log(
-            `[poll-ingest] teams classified: ${payload.externalId} → ` +
-            `${intel.category} (confidence=${intel.confidence})`
-          );
-
           if (!shouldMaterializeTeams(intel)) continue;
 
           const result = await materializeTeamsIntelligence({
@@ -422,13 +405,6 @@ export async function POST() {
             date: payload.date || new Date().toISOString(),
           });
 
-          if (result.actionsCreated + result.decisionsCreated + result.memoriesCreated > 0) {
-            console.log(
-              `[poll-ingest] teams materialized: ${payload.externalId} → ` +
-              `${result.actionsCreated} action(s), ${result.decisionsCreated} decision(s), ` +
-              `${result.memoriesCreated} memory item(s)`
-            );
-          }
         } catch (err) {
           console.error(`[poll-ingest] teams intelligence failed for ${payload.externalId}:`, err);
         }
@@ -439,7 +415,6 @@ export async function POST() {
 
   // ── Generate AI drafts in parallel ───────────────────────────────────────
   if (draftEvents.length > 0) {
-    console.log(`[poll-ingest] generating AI drafts for ${draftEvents.length} event(s)`);
     await Promise.allSettled(
       draftEvents.map(async (event) => {
         try {
@@ -454,7 +429,6 @@ export async function POST() {
           });
           if (updated) {
             publish(updated);
-            console.log(`[poll-ingest] draft generated for event ${event.id}`);
           }
         } catch (err) {
           console.error(`[poll-ingest] draft generation failed for event ${event.id}:`, err);

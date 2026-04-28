@@ -2,9 +2,17 @@ import { SignJWT, jwtVerify } from "jose";
 import { cookies } from "next/headers";
 import { findByUsername } from "@/lib/users";
 
-const secret = new TextEncoder().encode(
-  process.env.AUTH_SECRET || "dev-secret-change-me"
-);
+const rawSecret = process.env.AUTH_SECRET;
+if (!rawSecret && process.env.NODE_ENV === "production") {
+  // Throw at module-load time so the first request to any auth-protected route
+  // fails with a clear 500 rather than silently signing tokens with the dev
+  // fallback (which is public knowledge and would compromise all sessions).
+  throw new Error(
+    "AUTH_SECRET environment variable is required in production. " +
+    "Set it in Vercel: Settings → Environment Variables → AUTH_SECRET."
+  );
+}
+const secret = new TextEncoder().encode(rawSecret || "dev-secret-change-me");
 
 const COOKIE_NAME = "execauto_session";
 

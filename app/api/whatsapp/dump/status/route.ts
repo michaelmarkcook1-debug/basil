@@ -33,7 +33,6 @@ export async function GET() {
   // Use the file status if it represents an active or recently-completed job.
   // We ignore file status if it's also "idle" — nothing useful there.
   if (fileStatus && fileStatus.state !== "idle") {
-    console.log(`[whatsapp/status] Returning file status (state=${fileStatus.state}) — this instance has idle mem status`);
     return NextResponse.json({ status: fileStatus });
   }
 

@@ -99,6 +99,5 @@ ${text.slice(0, 12000)}
     )
   );
 
-  console.log(`[memory/import] Imported ${saved.length} memories for ${username}`);
   return NextResponse.json({ imported: saved.length, memories: saved });
 }

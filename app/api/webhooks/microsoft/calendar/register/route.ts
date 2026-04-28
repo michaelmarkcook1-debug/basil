@@ -51,7 +51,7 @@ async function handle(req: Request): Promise<Response> {
   try {
     // TODO: resolve username from session once multi-user is fully live
     const res = await graphFetch(
-      "michael",
+      process.env.WEBHOOK_USERNAME ?? "michael",
       "https://graph.microsoft.com/v1.0/subscriptions",
       {
         method: "POST",

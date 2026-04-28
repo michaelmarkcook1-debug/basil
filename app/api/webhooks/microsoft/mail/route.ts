@@ -62,7 +62,7 @@ export async function POST(req: Request) {
 
       // TODO: resolve username from subscription owner once multi-user is fully live
       const msg = await graphGet<GraphMailMessage>(
-        "michael",
+        process.env.WEBHOOK_USERNAME ?? "michael",
         `/me/messages/${msgId}?$select=id,subject,from,bodyPreview,receivedDateTime,isRead`
       );
       if (!msg) continue;
@@ -82,7 +82,7 @@ export async function POST(req: Request) {
       // Classify + materialize into canonical Action/Decision/Memory stores after response.
       // TODO: resolve username from subscription owner once multi-user is fully live
       after(processRegularEmail({
-        username: "michael",
+        username: process.env.WEBHOOK_USERNAME ?? "michael",
         gmailId: msgId,
         externalId,
         eventId: event.id,

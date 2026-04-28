@@ -87,7 +87,6 @@ export async function GET(req: Request) {
       userToken: data.authed_user?.access_token,
     });
 
-    console.log(`Slack connected for user: ${username}`);
     return clearFromCookie(NextResponse.redirect(new URL(successDest, req.url)));
   } catch (e) {
     console.error("Slack OAuth callback error:", e);

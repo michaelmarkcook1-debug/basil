@@ -38,7 +38,7 @@ async function handle(req: Request) {
   }
 
   // TODO: iterate over all registered users once multi-user is fully live
-  const cronUsername = "michael";
+  const cronUsername = process.env.WEBHOOK_USERNAME ?? "michael";
   const auth = await getAuthedClient(cronUsername);
   if (!auth) {
     return NextResponse.json({ ok: false, reason: "google not connected" });
@@ -151,7 +151,6 @@ async function handle(req: Request) {
             clientState,
           });
           report.microsoftMail = { renewed: true, expiresAt: data.expirationDateTime };
-          console.log(`[renew-subscriptions] Microsoft mail subscription renewed: ${data.id}`);
         } else {
           const body = res ? await res.text() : "no response";
           report.microsoftMail = { renewed: false, error: body };
@@ -191,7 +190,6 @@ async function handle(req: Request) {
             clientState,
           });
           report.microsoftCalendar = { renewed: true, expiresAt: data.expirationDateTime };
-          console.log(`[renew-subscriptions] Microsoft calendar subscription renewed: ${data.id}`);
         } else {
           const body = res ? await res.text() : "no response";
           report.microsoftCalendar = { renewed: false, error: body };

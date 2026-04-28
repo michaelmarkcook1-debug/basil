@@ -8,12 +8,19 @@
 import { NextResponse } from "next/server";
 import { readStore, forceFlushSnapshot } from "@/lib/storage/persistent";
 
-const ONE_TIME_SECRET = "basil-flush-2026-04-24";
-
 export async function POST(req: Request) {
+  const expected = process.env.ADMIN_EXPORT_SECRET;
+  if (!expected) {
+    // Refuse to operate without an explicitly configured secret — never fall
+    // back to a default so this endpoint stays closed in production.
+    return NextResponse.json(
+      { error: "ADMIN_EXPORT_SECRET is not configured" },
+      { status: 503 }
+    );
+  }
+
   const { searchParams } = new URL(req.url);
   const secret = searchParams.get("secret") ?? "";
-  const expected = process.env.ADMIN_EXPORT_SECRET ?? ONE_TIME_SECRET;
 
   if (secret !== expected) {
     return NextResponse.json({ error: "forbidden" }, { status: 403 });

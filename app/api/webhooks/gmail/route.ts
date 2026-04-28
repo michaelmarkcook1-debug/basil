@@ -60,7 +60,7 @@ export async function POST(req: Request) {
   if (!newHistoryId) return NextResponse.json({ ok: true });
 
   // TODO: resolve username from emailAddress payload once multi-user is fully live
-  const webhookUsername = "michael";
+  const webhookUsername = process.env.WEBHOOK_USERNAME ?? "michael";
   const auth = await getAuthedClient(webhookUsername);
   if (!auth) return NextResponse.json({ ok: true, note: "gmail not connected" });
   const gmail = google.gmail({ version: "v1", auth });
@@ -119,13 +119,6 @@ export async function POST(req: Request) {
           snippet,
         });
         const source = zoomSignal.isZoom ? "zoom_email" as const : "email" as const;
-
-        if (source === "zoom_email") {
-          console.log(
-            `[gmail-webhook] Zoom email detected: "${subject}" ` +
-            `(signals: ${zoomSignal.signals.join(", ")}, confidence: ${zoomSignal.confidence.toFixed(2)})`
-          );
-        }
 
         const shaped = eventFromIngest({
           source,

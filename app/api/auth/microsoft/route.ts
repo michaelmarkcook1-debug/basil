@@ -16,7 +16,6 @@ export async function GET(req: Request) {
   const reqUrl = new URL(req.url);
   const from = reqUrl.searchParams.get("from") ?? "";
   const url = getMicrosoftAuthUrl(reqUrl.origin);
-  console.log(`[microsoft-auth] Initiating OAuth → redirect_uri: ${reqUrl.origin}/api/auth/microsoft/callback`);
   const res = NextResponse.redirect(url);
   if (from) res.cookies.set("basil_auth_from", from, { path: "/", httpOnly: true, maxAge: 600 });
   return res;

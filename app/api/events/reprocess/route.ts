@@ -86,7 +86,6 @@ export async function POST(_req: Request) {
         console.error(`[reprocess] failed for event ${ev.id}:`, err instanceof Error ? err.message : err);
       }
     }
-    console.log(`[reprocess] completed: ${processed}/${toClassify.length} events classified`);
     // Explicit flush so BASIL_DATA is updated before Vercel recycles the function.
     await forceFlushSnapshot();
   });

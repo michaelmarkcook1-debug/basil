@@ -84,7 +84,7 @@ export async function POST(req: Request) {
           after(async () => {
             try {
               // TODO: resolve username from Slack team/user mapping once multi-user is fully live
-              const threadMessages = await fetchSlackThread("michael", channelId, messageTs);
+              const threadMessages = await fetchSlackThread(process.env.WEBHOOK_USERNAME ?? "michael", channelId, messageTs);
               const channelName = payload.channel || payload.title || "Slack";
               const transcript =
                 threadMessages.length > 0
@@ -116,10 +116,6 @@ export async function POST(req: Request) {
                 date: messageDate,
               });
 
-              console.log(
-                `[webhook/slack] materialized: ${result.actionsCreated} action(s), ` +
-                `${result.decisionsCreated} decision(s), ${result.memoriesCreated} memory item(s)`
-              );
             } catch (err) {
               console.error("[webhook/slack] intelligence failed:", err);
             }

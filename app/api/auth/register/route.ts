@@ -53,6 +53,5 @@ export async function POST(req: Request) {
   await createUser({ name, surname, country, email, username, password, onboardingCompleted: false });
   await createSession(username);
 
-  console.log(`[register] New user created: ${username} (${email})`);
   return NextResponse.json({ success: true, username, onboardingCompleted: false });
 }

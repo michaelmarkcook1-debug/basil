@@ -15,7 +15,7 @@ export async function GET(req: Request) {
 
   try {
     // TODO: iterate over all registered users instead of hardcoding admin
-    const messages = await getRecentSlackMessages("michael", 200, 30);
+    const messages = await getRecentSlackMessages(process.env.WEBHOOK_USERNAME ?? "michael", 200, 30);
     return NextResponse.json({
       ok: true,
       count: messages.length,

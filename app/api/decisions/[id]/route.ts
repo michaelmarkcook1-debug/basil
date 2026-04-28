@@ -37,7 +37,6 @@ export async function PATCH(
       console.warn(`[decisions/${id}] PATCH: not found`);
       return NextResponse.json({ error: "not_found" }, { status: 404 });
     }
-    console.log(`[decisions/${id}] PATCH: updated (keys=${Object.keys(patch).join(",")})`);
     return NextResponse.json({ decision: updated });
   } catch (e) {
     console.error(`[decisions/${id}] PATCH: error —`, e);
@@ -56,7 +55,6 @@ export async function DELETE(
   try {
     ({ id } = await ctx.params);
     const ok = await deleteDecision(id);
-    console.log(`[decisions/${id}] DELETE: ${ok ? "deleted" : "not_found"}`);
     return NextResponse.json(
       { status: ok ? "deleted" : "not_found", id },
       { status: ok ? 200 : 404 }

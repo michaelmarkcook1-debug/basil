@@ -34,7 +34,6 @@ export async function POST(req: Request) {
   try {
     await changePassword(username, newPassword);
     await consumeResetToken(token);
-    console.log(`[reset-password] Password changed for ${username}`);
     return NextResponse.json({ ok: true });
   } catch (e) {
     console.error("[reset-password] Failed:", e instanceof Error ? e.message : e);
