@@ -1,7 +1,7 @@
 import { tool } from "ai";
 import { z } from "zod";
 import { isGoogleConnected } from "@/lib/google/auth";
-import { getTodayEvents, createCalendarEvent, getEventsForDate, getEventsForDateRange } from "@/lib/google/calendar";
+import { getTodayEvents, createCalendarEvent, getEventsForDate, getEventsForDateRange, checkFreeBusy } from "@/lib/google/calendar";
 import { getRecentEmails, searchEmails, createDraft, getEmailBody } from "@/lib/google/gmail";
 import { searchDriveFiles } from "@/lib/google/drive";
 import { isSlackConnected, getRecentSlackMessages, searchSlackMessages, sendSlackMessage as slackSend, getUserProfile } from "@/lib/slack/client";
@@ -23,7 +23,8 @@ import {
   updateDecision,
 } from "@/lib/decisions/store";
 import { emitAuditEvent } from "@/lib/events/audit";
-import { findContactByName } from "@/lib/contacts-lookup";
+import { findContactByName, timezoneFromLocation } from "@/lib/contacts-lookup";
+import { listUserContacts } from "@/lib/contacts/user-store";
 // NOTE: domain sync (emitChange) is NOT called here — tools.ts runs server-side
 // inside the /api/chat route handler where `window` is undefined.  Domain changes
 // are broadcast client-side by the post-stream handler in app/dashboard/chat/page.tsx
@@ -220,13 +221,153 @@ export function buildAssistantTools(username: string, firstName?: string, timezo
       },
     }),
 
+    checkAttendeeAvailability: tool({
+      description: `Check when attendees are free for a meeting. Always call this BEFORE proposing a time with scheduleMeeting. Returns each person's timezone, working hours, and busy blocks so you can find a slot that works for everyone. If Google Calendar access is limited, still returns timezone and working hours so you can reason about reasonable local times.`,
+      inputSchema: z.object({
+        attendees: z.array(z.string()).describe("Names or email addresses of people to check. Include all attendees (not ${name} — their own calendar is checked automatically)."),
+        date: z.string().describe("Start date to check, YYYY-MM-DD"),
+        endDate: z.string().optional().describe("End date for multi-day search, YYYY-MM-DD. Defaults to same as date."),
+      }),
+      execute: async ({ attendees, date, endDate }) => {
+        if (!(await isGoogleConnected(username))) {
+          return { error: "Google Calendar not connected — cannot check availability." };
+        }
+
+        // Load user contacts (seed + user-added) to resolve emails
+        const userContacts = await listUserContacts().catch(() => []);
+
+        // Resolve each attendee to { displayName, email, timezone }
+        const resolved = await Promise.all(
+          attendees.map(async (a) => {
+            const isEmail = a.includes("@");
+            const contact = isEmail
+              ? findContactByName(a, userContacts) // try by email match too
+              : findContactByName(a, userContacts);
+            const email = isEmail ? a : contact?.email;
+            const locationTz = timezoneFromLocation(contact?.location);
+
+            // Try Slack for IANA timezone (most accurate)
+            let slackTz: string | undefined;
+            const slackConnected = await isSlackConnected(username).catch(() => false);
+            if (slackConnected) {
+              const profile = await getUserProfile(username, email || a).catch(() => null);
+              slackTz = profile?.tz;
+            }
+
+            const tz = slackTz || locationTz || "UTC";
+            return { displayName: contact?.name || a, email, tz };
+          })
+        );
+
+        // Compute freebusy window: full day(s) in UTC
+        const checkStart = new Date(`${date}T00:00:00Z`);
+        const checkEndStr = endDate || date;
+        const checkEnd = new Date(`${checkEndStr}T23:59:59Z`);
+
+        // Query freebusy for attendees that have emails
+        const emailsToCheck = resolved.filter((r) => r.email).map((r) => r.email!);
+        // Also include Michael's own calendar
+        const myBusy = await checkFreeBusy(username, [`${username}@talentgenius.io`], checkStart, checkEnd)
+          .catch(() => []);
+        const attendeeBusy = emailsToCheck.length
+          ? await checkFreeBusy(username, emailsToCheck, checkStart, checkEnd)
+          : [];
+
+        const busyMap = new Map<string, { start: string; end: string }[]>();
+        for (const fb of [...myBusy, ...attendeeBusy]) {
+          busyMap.set(fb.email, fb.error ? [] : fb.busy);
+        }
+
+        // Build per-person summary
+        const people = resolved.map((r) => {
+          const busy = r.email ? (busyMap.get(r.email) ?? []) : [];
+          const offsetH = (() => {
+            try {
+              const now = new Date(`${date}T12:00:00Z`);
+              const utcMs = new Date(now.toLocaleString("en-US", { timeZone: "UTC" })).getTime();
+              const tzMs = new Date(now.toLocaleString("en-US", { timeZone: r.tz })).getTime();
+              return (tzMs - utcMs) / 3_600_000;
+            } catch { return 0; }
+          })();
+          const sign = offsetH >= 0 ? "+" : "-";
+          const absH = Math.abs(offsetH);
+          const offsetStr = `UTC${sign}${Math.floor(absH)}${absH % 1 ? `:${String(Math.round((absH % 1) * 60)).padStart(2, "0")}` : ""}`;
+
+          // Format busy blocks in local time
+          const busyLocal = busy.map((b) => {
+            const startLocal = new Date(b.start).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit", timeZone: r.tz });
+            const endLocal = new Date(b.end).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit", timeZone: r.tz });
+            return `${startLocal}–${endLocal}`;
+          });
+
+          return {
+            name: r.displayName,
+            email: r.email || "unknown",
+            timezone: r.tz,
+            utcOffset: offsetStr,
+            workingHours: "09:00–18:00 local",
+            busyToday: busyLocal.length ? busyLocal : ["(calendar not accessible — treat as unknown)"],
+            calendarAccessible: r.email ? busyMap.has(r.email) && !busyMap.get(r.email)?.length && busy.length === 0 ? "accessible (free all day)" : "accessible" : "no email on file",
+          };
+        });
+
+        // Suggest a meeting window: find 30-min slots where no one is busy,
+        // within each person's working hours, on the requested date.
+        const suggestions: string[] = [];
+        const windowStart = new Date(`${date}T08:00:00Z`); // scan from 08:00 UTC
+        const windowEnd = new Date(`${date}T22:00:00Z`);   // to 22:00 UTC
+        const allBusy = [...myBusy, ...attendeeBusy].flatMap((fb) => fb.busy);
+
+        for (let t = new Date(windowStart); t < windowEnd; t = new Date(t.getTime() + 30 * 60_000)) {
+          const slotEnd = new Date(t.getTime() + 30 * 60_000);
+          // Check slot doesn't overlap any busy block
+          const overlaps = allBusy.some((b) => {
+            const bs = new Date(b.start).getTime();
+            const be = new Date(b.end).getTime();
+            return t.getTime() < be && slotEnd.getTime() > bs;
+          });
+          if (overlaps) continue;
+          // Check it's within working hours for all attendees
+          const withinHours = resolved.every((r) => {
+            const localHour = parseFloat(
+              new Date(t.getTime()).toLocaleString("en-US", { hour: "numeric", hour12: false, timeZone: r.tz })
+            );
+            return localHour >= 9 && localHour < 17;
+          });
+          // Also check Michael's timezone
+          const michaelLocalHour = parseFloat(
+            new Date(t.getTime()).toLocaleString("en-US", { hour: "numeric", hour12: false, timeZone: timezone })
+          );
+          const michaelOk = michaelLocalHour >= 9 && michaelLocalHour < 17;
+          if (withinHours && michaelOk) {
+            const timeStrs = [
+              `${new Date(t.getTime()).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit", timeZone: timezone })} (${timezone.split("/")[1] || timezone})`,
+              ...resolved.map((r) =>
+                `${new Date(t.getTime()).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit", timeZone: r.tz })} (${r.displayName})`
+              ),
+            ];
+            suggestions.push(timeStrs.join(" / "));
+          }
+        }
+
+        return {
+          date,
+          attendees: people,
+          suggestedSlots: suggestions.slice(0, 6),
+          note: suggestions.length === 0
+            ? "No fully overlapping free slot found within working hours — you may need to propose outside normal hours or pick the least-bad option."
+            : `${suggestions.length} free slot(s) found. Top options shown.`,
+        };
+      },
+    }),
+
     scheduleMeeting: tool({
-      description: `Schedule a meeting on Google Calendar on ${name}'s behalf. Shows details for approval before booking.`,
+      description: `Schedule a meeting on Google Calendar on ${name}'s behalf. Shows details for approval before booking. IMPORTANT: Always call checkAttendeeAvailability first to verify the proposed time works for all attendees in their local timezones.`,
       inputSchema: z.object({
         title: z.string().describe("Meeting title"),
         attendees: z.array(z.string()).describe("List of attendee email addresses"),
         date: z.string().describe("Date in YYYY-MM-DD format"),
-        startTime: z.string().describe("Start time in HH:MM format (24h, local timezone)"),
+        startTime: z.string().describe(`Start time in HH:MM 24h format in ${name}'s local timezone (${timezone})`),
         duration: z.number().describe("Duration in minutes").default(30),
       }),
       needsApproval: true,

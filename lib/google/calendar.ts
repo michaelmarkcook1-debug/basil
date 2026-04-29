@@ -344,3 +344,63 @@ export async function getEventsForDays(username: string, days: number, timezone 
     return mapEvent(e, dateLabel);
   });
 }
+
+// ── Freebusy ─────────────────────────────────────────────────────────────────
+
+export interface BusyPeriod {
+  start: string; // ISO datetime
+  end: string;
+}
+
+export interface FreeBusyResult {
+  email: string;
+  busy: BusyPeriod[];
+  /** Set when the calendar could not be queried (not shared / no access). */
+  error?: string;
+}
+
+/**
+ * Query Google Calendar's freebusy API for a set of email addresses.
+ * Returns each attendee's busy blocks within the given UTC window.
+ * Requires that the attendee has shared their calendar with the authenticated user,
+ * or that both are on the same Google Workspace that allows freebusy queries.
+ */
+export async function checkFreeBusy(
+  username: string,
+  emails: string[],
+  timeMin: Date,
+  timeMax: Date,
+): Promise<FreeBusyResult[]> {
+  const auth = await getAuthedClient(username);
+  if (!auth) return emails.map((email) => ({ email, busy: [], error: "Not authenticated" }));
+
+  const calendar = google.calendar({ version: "v3", auth });
+
+  try {
+    const res = await calendar.freebusy.query({
+      requestBody: {
+        timeMin: timeMin.toISOString(),
+        timeMax: timeMax.toISOString(),
+        items: emails.map((id) => ({ id })),
+        timeZone: "UTC",
+      },
+    });
+
+    return emails.map((email) => {
+      const calData = res.data.calendars?.[email];
+      if (!calData) return { email, busy: [], error: "Calendar not accessible" };
+      const errs = (calData as any).errors; // eslint-disable-line @typescript-eslint/no-explicit-any
+      if (errs?.length) return { email, busy: [], error: errs[0].reason ?? "Access denied" };
+      return {
+        email,
+        busy: (calData.busy || []).map((b) => ({
+          start: b.start!,
+          end: b.end!,
+        })),
+      };
+    });
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    return emails.map((email) => ({ email, busy: [], error: msg }));
+  }
+}
