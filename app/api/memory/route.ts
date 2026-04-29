@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { listMemories, createMemory } from "@/lib/memory/store";
+import { forceFlushSnapshot } from "@/lib/storage/persistent";
 import { getSessionUser } from "@/lib/auth";
 import type { MemoryKind } from "@/lib/memory/types";
 
@@ -43,6 +44,8 @@ export async function POST(req: Request) {
       entity,
       source: source ?? "manual",
     });
+    // Flush synchronously so BASIL_DATA is current before the client re-fetches
+    await forceFlushSnapshot();
     return NextResponse.json({ memory }, { status: 201 });
   } catch (e) {
     return NextResponse.json(

@@ -18,6 +18,9 @@ import {
   CheckCircle2,
   FileText,
   FolderOpen,
+  Pencil,
+  Check,
+  AlertTriangle,
 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
@@ -27,8 +30,7 @@ import {
   type MemoryKind,
 } from "@/lib/memory/types";
 
-// Kind-specific visuals — consistent with the Agentic UX "memory visualization"
-// pattern: Michael should see *what Basil remembers and why*.
+// Kind-specific visuals
 const KIND_STYLE: Record<
   MemoryKind,
   { Icon: typeof User; text: string; ring: string; bg: string; hint: string }
@@ -65,6 +67,7 @@ const KIND_STYLE: Record<
 
 export default function MemoryPage() {
   const [memories, setMemories] = useState<Memory[] | null>(null);
+  const [loadError, setLoadError] = useState(false);
   const [filter, setFilter] = useState<MemoryKind | "all">("all");
   const [search, setSearch] = useState("");
   const [showForm, setShowForm] = useState(false);
@@ -82,7 +85,6 @@ export default function MemoryPage() {
   const [filesLoading, setFilesLoading] = useState(false);
   const [loadedFileNames, setLoadedFileNames] = useState<string[]>([]);
 
-  // Extensions we can safely read as plain text
   const TEXT_EXTS = new Set([
     ".txt", ".md", ".mdx", ".json", ".csv", ".tsv",
     ".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs",
@@ -97,7 +99,7 @@ export default function MemoryPage() {
     setLoadedFileNames([]);
     setImportError(null);
 
-    const MAX_FILE_SIZE = 400_000; // 400KB per file to stay within token limits
+    const MAX_FILE_SIZE = 400_000;
     const parts: string[] = [];
     const names: string[] = [];
 
@@ -105,12 +107,10 @@ export default function MemoryPage() {
       const ext = file.name.includes(".")
         ? "." + file.name.split(".").pop()!.toLowerCase()
         : "";
-      if (!TEXT_EXTS.has(ext)) continue; // skip binary / unknown formats
+      if (!TEXT_EXTS.has(ext)) continue;
       if (file.size > MAX_FILE_SIZE) {
-        // truncate oversized files with a notice
-        const slice = file.slice(0, MAX_FILE_SIZE);
         try {
-          const text = await slice.text();
+          const text = await file.slice(0, MAX_FILE_SIZE).text();
           parts.push(`--- ${file.name} (truncated to 400KB) ---\n\n${text}`);
           names.push(file.name + " ⚠ truncated");
         } catch { /* skip */ }
@@ -121,7 +121,7 @@ export default function MemoryPage() {
         if (text.trim().length === 0) continue;
         parts.push(`--- ${file.name} ---\n\n${text}`);
         names.push(file.name);
-      } catch { /* skip unreadable */ }
+      } catch { /* skip */ }
     }
 
     setFilesLoading(false);
@@ -131,7 +131,6 @@ export default function MemoryPage() {
       setImportError("No readable text files found. Supported: .txt, .md, .json, .csv, .ts, .js, .py and other plain-text formats.");
       return;
     }
-
     setImportText(parts.join("\n\n"));
   }
 
@@ -150,6 +149,7 @@ export default function MemoryPage() {
       if (!res.ok) throw new Error(data.error || "Import failed");
       setImportResult({ count: data.imported });
       setImportText("");
+      setLoadedFileNames([]);
       load();
     } catch (err) {
       setImportError(err instanceof Error ? err.message : "Something went wrong");
@@ -158,18 +158,37 @@ export default function MemoryPage() {
     }
   }
 
+  // ── Core data load ────────────────────────────────────────────────────────
+  // loadController lets us cancel in-flight requests so a stale response
+  // from a previous load never overwrites a more-recent one.
+  const loadControllerRef = useRef<AbortController | null>(null);
+
   const load = useCallback(async () => {
+    // Cancel any previous in-flight load
+    loadControllerRef.current?.abort();
+    const controller = new AbortController();
+    loadControllerRef.current = controller;
+
     try {
-      const res = await fetch("/api/memory", { cache: "no-store" });
+      const res = await fetch("/api/memory", {
+        cache: "no-store",
+        signal: controller.signal,
+      });
+      if (!res.ok) {
+        // Server error — leave current memories intact, show error banner
+        setLoadError(true);
+        return;
+      }
       const data = await res.json();
       setMemories(data.memories || []);
-    } catch {
-      setMemories([]);
+      setLoadError(false);
+    } catch (err) {
+      if ((err as Error).name === "AbortError") return; // Intentional cancel — ignore
+      // Network error — don't wipe memories, just show the banner
+      setLoadError(true);
     }
   }, []);
 
-  // notify() = emit "memory:changed" to this tab + all other open tabs/pages.
-  // Subscribed to incoming changes so chat/approval mutations auto-refresh here.
   const notify = useDomainSync("memory", load);
 
   useEffect(() => {
@@ -202,9 +221,53 @@ export default function MemoryPage() {
     return counts;
   }, [memories]);
 
+  // ── Delete with optimistic update ─────────────────────────────────────────
   async function handleDelete(id: string) {
-    await fetch(`/api/memory/${id}`, { method: "DELETE" });
-    notify();
+    // 1. Capture current list for restoration on failure
+    const previous = memories ?? [];
+
+    // 2. Optimistically remove from UI immediately
+    setMemories(previous.filter((m) => m.id !== id));
+
+    try {
+      const res = await fetch(`/api/memory/${id}`, { method: "DELETE" });
+      if (!res.ok) {
+        // Restore and reload on server error
+        setMemories(previous);
+        await load();
+        return;
+      }
+      // Notify other tabs (this tab already updated optimistically)
+      notify();
+    } catch {
+      // Network error — restore previous state
+      setMemories(previous);
+    }
+  }
+
+  // ── Edit ──────────────────────────────────────────────────────────────────
+  async function handleEdit(id: string, patch: { content: string; kind: MemoryKind; entity?: string }) {
+    const previous = memories ?? [];
+    // Optimistic update
+    setMemories(previous.map((m) => m.id === id ? { ...m, ...patch, updatedAt: new Date().toISOString() } : m));
+
+    try {
+      const res = await fetch(`/api/memory/${id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(patch),
+      });
+      if (!res.ok) {
+        setMemories(previous);
+        return;
+      }
+      const data = await res.json();
+      // Apply server-confirmed version
+      setMemories((prev) => prev ? prev.map((m) => m.id === id ? data.memory : m) : prev);
+      notify();
+    } catch {
+      setMemories(previous);
+    }
   }
 
   return (
@@ -222,9 +285,26 @@ export default function MemoryPage() {
         <p className="text-sm text-muted-foreground max-w-2xl leading-relaxed">
           Everything Basil has learned about you, the people around you, and how
           you work. This is durable — Basil uses it to stay consistent across
-          conversations. Add, edit, or forget anything you like.
+          every conversation. Add, edit, or remove anything you like.
         </p>
+        {memories !== null && memories.length > 0 && (
+          <p className="text-xs text-muted-foreground/70">
+            {memories.length} memor{memories.length === 1 ? "y" : "ies"} stored
+            {memories.length > 40 && " · Basil uses the 40 most recent in each conversation"}
+          </p>
+        )}
       </header>
+
+      {/* Error banner */}
+      {loadError && (
+        <div className="flex items-center gap-3 rounded-lg bg-amber-50 border border-amber-200 px-4 py-3">
+          <AlertTriangle className="h-4 w-4 text-amber-600 shrink-0" />
+          <p className="text-sm text-amber-800">
+            Couldn&apos;t reach the server — showing cached memories. Your data is safe.
+          </p>
+          <button onClick={load} className="ml-auto text-xs text-amber-700 underline shrink-0">Retry</button>
+        </div>
+      )}
 
       {/* Controls */}
       <div className="flex items-center gap-3 flex-wrap">
@@ -239,18 +319,24 @@ export default function MemoryPage() {
           />
         </div>
         <button
-          onClick={() => { setShowImport((v) => !v); setImportResult(null); setImportError(null); setLoadedFileNames([]); setImportText(""); }}
+          onClick={() => {
+            setShowImport((v) => !v);
+            setImportResult(null);
+            setImportError(null);
+            setLoadedFileNames([]);
+            setImportText("");
+          }}
           className="inline-flex items-center gap-1.5 rounded-lg border border-border bg-background text-sm font-medium px-3.5 py-2 hover:bg-muted transition text-muted-foreground"
         >
           <Upload className="h-4 w-4" />
-          Import from AI
+          Import
         </button>
         <button
           onClick={() => setShowForm((v) => !v)}
           className="inline-flex items-center gap-1.5 rounded-lg bg-[oklch(0.72_0.15_85)] text-[oklch(0.18_0.04_250)] text-sm font-semibold px-3.5 py-2 hover:brightness-105 transition"
         >
           <Plus className="h-4 w-4" />
-          {showForm ? "Cancel" : "Remember something"}
+          {showForm ? "Cancel" : "Add memory"}
         </button>
       </div>
 
@@ -264,7 +350,7 @@ export default function MemoryPage() {
                 Import memories
               </p>
               <p className="text-xs text-muted-foreground mt-0.5">
-                Paste a conversation, or upload files and folders.
+                Paste a conversation or upload files and folders.
                 Basil will extract facts, preferences, people, and context and add them to memory.
               </p>
             </div>
@@ -279,14 +365,14 @@ export default function MemoryPage() {
               <div>
                 <p className="text-sm font-medium text-emerald-800">
                   {importResult.count === 0
-                    ? "No memorable information found in that conversation."
+                    ? "No memorable information found in that text."
                     : `${importResult.count} memor${importResult.count === 1 ? "y" : "ies"} extracted and saved.`}
                 </p>
                 <button
                   onClick={() => { setImportResult(null); setImportText(""); setLoadedFileNames([]); }}
                   className="text-xs text-emerald-600 underline mt-0.5"
                 >
-                  Import another conversation or files
+                  Import more
                 </button>
               </div>
             </div>
@@ -304,7 +390,6 @@ export default function MemoryPage() {
               <input
                 ref={folderInputRef}
                 type="file"
-                /* webkitdirectory enables folder selection */
                 {...{ webkitdirectory: "" }}
                 multiple
                 className="hidden"
@@ -342,12 +427,9 @@ export default function MemoryPage() {
                     {loadedFileNames.length} file{loadedFileNames.length !== 1 ? "s" : ""} loaded
                   </span>
                 )}
-                <span className="text-xs text-muted-foreground/60 ml-auto">
-                  or paste a conversation below
-                </span>
+                <span className="text-xs text-muted-foreground/60 ml-auto">or paste below</span>
               </div>
 
-              {/* Loaded file names */}
               {loadedFileNames.length > 0 && (
                 <div className="flex flex-wrap gap-1.5">
                   {loadedFileNames.map((name) => (
@@ -362,7 +444,7 @@ export default function MemoryPage() {
               <textarea
                 value={importText}
                 onChange={(e) => { setImportText(e.target.value); setLoadedFileNames([]); }}
-                placeholder={"Paste your conversation here…\n\nWorks with:\n• ChatGPT (copy from browser)\n• Claude.ai (copy from browser)\n• Gemini, Copilot, Perplexity\n• Any plain text conversation\n• Or upload files / folders above"}
+                placeholder={"Paste a conversation here…\n\nWorks with:\n• ChatGPT, Claude.ai, Gemini, Copilot, Perplexity\n• Any plain-text conversation or document\n• Or upload files / folders above"}
                 rows={10}
                 className="w-full rounded-lg border border-border bg-background px-3.5 py-2.5 text-sm resize-y focus:outline-none focus:border-[oklch(0.72_0.15_85)]/40 focus:ring-4 focus:ring-[oklch(0.72_0.15_85)]/10 placeholder:text-muted-foreground/50 font-mono text-xs leading-relaxed"
               />
@@ -374,7 +456,7 @@ export default function MemoryPage() {
               <div className="flex items-center gap-3">
                 <button
                   type="submit"
-                  disabled={importing || filesLoading || importText.trim().length < 20}
+                  disabled={importing || filesLoading || importText.trim().length < 10}
                   className="inline-flex items-center gap-1.5 rounded-lg bg-[oklch(0.72_0.15_85)] text-[oklch(0.18_0.04_250)] text-sm font-semibold px-4 py-2 hover:brightness-105 transition disabled:opacity-40"
                 >
                   {importing ? (
@@ -396,20 +478,9 @@ export default function MemoryPage() {
 
       {/* Kind filter tabs */}
       <div className="flex items-center gap-1 border-b border-border">
-        <TabChip
-          active={filter === "all"}
-          onClick={() => setFilter("all")}
-          label="All"
-          count={byKind.all}
-        />
+        <TabChip active={filter === "all"} onClick={() => setFilter("all")} label="All" count={byKind.all} />
         {(Object.keys(KIND_STYLE) as MemoryKind[]).map((k) => (
-          <TabChip
-            key={k}
-            active={filter === k}
-            onClick={() => setFilter(k)}
-            label={MEMORY_KIND_LABELS[k]}
-            count={byKind[k]}
-          />
+          <TabChip key={k} active={filter === k} onClick={() => setFilter(k)} label={MEMORY_KIND_LABELS[k]} count={byKind[k]} />
         ))}
       </div>
 
@@ -440,13 +511,20 @@ export default function MemoryPage() {
       ) : (
         <div className="space-y-2">
           {filtered.map((m) => (
-            <MemoryRow key={m.id} memory={m} onDelete={handleDelete} />
+            <MemoryRow
+              key={m.id}
+              memory={m}
+              onDelete={handleDelete}
+              onEdit={handleEdit}
+            />
           ))}
         </div>
       )}
     </div>
   );
 }
+
+// ── TabChip ───────────────────────────────────────────────────────────────────
 
 function TabChip({
   active,
@@ -464,9 +542,7 @@ function TabChip({
       onClick={onClick}
       className={cn(
         "relative px-3 py-2 text-xs font-medium transition-colors",
-        active
-          ? "text-foreground"
-          : "text-muted-foreground hover:text-foreground"
+        active ? "text-foreground" : "text-muted-foreground hover:text-foreground"
       )}
     >
       {label}
@@ -487,16 +563,150 @@ function TabChip({
   );
 }
 
+// ── MemoryRow ─────────────────────────────────────────────────────────────────
+
 function MemoryRow({
   memory,
   onDelete,
+  onEdit,
 }: {
   memory: Memory;
   onDelete: (id: string) => void;
+  onEdit: (id: string, patch: { content: string; kind: MemoryKind; entity?: string }) => Promise<void>;
 }) {
   const s = KIND_STYLE[memory.kind];
   const Icon = s.Icon;
   const age = relDate(memory.updatedAt);
+
+  // Confirm-before-delete: first click shows confirm buttons
+  const [confirmDelete, setConfirmDelete] = useState(false);
+  const confirmTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Inline edit state
+  const [editing, setEditing] = useState(false);
+  const [editContent, setEditContent] = useState(memory.content);
+  const [editEntity, setEditEntity] = useState(memory.entity ?? "");
+  const [editKind, setEditKind] = useState<MemoryKind>(memory.kind);
+  const [saving, setSaving] = useState(false);
+  const contentRef = useRef<HTMLTextAreaElement>(null);
+
+  function startEdit() {
+    setEditContent(memory.content);
+    setEditEntity(memory.entity ?? "");
+    setEditKind(memory.kind);
+    setEditing(true);
+    setConfirmDelete(false);
+    setTimeout(() => contentRef.current?.focus(), 0);
+  }
+
+  async function saveEdit() {
+    if (!editContent.trim()) return;
+    setSaving(true);
+    await onEdit(memory.id, {
+      content: editContent.trim(),
+      kind: editKind,
+      entity: editEntity.trim() || undefined,
+    });
+    setSaving(false);
+    setEditing(false);
+  }
+
+  function cancelEdit() {
+    setEditing(false);
+  }
+
+  function requestDelete() {
+    setConfirmDelete(true);
+    setEditing(false);
+    // Auto-cancel confirm after 4s
+    if (confirmTimerRef.current) clearTimeout(confirmTimerRef.current);
+    confirmTimerRef.current = setTimeout(() => setConfirmDelete(false), 4000);
+  }
+
+  function cancelDelete() {
+    setConfirmDelete(false);
+    if (confirmTimerRef.current) clearTimeout(confirmTimerRef.current);
+  }
+
+  function confirmAndDelete() {
+    if (confirmTimerRef.current) clearTimeout(confirmTimerRef.current);
+    onDelete(memory.id);
+  }
+
+  // Clean up timer on unmount
+  useEffect(() => {
+    return () => { if (confirmTimerRef.current) clearTimeout(confirmTimerRef.current); };
+  }, []);
+
+  if (editing) {
+    return (
+      <div className={cn("rounded-lg ring-1 ring-inset p-3 space-y-2.5", s.bg, s.ring)}>
+        {/* Kind selector */}
+        <div className="flex items-center gap-1.5 flex-wrap">
+          {(Object.keys(KIND_STYLE) as MemoryKind[]).map((k) => {
+            const ks = KIND_STYLE[k];
+            return (
+              <button
+                key={k}
+                type="button"
+                onClick={() => setEditKind(k)}
+                className={cn(
+                  "inline-flex items-center gap-1 rounded-md px-2 py-1 text-[11px] font-medium border transition-colors",
+                  editKind === k
+                    ? `${ks.bg} ${ks.text} border-current`
+                    : "bg-background text-muted-foreground border-border hover:text-foreground"
+                )}
+              >
+                <ks.Icon className="h-3 w-3" />
+                {MEMORY_KIND_LABELS[k]}
+              </button>
+            );
+          })}
+        </div>
+
+        <textarea
+          ref={contentRef}
+          value={editContent}
+          onChange={(e) => setEditContent(e.target.value)}
+          rows={2}
+          className="w-full rounded-md border border-border bg-background px-2.5 py-1.5 text-sm resize-none focus:outline-none focus:border-[oklch(0.72_0.15_85)]/40 focus:ring-2 focus:ring-[oklch(0.72_0.15_85)]/10"
+          onKeyDown={(e) => {
+            if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) saveEdit();
+            if (e.key === "Escape") cancelEdit();
+          }}
+        />
+
+        {(editKind === "person" || editKind === "context") && (
+          <input
+            type="text"
+            value={editEntity}
+            onChange={(e) => setEditEntity(e.target.value)}
+            placeholder={editKind === "person" ? "Person's name" : "Project / topic"}
+            className="w-full h-8 rounded-md border border-border bg-background px-2.5 text-sm focus:outline-none focus:border-[oklch(0.72_0.15_85)]/40"
+          />
+        )}
+
+        <div className="flex items-center gap-2">
+          <button
+            onClick={saveEdit}
+            disabled={saving || !editContent.trim()}
+            className="inline-flex items-center gap-1 rounded-md bg-[oklch(0.72_0.15_85)] text-[oklch(0.18_0.04_250)] text-xs font-semibold px-3 py-1.5 hover:brightness-105 transition disabled:opacity-50"
+          >
+            {saving ? <Loader2 className="h-3 w-3 animate-spin" /> : <Check className="h-3 w-3" />}
+            Save
+          </button>
+          <button
+            onClick={cancelEdit}
+            className="text-xs text-muted-foreground hover:text-foreground px-2 py-1.5"
+          >
+            Cancel
+          </button>
+          <span className="text-[11px] text-muted-foreground/50 ml-auto">⌘↵ to save · Esc to cancel</span>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div
       className={cn(
@@ -508,12 +718,7 @@ function MemoryRow({
       <Icon className={cn("h-4 w-4 mt-0.5 shrink-0", s.text)} />
       <div className="flex-1 min-w-0">
         <div className="flex items-center gap-2 flex-wrap mb-0.5">
-          <span
-            className={cn(
-              "text-[12px] font-mono uppercase tracking-[0.18em]",
-              s.text
-            )}
-          >
+          <span className={cn("text-[12px] font-mono uppercase tracking-[0.18em]", s.text)}>
             {MEMORY_KIND_LABELS[memory.kind]}
           </span>
           {memory.entity && (
@@ -526,30 +731,61 @@ function MemoryRow({
             {memory.source === "chat" ? " · via chat" : memory.source === "inferred" ? " · inferred" : ""}
           </span>
         </div>
-        <p className="text-sm text-foreground/90 leading-relaxed">
-          {memory.content}
-        </p>
+        <p className="text-sm text-foreground/90 leading-relaxed">{memory.content}</p>
       </div>
-      <button
-        onClick={() => onDelete(memory.id)}
-        className="opacity-0 group-hover:opacity-100 transition-opacity text-muted-foreground hover:text-rose-600 p-1 rounded-md"
-        aria-label="Forget this"
-        title="Forget this"
-      >
-        <Trash2 className="h-3.5 w-3.5" />
-      </button>
+
+      {/* Action buttons */}
+      <div className="flex items-center gap-1 shrink-0">
+        {confirmDelete ? (
+          <>
+            <span className="text-xs text-rose-600 font-medium mr-1">Remove?</span>
+            <button
+              onClick={confirmAndDelete}
+              className="inline-flex items-center gap-1 rounded-md bg-rose-600 text-white text-xs font-semibold px-2 py-1 hover:bg-rose-700 transition"
+            >
+              <Trash2 className="h-3 w-3" />
+              Yes
+            </button>
+            <button
+              onClick={cancelDelete}
+              className="inline-flex items-center rounded-md border border-border bg-background text-xs font-medium px-2 py-1 hover:bg-muted transition text-muted-foreground"
+            >
+              Cancel
+            </button>
+          </>
+        ) : (
+          <>
+            <button
+              onClick={startEdit}
+              className="opacity-0 group-hover:opacity-100 transition-opacity text-muted-foreground hover:text-foreground p-1 rounded-md"
+              aria-label="Edit this memory"
+              title="Edit"
+            >
+              <Pencil className="h-3.5 w-3.5" />
+            </button>
+            <button
+              onClick={requestDelete}
+              className="opacity-0 group-hover:opacity-100 transition-opacity text-muted-foreground hover:text-rose-600 p-1 rounded-md"
+              aria-label="Forget this memory"
+              title="Forget this"
+            >
+              <Trash2 className="h-3.5 w-3.5" />
+            </button>
+          </>
+        )}
+      </div>
     </div>
   );
 }
+
+// ── NewMemoryForm ─────────────────────────────────────────────────────────────
 
 function NewMemoryForm({
   onCreated,
   onSaved,
   onClose,
 }: {
-  /** Called after the API write to refresh the local list. */
   onCreated: () => void;
-  /** Called after save to broadcast the change to all other surfaces. */
   onSaved?: () => void;
   onClose: () => void;
 }) {
@@ -575,8 +811,8 @@ function NewMemoryForm({
       });
       setContent("");
       setEntity("");
-      onSaved?.(); // broadcast to other tabs/surfaces
-      onCreated(); // refresh local list
+      onSaved?.();
+      onCreated();
       onClose();
     } finally {
       setSaving(false);
@@ -645,11 +881,7 @@ function NewMemoryForm({
               disabled={!content.trim() || saving}
               className="inline-flex items-center gap-1.5 rounded-md bg-[oklch(0.72_0.15_85)] text-[oklch(0.18_0.04_250)] text-sm font-semibold px-3.5 py-2 hover:brightness-105 transition disabled:opacity-50"
             >
-              {saving ? (
-                <Loader2 className="h-4 w-4 animate-spin" />
-              ) : (
-                <Plus className="h-4 w-4" />
-              )}
+              {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />}
               Remember
             </button>
             <button
@@ -666,6 +898,8 @@ function NewMemoryForm({
   );
 }
 
+// ── Helpers ───────────────────────────────────────────────────────────────────
+
 function relDate(iso: string): string {
   const diff = Date.now() - new Date(iso).getTime();
   const hrs = Math.floor(diff / 3600000);
@@ -673,8 +907,5 @@ function relDate(iso: string): string {
   if (hrs < 24) return `${hrs}h ago`;
   const days = Math.floor(hrs / 24);
   if (days < 7) return `${days}d ago`;
-  return new Date(iso).toLocaleDateString("en-GB", {
-    day: "numeric",
-    month: "short",
-  });
+  return new Date(iso).toLocaleDateString("en-GB", { day: "numeric", month: "short" });
 }
