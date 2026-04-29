@@ -308,9 +308,10 @@ export function DayView({
   events: DayEvent[];
   onRefresh: () => void;
 }) {
-  const gridRef     = useRef<HTMLDivElement>(null);
-  const hasDragged  = useRef(false);
-  const [drag, setDrag]         = useState<DragState | null>(null);
+  const gridRef          = useRef<HTMLDivElement>(null);
+  const scrollContainerRef = useRef<HTMLDivElement>(null);
+  const hasDragged       = useRef(false);
+  const [drag, setDrag]  = useState<DragState | null>(null);
   const [dragPos, setDragPos]   = useState<{ startMin: number; endMin: number } | null>(null);
   const [editState, setEditState] = useState<EditState | null>(null);
   const [saving, setSaving]     = useState(false);
@@ -488,28 +489,23 @@ export function DayView({
     return () => window.removeEventListener("mouseup", up);
   }, [drag, onMouseUp]);
 
-  const allDayEvents = events.filter((e) => e.isAllDay);
-  const timedEvents  = events.filter((e) => !e.isAllDay);
+  // Scroll to current time (or 08:00) when the day is first displayed
+  useEffect(() => {
+    const sc = scrollContainerRef.current;
+    if (!sc) return;
+    const now = new Date();
+    const currentMin = now.getHours() * 60 + now.getMinutes();
+    const targetMin = Math.max(GRID_START_H * 60, currentMin - 60); // 1h before now
+    const scrollTop = (targetMin - GRID_START_H * 60) * PX_PER_MIN;
+    sc.scrollTop = scrollTop;
+  }, [date]); // re-scroll when selected date changes
+
+  // We only expect timed events from the parent (all-day events are tasks, not meetings)
+  const timedEvents = events.filter((e) => !e.isAllDay);
   const totalGridHeight = (GRID_END_H - GRID_START_H) * HOUR_HEIGHT;
 
   return (
-    <div className="flex flex-col h-full">
-      {/* All-day events strip */}
-      {allDayEvents.length > 0 && (
-        <div className="px-2 py-1.5 border-b border-border bg-muted/20 flex flex-wrap gap-1.5 shrink-0">
-          {allDayEvents.map((e) => (
-            <span
-              key={e.id}
-              className="text-xs px-2 py-0.5 rounded-full bg-[oklch(0.72_0.15_85)]/15 text-[oklch(0.5_0.1_85)] border border-[oklch(0.72_0.15_85)]/30 cursor-pointer hover:bg-[oklch(0.72_0.15_85)]/25 transition-colors"
-              onClick={() => openEdit(e)}
-              title="Click to edit"
-            >
-              {e.summary}
-            </span>
-          ))}
-        </div>
-      )}
-
+    <div className="flex flex-col" style={{ height: "100%" }}>
       {/* Hint bar */}
       <div className="flex items-center justify-between px-3 py-1.5 border-b border-border/50 shrink-0">
         <p className="text-[11px] text-muted-foreground">
@@ -524,7 +520,7 @@ export function DayView({
       </div>
 
       {/* Time grid */}
-      <div className="flex-1 overflow-y-auto">
+      <div ref={scrollContainerRef} className="flex-1 overflow-y-auto min-h-0">
         <div
           className="flex"
           style={{ height: `${totalGridHeight}px` }}

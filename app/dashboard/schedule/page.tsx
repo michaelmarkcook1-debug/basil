@@ -522,26 +522,31 @@ export default function SchedulePage() {
 
         {/* Right panel: day detail + Basil input */}
         <div className="space-y-4">
-          {/* Selected day — interactive DayView */}
-          <Card className="flex flex-col" style={{ height: "560px" }}>
-            <CardHeader className="pb-2 shrink-0">
+          {/* Selected day — interactive DayView (timed events only) */}
+          <Card>
+            <CardHeader className="pb-2">
               <CardTitle className="text-sm font-medium">
                 {selectedDay
                   ? `${MONTH_NAMES[month]} ${selectedDay}`
                   : "Select a day"}
               </CardTitle>
             </CardHeader>
-            <CardContent className="flex-1 min-h-0 p-0 overflow-hidden">
+            <CardContent className="p-0">
               {!selectedDay ? (
                 <p className="text-sm text-muted-foreground p-4">
                   Click a day to see meetings.
                 </p>
               ) : (
-                <DayView
-                  date={selectedDateStr}
-                  events={selectedEvents.map(toDay)}
-                  onRefresh={fetchEvents}
-                />
+                /* Explicit pixel height so DayView's h-full resolves correctly */
+                <div style={{ height: "500px", overflow: "hidden" }}>
+                  <DayView
+                    date={selectedDateStr}
+                    events={selectedEvents
+                      .filter((e) => !e.isAllDay)
+                      .map(toDay)}
+                    onRefresh={fetchEvents}
+                  />
+                </div>
               )}
             </CardContent>
           </Card>
