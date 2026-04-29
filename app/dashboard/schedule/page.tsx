@@ -6,6 +6,8 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Textarea } from "@/components/ui/textarea";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import {
   CalendarPlus,
   ChevronLeft,
@@ -17,6 +19,8 @@ import {
   Unplug,
   Check,
   X,
+  Pencil,
+  Save,
 } from "lucide-react";
 import Link from "next/link";
 import { DayView, type DayEvent } from "./components/DayView";
@@ -80,6 +84,11 @@ export default function SchedulePage() {
   const [basilResponse, setBasilResponse] = useState("");
   const [proposed, setProposed] = useState<ProposedMeeting[]>([]);
   const [approving, setApproving] = useState<number | null>(null);
+  // Proposed meeting inline editing
+  const [editProposedIdx, setEditProposedIdx] = useState<number | null>(null);
+  const [editProposedForm, setEditProposedForm] = useState<{
+    title: string; date: string; startTime: string; duration: number;
+  }>({ title: "", date: "", startTime: "09:00", duration: 30 });
   const hydrated = useRef(false);
 
   // Hydrate proposed meetings + last Basil response from localStorage on mount.
@@ -194,6 +203,25 @@ export default function SchedulePage() {
       setMonth(month + 1);
     }
     setSelectedDay(null);
+  }
+
+  function startEditProposed(index: number) {
+    const p = proposed[index];
+    if (!p) return;
+    setEditProposedIdx(index);
+    setEditProposedForm({ title: p.title, date: p.date, startTime: p.startTime, duration: p.duration });
+  }
+
+  function saveEditProposed() {
+    if (editProposedIdx === null) return;
+    setProposed((prev) =>
+      prev.map((p, i) =>
+        i === editProposedIdx
+          ? { ...p, ...editProposedForm }
+          : p
+      )
+    );
+    setEditProposedIdx(null);
   }
 
   async function handleApprove(index: number) {
@@ -529,15 +557,17 @@ export default function SchedulePage() {
               <CardContent className="space-y-2">
                 {selectedProposed.map((p, i) => {
                   const globalIndex = proposed.indexOf(p);
+                  const isEditing = editProposedIdx === globalIndex;
                   return (
                     <div
                       key={`proposed-${i}`}
-                      className={`rounded-md p-2 text-sm border ${
+                      className={`rounded-md p-3 text-sm border ${
                         p.status === "approved"
                           ? "bg-emerald-500/5 border-emerald-400/30"
                           : "bg-amber-500/5 border-dashed border-amber-400/30"
                       }`}
                     >
+                      {/* Header row */}
                       <div className="flex items-center gap-2">
                         <Clock className="h-3 w-3 text-muted-foreground shrink-0" />
                         <span className="font-mono text-xs">
@@ -545,7 +575,7 @@ export default function SchedulePage() {
                         </span>
                         <Badge
                           variant="outline"
-                          className={`text-[12px] h-4 ml-auto ${
+                          className={`text-[12px] h-4 ${
                             p.status === "approved"
                               ? "border-emerald-400/50 text-emerald-600"
                               : "border-amber-400/50 text-amber-600"
@@ -553,16 +583,98 @@ export default function SchedulePage() {
                         >
                           {p.status === "approved" ? "Approved" : "Proposed"}
                         </Badge>
+                        {p.status === "proposed" && !isEditing && (
+                          <button
+                            onClick={() => startEditProposed(globalIndex)}
+                            className="ml-auto text-muted-foreground hover:text-foreground transition-colors"
+                            title="Edit this proposal"
+                          >
+                            <Pencil className="h-3 w-3" />
+                          </button>
+                        )}
                       </div>
-                      <p className="font-medium mt-0.5">{p.title}</p>
-                      {p.attendees.length > 0 && (
-                        <p className="text-xs text-muted-foreground flex items-center gap-1 mt-0.5">
-                          <Users className="h-3 w-3" />{" "}
-                          {p.attendees.slice(0, 3).join(", ")}
-                          {p.attendees.length > 3 && ` +${p.attendees.length - 3}`}
-                        </p>
+
+                      {/* Inline edit form */}
+                      {isEditing ? (
+                        <div className="mt-3 space-y-2">
+                          <div className="space-y-1">
+                            <Label className="text-[11px]">Title</Label>
+                            <Input
+                              value={editProposedForm.title}
+                              onChange={(e) => setEditProposedForm((f) => ({ ...f, title: e.target.value }))}
+                              className="h-7 text-xs"
+                              autoFocus
+                            />
+                          </div>
+                          <div className="grid grid-cols-2 gap-2">
+                            <div className="space-y-1">
+                              <Label className="text-[11px]">Date</Label>
+                              <Input
+                                type="date"
+                                value={editProposedForm.date}
+                                onChange={(e) => setEditProposedForm((f) => ({ ...f, date: e.target.value }))}
+                                className="h-7 text-xs"
+                              />
+                            </div>
+                            <div className="space-y-1">
+                              <Label className="text-[11px]">Start</Label>
+                              <Input
+                                type="time"
+                                step={900}
+                                value={editProposedForm.startTime}
+                                onChange={(e) => setEditProposedForm((f) => ({ ...f, startTime: e.target.value }))}
+                                className="h-7 text-xs"
+                              />
+                            </div>
+                          </div>
+                          <div className="space-y-1">
+                            <Label className="text-[11px]">Duration</Label>
+                            <select
+                              value={editProposedForm.duration}
+                              onChange={(e) => setEditProposedForm((f) => ({ ...f, duration: Number(e.target.value) }))}
+                              className="h-7 w-full rounded-md border border-input bg-background px-2 text-xs"
+                            >
+                              {[15, 30, 45, 60, 90, 120].map((d) => (
+                                <option key={d} value={d}>
+                                  {d < 60 ? `${d} min` : `${d / 60}h${d % 60 ? ` ${d % 60}m` : ""}`}
+                                </option>
+                              ))}
+                            </select>
+                          </div>
+                          <div className="flex gap-2 pt-1">
+                            <Button
+                              size="sm"
+                              onClick={saveEditProposed}
+                              disabled={!editProposedForm.title.trim()}
+                              className="h-7 text-xs gap-1 bg-[oklch(0.72_0.15_85)] text-[oklch(0.18_0.04_250)] hover:bg-[oklch(0.78_0.12_85)]"
+                            >
+                              <Save className="h-3 w-3" /> Save
+                            </Button>
+                            <Button
+                              size="sm"
+                              variant="ghost"
+                              onClick={() => setEditProposedIdx(null)}
+                              className="h-7 text-xs"
+                            >
+                              Cancel
+                            </Button>
+                          </div>
+                        </div>
+                      ) : (
+                        <>
+                          <p className="font-medium mt-1">{p.title}</p>
+                          {p.attendees.length > 0 && (
+                            <p className="text-xs text-muted-foreground flex items-center gap-1 mt-0.5">
+                              <Users className="h-3 w-3" />{" "}
+                              {p.attendees.slice(0, 3).join(", ")}
+                              {p.attendees.length > 3 && ` +${p.attendees.length - 3}`}
+                            </p>
+                          )}
+                        </>
                       )}
-                      {p.status === "proposed" && (
+
+                      {/* Approve / Decline (only when not editing) */}
+                      {p.status === "proposed" && !isEditing && (
                         <div className="flex gap-2 mt-2">
                           <Button
                             size="sm"
@@ -656,20 +768,79 @@ export default function SchedulePage() {
                 {proposed
                   .map((p, i) => ({ ...p, _index: i }))
                   .filter((p) => p.status === "proposed")
-                  .map((p) => (
+                  .map((p) => {
+                    const isEditing = editProposedIdx === p._index;
+                    return (
                     <div
                       key={p._index}
                       className="rounded-md p-3 bg-amber-500/5 border border-dashed border-amber-400/20"
                     >
-                      <p className="text-sm font-medium">{p.title}</p>
-                      <p className="text-xs text-muted-foreground">
-                        {p.date} at {p.startTime} · {p.duration}min
-                      </p>
-                      {p.attendees.length > 0 && (
-                        <p className="text-xs text-muted-foreground">
-                          {p.attendees.join(", ")}
-                        </p>
+                      <div className="flex items-start justify-between gap-2">
+                        <div className="min-w-0">
+                          <p className="text-sm font-medium">{p.title}</p>
+                          <p className="text-xs text-muted-foreground">
+                            {p.date} at {p.startTime} · {p.duration}min
+                          </p>
+                          {p.attendees.length > 0 && (
+                            <p className="text-xs text-muted-foreground">
+                              {p.attendees.join(", ")}
+                            </p>
+                          )}
+                        </div>
+                        {!isEditing && (
+                          <button
+                            onClick={() => startEditProposed(p._index)}
+                            className="shrink-0 text-muted-foreground hover:text-foreground transition-colors mt-0.5"
+                            title="Edit"
+                          >
+                            <Pencil className="h-3 w-3" />
+                          </button>
+                        )}
+                      </div>
+                      {isEditing && (
+                        <div className="mt-2 space-y-2">
+                          <Input
+                            value={editProposedForm.title}
+                            onChange={(e) => setEditProposedForm((f) => ({ ...f, title: e.target.value }))}
+                            className="h-7 text-xs"
+                            placeholder="Title"
+                            autoFocus
+                          />
+                          <div className="grid grid-cols-2 gap-2">
+                            <Input
+                              type="date"
+                              value={editProposedForm.date}
+                              onChange={(e) => setEditProposedForm((f) => ({ ...f, date: e.target.value }))}
+                              className="h-7 text-xs"
+                            />
+                            <Input
+                              type="time"
+                              step={900}
+                              value={editProposedForm.startTime}
+                              onChange={(e) => setEditProposedForm((f) => ({ ...f, startTime: e.target.value }))}
+                              className="h-7 text-xs"
+                            />
+                          </div>
+                          <select
+                            value={editProposedForm.duration}
+                            onChange={(e) => setEditProposedForm((f) => ({ ...f, duration: Number(e.target.value) }))}
+                            className="h-7 w-full rounded-md border border-input bg-background px-2 text-xs"
+                          >
+                            {[15, 30, 45, 60, 90, 120].map((d) => (
+                              <option key={d} value={d}>
+                                {d < 60 ? `${d} min` : `${d / 60}h${d % 60 ? ` ${d % 60}m` : ""}`}
+                              </option>
+                            ))}
+                          </select>
+                          <div className="flex gap-2">
+                            <Button size="sm" onClick={saveEditProposed} className="h-7 text-xs gap-1 bg-[oklch(0.72_0.15_85)] text-[oklch(0.18_0.04_250)] hover:bg-[oklch(0.78_0.12_85)]">
+                              <Save className="h-3 w-3" /> Save
+                            </Button>
+                            <Button size="sm" variant="ghost" onClick={() => setEditProposedIdx(null)} className="h-7 text-xs">Cancel</Button>
+                          </div>
+                        </div>
                       )}
+                      {!isEditing && (
                       <div className="flex gap-2 mt-2">
                         <Button
                           size="sm"
@@ -694,8 +865,10 @@ export default function SchedulePage() {
                           Decline
                         </Button>
                       </div>
+                      )}
                     </div>
-                  ))}
+                    );
+                  })}
               </CardContent>
             </Card>
           )}

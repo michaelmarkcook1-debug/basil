@@ -101,6 +101,12 @@ function ChatPageInner() {
   const serverSaved = useRef(false); // prevents saving before initial load finishes
   /** Ensures the incoming ?q= param is consumed exactly once per mount. */
   const queryConsumed = useRef(false);
+  /**
+   * Set to true the moment the user sends any message.
+   * Prevents the async server-history fetch (started on mount) from
+   * overwriting the current conversation if it completes mid-session.
+   */
+  const hasSentMessage = useRef(false);
 
   const searchParams = useSearchParams();
   const router = useRouter();
@@ -161,12 +167,26 @@ function ChatPageInner() {
       }
     } catch { /* ignore */ }
 
-    // Authoritative path: load per-user history from server
+    // Authoritative path: load per-user history from server.
+    // IMPORTANT: Only apply server history if the user has NOT already sent a
+    // message since mount.  The fetch is async; if it completes after the first
+    // exchange it must never wipe the in-flight conversation.
     fetch("/api/chat/history")
       .then((r) => r.ok ? r.json() : null)
       .then((data) => {
-        if (!data?.messages || !Array.isArray(data.messages)) return;
-        if (data.messages.length === 0) return;
+        if (!data?.messages || !Array.isArray(data.messages)) {
+          serverSaved.current = true;
+          return;
+        }
+        if (data.messages.length === 0) {
+          serverSaved.current = true;
+          return;
+        }
+        // Don't overwrite an active conversation started since mount
+        if (hasSentMessage.current) {
+          serverSaved.current = true;
+          return;
+        }
         // Convert StoredMessage → UIMessage format
         const uiMessages = data.messages.map((m: { id: string; role: string; content: string; createdAt: string }) => ({
           id: m.id,
@@ -205,6 +225,7 @@ function ChatPageInner() {
     router.replace("/dashboard/chat", { scroll: false });
 
     // Auto-send into the conversation.
+    hasSentMessage.current = true;
     sendMessage({ text: q });
   }, [searchParams, router, sendMessage]);
 
@@ -260,6 +281,7 @@ function ChatPageInner() {
     const hasText = input.trim().length > 0;
     const hasFiles = stagedFiles.length > 0;
     if (!hasText && !hasFiles) return;
+    hasSentMessage.current = true;
 
     let fileList: FileList | undefined;
     if (hasFiles) {
@@ -360,6 +382,7 @@ function ChatPageInner() {
                     size="sm"
                     className="border-[oklch(0.72_0.15_85)]/30 hover:bg-[oklch(0.72_0.15_85)]/10"
                     onClick={() => {
+                      hasSentMessage.current = true;
                       sendMessage({ text: suggestion });
                     }}
                   >

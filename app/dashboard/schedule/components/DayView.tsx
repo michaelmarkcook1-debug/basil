@@ -4,15 +4,16 @@ import { useState, useRef, useCallback, useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { X, Trash2, Video, Users, Save, Loader2, Plus } from "lucide-react";
+import { X, Trash2, Video, Users, Save, Loader2, Plus, Pencil } from "lucide-react";
 
 // ─── Constants ────────────────────────────────────────────────────────────────
-const HOUR_HEIGHT   = 80;          // px per hour
-const PX_PER_MIN    = HOUR_HEIGHT / 60;
-const GRID_START_H  = 7;           // 07:00
-const GRID_END_H    = 21;          // 21:00
-const SNAP_MINUTES  = 15;
-const MIN_DURATION  = 15;          // minimum event duration in minutes
+const HOUR_HEIGHT    = 80;          // px per hour
+const PX_PER_MIN     = HOUR_HEIGHT / 60;
+const GRID_START_H   = 7;           // 07:00
+const GRID_END_H     = 21;          // 21:00
+const SNAP_MINUTES   = 15;
+const MIN_DURATION   = 15;          // minimum event duration in minutes
+const DRAG_THRESHOLD = 5;           // px of movement before drag activates
 
 function snapMin(m: number) {
   return Math.round(m / SNAP_MINUTES) * SNAP_MINUTES;
@@ -27,7 +28,7 @@ function minToTime(totalMin: number): string {
 }
 function timeToMin(hhmm: string): number {
   const [h, m] = hhmm.split(":").map(Number);
-  return h * 60 + m;
+  return h * 60 + (m || 0);
 }
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -60,8 +61,6 @@ interface DragState {
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 function parseEventTimes(e: DayEvent): { startMin: number; endMin: number } {
-  // start/end are ISO dateTime strings like "2026-04-30T09:00:00+01:00"
-  // or date-only "2026-04-30" for all-day
   const startDate = new Date(e.start);
   const endDate   = new Date(e.end);
   const startMin  = startDate.getHours() * 60 + startDate.getMinutes();
@@ -86,7 +85,6 @@ function EventBlock({
   dragEndMin,
   onDragStart,
   onResizeStart,
-  onDoubleClick,
 }: {
   event: DayEvent;
   dragging: boolean;
@@ -94,7 +92,6 @@ function EventBlock({
   dragEndMin: number;
   onDragStart: (e: React.MouseEvent, id: string) => void;
   onResizeStart: (e: React.MouseEvent, id: string) => void;
-  onDoubleClick: (event: DayEvent) => void;
 }) {
   const { startMin, endMin } = parseEventTimes(event);
   const displayStart = dragging ? dragStartMin : startMin;
@@ -102,28 +99,31 @@ function EventBlock({
   const top    = eventTop(displayStart);
   const height = eventHeight(displayStart, displayEnd);
 
-  // Color by event type
-  let bg = "bg-[oklch(0.72_0.15_85)]/20 border-[oklch(0.72_0.15_85)]/50";
+  let bg   = "bg-[oklch(0.72_0.15_85)]/20 border-[oklch(0.72_0.15_85)]/50";
   let text = "text-[oklch(0.4_0.1_85)]";
   const lower = event.summary.toLowerCase();
   if (lower.includes("focus") || lower.includes("deep work")) {
-    bg = "bg-blue-500/10 border-blue-400/40";
+    bg   = "bg-blue-500/10 border-blue-400/40";
     text = "text-blue-700 dark:text-blue-300";
   } else if (lower.includes("lunch") || lower.includes("break")) {
-    bg = "bg-emerald-500/10 border-emerald-400/40";
+    bg   = "bg-emerald-500/10 border-emerald-400/40";
     text = "text-emerald-700 dark:text-emerald-300";
   }
 
   return (
     <div
-      className={`absolute left-0 right-2 rounded-md border px-2 py-1 select-none
+      className={`absolute left-0 right-2 rounded-md border px-2 py-1 select-none group
         ${bg} ${dragging ? "opacity-70 shadow-lg ring-2 ring-[oklch(0.72_0.15_85)] z-20" : "hover:shadow-md z-10"}
         transition-shadow cursor-grab active:cursor-grabbing`}
       style={{ top: `${top}px`, height: `${height}px`, minHeight: `${MIN_DURATION * PX_PER_MIN}px` }}
       onMouseDown={(e) => { e.stopPropagation(); onDragStart(e, event.id); }}
-      onDoubleClick={(e) => { e.stopPropagation(); onDoubleClick(event); }}
     >
-      <div className="flex items-start gap-1 overflow-hidden h-full">
+      {/* Pencil icon hint on hover */}
+      <div className="absolute top-1 right-1 opacity-0 group-hover:opacity-60 transition-opacity pointer-events-none">
+        <Pencil className="h-2.5 w-2.5 text-current" />
+      </div>
+
+      <div className="flex items-start gap-1 overflow-hidden h-full pr-4">
         <div className="flex-1 min-w-0">
           <p className={`text-xs font-semibold leading-tight truncate ${text}`}>
             {event.summary}
@@ -145,6 +145,7 @@ function EventBlock({
           <Video className="h-3 w-3 text-blue-400 shrink-0 mt-0.5" />
         )}
       </div>
+
       {/* Resize handle */}
       <div
         className="absolute bottom-0 left-0 right-0 h-3 cursor-ns-resize flex items-center justify-center opacity-0 hover:opacity-100 transition-opacity"
@@ -175,10 +176,9 @@ function EditModal({
   onChange: (patch: Partial<EditState>) => void;
 }) {
   const isNew = state.eventId === null;
-  const endMin = timeToMin(state.startTime) + state.durationMin;
+  const endMin  = timeToMin(state.startTime) + state.durationMin;
   const endTime = minToTime(clamp(endMin, 0, 23 * 60 + 59));
 
-  // Close on Escape
   useEffect(() => {
     const handler = (e: KeyboardEvent) => { if (e.key === "Escape") onClose(); };
     window.addEventListener("keydown", handler);
@@ -189,7 +189,6 @@ function EditModal({
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
       <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" onClick={onClose} />
       <div className="relative w-full max-w-md bg-card border border-border rounded-xl shadow-2xl p-6 space-y-4">
-        {/* Header */}
         <div className="flex items-center justify-between">
           <h3 className="font-semibold text-base">
             {isNew ? "New Event" : "Edit Event"}
@@ -199,7 +198,6 @@ function EditModal({
           </button>
         </div>
 
-        {/* Title */}
         <div className="space-y-1.5">
           <Label htmlFor="ev-title" className="text-xs font-medium">Title</Label>
           <Input
@@ -212,7 +210,6 @@ function EditModal({
           />
         </div>
 
-        {/* Date + Time row */}
         <div className="grid grid-cols-2 gap-3">
           <div className="space-y-1.5">
             <Label htmlFor="ev-date" className="text-xs font-medium">Date</Label>
@@ -237,7 +234,6 @@ function EditModal({
           </div>
         </div>
 
-        {/* Duration + End time row */}
         <div className="grid grid-cols-2 gap-3">
           <div className="space-y-1.5">
             <Label htmlFor="ev-duration" className="text-xs font-medium">Duration</Label>
@@ -262,9 +258,10 @@ function EditModal({
           </div>
         </div>
 
-        {/* Attendees */}
         <div className="space-y-1.5">
-          <Label htmlFor="ev-attendees" className="text-xs font-medium">Attendees <span className="text-muted-foreground font-normal">(emails, comma-separated)</span></Label>
+          <Label htmlFor="ev-attendees" className="text-xs font-medium">
+            Attendees <span className="text-muted-foreground font-normal">(emails, comma-separated)</span>
+          </Label>
           <Input
             id="ev-attendees"
             value={state.attendees}
@@ -274,7 +271,6 @@ function EditModal({
           />
         </div>
 
-        {/* Actions */}
         <div className="flex items-center gap-2 pt-1">
           <Button
             onClick={onSave}
@@ -308,79 +304,19 @@ export function DayView({
   events,
   onRefresh,
 }: {
-  date: string;          // YYYY-MM-DD
+  date: string;
   events: DayEvent[];
   onRefresh: () => void;
 }) {
-  const gridRef      = useRef<HTMLDivElement>(null);
-  const [drag, setDrag]       = useState<DragState | null>(null);
-  const [dragPos, setDragPos] = useState<{ startMin: number; endMin: number } | null>(null);
+  const gridRef     = useRef<HTMLDivElement>(null);
+  const hasDragged  = useRef(false);
+  const [drag, setDrag]         = useState<DragState | null>(null);
+  const [dragPos, setDragPos]   = useState<{ startMin: number; endMin: number } | null>(null);
   const [editState, setEditState] = useState<EditState | null>(null);
-  const [saving, setSaving]   = useState(false);
+  const [saving, setSaving]     = useState(false);
   const [deleting, setDeleting] = useState(false);
 
-  // ── Drag helpers ───────────────────────────────────────────────────────────
-  const yToMin = useCallback((clientY: number): number => {
-    const rect = gridRef.current?.getBoundingClientRect();
-    if (!rect) return GRID_START_H * 60;
-    const pxFromTop = clientY - rect.top;
-    const raw = GRID_START_H * 60 + pxFromTop / PX_PER_MIN;
-    return clamp(snapMin(raw), GRID_START_H * 60, GRID_END_H * 60 - MIN_DURATION);
-  }, []);
-
-  const startDrag = useCallback((e: React.MouseEvent, eventId: string, type: "move" | "resize") => {
-    if (e.button !== 0) return;
-    const ev = events.find((x) => x.id === eventId);
-    if (!ev) return;
-    const { startMin, endMin } = parseEventTimes(ev);
-    setDrag({ eventId, type, startY: e.clientY, origStartMin: startMin, origEndMin: endMin });
-    setDragPos({ startMin, endMin });
-    e.preventDefault();
-  }, [events]);
-
-  const onMouseMove = useCallback((e: React.MouseEvent) => {
-    if (!drag) return;
-    const deltaY = e.clientY - drag.startY;
-    const deltaMin = snapMin(deltaY / PX_PER_MIN);
-
-    if (drag.type === "move") {
-      const dur = drag.origEndMin - drag.origStartMin;
-      const newStart = clamp(drag.origStartMin + deltaMin, GRID_START_H * 60, GRID_END_H * 60 - dur);
-      setDragPos({ startMin: newStart, endMin: newStart + dur });
-    } else {
-      const newEnd = clamp(drag.origEndMin + deltaMin, drag.origStartMin + MIN_DURATION, GRID_END_H * 60);
-      setDragPos({ startMin: drag.origStartMin, endMin: snapMin(newEnd) });
-    }
-  }, [drag]);
-
-  const onMouseUp = useCallback(async () => {
-    if (!drag || !dragPos) { setDrag(null); setDragPos(null); return; }
-    const ev = events.find((x) => x.id === drag.eventId);
-    if (!ev) { setDrag(null); setDragPos(null); return; }
-
-    const { startMin: origStart, endMin: origEnd } = parseEventTimes(ev);
-    const noChange = dragPos.startMin === origStart && dragPos.endMin === origEnd;
-    setDrag(null);
-    setDragPos(null);
-
-    if (noChange) return;
-
-    const newStartTime = minToTime(dragPos.startMin);
-    const newDuration  = dragPos.endMin - dragPos.startMin;
-
-    try {
-      await fetch(`/api/calendar/${drag.eventId}`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ startTime: newStartTime, duration: newDuration }),
-      });
-      onRefresh();
-    } catch {
-      // silent — event snaps back on refresh
-    }
-  }, [drag, dragPos, events, onRefresh]);
-
-  // ── Edit modal ─────────────────────────────────────────────────────────────
+  // ── Edit modal helpers (defined first so onMouseUp can reference them) ──────
   const openEdit = useCallback((event: DayEvent) => {
     const { startMin, endMin } = parseEventTimes(event);
     setEditState({
@@ -388,13 +324,17 @@ export function DayView({
       title: event.summary,
       date,
       startTime: minToTime(startMin),
-      durationMin: endMin - startMin,
+      durationMin: Math.max(MIN_DURATION, endMin - startMin),
       attendees: event.attendees.join(", "),
     });
   }, [date]);
 
   const openNew = useCallback((clickMin?: number) => {
-    const startMin = clickMin ?? 9 * 60;
+    const startMin = clamp(
+      snapMin(clickMin ?? 9 * 60),
+      GRID_START_H * 60,
+      GRID_END_H * 60 - 30,
+    );
     setEditState({
       eventId: null,
       title: "",
@@ -405,6 +345,79 @@ export function DayView({
     });
   }, [date]);
 
+  // ── Drag helpers ───────────────────────────────────────────────────────────
+  const startDrag = useCallback((e: React.MouseEvent, eventId: string, type: "move" | "resize") => {
+    if (e.button !== 0) return;
+    const ev = events.find((x) => x.id === eventId);
+    if (!ev) return;
+    const { startMin, endMin } = parseEventTimes(ev);
+    hasDragged.current = false;
+    setDrag({ eventId, type, startY: e.clientY, origStartMin: startMin, origEndMin: endMin });
+    setDragPos({ startMin, endMin });
+    e.preventDefault();
+  }, [events]);
+
+  const onMouseMove = useCallback((e: React.MouseEvent) => {
+    if (!drag) return;
+    const deltaY = e.clientY - drag.startY;
+
+    // Only activate drag visuals after threshold to allow click-to-edit
+    if (Math.abs(deltaY) > DRAG_THRESHOLD) hasDragged.current = true;
+    if (!hasDragged.current) return;
+
+    const deltaMin = snapMin(deltaY / PX_PER_MIN);
+    if (drag.type === "move") {
+      const dur      = drag.origEndMin - drag.origStartMin;
+      const newStart = clamp(drag.origStartMin + deltaMin, GRID_START_H * 60, GRID_END_H * 60 - dur);
+      setDragPos({ startMin: newStart, endMin: newStart + dur });
+    } else {
+      const newEnd = clamp(drag.origEndMin + deltaMin, drag.origStartMin + MIN_DURATION, GRID_END_H * 60);
+      setDragPos({ startMin: drag.origStartMin, endMin: snapMin(newEnd) });
+    }
+  }, [drag]);
+
+  const onMouseUp = useCallback(async () => {
+    if (!drag) { setDragPos(null); return; }
+
+    // ── Click (no movement) → open edit modal ────────────────────────────────
+    if (!hasDragged.current) {
+      const ev = events.find((x) => x.id === drag.eventId);
+      setDrag(null);
+      setDragPos(null);
+      if (ev && drag.type === "move") openEdit(ev);
+      return;
+    }
+
+    // ── Drag ended → save new position ───────────────────────────────────────
+    if (!dragPos) { setDrag(null); setDragPos(null); return; }
+    const ev = events.find((x) => x.id === drag.eventId);
+    if (!ev) { setDrag(null); setDragPos(null); return; }
+
+    const { startMin: origStart, endMin: origEnd } = parseEventTimes(ev);
+    const noChange = dragPos.startMin === origStart && dragPos.endMin === origEnd;
+    const savedDrag = { ...drag };
+    const savedPos  = { ...dragPos };
+    setDrag(null);
+    setDragPos(null);
+
+    if (noChange) return;
+
+    try {
+      await fetch(`/api/calendar/${savedDrag.eventId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          startTime: minToTime(savedPos.startMin),
+          duration:  savedPos.endMin - savedPos.startMin,
+        }),
+      });
+      onRefresh();
+    } catch {
+      // silent — event snaps back on refresh
+    }
+  }, [drag, dragPos, events, openEdit, onRefresh]);
+
+  // ── Save / delete handlers ─────────────────────────────────────────────────
   const handleSave = async () => {
     if (!editState) return;
     setSaving(true);
@@ -419,10 +432,10 @@ export function DayView({
           method: "PATCH",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
-            title: editState.title,
-            date: editState.date,
+            title:     editState.title,
+            date:      editState.date,
             startTime: editState.startTime,
-            duration: editState.durationMin,
+            duration:  editState.durationMin,
             attendees: attendeeList,
           }),
         });
@@ -431,10 +444,10 @@ export function DayView({
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
-            title: editState.title,
-            date: editState.date,
+            title:     editState.title,
+            date:      editState.date,
             startTime: editState.startTime,
-            duration: editState.durationMin,
+            duration:  editState.durationMin,
             attendees: attendeeList,
           }),
         });
@@ -458,40 +471,38 @@ export function DayView({
     }
   };
 
-  // Grid click → open new event
+  // Grid click → create new event (only fires if no drag is in progress)
   const handleGridClick = (e: React.MouseEvent) => {
-    if (drag) return; // ignore click at drag end
+    if (drag) return;
     const rect = gridRef.current?.getBoundingClientRect();
     if (!rect) return;
     const clickMin = snapMin(GRID_START_H * 60 + (e.clientY - rect.top) / PX_PER_MIN);
     openNew(clickMin);
   };
 
-  // Stop listening if mouse leaves window
+  // Listen for mouseup globally so drag completes even if cursor leaves the grid
   useEffect(() => {
     if (!drag) return;
-    const up = () => onMouseUp();
+    const up = () => { onMouseUp(); };
     window.addEventListener("mouseup", up);
     return () => window.removeEventListener("mouseup", up);
   }, [drag, onMouseUp]);
 
-  // ── Timed events only (all-day events shown above the grid) ───────────────
   const allDayEvents = events.filter((e) => e.isAllDay);
   const timedEvents  = events.filter((e) => !e.isAllDay);
-
   const totalGridHeight = (GRID_END_H - GRID_START_H) * HOUR_HEIGHT;
 
   return (
     <div className="flex flex-col h-full">
       {/* All-day events strip */}
       {allDayEvents.length > 0 && (
-        <div className="px-2 py-1.5 border-b border-border bg-muted/20 flex flex-wrap gap-1.5">
+        <div className="px-2 py-1.5 border-b border-border bg-muted/20 flex flex-wrap gap-1.5 shrink-0">
           {allDayEvents.map((e) => (
             <span
               key={e.id}
               className="text-xs px-2 py-0.5 rounded-full bg-[oklch(0.72_0.15_85)]/15 text-[oklch(0.5_0.1_85)] border border-[oklch(0.72_0.15_85)]/30 cursor-pointer hover:bg-[oklch(0.72_0.15_85)]/25 transition-colors"
-              onDoubleClick={() => openEdit(e)}
-              title="Double-click to edit"
+              onClick={() => openEdit(e)}
+              title="Click to edit"
             >
               {e.summary}
             </span>
@@ -499,10 +510,10 @@ export function DayView({
         </div>
       )}
 
-      {/* Add event hint */}
-      <div className="flex items-center justify-between px-3 py-1.5 border-b border-border/50">
+      {/* Hint bar */}
+      <div className="flex items-center justify-between px-3 py-1.5 border-b border-border/50 shrink-0">
         <p className="text-[11px] text-muted-foreground">
-          Click grid to add · Drag to move · Double-click to edit
+          Click event to edit · Drag to move · Drag bottom edge to resize
         </p>
         <button
           onClick={() => openNew()}
@@ -572,7 +583,6 @@ export function DayView({
                   dragEndMin={pos.endMin}
                   onDragStart={(e, id) => startDrag(e, id, "move")}
                   onResizeStart={(e, id) => startDrag(e, id, "resize")}
-                  onDoubleClick={openEdit}
                 />
               );
             })}
