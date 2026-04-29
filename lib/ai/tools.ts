@@ -233,130 +233,162 @@ export function buildAssistantTools(username: string, firstName?: string, timezo
           return { error: "Google Calendar not connected — cannot check availability." };
         }
 
-        // Load user contacts (seed + user-added) to resolve emails
-        const userContacts = await listUserContacts().catch(() => []);
+        const checkEndStr = endDate || date;
 
-        // Resolve each attendee to { displayName, email, timezone }
+        // ── Michael's own calendar ────────────────────────────────────────────
+        // Use getEventsForDateRange (authenticated primary calendar) rather than
+        // freebusy.  This captures Focus time blocks, Reclaim.ai holds, and any
+        // event marked "Free" that would be invisible to the freebusy API.
+        const myEvents = await getEventsForDateRange(username, date, checkEndStr, timezone).catch(() => []);
+        const myBusyBlocks: { start: string; end: string }[] = myEvents
+          .filter((e) => !e.isAllDay)
+          .map((e) => ({ start: e.start, end: e.end }));
+
+        // ── Resolve each attendee ─────────────────────────────────────────────
+        const userContacts = await listUserContacts().catch(() => []);
+        const slackConnected = await isSlackConnected(username).catch(() => false);
+
         const resolved = await Promise.all(
           attendees.map(async (a) => {
             const isEmail = a.includes("@");
-            const contact = isEmail
-              ? findContactByName(a, userContacts) // try by email match too
-              : findContactByName(a, userContacts);
+            const contact = findContactByName(a, userContacts);
             const email = isEmail ? a : contact?.email;
             const locationTz = timezoneFromLocation(contact?.location);
 
-            // Try Slack for IANA timezone (most accurate)
+            // Slack profile has the most accurate IANA tz
             let slackTz: string | undefined;
-            const slackConnected = await isSlackConnected(username).catch(() => false);
             if (slackConnected) {
               const profile = await getUserProfile(username, email || a).catch(() => null);
               slackTz = profile?.tz;
             }
 
-            const tz = slackTz || locationTz || "UTC";
-            return { displayName: contact?.name || a, email, tz };
+            return {
+              displayName: contact?.name || a,
+              email,
+              tz: slackTz || locationTz || "UTC",
+            };
           })
         );
 
-        // Compute freebusy window: full day(s) in UTC
+        // ── Attendee freebusy via Google Calendar API ─────────────────────────
         const checkStart = new Date(`${date}T00:00:00Z`);
-        const checkEndStr = endDate || date;
         const checkEnd = new Date(`${checkEndStr}T23:59:59Z`);
-
-        // Query freebusy for attendees that have emails
         const emailsToCheck = resolved.filter((r) => r.email).map((r) => r.email!);
-        // Also include Michael's own calendar
-        const myBusy = await checkFreeBusy(username, [`${username}@talentgenius.io`], checkStart, checkEnd)
-          .catch(() => []);
-        const attendeeBusy = emailsToCheck.length
-          ? await checkFreeBusy(username, emailsToCheck, checkStart, checkEnd)
+        const attendeeFB = emailsToCheck.length
+          ? await checkFreeBusy(username, emailsToCheck, checkStart, checkEnd).catch(() => [])
           : [];
 
-        const busyMap = new Map<string, { start: string; end: string }[]>();
-        for (const fb of [...myBusy, ...attendeeBusy]) {
-          busyMap.set(fb.email, fb.error ? [] : fb.busy);
+        const attendeeBusyMap = new Map<string, { start: string; end: string }[]>();
+        for (const fb of attendeeFB) {
+          attendeeBusyMap.set(fb.email, fb.error ? [] : fb.busy);
         }
 
-        // Build per-person summary
+        // ── Build per-person summary ──────────────────────────────────────────
         const people = resolved.map((r) => {
-          const busy = r.email ? (busyMap.get(r.email) ?? []) : [];
+          const busy = r.email ? (attendeeBusyMap.get(r.email) ?? []) : [];
           const offsetH = (() => {
             try {
-              const now = new Date(`${date}T12:00:00Z`);
-              const utcMs = new Date(now.toLocaleString("en-US", { timeZone: "UTC" })).getTime();
-              const tzMs = new Date(now.toLocaleString("en-US", { timeZone: r.tz })).getTime();
+              const ref = new Date(`${date}T12:00:00Z`);
+              const utcMs = new Date(ref.toLocaleString("en-US", { timeZone: "UTC" })).getTime();
+              const tzMs  = new Date(ref.toLocaleString("en-US", { timeZone: r.tz })).getTime();
               return (tzMs - utcMs) / 3_600_000;
             } catch { return 0; }
           })();
           const sign = offsetH >= 0 ? "+" : "-";
           const absH = Math.abs(offsetH);
           const offsetStr = `UTC${sign}${Math.floor(absH)}${absH % 1 ? `:${String(Math.round((absH % 1) * 60)).padStart(2, "0")}` : ""}`;
-
-          // Format busy blocks in local time
           const busyLocal = busy.map((b) => {
-            const startLocal = new Date(b.start).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit", timeZone: r.tz });
-            const endLocal = new Date(b.end).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit", timeZone: r.tz });
-            return `${startLocal}–${endLocal}`;
+            const s = new Date(b.start).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit", timeZone: r.tz });
+            const e = new Date(b.end).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit", timeZone: r.tz });
+            return `${s}–${e}`;
           });
-
           return {
             name: r.displayName,
             email: r.email || "unknown",
             timezone: r.tz,
             utcOffset: offsetStr,
             workingHours: "09:00–18:00 local",
-            busyToday: busyLocal.length ? busyLocal : ["(calendar not accessible — treat as unknown)"],
-            calendarAccessible: r.email ? busyMap.has(r.email) && !busyMap.get(r.email)?.length && busy.length === 0 ? "accessible (free all day)" : "accessible" : "no email on file",
+            busyToday: busyLocal.length ? busyLocal : ["(calendar not accessible via freebusy)"],
           };
         });
 
-        // Suggest a meeting window: find 30-min slots where no one is busy,
-        // within each person's working hours, on the requested date.
-        const suggestions: string[] = [];
-        const windowStart = new Date(`${date}T08:00:00Z`); // scan from 08:00 UTC
-        const windowEnd = new Date(`${date}T22:00:00Z`);   // to 22:00 UTC
-        const allBusy = [...myBusy, ...attendeeBusy].flatMap((fb) => fb.busy);
+        // Michael's busy summary (in his timezone, for display)
+        const michaelBusyLocal = myBusyBlocks.map((b) => {
+          const s = new Date(b.start).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit", timeZone: timezone });
+          const e = new Date(b.end).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit", timeZone: timezone });
+          return `${s}–${e}`;
+        });
 
-        for (let t = new Date(windowStart); t < windowEnd; t = new Date(t.getTime() + 30 * 60_000)) {
+        // ── Suggest free slots ────────────────────────────────────────────────
+        // Combine Michael's real events + attendees' freebusy into one busy list
+        const allBusy: { start: string; end: string }[] = [
+          ...myBusyBlocks,
+          ...attendeeFB.flatMap((fb) => fb.busy),
+        ];
+
+        const suggestions: string[] = [];
+        // Scan in the user's timezone to reason about working hours correctly
+        const scanDate = new Date(`${date}T00:00:00`);
+        const tzOffset = (() => {
+          try {
+            const ref = new Date(`${date}T12:00:00Z`);
+            const utcMs = new Date(ref.toLocaleString("en-US", { timeZone: "UTC" })).getTime();
+            const tzMs  = new Date(ref.toLocaleString("en-US", { timeZone: timezone })).getTime();
+            return (tzMs - utcMs) / 3_600_000;
+          } catch { return 0; }
+        })();
+        // Start scanning at 08:00 in Michael's local timezone
+        const windowStartUTC = new Date(new Date(`${date}T08:00:00Z`).getTime() - tzOffset * 3_600_000);
+        const windowEndUTC   = new Date(new Date(`${date}T18:00:00Z`).getTime() - tzOffset * 3_600_000);
+        void scanDate;
+
+        for (let t = new Date(windowStartUTC); t < windowEndUTC; t = new Date(t.getTime() + 30 * 60_000)) {
           const slotEnd = new Date(t.getTime() + 30 * 60_000);
-          // Check slot doesn't overlap any busy block
-          const overlaps = allBusy.some((b) => {
+
+          // Skip if Michael has any event overlapping this slot
+          const michaelBusy = allBusy.some((b) => {
             const bs = new Date(b.start).getTime();
             const be = new Date(b.end).getTime();
             return t.getTime() < be && slotEnd.getTime() > bs;
           });
-          if (overlaps) continue;
-          // Check it's within working hours for all attendees
-          const withinHours = resolved.every((r) => {
-            const localHour = parseFloat(
-              new Date(t.getTime()).toLocaleString("en-US", { hour: "numeric", hour12: false, timeZone: r.tz })
-            );
-            return localHour >= 9 && localHour < 17;
-          });
-          // Also check Michael's timezone
-          const michaelLocalHour = parseFloat(
+          if (michaelBusy) continue;
+
+          // Michael's local hour check
+          const mHour = parseFloat(
             new Date(t.getTime()).toLocaleString("en-US", { hour: "numeric", hour12: false, timeZone: timezone })
           );
-          const michaelOk = michaelLocalHour >= 9 && michaelLocalHour < 17;
-          if (withinHours && michaelOk) {
-            const timeStrs = [
-              `${new Date(t.getTime()).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit", timeZone: timezone })} (${timezone.split("/")[1] || timezone})`,
-              ...resolved.map((r) =>
-                `${new Date(t.getTime()).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit", timeZone: r.tz })} (${r.displayName})`
-              ),
-            ];
-            suggestions.push(timeStrs.join(" / "));
-          }
+          if (mHour < 9 || mHour >= 17) continue;
+
+          // All attendees must be within their working hours
+          const allOk = resolved.every((r) => {
+            const h = parseFloat(
+              new Date(t.getTime()).toLocaleString("en-US", { hour: "numeric", hour12: false, timeZone: r.tz })
+            );
+            return h >= 9 && h < 17;
+          });
+          if (!allOk) continue;
+
+          const timeStrs = [
+            `${new Date(t.getTime()).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit", timeZone: timezone })} (${timezone.split("/")[1] || timezone})`,
+            ...resolved.map((r) =>
+              `${new Date(t.getTime()).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit", timeZone: r.tz })} (${r.displayName})`
+            ),
+          ];
+          suggestions.push(timeStrs.join(" / "));
         }
 
         return {
           date,
+          michael: {
+            timezone,
+            busyBlocks: michaelBusyLocal.length ? michaelBusyLocal : ["(free all day)"],
+            note: "Fetched directly from primary Google Calendar — includes Focus time and all holds.",
+          },
           attendees: people,
           suggestedSlots: suggestions.slice(0, 6),
           note: suggestions.length === 0
-            ? "No fully overlapping free slot found within working hours — you may need to propose outside normal hours or pick the least-bad option."
-            : `${suggestions.length} free slot(s) found. Top options shown.`,
+            ? "No overlap found within working hours. Consider proposing outside normal hours or checking a different day."
+            : `${suggestions.length} free slot(s) found within everyone's working hours.`,
         };
       },
     }),
