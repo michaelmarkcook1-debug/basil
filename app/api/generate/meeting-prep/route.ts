@@ -1,5 +1,6 @@
 import { generateText, type ModelMessage } from "ai";
 import { getSystemPrompt } from "@/lib/ai/system-prompt";
+import { getSettings } from "@/lib/settings/store";
 import { findContactByName, getPersonaSummary } from "@/lib/contacts-lookup";
 import { listUserContacts } from "@/lib/contacts/user-store";
 import { getAllOverridesFromStore } from "@/lib/contacts/overrides-store";
@@ -83,6 +84,10 @@ export async function POST(req: Request) {
     time = body.time;
     // userContacts is no longer forwarded — read from the server store below
   }
+
+  // Resolve user timezone early — used for date arithmetic and system prompt.
+  const settings = await getSettings(username).catch(() => null);
+  const tz = settings?.timezone || "Europe/London";
 
   // Fetch user contacts and AI-generated overrides from the server store so
   // meeting prep always reflects the latest profile data without the client
@@ -256,7 +261,7 @@ export async function POST(req: Request) {
   const earlierTodayBlock = earlierTodayEvents.length > 0
     ? earlierTodayEvents
         .map((e) => {
-          const start = e.start ? new Date(e.start).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit", timeZone: "Europe/London" }) : "";
+          const start = e.start ? new Date(e.start).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit", timeZone: tz }) : "";
           const att = e.attendees?.length ? ` [with ${e.attendees.join(", ")}]` : "";
           return `- ${start} ${e.summary}${att}`;
         })
@@ -362,7 +367,7 @@ export async function POST(req: Request) {
     })
     .sort((a, b) => {
       // Overdue first, then priority, then creation date
-      const todayLocal = new Date().toISOString().split("T")[0];
+      const todayLocal = new Date().toLocaleDateString("en-CA", { timeZone: tz });
       const aOverdue = a.status === "overdue" || (a.status === "open" && a.dueDate && a.dueDate < todayLocal);
       const bOverdue = b.status === "overdue" || (b.status === "open" && b.dueDate && b.dueDate < todayLocal);
       if (aOverdue && !bOverdue) return -1;
@@ -377,7 +382,7 @@ export async function POST(req: Request) {
       ? "No relevant open actions found for these attendees."
       : relevantActions
           .map((a) => {
-            const todayLocal = new Date().toISOString().split("T")[0];
+            const todayLocal = new Date().toLocaleDateString("en-CA", { timeZone: tz });
             const isOverdue =
               a.status === "overdue" ||
               (a.status === "open" && a.dueDate && a.dueDate < todayLocal);
@@ -546,7 +551,7 @@ Return ONLY valid JSON, no markdown code fences:
 
   const result = await generateText({
     model: "anthropic/claude-sonnet-4.6",
-    system: await getSystemPrompt(username),
+    system: await getSystemPrompt(username, tz),
     ...(messages ? { messages } : { prompt: promptText }),
     providerOptions: {
       gateway: { tags: ["feature:meeting-prep", "env:production"] },

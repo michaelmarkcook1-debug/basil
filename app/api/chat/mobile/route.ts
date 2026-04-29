@@ -14,6 +14,7 @@ import { getSystemPrompt } from "@/lib/ai/system-prompt";
 import { buildAssistantTools } from "@/lib/ai/tools";
 import { getSessionUser } from "@/lib/auth";
 import { getSettings } from "@/lib/settings/store";
+import { resolveTimezone } from "@/lib/timezone";
 
 interface IncomingMessage {
   id?: string;
@@ -53,17 +54,16 @@ export async function POST(req: Request) {
   }
 
   try {
-    const [system, settings] = await Promise.all([
-      getSystemPrompt(username),
-      getSettings(username),
-    ]);
+    const settings = await getSettings(username);
+    const timezone = resolveTimezone(settings, req);
     const firstName = settings.name.split(" ")[0] ?? settings.name;
+    const system = await getSystemPrompt(username, timezone);
 
     const result = await generateText({
       model: "anthropic/claude-sonnet-4.6",
       system,
       messages,
-      tools: buildAssistantTools(username, firstName),
+      tools: buildAssistantTools(username, firstName, timezone),
       stopWhen: stepCountIs(5),
       providerOptions: {
         gateway: { tags: ["feature:chat", "env:production", "platform:mobile"] },

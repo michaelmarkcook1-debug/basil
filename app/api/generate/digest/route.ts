@@ -457,7 +457,7 @@ Return ONLY valid JSON, no markdown code fences.`;
 
   const result = await generateText({
     model: "anthropic/claude-sonnet-4.6",
-    system: await getSystemPrompt(username),
+    system: await getSystemPrompt(username, tz),
     prompt,
     providerOptions: {
       gateway: { tags: ["feature:digest", "env:production"] },

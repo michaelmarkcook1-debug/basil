@@ -517,7 +517,7 @@ export function buildAssistantTools(username: string, firstName?: string, timezo
         date: z
           .string()
           .optional()
-          .describe("Date in YYYY-MM-DD. Defaults to today."),
+          .describe("Date in YYYY-MM-DD. If omitting, use today's date from the '## Right Now' section of your system prompt — do NOT guess from training data."),
         context: z
           .string()
           .optional()

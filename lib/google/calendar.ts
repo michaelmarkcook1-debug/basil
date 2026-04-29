@@ -129,14 +129,24 @@ export async function getEventsForMonth(
   const { start: startOfMonth } = tzDayBounds(firstDay, timezone);
   const { end:   endOfMonth   } = tzDayBounds(lastDay,  timezone);
 
-  const res = await calendar.events.list({
-    calendarId: "primary",
-    timeMin: startOfMonth.toISOString(),
-    timeMax: endOfMonth.toISOString(),
-    singleEvents: true,
-    orderBy: "startTime",
-    maxResults: 200,
-  });
+  // Paginate through all results — a busy month easily exceeds 200 events
+  // (recurring "Focus time", Lunch, standups, etc.) so a single-page fetch
+  // silently drops events near month-end.
+  const allItems: any[] = []; // eslint-disable-line @typescript-eslint/no-explicit-any
+  let pageToken: string | undefined;
+  do {
+    const res = await calendar.events.list({
+      calendarId: "primary",
+      timeMin: startOfMonth.toISOString(),
+      timeMax: endOfMonth.toISOString(),
+      singleEvents: true,
+      orderBy: "startTime",
+      maxResults: 250,
+      ...(pageToken ? { pageToken } : {}),
+    });
+    allItems.push(...(res.data.items || []));
+    pageToken = res.data.nextPageToken ?? undefined;
+  } while (pageToken);
 
   const now = new Date();
   const todayStr    = now.toLocaleDateString("en-CA", { timeZone: timezone });
@@ -145,7 +155,7 @@ export async function getEventsForMonth(
   tomorrowDate.setDate(tomorrowDate.getDate() + 1);
   const tomorrowStr = tomorrowDate.toLocaleDateString("en-CA", { timeZone: timezone });
 
-  return (res.data.items || []).map((e) => {
+  return allItems.map((e) => {
     const eventDate = (e.start?.dateTime || e.start?.date || "").substring(0, 10);
     let dateLabel: string;
     if (eventDate === todayStr) {

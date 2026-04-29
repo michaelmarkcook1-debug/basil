@@ -17,6 +17,22 @@ export async function getSystemPrompt(username: string, timezoneOverride?: strin
   // Use the IP-resolved timezone when available, otherwise fall back to the stored setting.
   const effectiveTimezone = timezoneOverride || settings.timezone;
 
+  // Inject the current date/time so Basil always knows exactly when "now" is.
+  const now = new Date();
+  const currentDateStr = now.toLocaleDateString("en-GB", {
+    weekday: "long",
+    day: "numeric",
+    month: "long",
+    year: "numeric",
+    timeZone: effectiveTimezone,
+  });
+  const currentTimeStr = now.toLocaleTimeString("en-GB", {
+    hour: "2-digit",
+    minute: "2-digit",
+    timeZone: effectiveTimezone,
+  });
+  const currentDateSection = `## Right Now\nToday is **${currentDateStr}** — ${currentTimeStr} (${effectiveTimezone}). Use this as the ground truth for any date arithmetic ("tomorrow", "next Friday", "in two weeks", etc.). Never use a date from your training data.`;
+
   // Derive first name from display name ("Michael Cook" → "Michael", "Alice" → "Alice")
   const firstName = settings.name.split(" ")[0] ?? settings.name;
 
@@ -106,6 +122,8 @@ Always maintain ${firstName}'s voice — professional, direct, warm. Never menti
 - All times: ${effectiveTimezone} unless referencing a colleague's local time.`;
 
   return `You are Basil, ${settings.name}'s personal executive assistant. You're sharp, warm, and always two steps ahead.
+
+${currentDateSection}
 
 ## ABSOLUTE GROUND RULES — FACTUAL ONLY (read first, obey always)
 
