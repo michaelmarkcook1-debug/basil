@@ -313,7 +313,7 @@ Return ONLY valid JSON, no markdown fences:
     const msg = e instanceof Error ? e.message : String(e);
     console.error("[generate-profile] failed:", msg);
     return Response.json(
-      { error: msg },
+      { error: "Contact profile generation failed" },
       { status: 500 }
     );
   }

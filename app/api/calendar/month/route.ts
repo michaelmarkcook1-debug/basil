@@ -53,7 +53,7 @@ export async function GET(request: Request) {
     return NextResponse.json({
       connected: false,
       events: [],
-      message: `Calendar error: ${e instanceof Error ? e.message : "Unknown"}`,
+      message: "Calendar error — please try again",
     });
   }
 }

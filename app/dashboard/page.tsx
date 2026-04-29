@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { getGreeting } from "@/lib/utils";
 import { NowPanel } from "./components/now-panel";
@@ -16,18 +16,24 @@ export default function DashboardPage() {
   const greeting = getGreeting();
   const router = useRouter();
   const [searchQuery, setSearchQuery] = useState("");
+  // Hydration-safe date: initialise empty, set on client only so server and
+  // client always render the same initial HTML.
+  const [today, setToday] = useState("");
+  useEffect(() => {
+    setToday(
+      new Date().toLocaleDateString("en-GB", {
+        weekday: "long",
+        day: "numeric",
+        month: "long",
+      })
+    );
+  }, []);
 
   function handleSearch(e: React.FormEvent) {
     e.preventDefault();
     if (!searchQuery.trim()) return;
     router.push(`/dashboard/chat?q=${encodeURIComponent(searchQuery.trim())}`);
   }
-
-  const today = new Date().toLocaleDateString("en-GB", {
-    weekday: "long",
-    day: "numeric",
-    month: "long",
-  });
 
   return (
     <div className="p-4 sm:p-6 lg:p-10 space-y-8 max-w-[1400px] mx-auto">

@@ -52,7 +52,7 @@ export async function POST(req: Request) {
   } catch (e) {
     console.error("Calendar create error:", e);
     return NextResponse.json(
-      { error: `Failed to create event: ${e instanceof Error ? e.message : "Unknown"}` },
+      { error: "Failed to create event — please try again" },
       { status: 500 }
     );
   }

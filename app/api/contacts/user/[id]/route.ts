@@ -4,6 +4,7 @@ import {
   deleteUserContactFromStore,
 } from "@/lib/contacts/user-store";
 import type { Contact } from "@/lib/contacts-data";
+import { getSessionUser } from "@/lib/auth";
 
 /**
  * PATCH /api/contacts/user/:id
@@ -14,6 +15,8 @@ export async function PATCH(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    const username = await getSessionUser();
+    if (!username) return NextResponse.json({ error: "Unauthorised" }, { status: 401 });
     const { id } = await params;
     const patch = (await req.json()) as Partial<Contact>;
     const updated = await updateUserContactInStore(id, patch);
@@ -23,7 +26,7 @@ export async function PATCH(
     return NextResponse.json({ contact: updated });
   } catch (e) {
     return NextResponse.json(
-      { error: e instanceof Error ? e.message : "Unknown error" },
+      { error: "Operation failed" },
       { status: 500 }
     );
   }
@@ -38,6 +41,8 @@ export async function DELETE(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    const username = await getSessionUser();
+    if (!username) return NextResponse.json({ error: "Unauthorised" }, { status: 401 });
     const { id } = await params;
     const deleted = await deleteUserContactFromStore(id);
     if (!deleted) {
@@ -46,7 +51,7 @@ export async function DELETE(
     return new NextResponse(null, { status: 204 });
   } catch (e) {
     return NextResponse.json(
-      { error: e instanceof Error ? e.message : "Unknown error" },
+      { error: "Operation failed" },
       { status: 500 }
     );
   }

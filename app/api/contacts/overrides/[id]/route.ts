@@ -4,6 +4,7 @@ import {
   clearOverrideFromStore,
 } from "@/lib/contacts/overrides-store";
 import type { ProfileOverride } from "@/lib/contact-profile-overrides";
+import { getSessionUser } from "@/lib/auth";
 
 /**
  * PUT /api/contacts/overrides/:id
@@ -14,13 +15,15 @@ export async function PUT(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    const username = await getSessionUser();
+    if (!username) return NextResponse.json({ error: "Unauthorised" }, { status: 401 });
     const { id } = await params;
     const patch = (await req.json()) as ProfileOverride;
     const merged = await setOverrideInStore(id, patch);
     return NextResponse.json({ override: merged });
   } catch (e) {
     return NextResponse.json(
-      { error: e instanceof Error ? e.message : "Unknown error" },
+      { error: "Operation failed" },
       { status: 500 }
     );
   }
@@ -35,12 +38,14 @@ export async function DELETE(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    const username = await getSessionUser();
+    if (!username) return NextResponse.json({ error: "Unauthorised" }, { status: 401 });
     const { id } = await params;
     await clearOverrideFromStore(id);
     return new NextResponse(null, { status: 204 });
   } catch (e) {
     return NextResponse.json(
-      { error: e instanceof Error ? e.message : "Unknown error" },
+      { error: "Operation failed" },
       { status: 500 }
     );
   }

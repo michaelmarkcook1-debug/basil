@@ -5,14 +5,19 @@ import {
   bulkImport,
 } from "@/lib/actions/store";
 import type { ActionItem } from "@/lib/types/action";
+import { getSessionUser } from "@/lib/auth";
 
 export async function GET() {
+  const username = await getSessionUser();
+  if (!username) return NextResponse.json({ error: "Unauthorised" }, { status: 401 });
   const actions = await listActions();
   return NextResponse.json({ actions });
 }
 
 export async function POST(req: Request) {
   try {
+    const username = await getSessionUser();
+    if (!username) return NextResponse.json({ error: "Unauthorised" }, { status: 401 });
     const body = await req.json();
 
     // Bulk import path — used for one-time localStorage → server migration.
@@ -52,7 +57,7 @@ export async function POST(req: Request) {
     return NextResponse.json({ action }, { status: 201 });
   } catch (e) {
     return NextResponse.json(
-      { error: e instanceof Error ? e.message : "Unknown error" },
+      { error: "Operation failed" },
       { status: 500 }
     );
   }

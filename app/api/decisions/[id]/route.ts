@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { updateDecision, deleteDecision } from "@/lib/decisions/store";
 import type { Decision } from "@/lib/types/decision";
+import { getSessionUser } from "@/lib/auth";
 
 export async function PATCH(
   req: Request,
@@ -8,6 +9,8 @@ export async function PATCH(
 ) {
   let id = "";
   try {
+    const username = await getSessionUser();
+    if (!username) return NextResponse.json({ error: "Unauthorised" }, { status: 401 });
     ({ id } = await ctx.params);
     const patch = (await req.json()) as Partial<
       Pick<
@@ -41,7 +44,7 @@ export async function PATCH(
   } catch (e) {
     console.error(`[decisions/${id}] PATCH: error —`, e);
     return NextResponse.json(
-      { error: e instanceof Error ? e.message : "Unknown error" },
+      { error: "Operation failed" },
       { status: 500 }
     );
   }
@@ -53,6 +56,8 @@ export async function DELETE(
 ) {
   let id = "";
   try {
+    const username = await getSessionUser();
+    if (!username) return NextResponse.json({ error: "Unauthorised" }, { status: 401 });
     ({ id } = await ctx.params);
     const ok = await deleteDecision(id);
     return NextResponse.json(
@@ -62,7 +67,7 @@ export async function DELETE(
   } catch (e) {
     console.error(`[decisions/${id}] DELETE: error —`, e);
     return NextResponse.json(
-      { error: e instanceof Error ? e.message : "Unknown error" },
+      { error: "Operation failed" },
       { status: 500 }
     );
   }

@@ -1,4 +1,6 @@
 import { listEvents } from "@/lib/events/store";
+import { NextResponse } from "next/server";
+import { getSessionUser } from "@/lib/auth";
 
 /**
  * GET /api/events/stream — Server-Sent Events stream of Basil events.
@@ -33,6 +35,9 @@ const POLL_MS      = 5_000;   // check for new/updated events every 5 s
 const HEARTBEAT_MS = 20_000;  // SSE comment to keep proxies alive
 
 export async function GET(req: Request) {
+  const username = await getSessionUser();
+  if (!username) return NextResponse.json({ error: "Unauthorised" }, { status: 401 });
+
   // Last-Event-ID is an ISO timestamp we set as the SSE event id (see below).
   // On reconnect the browser sends it back so we resume without re-emitting
   // events the client already has.  Fall back to 60 s ago for fresh sessions

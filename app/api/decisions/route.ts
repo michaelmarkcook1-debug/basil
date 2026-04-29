@@ -5,14 +5,19 @@ import {
   bulkImport,
 } from "@/lib/decisions/store";
 import type { Decision } from "@/lib/types/decision";
+import { getSessionUser } from "@/lib/auth";
 
 export async function GET() {
+  const username = await getSessionUser();
+  if (!username) return NextResponse.json({ error: "Unauthorised" }, { status: 401 });
   const decisions = await listDecisions();
   return NextResponse.json({ decisions });
 }
 
 export async function POST(req: Request) {
   try {
+    const username = await getSessionUser();
+    if (!username) return NextResponse.json({ error: "Unauthorised" }, { status: 401 });
     const body = await req.json();
 
     // Bulk import path (legacy data migration from localStorage)
@@ -64,7 +69,7 @@ export async function POST(req: Request) {
     return NextResponse.json({ decision }, { status: 201 });
   } catch (e) {
     return NextResponse.json(
-      { error: e instanceof Error ? e.message : "Unknown error" },
+      { error: "Operation failed" },
       { status: 500 }
     );
   }

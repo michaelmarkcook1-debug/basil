@@ -32,7 +32,7 @@ export async function GET(req: Request) {
     return NextResponse.json({
       connected: false,
       events: [],
-      message: `Calendar error: ${e instanceof Error ? e.message : "Unknown"}`,
+      message: "Calendar error — please try again",
     });
   }
 }

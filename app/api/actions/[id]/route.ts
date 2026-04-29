@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { updateAction, deleteAction } from "@/lib/actions/store";
 import type { ActionItem } from "@/lib/types/action";
+import { getSessionUser } from "@/lib/auth";
 
 export async function PATCH(
   req: Request,
@@ -8,6 +9,8 @@ export async function PATCH(
 ) {
   let id = "";
   try {
+    const username = await getSessionUser();
+    if (!username) return NextResponse.json({ error: "Unauthorised" }, { status: 401 });
     ({ id } = await ctx.params);
     const patch = (await req.json()) as Partial<
       Pick<
@@ -36,7 +39,7 @@ export async function PATCH(
   } catch (e) {
     console.error(`[actions/${id}] PATCH: error —`, e);
     return NextResponse.json(
-      { error: e instanceof Error ? e.message : "Unknown error" },
+      { error: "Operation failed" },
       { status: 500 }
     );
   }
@@ -48,6 +51,8 @@ export async function DELETE(
 ) {
   let id = "";
   try {
+    const username = await getSessionUser();
+    if (!username) return NextResponse.json({ error: "Unauthorised" }, { status: 401 });
     ({ id } = await ctx.params);
     const ok = await deleteAction(id);
     return NextResponse.json(
@@ -57,7 +62,7 @@ export async function DELETE(
   } catch (e) {
     console.error(`[actions/${id}] DELETE: error —`, e);
     return NextResponse.json(
-      { error: e instanceof Error ? e.message : "Unknown error" },
+      { error: "Operation failed" },
       { status: 500 }
     );
   }

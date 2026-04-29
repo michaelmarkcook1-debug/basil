@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { contacts as seedContacts } from "@/lib/contacts-data";
 import { listUserContacts } from "@/lib/contacts/user-store";
+import { getSessionUser } from "@/lib/auth";
 
 /**
  * GET /api/contacts/all
@@ -10,6 +11,8 @@ import { listUserContacts } from "@/lib/contacts/user-store";
  * Used by the mobile app so it sees the same list as the web dashboard.
  */
 export async function GET() {
+  const username = await getSessionUser();
+  if (!username) return NextResponse.json({ error: "Unauthorised" }, { status: 401 });
   const userContacts = await listUserContacts();
 
   // Deduplicate: user contacts win over seed contacts with the same id

@@ -9,8 +9,18 @@
 import { NextResponse } from "next/server";
 import { changePassword } from "@/lib/users";
 import { validateResetToken, consumeResetToken } from "@/lib/auth/reset-tokens";
+import { checkRateLimit, getClientIp } from "@/lib/rate-limit";
 
 export async function POST(req: Request) {
+  const ip = getClientIp(req);
+  const rl = checkRateLimit(`reset-pw:${ip}`);
+  if (!rl.allowed) {
+    return NextResponse.json(
+      { error: "Too many attempts. Please try again later." },
+      { status: 429, headers: { "Retry-After": String(rl.retryAfter) } }
+    );
+  }
+
   let token: string, newPassword: string;
   try {
     ({ token, newPassword } = await req.json());

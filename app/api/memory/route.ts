@@ -46,7 +46,7 @@ export async function POST(req: Request) {
     return NextResponse.json({ memory }, { status: 201 });
   } catch (e) {
     return NextResponse.json(
-      { error: e instanceof Error ? e.message : "Unknown error" },
+      { error: "Memory operation failed" },
       { status: 500 }
     );
   }

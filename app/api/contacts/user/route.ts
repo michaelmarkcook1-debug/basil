@@ -5,12 +5,15 @@ import {
   bulkImportUserContacts,
 } from "@/lib/contacts/user-store";
 import type { Contact } from "@/lib/contacts-data";
+import { getSessionUser } from "@/lib/auth";
 
 /**
  * GET /api/contacts/user
  * Returns all user-added contacts (excludes seed contacts from contacts-data.ts).
  */
 export async function GET() {
+  const username = await getSessionUser();
+  if (!username) return NextResponse.json({ error: "Unauthorised" }, { status: 401 });
   const contacts = await listUserContacts();
   return NextResponse.json({ contacts });
 }
@@ -22,6 +25,8 @@ export async function GET() {
  */
 export async function POST(req: Request) {
   try {
+    const username = await getSessionUser();
+    if (!username) return NextResponse.json({ error: "Unauthorised" }, { status: 401 });
     const body = await req.json();
 
     // Bulk migration path
@@ -41,7 +46,7 @@ export async function POST(req: Request) {
     return NextResponse.json({ contact: saved }, { status: 201 });
   } catch (e) {
     return NextResponse.json(
-      { error: e instanceof Error ? e.message : "Unknown error" },
+      { error: "Operation failed" },
       { status: 500 }
     );
   }
