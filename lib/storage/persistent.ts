@@ -142,11 +142,15 @@ async function persistSnapshot(): Promise<void> {
     // ── 1. Build snapshot ────────────────────────────────────────────────────
     // Files excluded from BASIL_DATA — too large or safely re-derivable:
     //   whatsapp-snapshot.json  — can be 100s of KB; re-run dump to regenerate
-    const SNAPSHOT_EXCLUDE = new Set(["whatsapp-snapshot.json"]);
+    //   sage-events.json        — audit/signal log; grows unboundedly, already
+    //                             trimmed by auto-compact — simpler to exclude
+    const SNAPSHOT_EXCLUDE = new Set(["whatsapp-snapshot.json", "sage-events.json"]);
 
-    // Hard ceiling for the base64 payload (well inside Vercel's 64KB total limit).
-    // Total env vars share a 64KB budget; leaving ~10KB headroom for other vars.
-    const PAYLOAD_HARD_CAP = 52_000;
+    // Hard ceiling for the base64 payload.
+    // Total Vercel env var budget is 64KB across ALL vars. Other vars (tokens,
+    // secrets, etc.) use ~12KB, so cap BASIL_DATA at 50KB leaving 2KB headroom
+    // for future env var additions without hitting the deployment block.
+    const PAYLOAD_HARD_CAP = 50_000;
 
     /**
      * Recursively collect all JSON files under a directory.
