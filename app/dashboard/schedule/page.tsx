@@ -6,7 +6,6 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Textarea } from "@/components/ui/textarea";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Separator } from "@/components/ui/separator";
 import {
   CalendarPlus,
   ChevronLeft,
@@ -15,13 +14,12 @@ import {
   Loader2,
   Clock,
   Users,
-  Video,
   Unplug,
   Check,
   X,
 } from "lucide-react";
-import { formatTime } from "@/lib/utils";
 import Link from "next/link";
+import { DayView, type DayEvent } from "./components/DayView";
 
 interface CalEvent {
   id: string;
@@ -41,6 +39,18 @@ interface ProposedMeeting {
   duration: number;
   attendees: string[];
   status: "proposed" | "approved" | "declined";
+}
+
+function toDay(e: CalEvent): DayEvent {
+  return {
+    id: e.id,
+    summary: e.summary,
+    start: e.start,
+    end: e.end,
+    isAllDay: !!e.isAllDay,
+    hasVideo: !!e.hasVideo,
+    attendees: e.attendees || [],
+  };
 }
 
 function getDaysInMonth(year: number, month: number) {
@@ -484,135 +494,106 @@ export default function SchedulePage() {
 
         {/* Right panel: day detail + Basil input */}
         <div className="space-y-4">
-          {/* Selected day events */}
-          <Card>
-            <CardHeader className="pb-2">
+          {/* Selected day — interactive DayView */}
+          <Card className="flex flex-col" style={{ height: "560px" }}>
+            <CardHeader className="pb-2 shrink-0">
               <CardTitle className="text-sm font-medium">
                 {selectedDay
                   ? `${MONTH_NAMES[month]} ${selectedDay}`
                   : "Select a day"}
               </CardTitle>
             </CardHeader>
-            <CardContent>
+            <CardContent className="flex-1 min-h-0 p-0 overflow-hidden">
               {!selectedDay ? (
-                <p className="text-sm text-muted-foreground">
+                <p className="text-sm text-muted-foreground p-4">
                   Click a day to see meetings.
                 </p>
               ) : (
-                <div className="space-y-2">
-                  {/* Confirmed events */}
-                  {selectedEvents.filter((ev) => !ev.isAllDay).length === 0 &&
-                    selectedProposed.length === 0 && (
-                      <p className="text-sm text-muted-foreground">
-                        No meetings this day.
-                      </p>
-                    )}
-                  {selectedEvents
-                    .filter((ev) => !ev.isAllDay)
-                    .map((ev) => (
-                      <div
-                        key={ev.id}
-                        className="rounded-md p-2 bg-accent/30 text-sm"
-                      >
-                        <div className="flex items-center gap-2">
-                          <Clock className="h-3 w-3 text-muted-foreground shrink-0" />
-                          <span className="font-mono text-xs">
-                            {formatTime(ev.start)} – {formatTime(ev.end)}
-                          </span>
-                          {ev.hasVideo && (
-                            <Video className="h-3 w-3 text-blue-400" />
-                          )}
-                        </div>
-                        <p className="font-medium mt-0.5">{ev.summary}</p>
-                        {ev.attendees && ev.attendees.length > 0 && (
-                          <p className="text-xs text-muted-foreground flex items-center gap-1 mt-0.5">
-                            <Users className="h-3 w-3" />{" "}
-                            {ev.attendees.slice(0, 3).join(", ")}
-                            {ev.attendees.length > 3 &&
-                              ` +${ev.attendees.length - 3}`}
-                          </p>
-                        )}
-                      </div>
-                    ))}
-
-                  {/* Proposed meetings for this day */}
-                  {selectedProposed.length > 0 && (
-                    <>
-                      {selectedEvents.filter((ev) => !ev.isAllDay).length >
-                        0 && <Separator className="my-2" />}
-                      {selectedProposed.map((p, i) => {
-                        const globalIndex = proposed.indexOf(p);
-                        return (
-                          <div
-                            key={`proposed-${i}`}
-                            className={`rounded-md p-2 text-sm border ${
-                              p.status === "approved"
-                                ? "bg-emerald-500/5 border-emerald-400/30"
-                                : "bg-amber-500/5 border-dashed border-amber-400/30"
-                            }`}
-                          >
-                            <div className="flex items-center gap-2">
-                              <Clock className="h-3 w-3 text-muted-foreground shrink-0" />
-                              <span className="font-mono text-xs">
-                                {p.startTime} · {p.duration}min
-                              </span>
-                              <Badge
-                                variant="outline"
-                                className={`text-[12px] h-4 ml-auto ${
-                                  p.status === "approved"
-                                    ? "border-emerald-400/50 text-emerald-600"
-                                    : "border-amber-400/50 text-amber-600"
-                                }`}
-                              >
-                                {p.status === "approved"
-                                  ? "Approved"
-                                  : "Proposed"}
-                              </Badge>
-                            </div>
-                            <p className="font-medium mt-0.5">{p.title}</p>
-                            {p.attendees.length > 0 && (
-                              <p className="text-xs text-muted-foreground flex items-center gap-1 mt-0.5">
-                                <Users className="h-3 w-3" />{" "}
-                                {p.attendees.slice(0, 3).join(", ")}
-                                {p.attendees.length > 3 &&
-                                  ` +${p.attendees.length - 3}`}
-                              </p>
-                            )}
-                            {p.status === "proposed" && (
-                              <div className="flex gap-2 mt-2">
-                                <Button
-                                  size="sm"
-                                  className="bg-emerald-500 hover:bg-emerald-600 text-white text-xs h-7 gap-1"
-                                  disabled={approving === globalIndex}
-                                  onClick={() => handleApprove(globalIndex)}
-                                >
-                                  {approving === globalIndex ? (
-                                    <Loader2 className="h-3 w-3 animate-spin" />
-                                  ) : (
-                                    <Check className="h-3 w-3" />
-                                  )}
-                                  Approve & Send
-                                </Button>
-                                <Button
-                                  size="sm"
-                                  variant="outline"
-                                  className="text-xs h-7 border-destructive/30 text-destructive gap-1"
-                                  onClick={() => handleDecline(globalIndex)}
-                                >
-                                  <X className="h-3 w-3" />
-                                  Decline
-                                </Button>
-                              </div>
-                            )}
-                          </div>
-                        );
-                      })}
-                    </>
-                  )}
-                </div>
+                <DayView
+                  date={selectedDateStr}
+                  events={selectedEvents.map(toDay)}
+                  onRefresh={fetchEvents}
+                />
               )}
             </CardContent>
           </Card>
+
+          {/* Proposed meetings for the selected day */}
+          {selectedProposed.length > 0 && (
+            <Card className="border-amber-400/30">
+              <CardHeader className="pb-2">
+                <CardTitle className="text-sm font-medium text-amber-600">
+                  Proposed for {MONTH_NAMES[month]} {selectedDay}
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-2">
+                {selectedProposed.map((p, i) => {
+                  const globalIndex = proposed.indexOf(p);
+                  return (
+                    <div
+                      key={`proposed-${i}`}
+                      className={`rounded-md p-2 text-sm border ${
+                        p.status === "approved"
+                          ? "bg-emerald-500/5 border-emerald-400/30"
+                          : "bg-amber-500/5 border-dashed border-amber-400/30"
+                      }`}
+                    >
+                      <div className="flex items-center gap-2">
+                        <Clock className="h-3 w-3 text-muted-foreground shrink-0" />
+                        <span className="font-mono text-xs">
+                          {p.startTime} · {p.duration}min
+                        </span>
+                        <Badge
+                          variant="outline"
+                          className={`text-[12px] h-4 ml-auto ${
+                            p.status === "approved"
+                              ? "border-emerald-400/50 text-emerald-600"
+                              : "border-amber-400/50 text-amber-600"
+                          }`}
+                        >
+                          {p.status === "approved" ? "Approved" : "Proposed"}
+                        </Badge>
+                      </div>
+                      <p className="font-medium mt-0.5">{p.title}</p>
+                      {p.attendees.length > 0 && (
+                        <p className="text-xs text-muted-foreground flex items-center gap-1 mt-0.5">
+                          <Users className="h-3 w-3" />{" "}
+                          {p.attendees.slice(0, 3).join(", ")}
+                          {p.attendees.length > 3 && ` +${p.attendees.length - 3}`}
+                        </p>
+                      )}
+                      {p.status === "proposed" && (
+                        <div className="flex gap-2 mt-2">
+                          <Button
+                            size="sm"
+                            className="bg-emerald-500 hover:bg-emerald-600 text-white text-xs h-7 gap-1"
+                            disabled={approving === globalIndex}
+                            onClick={() => handleApprove(globalIndex)}
+                          >
+                            {approving === globalIndex ? (
+                              <Loader2 className="h-3 w-3 animate-spin" />
+                            ) : (
+                              <Check className="h-3 w-3" />
+                            )}
+                            Approve & Send
+                          </Button>
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            className="text-xs h-7 border-destructive/30 text-destructive gap-1"
+                            onClick={() => handleDecline(globalIndex)}
+                          >
+                            <X className="h-3 w-3" />
+                            Decline
+                          </Button>
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </CardContent>
+            </Card>
+          )}
 
           {/* Basil scheduling input */}
           <Card className="border-[oklch(0.72_0.15_85)]/30">

@@ -404,3 +404,82 @@ export async function checkFreeBusy(
     return emails.map((email) => ({ email, busy: [], error: msg }));
   }
 }
+
+// ── Update / Delete ───────────────────────────────────────────────────────────
+
+export async function updateCalendarEvent(
+  username: string,
+  eventId: string,
+  params: {
+    title?: string;
+    date?: string;       // YYYY-MM-DD
+    startTime?: string;  // HH:MM
+    duration?: number;   // minutes
+    attendees?: string[];
+  },
+): Promise<void> {
+  const auth = await getAuthedClient(username);
+  if (!auth) throw new Error("Google Calendar not connected");
+
+  const calendar = google.calendar({ version: "v3", auth });
+
+  // Fetch existing event to merge fields
+  const existing = await calendar.events.get({ calendarId: "primary", eventId });
+  const ev = existing.data;
+
+  // Determine the timezone from the existing event (fall back to Europe/London)
+  const tz = ev.start?.timeZone || "Europe/London";
+
+  // Build updated start / end if time/date changed
+  let startDT = ev.start?.dateTime;
+  let endDT   = ev.end?.dateTime;
+
+  if (params.date || params.startTime || params.duration !== undefined) {
+    // Extract existing date / time from the event's start dateTime
+    const existingStart = new Date(startDT || ev.start?.date || "");
+    const existingEnd   = new Date(endDT   || ev.end?.date   || "");
+    const existingDuration = Math.round((existingEnd.getTime() - existingStart.getTime()) / 60_000);
+
+    const date     = params.date      || existingStart.toLocaleDateString("en-CA", { timeZone: tz });
+    const duration = params.duration  ?? existingDuration;
+
+    let startH: number, startM: number;
+    if (params.startTime) {
+      [startH, startM] = params.startTime.split(":").map(Number);
+    } else {
+      const parts = existingStart.toLocaleTimeString("en-GB", { timeZone: tz, hour: "2-digit", minute: "2-digit" }).split(":");
+      startH = parseInt(parts[0], 10);
+      startM = parseInt(parts[1], 10);
+    }
+
+    const totalEndMin  = startH * 60 + startM + duration;
+    const endH         = Math.floor(totalEndMin / 60) % 24;
+    const endM         = totalEndMin % 60;
+    const dayOffset    = Math.floor(totalEndMin / (60 * 24));
+
+    const endDateObj = new Date(`${date}T00:00:00Z`);
+    endDateObj.setUTCDate(endDateObj.getUTCDate() + dayOffset);
+    const endDateStr = endDateObj.toISOString().slice(0, 10);
+
+    startDT = `${date}T${String(startH).padStart(2,"0")}:${String(startM).padStart(2,"0")}:00`;
+    endDT   = `${endDateStr}T${String(endH).padStart(2,"0")}:${String(endM).padStart(2,"0")}:00`;
+  }
+
+  await calendar.events.patch({
+    calendarId: "primary",
+    eventId,
+    requestBody: {
+      ...(params.title     ? { summary: params.title } : {}),
+      ...(startDT          ? { start: { dateTime: startDT, timeZone: tz } } : {}),
+      ...(endDT            ? { end:   { dateTime: endDT,   timeZone: tz } } : {}),
+      ...(params.attendees ? { attendees: params.attendees.map((email) => ({ email })) } : {}),
+    },
+  });
+}
+
+export async function deleteCalendarEvent(username: string, eventId: string): Promise<void> {
+  const auth = await getAuthedClient(username);
+  if (!auth) throw new Error("Google Calendar not connected");
+  const calendar = google.calendar({ version: "v3", auth });
+  await calendar.events.delete({ calendarId: "primary", eventId });
+}
