@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useDomainSync } from "@/lib/sync/use-domain-sync";
 import {
   Brain,
@@ -16,6 +16,8 @@ import {
   Upload,
   X,
   CheckCircle2,
+  FileText,
+  FolderOpen,
 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
@@ -67,12 +69,71 @@ export default function MemoryPage() {
   const [search, setSearch] = useState("");
   const [showForm, setShowForm] = useState(false);
 
-  // ── Import from another LLM ───────────────────────────────────────────────
+  // ── Import from another LLM / files ──────────────────────────────────────
   const [showImport, setShowImport]       = useState(false);
   const [importText, setImportText]       = useState("");
   const [importing, setImporting]         = useState(false);
   const [importResult, setImportResult]   = useState<{ count: number } | null>(null);
   const [importError, setImportError]     = useState<string | null>(null);
+
+  // File / folder upload
+  const fileInputRef   = useRef<HTMLInputElement>(null);
+  const folderInputRef = useRef<HTMLInputElement>(null);
+  const [filesLoading, setFilesLoading] = useState(false);
+  const [loadedFileNames, setLoadedFileNames] = useState<string[]>([]);
+
+  // Extensions we can safely read as plain text
+  const TEXT_EXTS = new Set([
+    ".txt", ".md", ".mdx", ".json", ".csv", ".tsv",
+    ".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs",
+    ".py", ".rb", ".go", ".rs", ".java", ".c", ".cpp", ".h",
+    ".yaml", ".yml", ".toml", ".xml", ".html", ".htm",
+    ".css", ".scss", ".sass", ".sql", ".sh", ".bash",
+    ".log", ".env", ".gitignore", ".eslintrc", ".prettierrc",
+  ]);
+
+  async function handleFileList(files: FileList) {
+    setFilesLoading(true);
+    setLoadedFileNames([]);
+    setImportError(null);
+
+    const MAX_FILE_SIZE = 400_000; // 400KB per file to stay within token limits
+    const parts: string[] = [];
+    const names: string[] = [];
+
+    for (const file of Array.from(files)) {
+      const ext = file.name.includes(".")
+        ? "." + file.name.split(".").pop()!.toLowerCase()
+        : "";
+      if (!TEXT_EXTS.has(ext)) continue; // skip binary / unknown formats
+      if (file.size > MAX_FILE_SIZE) {
+        // truncate oversized files with a notice
+        const slice = file.slice(0, MAX_FILE_SIZE);
+        try {
+          const text = await slice.text();
+          parts.push(`--- ${file.name} (truncated to 400KB) ---\n\n${text}`);
+          names.push(file.name + " ⚠ truncated");
+        } catch { /* skip */ }
+        continue;
+      }
+      try {
+        const text = await file.text();
+        if (text.trim().length === 0) continue;
+        parts.push(`--- ${file.name} ---\n\n${text}`);
+        names.push(file.name);
+      } catch { /* skip unreadable */ }
+    }
+
+    setFilesLoading(false);
+    setLoadedFileNames(names);
+
+    if (parts.length === 0) {
+      setImportError("No readable text files found. Supported: .txt, .md, .json, .csv, .ts, .js, .py and other plain-text formats.");
+      return;
+    }
+
+    setImportText(parts.join("\n\n"));
+  }
 
   async function handleImport(e: React.FormEvent) {
     e.preventDefault();
@@ -178,7 +239,7 @@ export default function MemoryPage() {
           />
         </div>
         <button
-          onClick={() => { setShowImport((v) => !v); setImportResult(null); setImportError(null); }}
+          onClick={() => { setShowImport((v) => !v); setImportResult(null); setImportError(null); setLoadedFileNames([]); setImportText(""); }}
           className="inline-flex items-center gap-1.5 rounded-lg border border-border bg-background text-sm font-medium px-3.5 py-2 hover:bg-muted transition text-muted-foreground"
         >
           <Upload className="h-4 w-4" />
@@ -200,10 +261,10 @@ export default function MemoryPage() {
             <div>
               <p className="text-sm font-semibold flex items-center gap-2">
                 <Upload className="h-4 w-4 text-muted-foreground" />
-                Import memories from another AI
+                Import memories
               </p>
               <p className="text-xs text-muted-foreground mt-0.5">
-                Paste a conversation from ChatGPT, Claude.ai, Gemini, or any other AI tool.
+                Paste a conversation, or upload files and folders.
                 Basil will extract facts, preferences, people, and context and add them to memory.
               </p>
             </div>
@@ -222,19 +283,86 @@ export default function MemoryPage() {
                     : `${importResult.count} memor${importResult.count === 1 ? "y" : "ies"} extracted and saved.`}
                 </p>
                 <button
-                  onClick={() => { setImportResult(null); setImportText(""); }}
+                  onClick={() => { setImportResult(null); setImportText(""); setLoadedFileNames([]); }}
                   className="text-xs text-emerald-600 underline mt-0.5"
                 >
-                  Import another conversation
+                  Import another conversation or files
                 </button>
               </div>
             </div>
           ) : (
             <form onSubmit={handleImport} className="space-y-3">
+              {/* Hidden file inputs */}
+              <input
+                ref={fileInputRef}
+                type="file"
+                multiple
+                accept=".txt,.md,.mdx,.json,.csv,.tsv,.ts,.tsx,.js,.jsx,.mjs,.cjs,.py,.rb,.go,.rs,.java,.c,.cpp,.h,.yaml,.yml,.toml,.xml,.html,.htm,.css,.scss,.sass,.sql,.sh,.bash,.log,.env"
+                className="hidden"
+                onChange={(e) => e.target.files && handleFileList(e.target.files)}
+              />
+              <input
+                ref={folderInputRef}
+                type="file"
+                /* webkitdirectory enables folder selection */
+                {...{ webkitdirectory: "" }}
+                multiple
+                className="hidden"
+                onChange={(e) => e.target.files && handleFileList(e.target.files)}
+              />
+
+              {/* Upload buttons */}
+              <div className="flex items-center gap-2 flex-wrap">
+                <button
+                  type="button"
+                  onClick={() => fileInputRef.current?.click()}
+                  disabled={filesLoading}
+                  className="inline-flex items-center gap-1.5 rounded-md border border-border bg-background text-xs font-medium px-3 py-1.5 hover:bg-muted transition text-muted-foreground disabled:opacity-50"
+                >
+                  <FileText className="h-3.5 w-3.5" />
+                  Upload files
+                </button>
+                <button
+                  type="button"
+                  onClick={() => folderInputRef.current?.click()}
+                  disabled={filesLoading}
+                  className="inline-flex items-center gap-1.5 rounded-md border border-border bg-background text-xs font-medium px-3 py-1.5 hover:bg-muted transition text-muted-foreground disabled:opacity-50"
+                >
+                  <FolderOpen className="h-3.5 w-3.5" />
+                  Upload folder
+                </button>
+                {filesLoading && (
+                  <span className="text-xs text-muted-foreground flex items-center gap-1.5">
+                    <Loader2 className="h-3.5 w-3.5 animate-spin" /> Reading files…
+                  </span>
+                )}
+                {!filesLoading && loadedFileNames.length > 0 && (
+                  <span className="text-xs text-emerald-600 flex items-center gap-1">
+                    <CheckCircle2 className="h-3.5 w-3.5" />
+                    {loadedFileNames.length} file{loadedFileNames.length !== 1 ? "s" : ""} loaded
+                  </span>
+                )}
+                <span className="text-xs text-muted-foreground/60 ml-auto">
+                  or paste a conversation below
+                </span>
+              </div>
+
+              {/* Loaded file names */}
+              {loadedFileNames.length > 0 && (
+                <div className="flex flex-wrap gap-1.5">
+                  {loadedFileNames.map((name) => (
+                    <span key={name} className="inline-flex items-center gap-1 rounded-md bg-muted px-2 py-0.5 text-[11px] font-mono text-muted-foreground border border-border/60">
+                      <FileText className="h-3 w-3 shrink-0" />
+                      {name}
+                    </span>
+                  ))}
+                </div>
+              )}
+
               <textarea
                 value={importText}
-                onChange={(e) => setImportText(e.target.value)}
-                placeholder={"Paste your conversation here…\n\nWorks with:\n• ChatGPT (copy from browser)\n• Claude.ai (copy from browser)\n• Gemini, Copilot, Perplexity\n• Any plain text conversation"}
+                onChange={(e) => { setImportText(e.target.value); setLoadedFileNames([]); }}
+                placeholder={"Paste your conversation here…\n\nWorks with:\n• ChatGPT (copy from browser)\n• Claude.ai (copy from browser)\n• Gemini, Copilot, Perplexity\n• Any plain text conversation\n• Or upload files / folders above"}
                 rows={10}
                 className="w-full rounded-lg border border-border bg-background px-3.5 py-2.5 text-sm resize-y focus:outline-none focus:border-[oklch(0.72_0.15_85)]/40 focus:ring-4 focus:ring-[oklch(0.72_0.15_85)]/10 placeholder:text-muted-foreground/50 font-mono text-xs leading-relaxed"
               />
@@ -246,7 +374,7 @@ export default function MemoryPage() {
               <div className="flex items-center gap-3">
                 <button
                   type="submit"
-                  disabled={importing || importText.trim().length < 20}
+                  disabled={importing || filesLoading || importText.trim().length < 20}
                   className="inline-flex items-center gap-1.5 rounded-lg bg-[oklch(0.72_0.15_85)] text-[oklch(0.18_0.04_250)] text-sm font-semibold px-4 py-2 hover:brightness-105 transition disabled:opacity-40"
                 >
                   {importing ? (
@@ -257,8 +385,8 @@ export default function MemoryPage() {
                 </button>
                 <p className="text-xs text-muted-foreground">
                   {importText.trim().length > 0
-                    ? `${importText.trim().split(/\s+/).length} words pasted`
-                    : "Supports any conversation format"}
+                    ? `${importText.trim().split(/\s+/).length.toLocaleString()} words`
+                    : "Supports any conversation format or plain-text files"}
                 </p>
               </div>
             </form>
