@@ -10,6 +10,7 @@ import { SignalsFeed } from "./components/signals-feed";
 import { RelationshipCard } from "./components/relationship-card";
 import { QuickActions } from "./components/quick-actions";
 import { BasilWatching } from "./components/basil-watching";
+import { MemoryPanel } from "./components/memory-panel";
 import { Search } from "lucide-react";
 
 export default function DashboardPage() {
@@ -86,15 +87,16 @@ export default function DashboardPage() {
         <BasilWatching />
       </section>
 
-      {/* ── Main split: timeline + signals ── */}
+      {/* ── Main split: timeline + signals + memory ── */}
       <section className="space-y-4">
         <div className="flex items-baseline justify-between">
           <p className="basil-eyebrow">Your Day</p>
           <div className="h-px flex-1 ml-4 bg-gradient-to-r from-border to-transparent" />
         </div>
-        <div className="grid gap-6 lg:grid-cols-[1.2fr_1fr]">
+        <div className="grid gap-6 lg:grid-cols-[1.2fr_1fr_320px]">
           <DayTimeline />
           <SignalsFeed />
+          <MemoryPanel />
         </div>
       </section>
 
