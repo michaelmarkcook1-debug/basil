@@ -140,17 +140,33 @@ async function persistSnapshot(): Promise<void> {
 
   try {
     // ── 1. Build snapshot ────────────────────────────────────────────────────
-    // Files excluded from BASIL_DATA — too large or safely re-derivable:
+    //
+    // Files hard-excluded from BASIL_DATA regardless of payload size.
+    // Excluded = too large OR safely re-derivable on next warm request:
     //   whatsapp-snapshot.json  — can be 100s of KB; re-run dump to regenerate
-    //   sage-events.json        — audit/signal log; grows unboundedly, already
-    //                             trimmed by auto-compact — simpler to exclude
-    const SNAPSHOT_EXCLUDE = new Set(["whatsapp-snapshot.json", "sage-events.json"]);
+    //   sage-events.json        — audit/signal log; grows unboundedly
+    //   sage-actions.json       — transient signals; re-fetched by poll-ingest
+    //                             on every dashboard load. This was the primary
+    //                             cause of 93KB+ snapshots that failed to write.
+    const SNAPSHOT_EXCLUDE = new Set([
+      "whatsapp-snapshot.json",
+      "sage-events.json",
+      "sage-actions.json",
+    ]);
 
     // Hard ceiling for the base64 payload.
-    // Total Vercel env var budget is 64KB across ALL vars. Other vars (tokens,
-    // secrets, etc.) use ~12KB, so cap BASIL_DATA at 50KB leaving 2KB headroom
-    // for future env var additions without hitting the deployment block.
-    const PAYLOAD_HARD_CAP = 50_000;
+    // Vercel encrypts env vars individually; their documented limit is 64KB per
+    // var. Other vars (tokens, secrets) use ~12KB, so cap BASIL_DATA at 44KB —
+    // conservative headroom that survives future secret additions.
+    const PAYLOAD_HARD_CAP = 44_000;
+
+    // Priority order for dropping files when still over cap after exclusions.
+    // Lower index = dropped first. Files not in this list are never auto-dropped.
+    // On-disk files are NEVER modified — this only affects the BASIL_DATA backup.
+    const DROP_PRIORITY = [
+      "sage-user-contacts.json",   // large; fully re-derivable from Google/Slack/MS
+      "sage-decisions.json",       // important but survives temporary loss
+    ];
 
     /**
      * Recursively collect all JSON files under a directory.
@@ -195,40 +211,47 @@ async function persistSnapshot(): Promise<void> {
       }
     }
 
-    let encoded     = Buffer.from(JSON.stringify(snapshot)).toString("base64");
+    let encoded      = Buffer.from(JSON.stringify(snapshot)).toString("base64");
     let payloadBytes = encoded.length;
 
-    // ── Auto-compact if over the hard cap ────────────────────────────────────
-    // Trim the oldest entries from sage-events.json until we fit.  This only
-    // affects the BASIL_DATA backup — the on-disk file is untouched — so no
-    // permanent data loss occurs while the instance stays warm.
+    // ── Hard-cap enforcement ─────────────────────────────────────────────────
+    // If still over budget after exclusions, drop low-priority files one by one
+    // until we fit. On-disk files are untouched — only the backup is affected.
     if (payloadBytes > PAYLOAD_HARD_CAP) {
-      // Try trimming top-level sage-events.json first
-      const eventsKey = Object.keys(snapshot).find((k) => k === "sage-events.json" || k.endsWith("/sage-events.json"));
-      if (eventsKey && Array.isArray(snapshot[eventsKey])) {
-        const events = snapshot[eventsKey] as unknown[];
-        let trimmed = events;
-        while (payloadBytes > PAYLOAD_HARD_CAP && trimmed.length > 0) {
-          const drop = Math.max(1, Math.floor(trimmed.length / 4));
-          trimmed = trimmed.slice(drop);
-          snapshot[eventsKey] = trimmed;
+      const dropped: string[] = [];
+      for (const basename of DROP_PRIORITY) {
+        if (payloadBytes <= PAYLOAD_HARD_CAP) break;
+        // Match by basename (file may live in a subdir)
+        const matchKey = Object.keys(snapshot).find(
+          (k) => k === basename || k.endsWith(`/${basename}`)
+        );
+        if (matchKey) {
+          delete snapshot[matchKey];
           encoded      = Buffer.from(JSON.stringify(snapshot)).toString("base64");
           payloadBytes = encoded.length;
+          dropped.push(matchKey);
         }
-        console.warn(
-          `[snapshot] Auto-compacted ${eventsKey} from ${events.length} → ${trimmed.length} entries ` +
-          `to fit under ${PAYLOAD_HARD_CAP}B cap.`
-        );
+      }
+      if (dropped.length > 0) {
+        console.warn(`[snapshot] Dropped ${dropped.join(", ")} to fit under ${PAYLOAD_HARD_CAP}B cap.`);
       }
     }
 
-    if (payloadBytes > PAYLOAD_ERROR_BYTES) {
-      console.error(
-        `[snapshot] Payload is ${payloadBytes} bytes — exceeds ${PAYLOAD_ERROR_BYTES}B soft limit. ` +
-        `Files: ${Object.keys(snapshot).join(", ")}`
-      );
-    } else if (payloadBytes > PAYLOAD_WARN_BYTES) {
-      console.warn(`[snapshot] Payload is ${payloadBytes} bytes — approaching the 48KB warn threshold.`);
+    // If STILL over cap after all drops, log and abort — never write a payload
+    // that Vercel will reject. A failed write loses this snapshot entirely;
+    // it's better to skip and keep the last successful snapshot intact.
+    if (payloadBytes > PAYLOAD_HARD_CAP) {
+      const reason =
+        `Payload is ${payloadBytes}B after all compaction — exceeds ${PAYLOAD_HARD_CAP}B cap. ` +
+        `Files: ${Object.keys(snapshot).join(", ")}. Skipping write to preserve last good snapshot.`;
+      console.error(`[snapshot] ${reason}`);
+      snapDiag.lastFailureAt     = new Date().toISOString();
+      snapDiag.lastFailureReason = reason;
+      return;
+    }
+
+    if (payloadBytes > PAYLOAD_WARN_BYTES) {
+      console.warn(`[snapshot] Payload is ${payloadBytes}B — approaching ${PAYLOAD_WARN_BYTES}B warn threshold.`);
     }
 
     // ── 2. Find existing BASIL_DATA env var id ───────────────────────────────

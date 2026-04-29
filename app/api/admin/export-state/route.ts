@@ -24,18 +24,39 @@ export async function GET() {
   // Trigger maybeRestore() so BASIL_DATA is hydrated into /tmp on cold start
   await readStore("__ping__.json", null);
 
-  let files: string[] = [];
+  // Recursively collect all JSON files so user-scoped files (users/*/...)
+  // are included — a flat readdir misses them entirely.
+  async function collectAll(dir: string, relBase = ""): Promise<Array<{ key: string; absPath: string }>> {
+    let entries: string[];
+    try { entries = await fs.readdir(dir); }
+    catch { return []; }
+    const results: Array<{ key: string; absPath: string }> = [];
+    for (const entry of entries) {
+      const absPath = path.join(dir, entry);
+      const relPath = relBase ? `${relBase}/${entry}` : entry;
+      let stat: Awaited<ReturnType<typeof fs.stat>>;
+      try { stat = await fs.stat(absPath); } catch { continue; }
+      if (stat.isDirectory()) {
+        results.push(...await collectAll(absPath, relPath));
+      } else if (entry.endsWith(".json")) {
+        results.push({ key: relPath, absPath });
+      }
+    }
+    return results;
+  }
+
+  let allFiles: Array<{ key: string; absPath: string }> = [];
   try {
-    files = await fs.readdir(DATA_DIR);
+    allFiles = await collectAll(DATA_DIR);
   } catch {
-    return NextResponse.json({ files: {}, note: "DATA_DIR empty or missing — cold start?" });
+    return NextResponse.json({ files: [], note: "DATA_DIR empty or missing — cold start?" });
   }
 
   const snapshot: Record<string, unknown> = {};
-  for (const f of files.filter((f) => f.endsWith(".json"))) {
+  for (const { key, absPath } of allFiles) {
     try {
-      const raw = await fs.readFile(path.join(DATA_DIR, f), "utf8");
-      snapshot[f] = JSON.parse(raw);
+      const raw = await fs.readFile(absPath, "utf8");
+      snapshot[key] = JSON.parse(raw);
     } catch {
       // skip unreadable
     }
