@@ -24,7 +24,7 @@ export async function GET(
   } catch (e) {
     console.error("Gmail message fetch error:", e);
     return NextResponse.json(
-      { error: e instanceof Error ? e.message : "Failed to fetch email" },
+      { error: "Failed to fetch email" },
       { status: 500 }
     );
   }

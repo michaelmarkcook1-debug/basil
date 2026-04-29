@@ -104,7 +104,7 @@ async function handle(req: Request): Promise<Response> {
       e instanceof Error ? e.message : e
     );
     return NextResponse.json(
-      { error: e instanceof Error ? e.message : String(e) },
+      { error: "Registration failed" },
       { status: 500 }
     );
   }

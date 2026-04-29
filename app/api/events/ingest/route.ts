@@ -3,6 +3,7 @@ import { createEvent } from "@/lib/events/store";
 import { eventFromIngest } from "@/lib/events/rules";
 import { publish } from "@/lib/events/bus";
 import type { IngestPayload } from "@/lib/events/types";
+import { getSessionUser } from "@/lib/auth";
 
 /**
  * POST /api/events/ingest
@@ -12,6 +13,9 @@ import type { IngestPayload } from "@/lib/events/types";
  * Body: IngestPayload (see lib/events/types.ts)
  */
 export async function POST(req: Request) {
+  const username = await getSessionUser();
+  if (!username) return NextResponse.json({ error: "Unauthorised" }, { status: 401 });
+
   let payload: IngestPayload;
   try {
     payload = (await req.json()) as IngestPayload;

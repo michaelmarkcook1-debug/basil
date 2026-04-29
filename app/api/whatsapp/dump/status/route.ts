@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { getStatus, WHATSAPP_STATUS_FILE } from "@/lib/whatsapp/dump-job";
 import { readStore } from "@/lib/storage/persistent";
 import type { DumpStatus } from "@/lib/whatsapp/dump-job";
+import { getSessionUser } from "@/lib/auth";
 
 /**
  * GET /api/whatsapp/dump/status — UI polls every second for QR + progress.
@@ -14,6 +15,9 @@ import type { DumpStatus } from "@/lib/whatsapp/dump-job";
  * is readable from any instance via the shared /tmp/basil-data dir.
  */
 export async function GET() {
+  const username = await getSessionUser();
+  if (!username) return NextResponse.json({ error: "Unauthorised" }, { status: 401 });
+
   const memStatus = getStatus();
 
   // This instance ran the job — in-memory status is authoritative.

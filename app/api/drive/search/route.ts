@@ -44,7 +44,7 @@ export async function GET(req: Request) {
     return NextResponse.json({
       connected: true,
       files: [],
-      message: `Search error: ${e instanceof Error ? e.message : "Unknown error"}`,
+      message: "Search failed — please try again",
     });
   }
 }

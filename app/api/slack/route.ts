@@ -90,7 +90,7 @@ export async function GET() {
     return NextResponse.json({
       connected: false,
       messages: [],
-      message: `Slack error: ${e instanceof Error ? e.message : "Unknown error"}`,
+      message: "Slack error — please try again",
     });
   }
 }

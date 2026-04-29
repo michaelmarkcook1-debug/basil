@@ -14,11 +14,29 @@ export async function POST(req: Request) {
     );
   }
 
-  const { name, surname, country, email, username, password } = await req.json();
+  let name: string, surname: string, country: string, email: string, username: string, password: string;
+  try {
+    ({ name, surname, country, email, username, password } = await req.json());
+  } catch {
+    return NextResponse.json({ error: "Invalid request body" }, { status: 400 });
+  }
 
   // Validate all fields present
   if (!name || !surname || !country || !email || !username || !password) {
     return NextResponse.json({ error: "All fields are required" }, { status: 400 });
+  }
+
+  // Field length limits — prevent oversized payloads from hitting the DB
+  if (name.length > 100 || surname.length > 100 || country.length > 100) {
+    return NextResponse.json({ error: "Field too long" }, { status: 400 });
+  }
+
+  // Username: alphanumeric + underscores/hyphens only, 3–30 chars
+  if (!/^[a-zA-Z0-9_-]{3,30}$/.test(username)) {
+    return NextResponse.json(
+      { error: "Username must be 3–30 characters and contain only letters, numbers, _ or -" },
+      { status: 400 }
+    );
   }
 
   // Validate email format

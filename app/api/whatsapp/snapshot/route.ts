@@ -1,9 +1,13 @@
 import { NextResponse } from "next/server";
 import { getSnapshot, deleteSnapshot } from "@/lib/whatsapp/dump-job";
+import { getSessionUser } from "@/lib/auth";
 
 // GET /api/whatsapp/snapshot — returns metadata + chat list (without messages)
 // so the list view is cheap. Clients fetch full chats via ?chatId=… below.
 export async function GET(req: Request) {
+  const username = await getSessionUser();
+  if (!username) return NextResponse.json({ error: "Unauthorised" }, { status: 401 });
+
   const url = new URL(req.url);
   const chatId = url.searchParams.get("chatId");
 
@@ -45,6 +49,9 @@ export async function GET(req: Request) {
 
 // DELETE /api/whatsapp/snapshot — drop the stored snapshot
 export async function DELETE() {
+  const username = await getSessionUser();
+  if (!username) return NextResponse.json({ error: "Unauthorised" }, { status: 401 });
+
   await deleteSnapshot();
   return NextResponse.json({ status: "deleted" });
 }

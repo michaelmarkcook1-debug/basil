@@ -27,7 +27,7 @@ export async function GET() {
     return NextResponse.json({
       connected: false,
       emails: [],
-      message: `Gmail error: ${e instanceof Error ? e.message : "Unknown"}`,
+      message: "Gmail error — please try again",
     });
   }
 }

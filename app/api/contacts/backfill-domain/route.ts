@@ -3,6 +3,7 @@ import {
   listUserContacts,
   updateUserContactInStore,
 } from "@/lib/contacts/user-store";
+import { getSessionUser } from "@/lib/auth";
 
 /**
  * POST /api/contacts/backfill-domain
@@ -17,6 +18,9 @@ import {
  * Idempotent — re-running skips contacts already correctly tagged.
  */
 export async function POST() {
+  const username = await getSessionUser();
+  if (!username) return NextResponse.json({ error: "Unauthorised" }, { status: 401 });
+
   const all = await listUserContacts();
 
   const toUpdate = all.filter(

@@ -20,6 +20,7 @@ import { getSnapshot, persistSignalIndex } from "@/lib/whatsapp/dump-job";
 import { bulkImportUserContacts } from "@/lib/contacts/user-store";
 import { forceFlushSnapshot } from "@/lib/storage/persistent";
 import type { Contact } from "@/lib/contacts-data";
+import { getSessionUser } from "@/lib/auth";
 
 // ── Pure helpers (inlined to avoid server/client boundary issues) ─────────────
 
@@ -71,6 +72,9 @@ function resolveDisplayName(c: {
 // ── GET — read-only preview ───────────────────────────────────────────────────
 
 export async function GET() {
+  const username = await getSessionUser();
+  if (!username) return NextResponse.json({ error: "Unauthorised" }, { status: 401 });
+
   const t0 = Date.now();
   const snapshot = await getSnapshot();
   if (!snapshot) {
@@ -107,6 +111,9 @@ export async function GET() {
 // ── POST — server-side import with guaranteed snapshot flush ──────────────────
 
 export async function POST() {
+  const username = await getSessionUser();
+  if (!username) return NextResponse.json({ error: "Unauthorised" }, { status: 401 });
+
   const t0 = Date.now();
   const snapshot = await getSnapshot();
   if (!snapshot) {

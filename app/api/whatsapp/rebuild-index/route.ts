@@ -13,8 +13,12 @@
 import { NextResponse } from "next/server";
 import { getSnapshot, persistSignalIndex } from "@/lib/whatsapp/dump-job";
 import { forceFlushSnapshot } from "@/lib/storage/persistent";
+import { getSessionUser } from "@/lib/auth";
 
 export async function POST() {
+  const username = await getSessionUser();
+  if (!username) return NextResponse.json({ error: "Unauthorised" }, { status: 401 });
+
   const snapshot = await getSnapshot();
   if (!snapshot) {
     return NextResponse.json({ ok: false, reason: "no_snapshot" }, { status: 200 });

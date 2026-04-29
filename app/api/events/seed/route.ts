@@ -2,6 +2,8 @@ import { NextResponse } from "next/server";
 import { replaceAll } from "@/lib/events/store";
 import { eventFromIngest } from "@/lib/events/rules";
 import type { IngestPayload, BasilEvent } from "@/lib/events/types";
+import { getSessionUser } from "@/lib/auth";
+import { isAdminUser } from "@/lib/users";
 
 // Realistic scenarios seeded into Basil so the dashboard has something to show
 // before real Gmail/Slack/Calendar push is wired up.
@@ -69,6 +71,11 @@ const SEED: IngestPayload[] = [
  * Useful on a fresh checkout or when iterating on rules. Not wired to the UI.
  */
 export async function POST() {
+  const username = await getSessionUser();
+  if (!username || !isAdminUser(username)) {
+    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  }
+
   const now = Date.now();
   const events: BasilEvent[] = SEED.map((p, idx) => {
     const shaped = eventFromIngest(p);

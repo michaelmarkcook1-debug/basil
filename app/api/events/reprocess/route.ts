@@ -5,6 +5,7 @@ import { listDecisions } from "@/lib/decisions/store";
 import { processRegularEmail } from "@/lib/email/process-gmail-message";
 import { getOutlookMessageBody } from "@/lib/microsoft/outlook-mail";
 import { forceFlushSnapshot } from "@/lib/storage/persistent";
+import { getSessionUser } from "@/lib/auth";
 
 /**
  * POST /api/events/reprocess
@@ -25,6 +26,8 @@ import { forceFlushSnapshot } from "@/lib/storage/persistent";
  */
 
 export async function POST(_req: Request) {
+  const username = await getSessionUser();
+  if (!username) return NextResponse.json({ error: "Unauthorised" }, { status: 401 });
 
   // ── Gather existing sourceRefs so we can skip already-classified events ──
   const [actions, decisions] = await Promise.all([
