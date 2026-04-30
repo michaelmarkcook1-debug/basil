@@ -37,36 +37,42 @@ const CHUNK_OVERLAP = 2_000;
 function buildPrompt(chunk: string, chunkIndex: number, totalChunks: number): string {
   const chunkNote =
     totalChunks > 1
-      ? `\n\n(This is chunk ${chunkIndex + 1} of ${totalChunks}. Extract everything relevant from this portion.)`
+      ? `\n\n(This is chunk ${chunkIndex + 1} of ${totalChunks}. Apply the same strict rules to this portion.)`
       : "";
 
   return `You are a personal memory extractor for an AI executive assistant called Basil.
 
-Your job: read the text below and extract every reusable piece of information that would help a personal executive assistant serve their user better — facts about the user and their life, how they prefer things done, people they work with, and active projects or goals.
+Your job: extract facts ABOUT THE USER — their identity, role, relationships, tools, and preferences. Nothing else.
 
-The source may be:
-- A conversation with an AI assistant (ChatGPT, Claude, Gemini, etc.)
-- Personal notes or a journal
-- A project document, README, or company doc
-- Code, config files, or technical docs
-- Any other plain-text file
+Personal memory is strictly limited to:
+1. Facts about the user themselves: their name, job title, company they work for, email, location, contact details
+2. Their work environment: tools and software they use day-to-day, communication platforms, workflows
+3. Their work relationships: colleagues, direct reports, clients, investors — who they are and how they relate to the user
+4. Their personal preferences: how they like to communicate, work, format documents, run meetings
+5. Their active projects and goals: things the user is personally working on or responsible for
+
+DO NOT extract any of the following — return [] if the text contains only these:
+- Market research, competitive intelligence, or industry rankings (e.g. "Bloomberg ranks 1st in deal momentum")
+- Data about companies the user doesn't work for, even if they're analysing them
+- Product features, dashboards, or capabilities of tools/platforms being described
+- Financial data, scores, metrics, or statistics about third parties
+- General business facts that aren't about the user personally
+- Content the user is reading, researching, or reviewing — only extract what it reveals ABOUT THE USER
+
+The test: ask "Does this tell me something durable about the user as a person or professional?" If no, skip it.
 
 Return ONLY a valid JSON array. Each item must have:
 - "kind": one of "fact" | "preference" | "person" | "context"
-- "content": a short, specific, self-contained sentence (max 150 chars)
-- "entity": (optional) the specific person, company, or project this relates to
+- "content": a short, specific, self-contained sentence written about the user (max 150 chars)
+- "entity": (optional) the specific person, company they work for, or project name — only when relevant
 
-Memory kind guidelines:
-- "fact": any durable, verifiable detail (the user's role, company, location, family, tools they use, technical stack, etc.)
-- "preference": how the user likes things done (communication style, workflow preferences, formatting preferences, tool choices, meeting habits, etc.)
-- "person": something meaningful learned about a specific named person (colleague, client, contact, family member)
-- "context": an active project, ongoing goal, current challenge, or situation in progress
+Kind guidelines:
+- "fact": durable detail about the user (their role, employer, email, tools they personally use)
+- "preference": how the user likes things done (communication style, meeting format, tool choices)
+- "person": a specific named individual in the user's professional or personal life, and what the user knows about them
+- "context": an active project or ongoing situation the user is personally involved in
 
-Be generous — extract everything useful. For documents, extract factual details about the company, team, project, or situation described. For conversations, extract what the user reveals about themselves, their work, and their preferences.
-
-Skip: generic boilerplate, filler text, repeated/near-duplicate facts already implied by other extracted items.
-If nothing meaningful can be extracted from this text, return an empty array [].
-
+If the text contains no information about the user as a person or professional, return [].
 Output ONLY valid JSON — no markdown fences, no explanation.${chunkNote}
 
 --- TEXT ---
