@@ -69,10 +69,15 @@ export async function POST() {
 
   const payloads: IngestPayload[] = [];
 
-  // ── Regular emails (excluding Zoom) ─────────────────────────────────────────
+  // ── Regular emails (excluding Zoom and self-sent) ───────────────────────────
   for (const e of emails) {
     // Skip Zoom emails — they have a dedicated processing path below
     if (zoomEmailIds.has(e.id)) continue;
+
+    // Skip emails sent BY the user — Basil watches incoming signal only.
+    // Without this, emails Michael sends (e.g. about contracts, legal topics)
+    // get ingested and incorrectly flagged as high-priority heads-ups.
+    if (isSelf(e.from)) continue;
 
     // Secondary detection: catch Zoom emails that slipped past the query
     // (e.g. if the from field still contains "zoom" in the display name)

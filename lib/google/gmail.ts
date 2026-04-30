@@ -21,7 +21,9 @@ export async function getRecentEmails(
   maxResults = 10,
   maxAgeDays = 2
 ): Promise<GmailMessage[]> {
-  return searchEmails(username, undefined, maxResults, maxAgeDays);
+  // Restrict to inbox only — without this, Gmail returns sent mail too, causing
+  // emails FROM the user to be ingested and incorrectly flagged by the rules engine.
+  return searchEmails(username, "in:inbox", maxResults, maxAgeDays);
 }
 
 /**
