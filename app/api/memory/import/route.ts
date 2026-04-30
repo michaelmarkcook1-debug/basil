@@ -102,37 +102,53 @@ ${chunk}
 // Catches competitive intelligence and market data that slips through the prompt.
 
 const CI_PATTERNS: RegExp[] = [
-  // Explicit rankings and scores
+  // ── Company as grammatical subject ────────────────────────────────────────
+  // Any sentence starting with a company name/ticker is about that company,
+  // not the user. Catches: "FDS headwind profile...", "Bloomberg has...", etc.
+  /^(FDS|SPGI|MORN|MSCI|LSEGY|Bloomberg|AlphaSense|Morningstar|AnalystGenius)\b/i,
+
+  // ── Explicit rankings ─────────────────────────────────────────────────────
   /\branks?\s+(1st|2nd|3rd|\d+th|first|second|third|fourth|fifth|last|#\d+)\b/i,
-  /\b(pipeline|win rate|velocity|brand|deal momentum|reputation)\s+(score|index|rate)\b/i,
+  /\branks?\s+\d+\/\d+\b/i,   // ratio format: "ranks 1/4", "ranks 2/6"
+
+  // ── Score / metric language ───────────────────────────────────────────────
+  /\b(pipeline|win rate|velocity|brand|deal momentum|reputation|risk|headwind)\s+(score|index|rate|profile)\b/i,
+  /\brisk score\b/i,
+  /\bheadwind\b/i,
   /\bwin rate\s+\d/i,
   /\bpipeline score\b/i,
   /\bvelocity score\b/i,
   /\bbrand score\b/i,
   /\bdeal momentum\b/i,
   /\breputation index\b/i,
-  // Competitor list / comparison language
+
+  // ── Competitor / comparative language ────────────────────────────────────
   /\b(competitors tracked|tracked competitors|tracked as competitors)\b/i,
   /\bcompetitors (include|are|tracked)\b/i,
   /\bamong\b.{0,40}\bcompetitors?\b/i,
   /\bagainst competitors\b/i,
   /\bprimary company against\b/i,
   /\bFDS competitors\b/i,
-  // Ticker / company identifier facts
+  /\bdirect competitors\b/i,
+  /\bincluding disruptors\b/i,
+
+  // ── Ticker / company identifier facts ────────────────────────────────────
   /\bticker symbol\b/i,
   /\bstock ticker\b/i,
-  // Dashboard / tool feature descriptions (not about the user)
+
+  // ── Dashboard / tool feature descriptions ────────────────────────────────
   /\bdashboard tracks\b/i,
   /\bthe .{2,30} dashboard (tracks|monitors|shows|displays)\b/i,
-  // AI competitive analysis language
+
+  // ── AI / risk competitive analysis ───────────────────────────────────────
   /\bAI (disruption|investment)\b.*(high|low|medium|risk|preparedness)/i,
   /\bdisruption risk\b/i,
   /\bAI disruption preparedness\b/i,
-  // Competitive intelligence section names
+
+  // ── Market / industry section labels ─────────────────────────────────────
   /\bcompetitive intelligence\b/i,
   /\bfinancial snapshot\b.*(dashboard|track|monitor)/i,
-  // Company name as subject + performance language
-  /^(SPGI|MORN|MSCI|LSEGY|Bloomberg|AlphaSense|Morningstar)\b.*(high|low|medium|strong|weak|risk|investment|position|rate)/i,
+  /\b(economic pressure|regulatory exposure)\b/i,
 ];
 
 /**
