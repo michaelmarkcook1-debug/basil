@@ -102,9 +102,8 @@ ${chunk}
 // Catches competitive intelligence and market data that slips through the prompt.
 
 const CI_PATTERNS: RegExp[] = [
-  // Ranking patterns: "X ranks 1st/2nd/last in Y"
+  // Explicit rankings and scores
   /\branks?\s+(1st|2nd|3rd|\d+th|first|second|third|fourth|fifth|last|#\d+)\b/i,
-  // Score/metric patterns common to market intelligence
   /\b(pipeline|win rate|velocity|brand|deal momentum|reputation)\s+(score|index|rate)\b/i,
   /\bwin rate\s+\d/i,
   /\bpipeline score\b/i,
@@ -112,11 +111,28 @@ const CI_PATTERNS: RegExp[] = [
   /\bbrand score\b/i,
   /\bdeal momentum\b/i,
   /\breputation index\b/i,
-  // Competitor list patterns
+  // Competitor list / comparison language
   /\b(competitors tracked|tracked competitors|tracked as competitors)\b/i,
   /\bcompetitors (include|are|tracked)\b/i,
-  // Third-party company as subject (ticker symbols + company rankings)
-  /^(SPGI|MORN|MSCI|LSEGY|FDS|SPGI|GS|MS)\b.*(rank|score|rate|index)/i,
+  /\bamong\b.{0,40}\bcompetitors?\b/i,
+  /\bagainst competitors\b/i,
+  /\bprimary company against\b/i,
+  /\bFDS competitors\b/i,
+  // Ticker / company identifier facts
+  /\bticker symbol\b/i,
+  /\bstock ticker\b/i,
+  // Dashboard / tool feature descriptions (not about the user)
+  /\bdashboard tracks\b/i,
+  /\bthe .{2,30} dashboard (tracks|monitors|shows|displays)\b/i,
+  // AI competitive analysis language
+  /\bAI (disruption|investment)\b.*(high|low|medium|risk|preparedness)/i,
+  /\bdisruption risk\b/i,
+  /\bAI disruption preparedness\b/i,
+  // Competitive intelligence section names
+  /\bcompetitive intelligence\b/i,
+  /\bfinancial snapshot\b.*(dashboard|track|monitor)/i,
+  // Company name as subject + performance language
+  /^(SPGI|MORN|MSCI|LSEGY|Bloomberg|AlphaSense|Morningstar)\b.*(high|low|medium|strong|weak|risk|investment|position|rate)/i,
 ];
 
 /**
