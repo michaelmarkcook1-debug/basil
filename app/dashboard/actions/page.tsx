@@ -25,6 +25,7 @@ import {
 } from "lucide-react";
 import { findContactByName } from "@/lib/contacts-lookup";
 import { isActionStalled } from "@/lib/actions/utils";
+import { dashboardCache } from "@/lib/dashboard-cache";
 import type { ActionItem } from "@/lib/types/action";
 
 const LEGACY_STORAGE_KEY = "sage-actions";
@@ -345,9 +346,15 @@ export default function ActionsPage() {
   const migratedRef = useRef(false);
 
   const refresh = useCallback(async () => {
+    // Serve cached data instantly — eliminates blank flash on tab switch
+    const cached = dashboardCache.get<ActionItem[]>("actions");
+    if (cached) setActions(cached);
+    // Always revalidate from server
     const res = await fetch("/api/actions", { cache: "no-store" });
     const data = await res.json();
-    setActions(data.actions || []);
+    const fresh: ActionItem[] = data.actions || [];
+    dashboardCache.set("actions", fresh);
+    setActions(fresh);
   }, []);
 
   const notify = useDomainSync("actions", refresh);

@@ -145,13 +145,9 @@ async function persistSnapshot(): Promise<void> {
     // Excluded = too large OR safely re-derivable on next warm request:
     //   whatsapp-snapshot.json  — can be 100s of KB; re-run dump to regenerate
     //   sage-events.json        — audit/signal log; grows unboundedly
-    //   sage-actions.json       — transient signals; re-fetched by poll-ingest
-    //                             on every dashboard load. This was the primary
-    //                             cause of 93KB+ snapshots that failed to write.
     const SNAPSHOT_EXCLUDE = new Set([
       "whatsapp-snapshot.json",
       "sage-events.json",
-      "sage-actions.json",
     ]);
 
     // Hard ceiling for the base64 payload.
@@ -165,7 +161,8 @@ async function persistSnapshot(): Promise<void> {
     // On-disk files are NEVER modified — this only affects the BASIL_DATA backup.
     const DROP_PRIORITY = [
       "sage-user-contacts.json",   // large; fully re-derivable from Google/Slack/MS
-      "sage-decisions.json",       // important but survives temporary loss
+      "sage-actions.json",         // drop before decisions if over cap — actions re-ingest from email/Slack
+      "sage-decisions.json",       // last resort — important but survives temporary loss
     ];
 
     /**

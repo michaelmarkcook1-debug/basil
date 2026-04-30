@@ -24,6 +24,7 @@ import {
   X,
 } from "lucide-react";
 import { findContactByName } from "@/lib/contacts-lookup";
+import { dashboardCache } from "@/lib/dashboard-cache";
 import type { Decision } from "@/lib/types/decision";
 
 const LEGACY_STORAGE_KEY = "sage-decisions";
@@ -323,9 +324,15 @@ export default function DecisionsPage() {
   const migratedRef = useRef(false);
 
   const refresh = useCallback(async () => {
+    // Serve cached data instantly — eliminates blank flash on tab switch
+    const cached = dashboardCache.get<Decision[]>("decisions");
+    if (cached) setDecisions(cached);
+    // Always revalidate from server
     const res = await fetch("/api/decisions", { cache: "no-store" });
     const data = await res.json();
-    setDecisions(data.decisions || []);
+    const fresh: Decision[] = data.decisions || [];
+    dashboardCache.set("decisions", fresh);
+    setDecisions(fresh);
   }, []);
 
   const notify = useDomainSync("decisions", refresh);
