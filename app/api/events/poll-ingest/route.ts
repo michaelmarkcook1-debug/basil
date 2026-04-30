@@ -6,8 +6,10 @@ import { publish } from "@/lib/events/bus";
 import { generateDraftForEvent } from "@/lib/events/drafter";
 import type { IngestPayload, BasilEvent } from "@/lib/events/types";
 import { getTodayEvents } from "@/lib/google/calendar";
-import { getRecentEmails, searchEmails } from "@/lib/google/gmail";
+import { getRecentEmails, searchEmails, checkThreadForSentReply } from "@/lib/google/gmail";
 import { getRecentSlackMessages } from "@/lib/slack/client";
+import { listActions, updateAction } from "@/lib/actions/store";
+import { createDecision } from "@/lib/decisions/store";
 import { isSelf } from "@/lib/self-identity";
 import { ZOOM_GMAIL_QUERY, detectZoomEmail } from "@/lib/google/zoom-email-detector";
 import { processRegularEmail, processZoomEmail } from "@/lib/email/process-gmail-message";
@@ -487,6 +489,64 @@ export async function POST() {
   const eventsCompacted = await compactEvents().catch((err) => {
     console.error("[poll-ingest] event compaction failed:", err);
     return 0;
+  });
+
+  // ── Email action completion detection ─────────────────────────────────────
+  // For each open email action with a Gmail sourceRef, check whether the user
+  // has sent a reply in that thread since the action was created. If yes:
+  //   1. Mark the action "done"
+  //   2. Create a Decision recording what was resolved, with suggested follow-ups
+  //
+  // Capped at 10 per cycle to avoid excessive Gmail API usage.
+  let actionsAutoCompleted = 0;
+  after(async () => {
+    try {
+      const allActions = await listActions();
+      const emailActions = allActions
+        .filter((a) => a.status === "open" && a.source === "email" && a.sourceRef?.startsWith("gmail:"))
+        .slice(0, 10);
+
+      for (const action of emailActions) {
+        const originalMessageId = action.sourceRef!.replace("gmail:", "");
+        const reply = await checkThreadForSentReply(username, originalMessageId, action.createdAt);
+        if (!reply) continue;
+
+        // Mark action done
+        await updateAction(action.id, {
+          status:         "done",
+          lastActivityAt: reply.sentAt,
+        });
+
+        // Follow-up date: 3 business days from now
+        const followUpDate = new Date(Date.now() + 3 * 24 * 60 * 60 * 1000)
+          .toISOString().split("T")[0];
+
+        // Create a Decision capturing the completed action and suggested next steps
+        await createDecision({
+          title:   `Replied to ${reply.originalFrom} re: ${reply.subject.slice(0, 50)}`,
+          text:    `Sent reply to ${reply.originalFrom} regarding "${reply.subject}". Original action: ${action.text}`,
+          summary: `Michael replied to ${reply.originalFrom} completing the pending action: "${action.text}"`,
+          consequences: [
+            `Await response from ${reply.originalFrom}`,
+            `Follow up if no reply by ${followUpDate}`,
+          ],
+          decidedBy:      "Michael Cook",
+          context:        reply.subject,
+          source:         "email",
+          sourceRef:      `gmail:${reply.messageId}`,
+          linkedActionIds: [action.id],
+          confidence:     0.9,
+          date:           reply.sentAt.split("T")[0],
+        });
+
+        actionsAutoCompleted++;
+        console.log(`[poll-ingest] Auto-completed action ${action.id} — reply found in thread`);
+      }
+
+      if (actionsAutoCompleted > 0) await forceFlushSnapshot();
+    } catch (err) {
+      console.error("[poll-ingest] Email action completion check failed:", err);
+    }
   });
 
   return NextResponse.json({

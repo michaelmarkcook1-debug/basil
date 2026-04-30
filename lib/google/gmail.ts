@@ -210,3 +210,81 @@ export async function sendEmail(
 
   return { id: res.data.id || "" };
 }
+
+// ── Reply detection ────────────────────────────────────────────────────────────
+
+export interface SentReplyInfo {
+  /** Gmail message ID of the sent reply. */
+  messageId: string;
+  /** Subject line of the original thread. */
+  subject: string;
+  /** ISO timestamp when the reply was sent. */
+  sentAt: string;
+  /** Display name or email of the original sender (who we replied to). */
+  originalFrom: string;
+}
+
+/**
+ * Given an original Gmail message ID and the action creation timestamp, checks
+ * whether the user sent a reply in that thread AFTER the action was created.
+ *
+ * Returns the reply info if found, null otherwise.
+ * Never throws — errors return null and are logged.
+ */
+export async function checkThreadForSentReply(
+  username: string,
+  originalMessageId: string,
+  actionCreatedAt: string
+): Promise<SentReplyInfo | null> {
+  try {
+    const auth = await getAuthedClient(username);
+    if (!auth) return null;
+
+    const gmail = google.gmail({ version: "v1", auth });
+
+    // 1. Fetch the original message to get threadId + subject + original sender
+    const orig = await gmail.users.messages.get({
+      userId:          "me",
+      id:              originalMessageId,
+      format:          "metadata",
+      metadataHeaders: ["From", "Subject"],
+    });
+
+    const threadId = orig.data.threadId;
+    if (!threadId) return null;
+
+    const headers    = orig.data.payload?.headers ?? [];
+    const subject    = headers.find((h) => h.name === "Subject")?.value ?? "(no subject)";
+    const fromRaw    = headers.find((h) => h.name === "From")?.value ?? "";
+    const fromMatch  = fromRaw.match(/^"?([^"<]+)"?\s*</);
+    const originalFrom = fromMatch ? fromMatch[1].trim() : fromRaw.split("@")[0];
+
+    const afterMs = new Date(actionCreatedAt).getTime();
+
+    // 2. Fetch all messages in the thread (metadata only — cheap)
+    const thread = await gmail.users.threads.get({
+      userId: "me",
+      id:     threadId,
+      format: "metadata",
+    });
+
+    for (const msg of thread.data.messages ?? []) {
+      if (msg.id === originalMessageId) continue;             // skip the original
+      if (!(msg.labelIds ?? []).includes("SENT")) continue;  // only sent messages
+      const sentMs = parseInt(msg.internalDate ?? "0", 10);
+      if (sentMs <= afterMs) continue;                        // must be AFTER action was created
+
+      return {
+        messageId:    msg.id!,
+        subject,
+        sentAt:       new Date(sentMs).toISOString(),
+        originalFrom,
+      };
+    }
+
+    return null;
+  } catch (err) {
+    console.error("[gmail] checkThreadForSentReply error:", err);
+    return null;
+  }
+}
