@@ -30,6 +30,12 @@ const PAYLOAD_ERROR_BYTES = 60_000; // ~60 KB — likely to fail; log error
 // One-time cold-start restore flag (module-level, per function instance)
 let restored = false;
 
+// In-flight snapshot serialization: we chain onto this promise so that
+// concurrent writeStore calls don't fire overlapping Vercel API writes.
+// Each snapshot waits for the previous one to complete, then takes a fresh
+// read of DATA_DIR — capturing all writes that happened in between.
+let snapshotChain: Promise<void> = Promise.resolve();
+
 // ── Snapshot diagnostics ───────────────────────────────────────────────────
 
 export interface SnapshotDiagnostics {
@@ -112,6 +118,11 @@ async function maybeRestore(): Promise<void> {
 /** Push all .json files in DATA_DIR into the BASIL_DATA env var via Vercel API. */
 async function persistSnapshot(): Promise<void> {
   if (!process.env.VERCEL) return; // local dev uses the real filesystem
+
+  // Ensure the cold-start restore has run before we take a snapshot.
+  // Without this, a writeStore call on a fresh instance (e.g. OAuth callback)
+  // would snapshot an empty /tmp — wiping all existing data from BASIL_DATA.
+  await maybeRestore();
 
   const now = new Date().toISOString();
   snapDiag.lastAttemptAt = now;
@@ -364,9 +375,14 @@ export async function writeStore<T>(filename: string, data: T, subdir?: string):
   const dir = subdir ? path.join(DATA_DIR, subdir) : DATA_DIR;
   if (subdir) await fs.mkdir(dir, { recursive: true });
   await fs.writeFile(path.join(dir, filename), JSON.stringify(data, null, 2), "utf8");
-  persistSnapshot().catch((err) => {
-    console.error("[snapshot] Unexpected error in persistSnapshot:", err);
-  });
+  // Serialize snapshot writes: chain onto the previous in-flight snapshot so
+  // concurrent writeStore calls don't race each other on the Vercel API.
+  // Each snapshot waits for the prior one, then reads the current state of
+  // DATA_DIR — capturing every write that landed while we were waiting.
+  snapshotChain = snapshotChain
+    .catch(() => undefined) // don't let a prior failure block the queue
+    .then(() => persistSnapshot())
+    .catch((err) => { console.error("[snapshot] Unexpected error in persistSnapshot:", err); });
 }
 
 /**
@@ -377,5 +393,7 @@ export async function writeStore<T>(filename: string, data: T, subdir?: string):
  * Unlike the fire-and-forget in writeStore, this awaits completion.
  */
 export async function forceFlushSnapshot(): Promise<void> {
+  // Wait for any queued writes to drain first, then do one final flush.
+  await snapshotChain.catch(() => undefined);
   await persistSnapshot();
 }

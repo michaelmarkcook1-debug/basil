@@ -137,11 +137,14 @@ function TabButton({
   count,
   active,
   onClick,
+  connected,
 }: {
   label: string;
   count?: number;
   active: boolean;
   onClick: () => void;
+  /** undefined = loading/unknown, true = connected, false = disconnected */
+  connected?: boolean;
 }) {
   return (
     <button
@@ -151,11 +154,28 @@ function TabButton({
         active ? "text-foreground" : "text-muted-foreground hover:text-foreground"
       )}
     >
-      {label}
+      <span className="flex items-center gap-1.5">
+        {/* Connection status dot — only shown for source tabs (Mail / Slack) */}
+        {connected !== undefined && (
+          <span
+            className={cn(
+              "inline-block h-1.5 w-1.5 rounded-full shrink-0",
+              connected ? "bg-emerald-500" : "bg-red-400"
+            )}
+            title={connected ? `${label} connected` : `${label} not connected`}
+          />
+        )}
+        {label}
+        {connected === false && (
+          <span className="text-[10px] font-normal text-muted-foreground/60">
+            (disconnected)
+          </span>
+        )}
+      </span>
       {typeof count === "number" && count > 0 && (
         <span
           className={cn(
-            "ml-1.5 inline-flex items-center justify-center h-4 min-w-4 rounded-full px-1 text-[12px] font-mono tabular-nums",
+            "ml-1 inline-flex items-center justify-center h-4 min-w-4 rounded-full px-1 text-[12px] font-mono tabular-nums",
             active
               ? "bg-[oklch(0.72_0.15_85)]/15 text-[oklch(0.72_0.15_85)]"
               : "bg-muted text-muted-foreground"
@@ -343,12 +363,14 @@ export function SignalsFeed() {
             count={mailOnly.filter((s) => s.unread).length}
             active={tab === "mail"}
             onClick={() => setTab("mail")}
+            connected={mail === null ? undefined : !!mail.connected}
           />
           <TabButton
             label="Slack"
             count={slackOnly.filter((s) => s.priority).length}
             active={tab === "slack"}
             onClick={() => setTab("slack")}
+            connected={slack === null ? undefined : !!slack.connected}
           />
         </div>
       </CardHeader>
