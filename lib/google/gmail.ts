@@ -3,7 +3,11 @@ import { getAuthedClient } from "./auth";
 
 export interface GmailMessage {
   id: string;
+  /** Display name of the sender (e.g. "Tom Beardmore"). Use for UI only. */
   from: string;
+  /** Raw email address of the sender (e.g. "tom@example.com").
+   *  Use this as the To: header when drafting replies. */
+  fromEmail: string;
   to: string;
   subject: string;
   snippet: string;
@@ -74,12 +78,21 @@ export async function searchEmails(
       return m ? m[1].trim() : raw.split("@")[0];
     }
 
+    // Extract just the email address from "Name <email>" or bare "email" format
+    function extractEmailAddr(raw: string): string {
+      const m = raw.match(/<([^>]+@[^>]+)>/);
+      if (m) return m[1].trim();
+      if (raw.includes("@")) return raw.trim();
+      return raw; // fallback: return as-is
+    }
+
     const fromRaw = getHeader("From");
     const toRaw = getHeader("To");
 
     messages.push({
       id: msg.id,
       from: extractName(fromRaw),
+      fromEmail: extractEmailAddr(fromRaw),
       to: toRaw,
       subject: getHeader("Subject"),
       snippet: detail.data.snippet || "",

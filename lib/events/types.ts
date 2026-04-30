@@ -126,6 +126,9 @@ export interface IngestPayload {
   /** Body / message text. */
   body: string;
   from?: string;
+  /** Raw email address of the sender (e.g. "tom@example.com").
+   *  Used as draft.to so Gmail gets a valid address, not a display name. */
+  fromEmail?: string;
   channel?: string;
   /**
    * ISO timestamp of the originating message — email send time, Slack message ts,

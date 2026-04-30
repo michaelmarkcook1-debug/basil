@@ -577,8 +577,11 @@ export default function SettingsPage() {
       description: "Meeting summaries ingested automatically from email",
       color:       "text-blue-400",
       group:       "other",
-      status:      { id: "zoom", state: "connected", lastCheckedAt: new Date().toISOString() },
-      note:        "Zoom summaries arrive via email — no separate auth required.",
+      // Zoom works via Gmail — it's only "available" when Gmail is connected
+      status:      g
+        ? { id: "zoom", state: googleConnected ? "connected" : "disconnected", lastCheckedAt: g.lastCheckedAt }
+        : null,
+      note:        "Zoom meeting summaries arrive via Gmail — no separate Zoom auth required.",
     },
     {
       key:         "claude",

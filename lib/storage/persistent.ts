@@ -150,6 +150,16 @@ async function persistSnapshot(): Promise<void> {
       "sage-events.json",
     ]);
 
+    // Auth + config files that must ALWAYS be in the snapshot — these are what
+    // make Basil functional on a cold start. They're small and not re-derivable.
+    const CRITICAL_FILES = new Set([
+      "google-tokens.json",
+      "slack-config.json",
+      "linear-config.json",
+      "microsoft-tokens.json",
+      "sage-settings.json",
+    ]);
+
     // Hard ceiling for the base64 payload.
     // Vercel encrypts env vars individually; their documented limit is 64KB per
     // var. Other vars (tokens, secrets) use ~12KB, so cap BASIL_DATA at 44KB —
@@ -157,11 +167,13 @@ async function persistSnapshot(): Promise<void> {
     const PAYLOAD_HARD_CAP = 44_000;
 
     // Priority order for dropping files when still over cap after exclusions.
-    // Lower index = dropped first. Files not in this list are never auto-dropped.
+    // Lower index = dropped first. Files not in this list and not in CRITICAL_FILES
+    // are never auto-dropped (they'll cause a skip if they push us over cap).
     // On-disk files are NEVER modified — this only affects the BASIL_DATA backup.
     const DROP_PRIORITY = [
       "sage-user-contacts.json",   // large; fully re-derivable from Google/Slack/MS
-      "sage-actions.json",         // drop before decisions if over cap — actions re-ingest from email/Slack
+      "sage-memory.json",          // memories can be partially re-derived from signals
+      "sage-actions.json",         // actions re-ingest from email/Slack on next poll
       "sage-decisions.json",       // last resort — important but survives temporary loss
     ];
 
@@ -234,17 +246,20 @@ async function persistSnapshot(): Promise<void> {
       }
     }
 
-    // If STILL over cap after all drops, log and abort — never write a payload
-    // that Vercel will reject. A failed write loses this snapshot entirely;
-    // it's better to skip and keep the last successful snapshot intact.
+    // If STILL over cap after all drops, fall back to critical-only snapshot.
+    // Auth tokens and settings must always be persisted — losing them causes
+    // integrations to appear disconnected on every cold start.
     if (payloadBytes > PAYLOAD_HARD_CAP) {
-      const reason =
-        `Payload is ${payloadBytes}B after all compaction — exceeds ${PAYLOAD_HARD_CAP}B cap. ` +
-        `Files: ${Object.keys(snapshot).join(", ")}. Skipping write to preserve last good snapshot.`;
-      console.error(`[snapshot] ${reason}`);
-      snapDiag.lastFailureAt     = new Date().toISOString();
-      snapDiag.lastFailureReason = reason;
-      return;
+      const nonCritical = Object.keys(snapshot).filter(
+        (k) => !CRITICAL_FILES.has(k) && !Array.from(CRITICAL_FILES).some((c) => k.endsWith(`/${c}`))
+      );
+      for (const key of nonCritical) delete snapshot[key];
+      encoded      = Buffer.from(JSON.stringify(snapshot)).toString("base64");
+      payloadBytes = encoded.length;
+      console.warn(
+        `[snapshot] Still over cap — trimmed to critical-only (${Object.keys(snapshot).join(", ")}). ` +
+        `Payload: ${payloadBytes}B`
+      );
     }
 
     if (payloadBytes > PAYLOAD_WARN_BYTES) {

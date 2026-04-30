@@ -92,7 +92,7 @@ export function classify(payload: IngestPayload): Classification {
     (hasExplicitHint || aboutKeyPerson);
 
   if (isReplyable) {
-    const recipient = payload.from || payload.channel || "recipient";
+    const recipient = payload.fromEmail || payload.from || payload.channel || "recipient";
     return {
       disposition: "draft",
       priority: aboutKeyPerson ? "high" : "normal",

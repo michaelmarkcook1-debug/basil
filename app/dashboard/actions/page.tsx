@@ -352,8 +352,9 @@ export default function ActionsPage() {
     if (cached) setActions(cached);
     // Always revalidate from server
     const res = await fetch("/api/actions", { cache: "no-store" });
-    const data = await res.json();
-    const fresh: ActionItem[] = data.actions || [];
+    if (!res.ok) return; // don't clear UI on server error — keep showing cached/current state
+    const data = await res.json() as { actions?: ActionItem[] };
+    const fresh: ActionItem[] = data.actions ?? [];
     dashboardCache.set("actions", fresh);
     setActions(fresh);
   }, []);
@@ -425,7 +426,14 @@ export default function ActionsPage() {
   }
 
   async function handleDelete(id: string) {
+    // Optimistic: remove from UI and cache immediately — no flash / accidental restore
+    setActions((prev) => {
+      const next = prev.filter((a) => a.id !== id);
+      dashboardCache.set("actions", next);
+      return next;
+    });
     await fetch(`/api/actions/${id}`, { method: "DELETE" });
+    // Background sync to other tabs
     notify();
   }
 

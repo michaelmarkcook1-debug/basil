@@ -96,6 +96,7 @@ export async function POST() {
       title: e.subject || "(no subject)",
       body: e.snippet || "",
       from: e.from,
+      fromEmail: e.fromEmail,
       // Preserve the email's actual send time — used in memory labels and decision dates.
       // Defaults to ingest time in classify/materialize if absent.
       date: e.date,
