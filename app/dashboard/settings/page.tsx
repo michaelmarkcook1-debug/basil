@@ -94,6 +94,7 @@ interface AllStatuses {
   google:     IntegrationStatus;
   slack:      IntegrationStatus;
   microsoft?: IntegrationStatus & { microsoft?: { mail: boolean; calendar: boolean; drive: boolean; teams: boolean } };
+  linear?:    IntegrationStatus;
   claude:     IntegrationStatus;
   snapshot?:  SnapshotDiagnostics;
 }
@@ -161,6 +162,46 @@ export default function SettingsPage() {
 
   // ── Account info (read-only) ─────────────────────────────────────────────
   const [account, setAccount] = useState<{ username: string; email: string } | null>(null);
+
+  // ── Linear API key state ─────────────────────────────────────────────────
+  const [linearKey, setLinearKey]       = useState("");
+  const [linearSaving, setLinearSaving] = useState(false);
+  const [linearError, setLinearError]   = useState<string | null>(null);
+
+  async function handleLinearConnect() {
+    if (!linearKey.trim()) return;
+    setLinearSaving(true);
+    setLinearError(null);
+    try {
+      const res = await fetch("/api/auth/linear", {
+        method:  "POST",
+        headers: { "Content-Type": "application/json" },
+        body:    JSON.stringify({ apiKey: linearKey.trim() }),
+      });
+      const json = await res.json();
+      if (!res.ok) {
+        setLinearError(json.error ?? "Connection failed");
+        return;
+      }
+      setLinearKey("");
+      setStatuses((prev) => prev ? {
+        ...prev,
+        linear: { id: "linear", state: "connected", lastCheckedAt: new Date().toISOString() },
+      } : prev);
+    } catch {
+      setLinearError("Network error — please try again");
+    } finally {
+      setLinearSaving(false);
+    }
+  }
+
+  async function handleLinearDisconnect() {
+    await fetch("/api/auth/linear", { method: "DELETE" });
+    setStatuses((prev) => prev ? {
+      ...prev,
+      linear: { id: "linear", state: "disconnected", lastCheckedAt: new Date().toISOString() },
+    } : prev);
+  }
 
   // ── Profile/settings state ────────────────────────────────────────────────
   const [profile, setProfile]         = useState<UserSettings | null>(null);
@@ -510,6 +551,16 @@ export default function SettingsPage() {
     },
     // ── Other integrations ───────────────────────────────────────────────────
     {
+      key:         "linear",
+      name:        "Linear",
+      icon:        Database,
+      description: "Sync open Linear issues assigned to you as actions",
+      color:       "text-violet-500",
+      group:       "other",
+      status:      statuses?.linear ?? null,
+      note:        null,
+    },
+    {
       key:         "slack",
       name:        "Slack",
       icon:        Hash,
@@ -729,6 +780,37 @@ export default function SettingsPage() {
                     {isStatic ? (
                       /* Zoom / Claude: status badge only — no auth needed */
                       <StateBadge state={integration.status ? integration.status.state : "loading"} />
+                    ) : integration.key === "linear" ? (
+                      /* Linear: Personal API Key */
+                      isConnected ? (
+                        <div className="flex items-center gap-2 shrink-0">
+                          <StateBadge state="connected" />
+                          <Button size="sm" variant="ghost"
+                            className="h-7 px-2 text-xs text-muted-foreground hover:text-red-600"
+                            onClick={handleLinearDisconnect}>
+                            Disconnect
+                          </Button>
+                        </div>
+                      ) : (
+                        <div className="flex items-center gap-1.5 shrink-0">
+                          <Input
+                            type="password"
+                            placeholder="lin_api_…"
+                            value={linearKey}
+                            onChange={(e) => { setLinearKey(e.target.value); setLinearError(null); }}
+                            onKeyDown={(e) => { if (e.key === "Enter") void handleLinearConnect(); }}
+                            className="h-7 w-40 text-xs"
+                            disabled={linearSaving}
+                          />
+                          <Button size="sm" variant="outline"
+                            className="h-7 px-2.5 text-xs text-violet-600 border-violet-200 hover:bg-violet-50"
+                            onClick={handleLinearConnect}
+                            disabled={linearSaving || !linearKey.trim()}
+                          >
+                            {linearSaving ? <Loader2 className="h-3 w-3 animate-spin" /> : "Connect"}
+                          </Button>
+                        </div>
+                      )
                     ) : integration.key === "slack" ? (
                       /* Slack: standalone OAuth */
                       isConnected ? (
@@ -800,6 +882,21 @@ export default function SettingsPage() {
                       <StateBadge state={integration.status ? integration.status.state : "loading"} />
                     )}
                   </div>
+
+                  {/* Linear API key error */}
+                  {integration.key === "linear" && linearError && (
+                    <p className="mt-1.5 text-xs text-red-600">{linearError}</p>
+                  )}
+                  {/* Linear API key hint when not connected */}
+                  {integration.key === "linear" && !isConnected && !linearError && (
+                    <p className="mt-1.5 text-xs text-muted-foreground/70">
+                      Get your key at{" "}
+                      <a href="https://linear.app/settings/api" target="_blank" rel="noreferrer"
+                        className="underline hover:text-foreground">
+                        linear.app/settings/api
+                      </a>
+                    </p>
+                  )}
 
                   {i < items.length - 1 && <Separator className="mt-4" />}
                 </div>

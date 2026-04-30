@@ -7,7 +7,7 @@ export interface ActionItem {
   ownerId?: string;
   dueDate?: string;
   status: "open" | "done" | "overdue";
-  source: "meeting" | "slack" | "email" | "manual" | "chat";
+  source: "meeting" | "slack" | "email" | "manual" | "chat" | "linear";
   createdAt: string;
   updatedAt: string;
 

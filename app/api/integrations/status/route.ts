@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { getGoogleConnectionStatus } from "@/lib/google/auth";
 import { getMicrosoftConnectionStatus } from "@/lib/microsoft/auth";
 import { isSlackConnected } from "@/lib/slack/client";
+import { isLinearConnected } from "@/lib/linear/client";
 import { getSnapshotDiagnostics } from "@/lib/storage/persistent";
 import { getSessionUser } from "@/lib/auth";
 import type { IntegrationStatus } from "@/lib/integrations/types";
@@ -45,6 +46,14 @@ export async function GET() {
       microsoft = { id: "microsoft", state: "error", lastCheckedAt: now, error: err instanceof Error ? err.message : String(err) };
     }
 
+    // ── Linear ──────────────────────────────────────────────────────────────
+    const linearConnected = await isLinearConnected(username);
+    const linear: IntegrationStatus = {
+      id:            "linear",
+      state:         linearConnected ? "connected" : "disconnected",
+      lastCheckedAt: now,
+    };
+
     // ── Claude / Anthropic ──────────────────────────────────────────────────
     const claude: IntegrationStatus = {
       id:            "claude",
@@ -55,7 +64,7 @@ export async function GET() {
     // ── Snapshot diagnostics ────────────────────────────────────────────────
     const snapshot = getSnapshotDiagnostics();
 
-    return NextResponse.json({ google, slack, microsoft, claude, snapshot });
+    return NextResponse.json({ google, slack, microsoft, linear, claude, snapshot });
   } catch (err) {
     console.error("[integrations/status] Unexpected error:", err);
     return NextResponse.json(

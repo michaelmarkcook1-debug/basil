@@ -8,8 +8,9 @@ import type { IngestPayload, BasilEvent } from "@/lib/events/types";
 import { getTodayEvents } from "@/lib/google/calendar";
 import { getRecentEmails, searchEmails, checkThreadForSentReply } from "@/lib/google/gmail";
 import { getRecentSlackMessages } from "@/lib/slack/client";
-import { listActions, updateAction } from "@/lib/actions/store";
+import { listActions, updateAction, createAction } from "@/lib/actions/store";
 import { createDecision } from "@/lib/decisions/store";
+import { getMyOpenIssues, linearPriorityToBasil } from "@/lib/linear/client";
 import { isSelf } from "@/lib/self-identity";
 import { ZOOM_GMAIL_QUERY, detectZoomEmail } from "@/lib/google/zoom-email-detector";
 import { processRegularEmail, processZoomEmail } from "@/lib/email/process-gmail-message";
@@ -546,6 +547,41 @@ export async function POST() {
       if (actionsAutoCompleted > 0) await forceFlushSnapshot();
     } catch (err) {
       console.error("[poll-ingest] Email action completion check failed:", err);
+    }
+  });
+
+  // ── Linear issue sync ─────────────────────────────────────────────────────
+  // Pull open issues assigned to the user from Linear and upsert them as
+  // ActionItems with source:"linear". The existing Jaccard dedup in createAction
+  // makes this fully idempotent — already-imported issues are skipped.
+  after(async () => {
+    try {
+      const linearIssues = await getMyOpenIssues(username);
+      if (linearIssues.length === 0) return;
+
+      let synced = 0;
+      for (const issue of linearIssues) {
+        const sourceRef = `linear:${issue.identifier}`;
+        const projectLabel = issue.project?.name ? ` [${issue.project.name}]` : "";
+        await createAction({
+          text:      `${issue.identifier}: ${issue.title}${projectLabel}`,
+          owner:     "Michael Cook",
+          source:    "linear",
+          sourceRef,
+          priority:  linearPriorityToBasil(issue.priority),
+          dueDate:   issue.dueDate ?? undefined,
+          confidence: 1,
+          needsReview: false,
+          status:    "open",
+        });
+        synced++;
+      }
+      if (synced > 0) {
+        console.log(`[poll-ingest] Linear: synced ${synced} issue(s)`);
+        await forceFlushSnapshot();
+      }
+    } catch (err) {
+      console.error("[poll-ingest] Linear sync failed:", err);
     }
   });
 
