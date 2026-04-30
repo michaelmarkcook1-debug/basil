@@ -84,21 +84,65 @@ export async function isGoogleConnected(username: string): Promise<boolean> {
   return !!tokens?.refresh_token;
 }
 
+// Brief per-instance cache — avoids repeated network calls within one warm instance.
+// TTL: 90 seconds (shorter than the 5-min access-token expiry window we check below).
+const _googleStatusCache = new Map<string, { status: IntegrationStatus; ts: number }>();
+const GOOGLE_STATUS_TTL = 90_000;
+
 /**
  * Returns a normalized IntegrationStatus for Google.
+ *
+ * Validates the OAuth tokens are still accepted by Google:
+ * - If the stored access token is still fresh (not expired), we trust it and
+ *   skip the network call (fast path, ~0ms).
+ * - If the access token has expired we attempt a refresh.  A failed refresh
+ *   means the refresh_token was revoked — we return "token_expired" so the
+ *   settings page shows a truthful Re-authorize prompt instead of "Connected".
+ *
  * Never throws — always resolves to a concrete state.
  */
 export async function getGoogleConnectionStatus(username: string): Promise<IntegrationStatus> {
   const now = new Date().toISOString();
+
+  // Serve from cache if recent
+  const cached = _googleStatusCache.get(username);
+  if (cached && Date.now() - cached.ts < GOOGLE_STATUS_TTL) return cached.status;
+
+  const cache = (status: IntegrationStatus) => {
+    _googleStatusCache.set(username, { status, ts: Date.now() });
+    return status;
+  };
+
   try {
     const tokens = await getStoredTokens(username);
 
     if (!tokens?.refresh_token) {
-      return {
-        id:             "google",
-        state:          "disconnected",
-        lastCheckedAt:  now,
-      };
+      return cache({ id: "google", state: "disconnected", lastCheckedAt: now });
+    }
+
+    // Fast path: access token is still fresh — no network call needed.
+    const tokenStillFresh =
+      tokens.expiry_date && tokens.access_token &&
+      tokens.expiry_date > Date.now() + 5 * 60 * 1000; // 5-min buffer
+
+    if (!tokenStillFresh) {
+      // Access token is missing or expired — attempt a refresh to validate
+      // the refresh_token is still accepted.
+      const client = getOAuth2Client();
+      client.setCredentials(tokens);
+      try {
+        const { token } = await client.getAccessToken();
+        if (!token) {
+          return cache({ id: "google", state: "token_expired", lastCheckedAt: now,
+            error: "Could not refresh access token — please re-authorize." });
+        }
+        // Persist the refreshed credentials so subsequent calls are fast
+        const updated = client.credentials as GoogleTokens;
+        await writeUserStore(username, TOKENS_FILE, { ...tokens, ...updated });
+      } catch {
+        return cache({ id: "google", state: "token_expired", lastCheckedAt: now,
+          error: "Token refresh failed — please re-authorize." });
+      }
     }
 
     const granted = new Set(tokens.scope?.split(/\s+/).filter(Boolean) ?? []);
@@ -107,7 +151,7 @@ export async function getGoogleConnectionStatus(username: string): Promise<Integ
     const hasDrive    = granted.has(GOOGLE_SCOPE.drive);
     const allGranted  = hasCalendar && hasGmail && hasDrive;
 
-    return {
+    return cache({
       id:            "google",
       state:         allGranted ? "connected" : "permission_missing",
       lastCheckedAt: now,
@@ -117,14 +161,14 @@ export async function getGoogleConnectionStatus(username: string): Promise<Integ
         gmail:    hasGmail,
         drive:    hasDrive,
       },
-    };
+    });
   } catch (err) {
-    return {
+    return cache({
       id:            "google",
       state:         "error",
       lastCheckedAt: now,
       error:         err instanceof Error ? err.message : String(err),
-    };
+    });
   }
 }
 

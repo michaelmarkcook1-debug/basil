@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { getSessionUser } from "@/lib/auth";
 import { saveSlackConfig } from "@/lib/slack/client";
+import { forceFlushSnapshot } from "@/lib/storage/persistent";
 
 /**
  * GET /api/auth/slack/callback
@@ -86,6 +87,7 @@ export async function GET(req: Request) {
       botToken:  data.access_token,
       userToken: data.authed_user?.access_token,
     });
+    await forceFlushSnapshot();
 
     return clearFromCookie(NextResponse.redirect(new URL(successDest, req.url)));
   } catch (e) {

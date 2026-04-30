@@ -725,8 +725,9 @@ export default function SettingsPage() {
                       )}
                     </div>
 
-                    {/* Per-row action — static rows just show badge */}
+                    {/* Per-row action */}
                     {isStatic ? (
+                      /* Zoom / Claude: status badge only — no auth needed */
                       <StateBadge state={integration.status ? integration.status.state : "loading"} />
                     ) : integration.key === "slack" ? (
                       /* Slack: standalone OAuth */
@@ -749,8 +750,53 @@ export default function SettingsPage() {
                           Connect with Slack
                         </Button>
                       )
+                    ) : integration.group === "google" ? (
+                      /* Google sub-services: each row has its own connect/disconnect.
+                         All Google services share one OAuth token so any row action
+                         connects/disconnects the whole Google account. */
+                      <div className="flex items-center gap-2 shrink-0">
+                        <StateBadge state={
+                          statuses === null ? "loading"
+                          : integration.status ? integration.status.state
+                          : "disconnected"
+                        } />
+                        {googleConnected ? (
+                          <Button size="sm" variant="ghost"
+                            className="h-7 px-2 text-xs text-muted-foreground hover:text-red-600"
+                            onClick={handleGoogleDisconnect}>
+                            Disconnect
+                          </Button>
+                        ) : (
+                          <Button size="sm" variant="outline"
+                            className="h-7 px-2.5 text-xs text-[oklch(0.58_0.15_85)] border-[oklch(0.72_0.15_85)]/40 hover:bg-[oklch(0.72_0.15_85)]/8"
+                            onClick={() => { window.location.href = "/api/auth/google?from=settings"; }}>
+                            Connect →
+                          </Button>
+                        )}
+                      </div>
+                    ) : integration.group === "microsoft" ? (
+                      /* Microsoft sub-services: same pattern — shared OAuth token. */
+                      <div className="flex items-center gap-2 shrink-0">
+                        <StateBadge state={
+                          statuses === null ? "loading"
+                          : integration.status ? integration.status.state
+                          : "disconnected"
+                        } />
+                        {microsoftConnected ? (
+                          <Button size="sm" variant="ghost"
+                            className="h-7 px-2 text-xs text-muted-foreground hover:text-red-600"
+                            onClick={handleMicrosoftDisconnect}>
+                            Disconnect
+                          </Button>
+                        ) : (
+                          <Button size="sm" variant="outline"
+                            className="h-7 px-2.5 text-xs text-blue-600 border-blue-200 hover:bg-blue-50"
+                            onClick={() => { window.location.href = "/api/auth/microsoft?from=settings"; }}>
+                            Connect →
+                          </Button>
+                        )}
+                      </div>
                     ) : (
-                      /* Google / Microsoft sub-integrations: badge only (connect/disconnect at group level) */
                       <StateBadge state={integration.status ? integration.status.state : "loading"} />
                     )}
                   </div>

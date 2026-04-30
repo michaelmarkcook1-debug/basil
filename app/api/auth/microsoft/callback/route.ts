@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { exchangeCode } from "@/lib/microsoft/auth";
 import { getSessionUser } from "@/lib/auth";
+import { forceFlushSnapshot } from "@/lib/storage/persistent";
 
 // GET /api/auth/microsoft/callback — handles Microsoft OAuth callback
 export async function GET(req: Request) {
@@ -32,6 +33,7 @@ export async function GET(req: Request) {
     const username = (await getSessionUser());
   if (!username) return NextResponse.json({ error: "Unauthorised" }, { status: 401 });
     await exchangeCode(code, username, origin);
+    await forceFlushSnapshot();
     const res = NextResponse.redirect(new URL(successDest, req.url));
     res.cookies.set("basil_auth_from", "", { path: "/", maxAge: 0 });
     return res;

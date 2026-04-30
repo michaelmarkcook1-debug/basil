@@ -30,9 +30,12 @@ const CHUNK_SIZE = 40_000;
 const CHUNK_OVERLAP = 2_000;
 
 /**
- * Build a prompt that works for both AI conversations AND plain documents/files.
- * The key insight: we want facts, preferences, context, and people — regardless
- * of whether the source is a chat transcript or a project document.
+ * Build a strict personal-data-only extraction prompt.
+ *
+ * Every memory extracted must have THE USER as its subject.
+ * Competitive intelligence, market data, company rankings, and third-party
+ * metrics are never personal memories — they are rejected regardless of whether
+ * the user's employer is mentioned.
  */
 function buildPrompt(chunk: string, chunkIndex: number, totalChunks: number): string {
   const chunkNote =
@@ -42,42 +45,86 @@ function buildPrompt(chunk: string, chunkIndex: number, totalChunks: number): st
 
   return `You are a personal memory extractor for an AI executive assistant called Basil.
 
-Your job: extract facts ABOUT THE USER — their identity, role, relationships, tools, and preferences. Nothing else.
+CRITICAL RULE: Every memory you extract MUST have THE USER as its subject. Each item must describe something true and durable about this specific user as an individual. Before extracting anything, ask: "Can I rewrite this as 'The user [verb]...' naturally?" If no — do not extract it.
 
-Personal memory is strictly limited to:
-1. Facts about the user themselves: their name, job title, company they work for, email, location, contact details
-2. Their work environment: tools and software they use day-to-day, communication platforms, workflows
-3. Their work relationships: colleagues, direct reports, clients, investors — who they are and how they relate to the user
-4. Their personal preferences: how they like to communicate, work, format documents, run meetings
-5. Their active projects and goals: things the user is personally working on or responsible for
+You may ONLY extract:
+1. The user's own identity: name, job title, employer, email, phone, location
+2. The user's work tools: software, platforms, and workflows THEY personally use
+3. The user's relationships: named colleagues, direct reports, managers, clients, investors — only the person's name and their relationship TO THE USER
+4. The user's communication preferences: how THEY like to write, meet, or work
+5. The user's active projects: initiatives the user personally owns or contributes to
 
-DO NOT extract any of the following — return [] if the text contains only these:
-- Market research, competitive intelligence, or industry rankings (e.g. "Bloomberg ranks 1st in deal momentum")
-- Data about companies the user doesn't work for, even if they're analysing them
-- Product features, dashboards, or capabilities of tools/platforms being described
-- Financial data, scores, metrics, or statistics about third parties
-- General business facts that aren't about the user personally
-- Content the user is reading, researching, or reviewing — only extract what it reveals ABOUT THE USER
+ABSOLUTE PROHIBITIONS — return [] if the text contains only these:
+- Any sentence where the subject is a company, product, ticker, or brand — not the user
+- Competitor rankings, deal momentum, win rates, pipeline scores, velocity scores, brand indices
+- Market research, industry benchmarks, or intelligence about third-party organisations
+- Product feature lists, dashboard capabilities, or platform metrics
+- Financial scores, valuation data, or statistics about any company
+- Data about what tools or companies DO — only what the user personally uses or prefers
+- Content the user is reviewing, reading, or analysing — extract nothing from the document itself
 
-The test: ask "Does this tell me something durable about the user as a person or professional?" If no, skip it.
+CONCRETE BAD EXAMPLES — never extract these patterns:
+✗ "Bloomberg ranks 1st in Deal Momentum (pipeline score 90.5, win rate 67%)" — about Bloomberg
+✗ "MORN ranks last in Deal Momentum with win rate 31%" — about Morningstar
+✗ "FDS competitors tracked include SPGI, Bloomberg, MSCI, LSEGY, AlphaSense" — competitor list
+✗ "AlphaSense ranks 3rd with pipeline score 80.0 and velocity score 64.0" — about AlphaSense
+✗ "In Reputation Index, Bloomberg ranks 1st (brand score 89.3)" — brand ranking data
+✗ "The dashboard tracks 8 competitors across deal momentum metrics" — tool/dashboard data
 
-Return ONLY a valid JSON array. Each item must have:
+CONCRETE GOOD EXAMPLES — only these patterns:
+✓ "The user is VP of Sales at TalentGenius" — user's role
+✓ "The user uses Slack and Zoom as primary communication tools" — user's tools
+✓ "The user's direct manager is Sarah Chen" — user's relationship
+✓ "The user prefers bullet-point summaries over prose" — user's preference
+✓ "The user is leading the Q3 enterprise expansion initiative" — user's project
+
+Return ONLY a valid JSON array. Each item:
 - "kind": one of "fact" | "preference" | "person" | "context"
-- "content": a short, specific, self-contained sentence written about the user (max 150 chars)
-- "entity": (optional) the specific person, company they work for, or project name — only when relevant
+- "content": short sentence written ABOUT THE USER (max 150 chars)
+- "entity": (optional) only when naming the user's employer, a specific person they know, or a project they own
 
 Kind guidelines:
 - "fact": durable detail about the user (their role, employer, email, tools they personally use)
-- "preference": how the user likes things done (communication style, meeting format, tool choices)
-- "person": a specific named individual in the user's professional or personal life, and what the user knows about them
-- "context": an active project or ongoing situation the user is personally involved in
+- "preference": how the user likes things done
+- "person": a named individual in the user's life and their relationship to the user
+- "context": an active project or situation the user is personally involved in
 
-If the text contains no information about the user as a person or professional, return [].
-Output ONLY valid JSON — no markdown fences, no explanation.${chunkNote}
+If the text contains no information about the user as an individual, return [].
+Output ONLY valid JSON — no markdown, no explanation.${chunkNote}
 
 --- TEXT ---
 ${chunk}
 --- END ---`;
+}
+
+// ── Server-side content guard ─────────────────────────────────────────────────
+// Defense-in-depth filter applied AFTER LLM extraction.
+// Catches competitive intelligence and market data that slips through the prompt.
+
+const CI_PATTERNS: RegExp[] = [
+  // Ranking patterns: "X ranks 1st/2nd/last in Y"
+  /\branks?\s+(1st|2nd|3rd|\d+th|first|second|third|fourth|fifth|last|#\d+)\b/i,
+  // Score/metric patterns common to market intelligence
+  /\b(pipeline|win rate|velocity|brand|deal momentum|reputation)\s+(score|index|rate)\b/i,
+  /\bwin rate\s+\d/i,
+  /\bpipeline score\b/i,
+  /\bvelocity score\b/i,
+  /\bbrand score\b/i,
+  /\bdeal momentum\b/i,
+  /\breputation index\b/i,
+  // Competitor list patterns
+  /\b(competitors tracked|tracked competitors|tracked as competitors)\b/i,
+  /\bcompetitors (include|are|tracked)\b/i,
+  // Third-party company as subject (ticker symbols + company rankings)
+  /^(SPGI|MORN|MSCI|LSEGY|FDS|SPGI|GS|MS)\b.*(rank|score|rate|index)/i,
+];
+
+/**
+ * Returns true if the memory content looks like competitive intelligence
+ * or market data that should never be stored as a personal memory.
+ */
+function isCompetitiveIntelligence(content: string): boolean {
+  return CI_PATTERNS.some((re) => re.test(content));
 }
 
 /**
@@ -188,8 +235,22 @@ export async function POST(req: Request) {
     return NextResponse.json({ imported: 0, memories: [] });
   }
 
+  // ── Server-side content guard ───────────────────────────────────────────────
+  // Removes competitive intelligence and market data that slipped past the prompt.
+  const filtered = allExtracted.filter((m) => {
+    if (m.kind === "fact" && isCompetitiveIntelligence(m.content)) {
+      console.log(`[memory/import] Rejected CI memory: "${m.content.slice(0, 80)}"`);
+      return false;
+    }
+    return true;
+  });
+
+  if (filtered.length === 0) {
+    return NextResponse.json({ imported: 0, memories: [] });
+  }
+
   // ── Deduplicate across chunks ───────────────────────────────────────────────
-  const deduped = deduplicateMemories(allExtracted);
+  const deduped = deduplicateMemories(filtered);
 
   // ── Save to store ───────────────────────────────────────────────────────────
   const saved = await Promise.all(

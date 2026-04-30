@@ -21,6 +21,7 @@ import {
   Pencil,
   Check,
   AlertTriangle,
+  ShieldCheck,
 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
@@ -282,6 +283,25 @@ export default function MemoryPage() {
     }
   }
 
+  // ── Purge competitive intelligence facts ─────────────────────────────────
+  const [purgingCI, setPurgingCI] = useState(false);
+  const [purgeResult, setPurgeResult] = useState<{ removed: number; kept: number } | null>(null);
+
+  async function handlePurgeCI() {
+    setPurgingCI(true);
+    setPurgeResult(null);
+    try {
+      const res = await fetch("/api/memory/purge-ci", { method: "POST" });
+      const data = await res.json() as { removed: number; kept: number };
+      setPurgeResult(data);
+      if (data.removed > 0) load();
+    } catch {
+      // silent — not critical
+    } finally {
+      setPurgingCI(false);
+    }
+  }
+
   // ── Edit ──────────────────────────────────────────────────────────────────
   async function handleEdit(id: string, patch: { content: string; kind: MemoryKind; entity?: string }) {
     const previous = memories ?? [];
@@ -369,6 +389,17 @@ export default function MemoryPage() {
           Import
         </button>
         <button
+          onClick={handlePurgeCI}
+          disabled={purgingCI}
+          title="Remove competitive intelligence and market data stored as facts"
+          className="inline-flex items-center gap-1.5 rounded-lg border border-border bg-background text-sm font-medium px-3.5 py-2 hover:bg-muted transition text-muted-foreground disabled:opacity-50"
+        >
+          {purgingCI
+            ? <Loader2 className="h-4 w-4 animate-spin" />
+            : <ShieldCheck className="h-4 w-4" />}
+          Clean facts
+        </button>
+        <button
           onClick={() => setShowForm((v) => !v)}
           className="inline-flex items-center gap-1.5 rounded-lg bg-[oklch(0.72_0.15_85)] text-[oklch(0.18_0.04_250)] text-sm font-semibold px-3.5 py-2 hover:brightness-105 transition"
         >
@@ -376,6 +407,14 @@ export default function MemoryPage() {
           {showForm ? "Cancel" : "Add memory"}
         </button>
       </div>
+      {purgeResult && (
+        <div className="flex items-center gap-2 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs text-emerald-700">
+          <CheckCircle2 className="h-3.5 w-3.5 shrink-0" />
+          {purgeResult.removed === 0
+            ? "No outdated facts found — memory looks clean."
+            : `Removed ${purgeResult.removed} outdated fact${purgeResult.removed === 1 ? "" : "s"} (competitive/market data). ${purgeResult.kept} memories kept.`}
+        </div>
+      )}
 
       {/* ── Sticky extraction banner — shown whenever importing, even if panel is scrolled ── */}
       {importing && (

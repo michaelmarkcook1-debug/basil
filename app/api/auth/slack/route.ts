@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { getSessionUser } from "@/lib/auth";
 import { saveSlackConfig } from "@/lib/slack/client";
+import { forceFlushSnapshot } from "@/lib/storage/persistent";
 
 /**
  * POST /api/auth/slack
@@ -46,5 +47,6 @@ export async function DELETE() {
 
   // Clear tokens by saving an empty config
   await saveSlackConfig(username, {});
+  await forceFlushSnapshot();
   return NextResponse.json({ ok: true });
 }

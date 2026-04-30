@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { exchangeCode } from "@/lib/google/auth";
 import { getSessionUser } from "@/lib/auth";
+import { forceFlushSnapshot } from "@/lib/storage/persistent";
 
 // GET /api/auth/google/callback — handles Google OAuth callback
 export async function GET(req: Request) {
@@ -19,6 +20,9 @@ export async function GET(req: Request) {
     const username = (await getSessionUser());
   if (!username) return NextResponse.json({ error: "Unauthorised" }, { status: 401 });
     await exchangeCode(code, username);
+    // Force-flush the snapshot before redirecting so tokens survive a cold start
+    // on the very next request (fire-and-forget writeStore is not enough here).
+    await forceFlushSnapshot();
     const res = NextResponse.redirect(new URL(successDest, req.url));
     res.cookies.set("basil_auth_from", "", { path: "/", maxAge: 0 });
     return res;
