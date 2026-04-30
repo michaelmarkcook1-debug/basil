@@ -73,11 +73,12 @@ export default function MemoryPage() {
   const [showForm, setShowForm] = useState(false);
 
   // ── Import from another LLM / files ──────────────────────────────────────
-  const [showImport, setShowImport]       = useState(false);
-  const [importText, setImportText]       = useState("");
-  const [importing, setImporting]         = useState(false);
-  const [importResult, setImportResult]   = useState<{ count: number } | null>(null);
-  const [importError, setImportError]     = useState<string | null>(null);
+  const [showImport, setShowImport]           = useState(false);
+  const [importText, setImportText]           = useState("");
+  const [importing, setImporting]             = useState(false);
+  const [importResult, setImportResult]       = useState<{ count: number } | null>(null);
+  const [importError, setImportError]         = useState<string | null>(null);
+  const [importTabWarning, setImportTabWarning] = useState(false); // tab went hidden mid-extraction
 
   // File / folder upload
   const fileInputRef   = useRef<HTMLInputElement>(null);
@@ -134,11 +135,41 @@ export default function MemoryPage() {
     setImportText(parts.join("\n\n"));
   }
 
+  // ── Tab-lock during extraction ────────────────────────────────────────────
+  // Warn the user if they switch away or try to navigate while extraction runs.
+  // beforeunload fires on page close/navigation. visibilitychange fires on
+  // tab switch — the fetch may survive (server keeps running) but the browser
+  // can throttle or kill background connections, silently dropping the result.
+  useEffect(() => {
+    if (!importing) return;
+
+    function handleBeforeUnload(e: BeforeUnloadEvent) {
+      e.preventDefault();
+      // Modern Chrome ignores custom messages but shows a generic dialog
+      e.returnValue = "Memory extraction is running. Leaving now will lose extracted data.";
+    }
+
+    function handleVisibilityChange() {
+      if (document.hidden) {
+        setImportTabWarning(true);
+      }
+    }
+
+    window.addEventListener("beforeunload", handleBeforeUnload);
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+
+    return () => {
+      window.removeEventListener("beforeunload", handleBeforeUnload);
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
+    };
+  }, [importing]);
+
   async function handleImport(e: React.FormEvent) {
     e.preventDefault();
     setImporting(true);
     setImportError(null);
     setImportResult(null);
+    setImportTabWarning(false);
     try {
       const res = await fetch("/api/memory/import", {
         method: "POST",
@@ -152,7 +183,13 @@ export default function MemoryPage() {
       setLoadedFileNames([]);
       load();
     } catch (err) {
-      setImportError(err instanceof Error ? err.message : "Something went wrong");
+      const msg = err instanceof Error ? err.message : "Something went wrong";
+      // If the tab went hidden and we get an error, make the cause clearer
+      setImportError(
+        importTabWarning
+          ? "Extraction was interrupted — the tab went to the background and the connection was lost. Please try again and keep this tab active."
+          : msg
+      );
     } finally {
       setImporting(false);
     }
@@ -340,6 +377,21 @@ export default function MemoryPage() {
         </button>
       </div>
 
+      {/* ── Sticky extraction banner — shown whenever importing, even if panel is scrolled ── */}
+      {importing && (
+        <div className="sticky top-0 z-50 -mx-4 sm:-mx-6 lg:-mx-10 px-4 sm:px-6 lg:px-10">
+          <div className="flex items-center gap-3 bg-amber-500 text-amber-950 px-4 py-3 shadow-lg">
+            <Loader2 className="h-4 w-4 animate-spin shrink-0" />
+            <p className="text-sm font-semibold flex-1">
+              Extraction in progress — keep this tab open and active.
+            </p>
+            <p className="text-xs font-medium opacity-80 shrink-0 hidden sm:block">
+              Switching tabs or closing the window will lose your data.
+            </p>
+          </div>
+        </div>
+      )}
+
       {/* Import panel */}
       {showImport && (
         <div className="rounded-xl border border-border bg-muted/30 p-5 space-y-4">
@@ -354,10 +406,26 @@ export default function MemoryPage() {
                 Basil will extract facts, preferences, people, and context and add them to memory.
               </p>
             </div>
-            <button onClick={() => setShowImport(false)} className="text-muted-foreground hover:text-foreground shrink-0">
+            <button
+              onClick={() => { if (!importing) setShowImport(false); }}
+              disabled={importing}
+              className="text-muted-foreground hover:text-foreground shrink-0 disabled:opacity-30 disabled:cursor-not-allowed"
+              title={importing ? "Extraction in progress — please wait" : "Close"}
+            >
               <X className="h-4 w-4" />
             </button>
           </div>
+
+          {/* Tab-hidden warning — shown if user switched away mid-extraction */}
+          {importTabWarning && importing && (
+            <div className="flex items-start gap-3 rounded-lg bg-amber-50 border border-amber-300 px-4 py-3">
+              <AlertTriangle className="h-4 w-4 text-amber-600 shrink-0 mt-0.5" />
+              <p className="text-sm text-amber-800">
+                <span className="font-semibold">You switched away from this tab.</span>{" "}
+                The extraction may have been interrupted by the browser. If it fails, come back and try again — keep this tab in the foreground while extracting.
+              </p>
+            </div>
+          )}
 
           {importResult ? (
             <div className="flex items-center gap-3 rounded-lg bg-emerald-50 border border-emerald-200 px-4 py-3">
@@ -453,23 +521,35 @@ export default function MemoryPage() {
                   <X className="h-3 w-3" /> {importError}
                 </p>
               )}
-              <div className="flex items-center gap-3">
-                <button
-                  type="submit"
-                  disabled={importing || filesLoading || importText.trim().length < 10}
-                  className="inline-flex items-center gap-1.5 rounded-lg bg-[oklch(0.72_0.15_85)] text-[oklch(0.18_0.04_250)] text-sm font-semibold px-4 py-2 hover:brightness-105 transition disabled:opacity-40"
-                >
-                  {importing ? (
-                    <><Loader2 className="h-4 w-4 animate-spin" /> Extracting…</>
-                  ) : (
-                    <><Sparkles className="h-4 w-4" /> Extract memories</>
-                  )}
-                </button>
-                <p className="text-xs text-muted-foreground">
-                  {importText.trim().length > 0
-                    ? `${importText.trim().split(/\s+/).length.toLocaleString()} words`
-                    : "Supports any conversation format or plain-text files"}
-                </p>
+              <div className="space-y-2">
+                <div className="flex items-center gap-3">
+                  <button
+                    type="submit"
+                    disabled={importing || filesLoading || importText.trim().length < 10}
+                    className="inline-flex items-center gap-1.5 rounded-lg bg-[oklch(0.72_0.15_85)] text-[oklch(0.18_0.04_250)] text-sm font-semibold px-4 py-2 hover:brightness-105 transition disabled:opacity-40"
+                  >
+                    {importing ? (
+                      <><Loader2 className="h-4 w-4 animate-spin" /> Extracting…</>
+                    ) : (
+                      <><Sparkles className="h-4 w-4" /> Extract memories</>
+                    )}
+                  </button>
+                  <p className="text-xs text-muted-foreground">
+                    {importText.trim().length > 0
+                      ? `${importText.trim().split(/\s+/).length.toLocaleString()} words`
+                      : "Supports any conversation format or plain-text files"}
+                  </p>
+                </div>
+                {importing ? (
+                  <p className="text-xs text-amber-600 font-medium flex items-center gap-1.5">
+                    <AlertTriangle className="h-3 w-3 shrink-0" />
+                    Keep this tab open — switching away may interrupt extraction.
+                  </p>
+                ) : importText.trim().length >= 10 && (
+                  <p className="text-xs text-muted-foreground/70">
+                    Large inputs may take up to a minute. Keep this tab active while extracting.
+                  </p>
+                )}
               </div>
             </form>
           )}
