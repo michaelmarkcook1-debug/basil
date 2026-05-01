@@ -10,6 +10,7 @@ import {
 } from "@/components/ui/card";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
+import { Skeleton } from "@/components/ui/skeleton";
 import {
   Tooltip,
   TooltipContent,
@@ -42,6 +43,8 @@ interface ActivityData {
     emails: number;
     slackMessages: number;
     driveFiles?: number;
+    zoomMeetings?: number;
+    linearItems?: number;
   };
 }
 
@@ -119,24 +122,14 @@ function daysLabel(days: number): string {
   return `${days}d ago`;
 }
 
+// Stale threshold: auto-refresh if cached data is older than this many ms.
+const STALE_MS = 30 * 60 * 1000; // 30 minutes
+
 export function RelationshipCard() {
   const [liveData, setLiveData] = useState<ActivityData | null>(null);
   const [loading, setLoading] = useState(false);
   const [lastRefresh, setLastRefresh] = useState<string | null>(null);
   const [showExplainer, setShowExplainer] = useState(false);
-
-  useEffect(() => {
-    const cached = localStorage.getItem("sage-contact-activity");
-    if (cached) {
-      try {
-        const parsed = JSON.parse(cached);
-        setLiveData(parsed);
-        setLastRefresh(parsed.fetchedAt);
-      } catch {
-        /* ignore */
-      }
-    }
-  }, []);
 
   const refreshActivity = useCallback(async () => {
     setLoading(true);
@@ -153,6 +146,26 @@ export function RelationshipCard() {
       setLoading(false);
     }
   }, []);
+
+  // On mount: load from cache immediately, then auto-fetch if absent or stale.
+  useEffect(() => {
+    const cached = localStorage.getItem("sage-contact-activity");
+    if (cached) {
+      try {
+        const parsed = JSON.parse(cached);
+        setLiveData(parsed);
+        setLastRefresh(parsed.fetchedAt);
+        // Background-refresh if cache is stale
+        const age = Date.now() - new Date(parsed.fetchedAt).getTime();
+        if (age > STALE_MS) refreshActivity();
+      } catch {
+        refreshActivity(); // corrupt cache → re-fetch
+      }
+    } else {
+      // No cache at all → fetch immediately
+      refreshActivity();
+    }
+  }, [refreshActivity]);
 
   const enriched = useMemo(() => {
     return staticContacts
@@ -239,6 +252,21 @@ export function RelationshipCard() {
       </CardHeader>
 
       <CardContent className="space-y-4">
+        {/* First-load skeleton — shown when fetching with no cached data */}
+        {loading && !liveData && (
+          <div className="space-y-3">
+            <div className="grid grid-cols-2 gap-2.5">
+              <Skeleton className="h-16 rounded-lg" />
+              <Skeleton className="h-16 rounded-lg" />
+            </div>
+            <div className="flex flex-wrap gap-1.5">
+              {[40, 56, 48, 44, 52, 36].map((w, i) => (
+                <Skeleton key={i} className={`h-6 w-${w < 45 ? "14" : w < 50 ? "16" : "20"} rounded-full`} />
+              ))}
+            </div>
+          </div>
+        )}
+
         {/* Explainer (collapsible) */}
         {showExplainer && (
           <div className="rounded-lg border border-border bg-muted/40 p-3 text-xs text-muted-foreground space-y-1.5">
@@ -291,6 +319,11 @@ export function RelationshipCard() {
                       Last contact {daysLabel(c.days)}
                       {c.title ? ` · ${c.title}` : ""}
                     </p>
+                    {c.liveActivity?.recentItems[0] && (
+                      <p className="text-[11px] text-muted-foreground/70 truncate mt-0.5">
+                        {c.liveActivity.recentItems[0]}
+                      </p>
+                    )}
                   </div>
                   <Link
                     href={`/dashboard/chat?q=${encodeURIComponent(`Draft a check-in message to ${c.name}`)}`}
@@ -380,11 +413,20 @@ export function RelationshipCard() {
           <div className="pt-1 border-t border-border/70 flex items-center justify-between text-[12px] text-muted-foreground">
             <span>
               {liveData?.dataSources
-                ? `${liveData.dataSources.calendarEvents} cal · ${liveData.dataSources.emails} mail · ${liveData.dataSources.slackMessages} slack${
+                ? [
+                    `${liveData.dataSources.calendarEvents} cal`,
+                    `${liveData.dataSources.emails} mail`,
+                    `${liveData.dataSources.slackMessages} slack`,
                     liveData.dataSources.driveFiles !== undefined
-                      ? ` · ${liveData.dataSources.driveFiles} docs`
-                      : ""
-                  }`
+                      ? `${liveData.dataSources.driveFiles} docs`
+                      : null,
+                    liveData.dataSources.zoomMeetings !== undefined && liveData.dataSources.zoomMeetings > 0
+                      ? `${liveData.dataSources.zoomMeetings} zoom`
+                      : null,
+                    liveData.dataSources.linearItems !== undefined && liveData.dataSources.linearItems > 0
+                      ? `${liveData.dataSources.linearItems} linear`
+                      : null,
+                  ].filter(Boolean).join(" · ")
                 : "calendar · email · slack · docs"}
             </span>
             <span>

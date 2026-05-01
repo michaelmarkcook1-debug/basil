@@ -118,6 +118,95 @@ export async function getMyOpenIssues(username: string): Promise<LinearIssue[]> 
   }
 }
 
+// ── Contact activity query ─────────────────────────────────────────────────
+
+export interface LinearContactActivity {
+  /** The contact's display name as seen in Linear (assignee or creator). */
+  personName: string;
+  /** The contact's email if Linear has it (may be undefined). */
+  personEmail?: string;
+  /** ISO date string when the issue was last updated. */
+  updatedAt: string;
+  /** Human-readable description for the interaction log. */
+  description: string;
+}
+
+const RECENT_TEAM_ISSUES_QUERY = `
+  query RecentTeamIssues($updatedAfter: DateTime!) {
+    issues(
+      filter: { updatedAt: { gte: $updatedAfter } }
+      orderBy: updatedAt
+      first: 100
+    ) {
+      nodes {
+        identifier
+        title
+        updatedAt
+        assignee { name email }
+        creator  { name email }
+      }
+    }
+  }
+`;
+
+interface TeamIssueNode {
+  identifier: string;
+  title: string;
+  updatedAt: string;
+  assignee?: { name: string; email?: string } | null;
+  creator?:  { name: string; email?: string } | null;
+}
+
+interface RecentTeamIssuesResult {
+  issues: { nodes: TeamIssueNode[] };
+}
+
+/**
+ * Returns recent Linear activity (issues updated in the last `days` days)
+ * annotated with the assignee and creator name/email — suitable for
+ * cross-referencing against the contacts list to determine last interaction.
+ * Never throws — returns empty array on failure.
+ */
+export async function getRecentLinearActivity(
+  username: string,
+  days = 30
+): Promise<LinearContactActivity[]> {
+  try {
+    const config = await getLinearConfig(username);
+    if (!config.apiKey) return [];
+    const updatedAfter = new Date(Date.now() - days * 86400 * 1000).toISOString();
+    const data = await gql<RecentTeamIssuesResult>(
+      config.apiKey,
+      RECENT_TEAM_ISSUES_QUERY,
+      { updatedAfter }
+    );
+    const entries: LinearContactActivity[] = [];
+    for (const issue of data.issues.nodes) {
+      const desc = `Linear: ${issue.identifier} — ${issue.title}`;
+      if (issue.assignee?.name) {
+        entries.push({
+          personName: issue.assignee.name,
+          personEmail: issue.assignee.email || undefined,
+          updatedAt: issue.updatedAt,
+          description: desc,
+        });
+      }
+      if (issue.creator?.name && issue.creator.name !== issue.assignee?.name) {
+        entries.push({
+          personName: issue.creator.name,
+          personEmail: issue.creator.email || undefined,
+          updatedAt: issue.updatedAt,
+          description: desc,
+        });
+      }
+    }
+    return entries;
+  } catch (err) {
+    console.error("[linear] getRecentLinearActivity error:", err);
+    return [];
+  }
+}
+
 /**
  * Validate an API key by fetching viewer info. Returns the viewer's name on
  * success, throws on failure.

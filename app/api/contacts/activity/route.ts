@@ -4,6 +4,7 @@ import { searchEmails } from "@/lib/google/gmail";
 import { getRecentDriveActivity } from "@/lib/google/drive";
 import { getRecentSlackMessages } from "@/lib/slack/client";
 import { listMemories } from "@/lib/memory/store";
+import { getRecentLinearActivity } from "@/lib/linear/client";
 import { getSessionUser } from "@/lib/auth";
 import { listUserContacts } from "@/lib/contacts/user-store";
 import { contacts as staticContacts } from "@/lib/contacts-data";
@@ -84,10 +85,29 @@ for (const [full, nicks] of Object.entries(NICKNAMES)) {
  *  - Prefix nickname:  "Chris" matches "Christopher" (first name starts with text word)
  *  - Explicit nickname:"Bob" matches "Robert", "Ed" matches "Edward"
  */
-function nameMatchesContact(text: string, contactName: string): boolean {
+/**
+ * Returns true if `text` (an attendee name, email sender, Slack author, etc.)
+ * refers to the person named `contactName`.
+ *
+ * Handles:
+ *  - Exact/substring:     "Christopher Walton" ↔ "Christopher Walton"
+ *  - First name only:     "Malcolm" matches "Malcolm Frank"
+ *  - Partial name:        "christopher.walton@company.com" matches "Christopher Walton"
+ *  - Last name:           "Walton" matches "Christopher Walton"
+ *  - Prefix nickname:     "Chris" matches "Christopher" (first name starts with text word)
+ *  - Explicit nickname:   "Bob" matches "Robert", "Ed" matches "Edward"
+ *  - Contact email:       "malcolm@talentgenius.io" matches when contactEmail provided
+ */
+function nameMatchesContact(text: string, contactName: string, contactEmail?: string): boolean {
   if (!text || !contactName) return false;
   const textLower  = text.toLowerCase().trim();
   const nameLower  = contactName.toLowerCase().trim();
+
+  // 0. Direct email address match — fastest path, bypasses all name logic
+  if (contactEmail) {
+    const ce = contactEmail.toLowerCase();
+    if (textLower.includes(ce)) return true;
+  }
 
   // 1. Full name substring
   if (textLower.includes(nameLower)) return true;
@@ -106,18 +126,22 @@ function nameMatchesContact(text: string, contactName: string): boolean {
   const textWords = textLower.split(/[\s,@.()\-]+/).filter((w) => w.length >= 2);
 
   for (const word of textWords) {
-    // 5. Prefix match: text word is a prefix of contact's first name
+    // 5. Exact first-name match: e.g. Slack author "Malcolm" ↔ "Malcolm Frank"
+    //    (firstName.length > word.length would exclude this, hence a separate check)
+    if (word === firstName && firstName.length >= 3) return true;
+
+    // 6. Prefix match: text word is a prefix of contact's first name
     //    e.g. "chris" → firstName="christopher" → "christopher".startsWith("chris") ✓
     if (firstName.length > word.length && firstName.startsWith(word) && word.length >= 3) return true;
 
-    // 6. Reverse prefix: contact first name is a prefix of text word
+    // 7. Reverse prefix: contact first name is a prefix of text word
     //    e.g. firstName="ed", word="edwards" → "edwards".startsWith("ed") && len>2
     if (word.length > firstName.length && word.startsWith(firstName) && firstName.length >= 3) return true;
 
-    // 7. Explicit nickname: text word is a known nickname for contact's first name
+    // 8. Explicit nickname: text word is a known nickname for contact's first name
     if ((NICKNAMES[firstName] ?? []).includes(word)) return true;
 
-    // 8. Reverse nickname: text word expands to contact's first name
+    // 9. Reverse nickname: text word expands to contact's first name
     if ((NICK_TO_FULL[word] ?? []).includes(firstName)) return true;
   }
 
@@ -137,7 +161,7 @@ export async function GET() {
   thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
 
   // Fetch all data sources in parallel
-  const [calendarEvents, emails, slackMessages, driveActivity, zoomPersonMemories] =
+  const [calendarEvents, emails, slackMessages, driveActivity, zoomPersonMemories, linearActivity] =
     await Promise.all([
       (async () => {
         try {
@@ -179,6 +203,12 @@ export async function GET() {
         console.error("Memory fetch failed:", e);
         return [];
       }),
+      // Linear: recently updated issues with assignee/creator info.
+      // Provides a signal when a contact is active on shared work items.
+      getRecentLinearActivity(username, 30).catch((e) => {
+        console.error("Linear fetch failed:", e);
+        return [];
+      }),
     ]);
 
   // Merge static contacts with user-added contacts (WhatsApp imports, manual entries)
@@ -196,6 +226,14 @@ export async function GET() {
       [];
     const sources = new Set<string>();
 
+    // Resolve this contact's email address (used for direct matching below)
+    const contactEmail = (contact as { email?: string }).email?.toLowerCase() ?? "";
+
+    // Helper that wraps nameMatchesContact with this contact's email address so
+    // all call-sites benefit from email-address matching without repetition.
+    const matchesContact = (text: string) =>
+      nameMatchesContact(text, contact.name, contactEmail || undefined);
+
     // Calendar: check if contact name appears in attendees.
     // If the event had a Zoom/video link AND is in the past, label the source
     // as "Zoom" so the relationship tracker can surface video-call cadence
@@ -205,10 +243,10 @@ export async function GET() {
       const eventDate = (event.start || "").substring(0, 10);
       if (!eventDate || new Date(eventDate) < thirtyDaysAgo) continue;
 
-      const attendeeMatch = event.attendees.some((attendee) =>
-        nameMatchesContact(attendee, contact.name)
-      );
-      const summaryMatch = nameMatchesContact(event.summary, contact.name);
+      // Attendees may be display names ("Malcolm Frank") or email addresses
+      // ("malcolm@talentgenius.io") — matchesContact handles both via email+name paths.
+      const attendeeMatch = event.attendees.some((attendee) => matchesContact(attendee));
+      const summaryMatch = matchesContact(event.summary);
 
       if (attendeeMatch || summaryMatch) {
         const isPastVideoCall =
@@ -229,7 +267,7 @@ export async function GET() {
       const activityDate = (activity.modifiedTime || "").substring(0, 10);
       if (!activityDate || new Date(activityDate) < thirtyDaysAgo) continue;
 
-      if (nameMatchesContact(activity.lastModifyingUser, contact.name)) {
+      if (matchesContact(activity.lastModifyingUser)) {
         interactions.push({
           date: activityDate,
           source: "Docs",
@@ -240,16 +278,13 @@ export async function GET() {
     }
 
     // Email: check sender (received) and recipient (sent) fields.
-    // Priority order: direct email address match → then name-based fuzzy match.
-    // Direct matching (contact.email → fromEmail/to) catches cases where
-    // email.from is just an address like "malcolm@talentgenius.io" with no
-    // display name, which the name-matching path would miss.
-    const contactEmail = (contact as { email?: string }).email?.toLowerCase() ?? "";
+    // Uses both direct email address matching (fromEmail / To header) and
+    // fuzzy name matching as a fallback.
     for (const email of emails) {
       const emailDate = email.date.substring(0, 10);
       if (!emailDate || new Date(emailDate) < thirtyDaysAgo) continue;
 
-      // Direct email address match: fromEmail is the parsed email address (e.g. "malcolm@talentgenius.io")
+      // Direct email address match: fromEmail is the parsed address (e.g. "malcolm@talentgenius.io")
       const fromEmailMatch = contactEmail
         ? (email.fromEmail?.toLowerCase() ?? "").includes(contactEmail)
         : false;
@@ -257,9 +292,9 @@ export async function GET() {
       const toEmailMatch = contactEmail
         ? (email.to?.toLowerCase() ?? "").includes(contactEmail)
         : false;
-      // Fallback: fuzzy name matching (handles cases where contact has no email field)
-      const fromNameMatch = nameMatchesContact(email.from, contact.name);
-      const toNameMatch = !fromEmailMatch && !toEmailMatch && nameMatchesContact(email.to, contact.name);
+      // Name-based fallback (for contacts without an email field, or unusual address formats)
+      const fromNameMatch = !fromEmailMatch && matchesContact(email.from);
+      const toNameMatch = !toEmailMatch && matchesContact(email.to);
 
       if (fromEmailMatch || toEmailMatch || fromNameMatch || toNameMatch) {
         interactions.push({
@@ -271,18 +306,18 @@ export async function GET() {
       }
     }
 
-    // Slack: check author, text mentions, and DM channel members (catches outbound DMs)
+    // Slack: check author, text mentions, and DM channel members (catches outbound DMs).
+    // channelMembers for DMs are stored as lowercase first names (e.g. ["malcolm"]) —
+    // matchesContact handles exact-first-name matching via the updated nameMatchesContact.
     for (const msg of slackMessages) {
       const msgDate = msg.date.substring(0, 10);
       if (!msgDate || new Date(msgDate) < thirtyDaysAgo) continue;
 
-      const authorMatch = nameMatchesContact(msg.author, contact.name);
-      const textMatch = nameMatchesContact(msg.text, contact.name);
+      const authorMatch = matchesContact(msg.author);
+      const textMatch = matchesContact(msg.text);
       // channelMembers contains first names of DM participants — matches outbound DMs to this contact
       const dmMatch =
-        msg.channelMembers?.some((m) =>
-          nameMatchesContact(m, contact.name)
-        ) ?? false;
+        msg.channelMembers?.some((m) => matchesContact(m)) ?? false;
 
       if (authorMatch || textMatch || dmMatch) {
         interactions.push({
@@ -300,7 +335,7 @@ export async function GET() {
     for (const mem of zoomPersonMemories) {
       if (!mem.entity) continue;
       // Match: does the memory's entity (attendee name) refer to this contact?
-      if (!nameMatchesContact(mem.entity, contact.name)) continue;
+      if (!matchesContact(mem.entity)) continue;
       // Extract the actual meeting date from the structured content.
       // Format: 'Zoom meeting participant: "{title}" on YYYY-MM-DD.'
       const dateMatch = mem.content.match(/on (\d{4}-\d{2}-\d{2})\./);
@@ -315,6 +350,22 @@ export async function GET() {
         description,
       });
       sources.add("Zoom");
+    }
+
+    // Linear: contact appears as assignee or creator of a recently updated issue.
+    // This surfaces shared work-item activity as a relationship signal.
+    for (const entry of linearActivity) {
+      const entryDate = entry.updatedAt.substring(0, 10);
+      if (!entryDate || new Date(entryDate) < thirtyDaysAgo) continue;
+
+      if (nameMatchesContact(entry.personName, contact.name, entry.personEmail || contactEmail || undefined)) {
+        interactions.push({
+          date: entryDate,
+          source: "Linear",
+          description: entry.description,
+        });
+        sources.add("Linear");
+      }
     }
 
     // Sort by date desc and get the most recent
@@ -366,6 +417,7 @@ export async function GET() {
       slackMessages: slackMessages.length,
       driveFiles: driveActivity.length,
       zoomMeetings: zoomPersonMemories.length,
+      linearItems: linearActivity.length,
     },
   });
 }
