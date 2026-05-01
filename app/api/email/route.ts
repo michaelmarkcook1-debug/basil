@@ -3,6 +3,67 @@ import { isGoogleConnected } from "@/lib/google/auth";
 import { getRecentEmails } from "@/lib/google/gmail";
 import { getSessionUser } from "@/lib/auth";
 import { listEvents } from "@/lib/events/store";
+import { contacts as staticContacts } from "@/lib/contacts-data";
+
+// ── Email priority heuristic ───────────────────────────────────────────────────
+// An email is "priority" if it is unread AND appears to be a personal/direct
+// communication — not a marketing, automated, or notification email.
+//
+// Known-contact check: if the sender's email address matches one of the
+// user's tracked contacts, it's always personal.
+//
+// Non-personal signals: noreply addresses, marketing domains, or subject lines
+// that look like newsletters / system notifications.
+
+const KNOWN_CONTACT_EMAILS = new Set(
+  staticContacts.flatMap((c) => {
+    const email = (c as { email?: string }).email;
+    return email ? [email.toLowerCase()] : [];
+  })
+);
+
+const NON_PERSONAL_ADDRESS = /noreply|no-reply|do-not-reply|donotreply|notifications?@|newsletter|marketing@|team@|hello@|support@|info@|updates@|alerts?@|automated|digest@|news@|bounce@|mailer@|postmaster@|admin@/i;
+
+const MARKETING_DOMAINS = /\b(notion\.so|zoom\.us|linkedin\.com|twitter\.com|x\.com|facebook\.com|instagram\.com|hubspot\.com|mailchimp\.com|sendgrid\.net|constantcontact\.com|campaignmonitor\.com|marketo\.com|salesforce\.com|intercom\.io|drift\.com|typeform\.com|surveymonkey\.com|calendly\.com|loom\.com|grammarly\.com|canva\.com|figma\.com|slack\.com|atlassian\.com|jira\.com|asana\.com|monday\.com|clickup\.com)\b/i;
+
+const MARKETING_SUBJECT = /unsubscribe|newsletter|weekly digest|monthly (report|recap|update)|release notes?|product update|new feature|changelog|\[spam\]|you('re| are) invited|welcome to|get started|trial|upgrade|pricing plan|free plan|limited (time|offer)|50% off|click here|verify your email/i;
+
+/**
+ * Returns true if this email looks like a direct, personal communication
+ * worth surfacing as "priority" in the signals feed.
+ */
+function isPersonalEmail(from: string, fromEmail: string, subject: string): boolean {
+  const addr = fromEmail.toLowerCase();
+
+  // Known contact → always personal
+  if (KNOWN_CONTACT_EMAILS.has(addr)) return true;
+
+  // Shared-domain team (e.g. @talentgenius.io) → treat as internal = personal
+  // Only apply this if domain is ≥2 segments and NOT a large public provider
+  const domain = addr.split("@")[1] ?? "";
+  const publicDomains = /gmail\.com|outlook\.com|hotmail\.com|yahoo\.com|icloud\.com|me\.com|protonmail\.com/;
+  if (domain && !publicDomains.test(domain) && !MARKETING_DOMAINS.test(domain) && !NON_PERSONAL_ADDRESS.test(addr)) {
+    // Looks like a custom business domain — likely personal
+    if (!NON_PERSONAL_ADDRESS.test(addr)) return true;
+  }
+
+  // Noreply / automated address patterns
+  if (NON_PERSONAL_ADDRESS.test(addr)) return false;
+
+  // Marketing / SaaS notification domains
+  if (MARKETING_DOMAINS.test(addr)) return false;
+
+  // Marketing subject lines
+  if (MARKETING_SUBJECT.test(subject)) return false;
+
+  // Gmail/public provider: apply stricter heuristics
+  // A real person's name usually has at least a space or is a display name
+  // If `from` looks like a display name with a real word (not "Notion Team") it's personal
+  const looksLikeProduct = /team$|app$|inc\.|corp\.|llc\.|ltd\.|technologies|solutions|services|platform|software|system/i;
+  if (looksLikeProduct.test(from)) return false;
+
+  return true;
+}
 
 export async function GET() {
   const username = (await getSessionUser());
@@ -18,7 +79,7 @@ export async function GET() {
 
   try {
     const [emails, events] = await Promise.all([
-      getRecentEmails(username, 8),
+      getRecentEmails(username, 10),
       listEvents(),
     ]);
 
@@ -36,8 +97,11 @@ export async function GET() {
     const enriched = emails.map((e) => {
       const ref = `gmail:${e.id}`;
       const ev = eventByRef.get(ref);
+      const personal = isPersonalEmail(e.from, e.fromEmail, e.subject);
       return {
         ...e,
+        // priority = unread AND looks like a personal/direct email (not marketing)
+        priority: e.unread && personal,
         // undefined = not yet ingested, false = ingested but nothing extracted, true = something created
         analysed: ev?.analysed ?? false,
         materialized: ev?.materialized ?? false,

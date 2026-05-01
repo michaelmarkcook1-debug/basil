@@ -5,7 +5,9 @@ import { getRecentDriveActivity } from "@/lib/google/drive";
 import { getRecentSlackMessages } from "@/lib/slack/client";
 import { listMemories } from "@/lib/memory/store";
 import { getSessionUser } from "@/lib/auth";
-import { contacts } from "@/lib/contacts-data";
+import { listUserContacts } from "@/lib/contacts/user-store";
+import { contacts as staticContacts } from "@/lib/contacts-data";
+import type { Contact } from "@/lib/contacts-data";
 
 /**
  * GET /api/contacts/activity
@@ -30,19 +32,96 @@ interface ContactActivity {
   totalInteractionCount: number;
 }
 
-function nameMatchesContact(
-  text: string,
-  contactName: string
-): boolean {
-  const textLower = text.toLowerCase();
-  const nameLower = contactName.toLowerCase();
+// ── Nickname lookup ────────────────────────────────────────────────────────────
+// Maps canonical first name → common abbreviations and nicknames.
+// Used so "Chris" matches "Christopher Walton", "Ed" matches "Edward", etc.
+const NICKNAMES: Record<string, string[]> = {
+  christopher: ["chris"],
+  christian:   ["chris"],
+  william:     ["will", "bill", "billy"],
+  robert:      ["rob", "bob", "bobby"],
+  richard:     ["rick", "rich"],
+  michael:     ["mike", "mick"],
+  james:       ["jim", "jimmy"],
+  thomas:      ["tom", "tommy"],
+  edward:      ["ed", "eddie", "ned"],
+  daniel:      ["dan", "danny"],
+  alexander:   ["alex"],
+  nicholas:    ["nick"],
+  matthew:     ["matt"],
+  anthony:     ["tony"],
+  jonathan:    ["jon", "jonny"],
+  benjamin:    ["ben"],
+  stephen:     ["steve"],
+  steven:      ["steve"],
+  nathaniel:   ["nate"],
+  theodore:    ["theo", "ted"],
+  elizabeth:   ["liz", "beth", "betty"],
+  jennifer:    ["jen", "jenny"],
+  katherine:   ["kate", "kathy", "kat"],
+  catherine:   ["cate", "cathy"],
+  deborah:     ["deb"],
+  barbara:     ["barb"],
+  patricia:    ["pat", "patty"],
+};
 
-  // Full name match
+// Reverse map: nickname → [full names it could expand to]
+const NICK_TO_FULL: Record<string, string[]> = {};
+for (const [full, nicks] of Object.entries(NICKNAMES)) {
+  for (const nick of nicks) {
+    (NICK_TO_FULL[nick] ??= []).push(full);
+  }
+}
+
+/**
+ * Returns true if `text` (an attendee name, email sender, Slack author, etc.)
+ * refers to the person named `contactName`.
+ *
+ * Handles:
+ *  - Exact/substring:  "Christopher Walton" ↔ "Christopher Walton"
+ *  - Partial name:     "christopher.walton@company.com" matches "Christopher Walton"
+ *  - Last name:        "Walton" matches "Christopher Walton"
+ *  - Prefix nickname:  "Chris" matches "Christopher" (first name starts with text word)
+ *  - Explicit nickname:"Bob" matches "Robert", "Ed" matches "Edward"
+ */
+function nameMatchesContact(text: string, contactName: string): boolean {
+  if (!text || !contactName) return false;
+  const textLower  = text.toLowerCase().trim();
+  const nameLower  = contactName.toLowerCase().trim();
+
+  // 1. Full name substring
   if (textLower.includes(nameLower)) return true;
 
-  // First name match (only if name part is > 2 chars to avoid false positives)
-  const parts = nameLower.split(" ");
-  return parts.some((part) => part.length > 2 && textLower.includes(part));
+  const nameParts  = nameLower.split(/\s+/);
+  const firstName  = nameParts[0];
+  const lastName   = nameParts[nameParts.length - 1];
+
+  // 2. Last name (length > 3 to avoid short surnames causing false positives)
+  if (lastName && lastName.length > 3 && textLower.includes(lastName)) return true;
+
+  // 3. Every part of contact name appears in the text
+  if (nameParts.length > 1 && nameParts.every((p) => p.length > 2 && textLower.includes(p))) return true;
+
+  // 4. Split text into word tokens for individual word checks
+  const textWords = textLower.split(/[\s,@.()\-]+/).filter((w) => w.length >= 2);
+
+  for (const word of textWords) {
+    // 5. Prefix match: text word is a prefix of contact's first name
+    //    e.g. "chris" → firstName="christopher" → "christopher".startsWith("chris") ✓
+    if (firstName.length > word.length && firstName.startsWith(word) && word.length >= 3) return true;
+
+    // 6. Reverse prefix: contact first name is a prefix of text word
+    //    e.g. firstName="ed", word="edwards" → "edwards".startsWith("ed") && len>2
+    if (word.length > firstName.length && word.startsWith(firstName) && firstName.length >= 3) return true;
+
+    // 7. Explicit nickname: text word is a known nickname for contact's first name
+    if ((NICKNAMES[firstName] ?? []).includes(word)) return true;
+
+    // 8. Reverse nickname: text word expands to contact's first name
+    if ((NICK_TO_FULL[word] ?? []).includes(firstName)) return true;
+  }
+
+  return false;
 }
 
 export async function GET() {
@@ -102,6 +181,15 @@ export async function GET() {
       }),
     ]);
 
+  // Merge static contacts with user-added contacts (WhatsApp imports, manual entries)
+  // Deduplicate by name (case-insensitive) — prefer static contact if both exist.
+  const userContacts = await listUserContacts(username).catch(() => [] as Contact[]);
+  const staticNames = new Set(staticContacts.map((c) => c.name.toLowerCase()));
+  const extraContacts = userContacts.filter(
+    (c) => !staticNames.has(c.name.toLowerCase())
+  );
+  const contacts = [...staticContacts, ...extraContacts];
+
   // Compute activity for each contact
   const activityMap: ContactActivity[] = contacts.map((contact) => {
     const interactions: { date: string; source: string; description: string }[] =
@@ -151,15 +239,29 @@ export async function GET() {
       }
     }
 
-    // Email: check sender (received) and recipient (sent) fields
+    // Email: check sender (received) and recipient (sent) fields.
+    // Priority order: direct email address match → then name-based fuzzy match.
+    // Direct matching (contact.email → fromEmail/to) catches cases where
+    // email.from is just an address like "malcolm@talentgenius.io" with no
+    // display name, which the name-matching path would miss.
+    const contactEmail = (contact as { email?: string }).email?.toLowerCase() ?? "";
     for (const email of emails) {
       const emailDate = email.date.substring(0, 10);
       if (!emailDate || new Date(emailDate) < thirtyDaysAgo) continue;
 
-      const fromMatch = nameMatchesContact(email.from, contact.name);
-      const toMatch = nameMatchesContact(email.to, contact.name);
+      // Direct email address match: fromEmail is the parsed email address (e.g. "malcolm@talentgenius.io")
+      const fromEmailMatch = contactEmail
+        ? (email.fromEmail?.toLowerCase() ?? "").includes(contactEmail)
+        : false;
+      // Check if contact's email appears anywhere in the To header (sent mails)
+      const toEmailMatch = contactEmail
+        ? (email.to?.toLowerCase() ?? "").includes(contactEmail)
+        : false;
+      // Fallback: fuzzy name matching (handles cases where contact has no email field)
+      const fromNameMatch = nameMatchesContact(email.from, contact.name);
+      const toNameMatch = !fromEmailMatch && !toEmailMatch && nameMatchesContact(email.to, contact.name);
 
-      if (fromMatch || toMatch) {
+      if (fromEmailMatch || toEmailMatch || fromNameMatch || toNameMatch) {
         interactions.push({
           date: emailDate,
           source: "Email",

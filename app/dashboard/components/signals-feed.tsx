@@ -12,13 +12,14 @@ import {
   MessageSquare,
   Users,
   Pin,
+  CircleDot,
 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { relativeTime } from "@/lib/utils";
 import { cn } from "@/lib/utils";
 
-type Tab = "priority" | "mail" | "slack";
+type Tab = "priority" | "mail" | "slack" | "linear";
 
 interface Email {
   id: string;
@@ -44,11 +45,26 @@ interface SlackMessage {
   materialized?: boolean;
 }
 
+interface LinearIssueData {
+  id: string;
+  identifier: string;   // e.g. "ENG-42"
+  title: string;
+  priority: number;     // 0=None, 1=Urgent, 2=High, 3=Normal, 4=Low
+  state: { name: string; type: string };
+  team: { name: string };
+  project?: { name: string } | null;
+  dueDate?: string | null;
+  url: string;
+  updatedAt: string;
+  analysed?: boolean;
+  materialized?: boolean;
+}
+
 type SlackChannelKind = "dm" | "group" | "channel";
 
 interface UnifiedSignal {
   id: string;
-  kind: "mail" | "slack";
+  kind: "mail" | "slack" | "linear";
   title: string;
   subtitle: string;
   body: string;
@@ -71,6 +87,10 @@ interface UnifiedSignal {
   analysed?: boolean;
   /** Whether Basil extracted something actionable (action/decision/memory created) */
   materialized?: boolean;
+  /** Linear issue priority (0–4) */
+  linearPriority?: number;
+  /** Linear deep link */
+  linearUrl?: string;
 }
 
 // Top-of-feed slots: always surface latest message from each, regardless of age.
@@ -163,7 +183,7 @@ function TabButton({
       )}
     >
       <span className="flex items-center gap-1.5">
-        {/* Connection status dot — only shown for source tabs (Mail / Slack) */}
+        {/* Connection status dot — only shown for source tabs (Mail / Slack / Linear) */}
         {connected !== undefined && (
           <span
             className={cn(
@@ -202,15 +222,18 @@ function TabButton({
 export function SignalsFeed() {
   const [mail, setMail] = useState<{ connected: boolean; emails: Email[] } | null>(null);
   const [slack, setSlack] = useState<{ connected: boolean; messages: SlackMessage[] } | null>(null);
+  const [linear, setLinear] = useState<{ connected: boolean; issues: LinearIssueData[] } | null>(null);
   const [tab, setTab] = useState<Tab>("priority");
 
   useEffect(() => {
     Promise.all([
       fetch("/api/email").then((r) => r.json()).catch(() => null),
       fetch("/api/slack").then((r) => r.json()).catch(() => null),
-    ]).then(([m, s]) => {
+      fetch("/api/linear").then((r) => r.json()).catch(() => null),
+    ]).then(([m, s, l]) => {
       setMail(m);
       setSlack(s);
+      setLinear(l);
     });
   }, []);
 
@@ -222,7 +245,9 @@ export function SignalsFeed() {
       subtitle: e.subject,
       body: clipSignal(e.snippet),
       date: e.date,
-      priority: e.unread,
+      // Use server-computed priority (filters marketing/automated emails).
+      // Fall back to unread for backwards-compatibility if the field is absent.
+      priority: (e as { priority?: boolean }).priority ?? e.unread,
       unread: e.unread,
       analysed: e.analysed,
       materialized: e.materialized,
@@ -253,10 +278,29 @@ export function SignalsFeed() {
       };
     });
 
-    return [...mailSignals, ...slackSignals].sort(
+    const linearSignals: UnifiedSignal[] = (linear?.issues ?? []).map((issue) => {
+      const metaParts: string[] = [issue.state.name, issue.team.name];
+      if (issue.project?.name) metaParts.push(issue.project.name);
+      if (issue.dueDate) metaParts.push(`Due ${issue.dueDate}`);
+      return {
+        id: `linear-${issue.id}`,
+        kind: "linear",
+        title: issue.identifier,      // e.g. "ENG-42"
+        subtitle: issue.title,        // human-readable title
+        body: metaParts.join(" · "),  // "In Progress · Engineering · Platform"
+        date: issue.updatedAt,
+        priority: issue.priority === 1 || issue.priority === 2,
+        analysed: issue.analysed,
+        materialized: issue.materialized,
+        linearPriority: issue.priority,
+        linearUrl: issue.url,
+      };
+    });
+
+    return [...mailSignals, ...slackSignals, ...linearSignals].sort(
       (a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()
     );
-  }, [mail, slack]);
+  }, [mail, slack, linear]);
 
   // Track last-seen timestamps per pinned channel so we can show "new" dots
   const [lastSeenByChannel, setLastSeenByChannel] = useState<Record<string, string>>({});
@@ -330,6 +374,7 @@ export function SignalsFeed() {
   const priority = signals.filter((s) => s.priority);
   const mailOnly = signals.filter((s) => s.kind === "mail");
   const slackOnly = signals.filter((s) => s.kind === "slack");
+  const linearOnly = signals.filter((s) => s.kind === "linear");
 
   // Dedupe: if a signal is already pinned, don't repeat it below the pinned block
   const pinnedSourceIds = new Set(
@@ -343,15 +388,18 @@ export function SignalsFeed() {
         ]
       : tab === "mail"
         ? mailOnly
-        : [
-            ...pinnedSignals,
-            ...slackOnly.filter((s) => !pinnedSourceIds.has(s.id)),
-          ];
+        : tab === "slack"
+          ? [
+              ...pinnedSignals,
+              ...slackOnly.filter((s) => !pinnedSourceIds.has(s.id)),
+            ]
+          : linearOnly;
 
-  const loading = mail === null || slack === null;
+  const loading = mail === null || slack === null || linear === null;
   const mailConnected = mail?.connected;
   const slackConnected = slack?.connected;
-  const bothDisconnected = !mailConnected && !slackConnected;
+  const linearConnected = linear?.connected;
+  const allDisconnected = !mailConnected && !slackConnected && !linearConnected;
 
   return (
     <Card className="flex flex-col">
@@ -384,6 +432,13 @@ export function SignalsFeed() {
             onClick={() => setTab("slack")}
             connected={slack === null ? undefined : !!slack.connected}
           />
+          <TabButton
+            label="Issues"
+            count={linearOnly.filter((s) => s.priority).length}
+            active={tab === "linear"}
+            onClick={() => setTab("linear")}
+            connected={linear === null ? undefined : !!linear.connected}
+          />
         </div>
       </CardHeader>
       <CardContent className="pt-3">
@@ -396,10 +451,10 @@ export function SignalsFeed() {
               </div>
             ))}
           </div>
-        ) : bothDisconnected ? (
+        ) : allDisconnected ? (
           <div className="flex flex-col items-center py-8 text-center">
             <Unplug className="h-8 w-8 text-muted-foreground/40 mb-2" />
-            <p className="text-sm text-muted-foreground">Connect Gmail or Slack to see signals.</p>
+            <p className="text-sm text-muted-foreground">Connect Gmail, Slack, or Linear to see signals.</p>
             <Link
               href="/dashboard/settings"
               className="text-xs text-[oklch(0.72_0.15_85)] hover:underline mt-2"
@@ -411,8 +466,20 @@ export function SignalsFeed() {
           <div className="py-8 text-center">
             <Sparkles className="h-6 w-6 text-[oklch(0.72_0.15_85)]/60 mx-auto mb-2" />
             <p className="text-sm text-muted-foreground">
-              {tab === "priority" ? "Inbox zero. Nothing urgent." : "Nothing new."}
+              {tab === "priority"
+                ? "Inbox zero. Nothing urgent."
+                : tab === "linear" && !linearConnected
+                  ? "Connect Linear in Settings to see issues."
+                  : "Nothing new."}
             </p>
+            {tab === "linear" && !linearConnected && (
+              <Link
+                href="/dashboard/settings"
+                className="text-xs text-[oklch(0.72_0.15_85)] hover:underline mt-2 inline-block"
+              >
+                Settings →
+              </Link>
+            )}
           </div>
         ) : (
           <div className="space-y-0.5 max-h-[380px] overflow-y-auto -mx-2 pr-1">
@@ -430,7 +497,9 @@ export function SignalsFeed() {
   );
 }
 
-// ── Single signal row. Pinned Slack rows expand on click to show last 10 msgs. ──
+// ── Single signal row ──────────────────────────────────────────────────────────
+// Pinned Slack rows expand on click to show last 10 msgs.
+// Linear rows open the issue URL in a new tab on click.
 function SignalRow({
   signal: s,
   onExpand,
@@ -442,26 +511,44 @@ function SignalRow({
   const [history, setHistory] = useState<SlackMessage[] | null>(null);
   const [loadingHist, setLoadingHist] = useState(false);
 
+  const isLinear = s.kind === "linear";
+  const canExpand = s.pinned && s.kind === "slack" && !!s.channelId;
+  const isClickable = isLinear || canExpand;
+
   const Icon =
     s.kind === "mail"
       ? Mail
-      : s.channelKind === "dm"
-        ? MessageSquare
-        : s.channelKind === "group"
-          ? Users
-          : Hash;
+      : s.kind === "linear"
+        ? CircleDot
+        : s.channelKind === "dm"
+          ? MessageSquare
+          : s.channelKind === "group"
+            ? Users
+            : Hash;
+
   const iconColor =
     s.kind === "mail"
       ? "text-blue-500/70"
-      : s.channelKind === "dm"
-        ? "text-blue-500"
-        : s.channelKind === "group"
-          ? "text-violet-500"
-          : "text-amber-500/80";
-
-  const canExpand = s.pinned && s.kind === "slack" && !!s.channelId;
+      : s.kind === "linear"
+        ? s.linearPriority === 1
+          ? "text-red-500"
+          : s.linearPriority === 2
+            ? "text-orange-500"
+            : s.linearPriority === 3
+              ? "text-violet-500/70"
+              : "text-muted-foreground/50"
+        : s.channelKind === "dm"
+          ? "text-blue-500"
+          : s.channelKind === "group"
+            ? "text-violet-500"
+            : "text-amber-500/80";
 
   const toggle = async () => {
+    // Linear: open issue in new tab
+    if (isLinear && s.linearUrl) {
+      window.open(s.linearUrl, "_blank", "noopener,noreferrer");
+      return;
+    }
     if (!canExpand) return;
     const next = !expanded;
     setExpanded(next);
@@ -488,14 +575,14 @@ function SignalRow({
     <div
       className={cn(
         "group relative rounded-md px-2 py-2 hover:bg-accent/40 transition-colors",
-        canExpand && "cursor-pointer",
+        isClickable && "cursor-pointer",
         s.pinned && "bg-[oklch(0.72_0.15_85)]/[0.04]"
       )}
       onClick={toggle}
-      role={canExpand ? "button" : undefined}
-      tabIndex={canExpand ? 0 : undefined}
+      role={isClickable ? "button" : undefined}
+      tabIndex={isClickable ? 0 : undefined}
       onKeyDown={
-        canExpand
+        isClickable
           ? (e) => {
               if (e.key === "Enter" || e.key === " ") {
                 e.preventDefault();
@@ -511,6 +598,7 @@ function SignalRow({
       <div className="flex items-center gap-2 mb-0.5">
         <Icon className={cn("h-3.5 w-3.5 shrink-0", iconColor)} />
         <span className="text-xs font-medium truncate">{s.title}</span>
+        {/* Slack pinned label */}
         {s.pinned && s.pinnedLabel && (
           <span className="inline-flex items-center gap-1 text-[12px] font-mono uppercase tracking-wider text-[oklch(0.58_0.15_85)] shrink-0">
             <Pin className="h-2.5 w-2.5" />
@@ -524,6 +612,7 @@ function SignalRow({
             aria-label="Unread"
           />
         )}
+        {/* Slack badges */}
         {s.isMention && (
           <AtSign className="h-3 w-3 text-[oklch(0.72_0.15_85)] shrink-0" />
         )}
@@ -537,6 +626,18 @@ function SignalRow({
             Group
           </span>
         )}
+        {/* Linear priority badges */}
+        {s.kind === "linear" && s.linearPriority === 1 && (
+          <span className="rounded-sm bg-red-500/10 text-red-600 text-[12px] font-mono uppercase tracking-wider px-1.5 py-0.5 shrink-0">
+            Urgent
+          </span>
+        )}
+        {s.kind === "linear" && s.linearPriority === 2 && (
+          <span className="rounded-sm bg-orange-500/10 text-orange-600 text-[12px] font-mono uppercase tracking-wider px-1.5 py-0.5 shrink-0">
+            High
+          </span>
+        )}
+        {/* Analysis status dots */}
         {s.materialized === true && (
           <span
             className="inline-block h-1.5 w-1.5 rounded-full bg-emerald-500 shrink-0"
@@ -558,6 +659,7 @@ function SignalRow({
         <span className="mx-1.5 text-muted-foreground/40">·</span>
         <span>{s.body}</span>
       </p>
+      {/* Slack channel history expansion */}
       {expanded && (
         <div className="mt-2 ml-5 pl-3 border-l border-border/70 space-y-1.5">
           {loadingHist ? (
