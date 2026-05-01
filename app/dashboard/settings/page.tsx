@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useEffect, useState } from "react";
+import { AIPlatformsSection } from "./components/ai-platforms-section";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -1362,6 +1363,30 @@ export default function SettingsPage() {
           </Button>
         </CardContent>
       </Card>
+
+      {/* ── AI Platforms ─────────────────────────────────────────────────── */}
+      <AIPlatformsSection
+        githubConnected={githubConnected}
+        linearConnected={statuses?.linear?.state === "connected"}
+        vercelConnected={false}
+        onSettingsPatch={async (patch) => {
+          try {
+            const res = await fetch("/api/settings", {
+              method: "PATCH",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify(patch),
+            });
+            if (!res.ok) return { ok: false, error: "Failed to save" };
+            // Reflect updated GitHub connection state
+            if ("githubToken" in patch) {
+              setGithubConnected(!!patch.githubToken);
+            }
+            return { ok: true };
+          } catch {
+            return { ok: false, error: "Network error" };
+          }
+        }}
+      />
 
       {/* ── Danger zone — delete account ─────────────────────────────────── */}
       <Card className="shadow-sm border-red-200 dark:border-red-900/50">
