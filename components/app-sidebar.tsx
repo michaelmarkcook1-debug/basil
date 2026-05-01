@@ -17,6 +17,7 @@ import {
   Brain,
   Settings,
   Shield,
+  Cpu,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { ThemeToggle } from "@/components/theme-toggle";
@@ -33,6 +34,7 @@ const work: NavItem[] = [
   { href: "/dashboard/schedule", label: "Schedule", icon: CalendarPlus },
   { href: "/dashboard/meetings", label: "Meeting Prep", icon: CalendarCheck },
   { href: "/dashboard/chat", label: "Chat", icon: MessageSquare },
+  { href: "/dashboard/ai-projects", label: "AI Projects", icon: Cpu },
 ];
 
 const track: NavItem[] = [

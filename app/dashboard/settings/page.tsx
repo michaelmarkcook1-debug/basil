@@ -169,6 +169,44 @@ export default function SettingsPage() {
   const [linearSaving, setLinearSaving] = useState(false);
   const [linearError, setLinearError]   = useState<string | null>(null);
 
+  // ── GitHub PAT state ─────────────────────────────────────────────────────
+  const [githubKey, setGithubKey]       = useState("");
+  const [githubSaving, setGithubSaving] = useState(false);
+  const [githubError, setGithubError]   = useState<string | null>(null);
+  const [githubConnected, setGithubConnected] = useState(false);
+
+  async function handleGithubConnect() {
+    if (!githubKey.trim()) return;
+    setGithubSaving(true);
+    setGithubError(null);
+    try {
+      const res = await fetch("/api/settings", {
+        method:  "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body:    JSON.stringify({ githubToken: githubKey.trim() }),
+      });
+      if (!res.ok) {
+        setGithubError("Failed to save token");
+        return;
+      }
+      setGithubKey("");
+      setGithubConnected(true);
+    } catch {
+      setGithubError("Network error — please try again");
+    } finally {
+      setGithubSaving(false);
+    }
+  }
+
+  async function handleGithubDisconnect() {
+    await fetch("/api/settings", {
+      method:  "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body:    JSON.stringify({ githubToken: "" }),
+    });
+    setGithubConnected(false);
+  }
+
   async function handleLinearConnect() {
     if (!linearKey.trim()) return;
     setLinearSaving(true);
@@ -324,7 +362,11 @@ export default function SettingsPage() {
         fetch("/api/settings", { cache: "no-store" }),
         fetch("/api/profile",  { cache: "no-store" }),
       ]);
-      if (settingsRes.ok) setProfile(await settingsRes.json() as UserSettings);
+      if (settingsRes.ok) {
+        const data = await settingsRes.json() as UserSettings & { githubToken?: string };
+        setProfile(data);
+        setGithubConnected(!!data.githubToken);
+      }
       if (profileRes.ok)  setAccount(await profileRes.json());
     } catch {
       // Non-fatal — page still works, profile just shows nothing
@@ -568,6 +610,16 @@ export default function SettingsPage() {
       color:       "text-violet-500",
       group:       "other",
       status:      statuses?.linear ?? null,
+      note:        null,
+    },
+    {
+      key:         "github",
+      name:        "GitHub",
+      icon:        Bot,
+      description: "Sync your recent GitHub repositories in AI Projects",
+      color:       "text-zinc-600",
+      group:       "other",
+      status:      null,
       note:        null,
     },
     {
@@ -821,6 +873,37 @@ export default function SettingsPage() {
                           </Button>
                         </div>
                       )
+                    ) : integration.key === "github" ? (
+                      /* GitHub: Personal Access Token */
+                      githubConnected ? (
+                        <div className="flex items-center gap-2 shrink-0">
+                          <StateBadge state="connected" />
+                          <Button size="sm" variant="ghost"
+                            className="h-7 px-2 text-xs text-muted-foreground hover:text-red-600"
+                            onClick={handleGithubDisconnect}>
+                            Disconnect
+                          </Button>
+                        </div>
+                      ) : (
+                        <div className="flex items-center gap-1.5 shrink-0">
+                          <Input
+                            type="password"
+                            placeholder="ghp_…"
+                            value={githubKey}
+                            onChange={(e) => { setGithubKey(e.target.value); setGithubError(null); }}
+                            onKeyDown={(e) => { if (e.key === "Enter") void handleGithubConnect(); }}
+                            className="h-7 w-40 text-xs"
+                            disabled={githubSaving}
+                          />
+                          <Button size="sm" variant="outline"
+                            className="h-7 px-2.5 text-xs text-zinc-700 border-zinc-300 hover:bg-zinc-50"
+                            onClick={handleGithubConnect}
+                            disabled={githubSaving || !githubKey.trim()}
+                          >
+                            {githubSaving ? <Loader2 className="h-3 w-3 animate-spin" /> : "Connect"}
+                          </Button>
+                        </div>
+                      )
                     ) : integration.key === "slack" ? (
                       /* Slack: standalone OAuth */
                       isConnected ? (
@@ -923,6 +1006,22 @@ export default function SettingsPage() {
                         className="underline hover:text-foreground">
                         linear.app/settings/api
                       </a>
+                    </p>
+                  )}
+
+                  {/* GitHub PAT error */}
+                  {integration.key === "github" && githubError && (
+                    <p className="mt-1.5 text-xs text-red-600">{githubError}</p>
+                  )}
+                  {/* GitHub PAT hint */}
+                  {integration.key === "github" && !githubConnected && !githubError && (
+                    <p className="mt-1.5 text-xs text-muted-foreground/70">
+                      Create a token at{" "}
+                      <a href="https://github.com/settings/tokens" target="_blank" rel="noreferrer"
+                        className="underline hover:text-foreground">
+                        github.com/settings/tokens
+                      </a>{" "}
+                      with <code className="font-mono bg-muted px-1 rounded">repo</code> scope.
                     </p>
                   )}
 

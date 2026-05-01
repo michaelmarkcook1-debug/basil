@@ -8,6 +8,7 @@ import { PulseStrip } from "./components/pulse-strip";
 import { DayTimeline } from "./components/day-timeline";
 import { SignalsFeed } from "./components/signals-feed";
 import { RelationshipCard } from "./components/relationship-card";
+import { AIProjectsCard } from "./components/ai-projects-card";
 import { QuickActions } from "./components/quick-actions";
 import { BasilWatching } from "./components/basil-watching";
 import { MemoryPanel } from "./components/memory-panel";
@@ -115,6 +116,15 @@ export default function DashboardPage() {
           <div className="h-px flex-1 ml-4 bg-gradient-to-r from-border to-transparent" />
         </div>
         <RelationshipCard />
+      </section>
+
+      {/* ── AI Projects ── */}
+      <section className="space-y-4">
+        <div className="flex items-baseline justify-between">
+          <p className="basil-eyebrow">AI Work Projects</p>
+          <div className="h-px flex-1 ml-4 bg-gradient-to-r from-border to-transparent" />
+        </div>
+        <AIProjectsCard />
       </section>
     </div>
   );

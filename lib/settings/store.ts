@@ -32,6 +32,8 @@ export interface UserSettings {
    * Falls back to `timezone` if the IP lookup fails.
    */
   useIpTimezone?: boolean;
+  /** GitHub Personal Access Token for syncing repositories in AI Projects. */
+  githubToken?: string;
 }
 
 /** Base defaults — used as fallback for any unset field. */
@@ -105,7 +107,7 @@ export async function patchSettings(
 
   const safe: Partial<UserSettings> = {};
   const keys: Array<keyof UserSettings> = [
-    "name", "timezone", "workStart", "workEnd", "videoTool", "meetingUrl", "useIpTimezone",
+    "name", "timezone", "workStart", "workEnd", "videoTool", "meetingUrl", "useIpTimezone", "githubToken",
   ];
   for (const k of keys) {
     if (patch[k] !== undefined) {
