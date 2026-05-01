@@ -13,6 +13,7 @@
  */
 
 import { generateText } from "ai";
+import { anthropic } from "@ai-sdk/anthropic";
 import { getSystemPrompt } from "@/lib/ai/system-prompt";
 
 // ── Typed schema ───────────────────────────────────────────────────────────────
@@ -232,12 +233,9 @@ Respond with ONLY valid JSON — no markdown fences, no explanation, no preamble
   try {
     const system = await getSystemPrompt(username);
     const { text } = await generateText({
-      model: "anthropic/claude-sonnet-4.6",
+      model: anthropic("claude-3-5-sonnet-20241022"),
       system,
       messages: [{ role: "user", content: prompt }],
-      providerOptions: {
-        gateway: { tags: ["feature:zoom-extract", "env:production"] },
-      },
     });
 
     return parseExtract(text, metadata);

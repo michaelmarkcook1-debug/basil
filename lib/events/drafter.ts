@@ -17,6 +17,7 @@
  */
 
 import { generateText } from "ai";
+import { anthropic } from "@ai-sdk/anthropic";
 import { getSystemPrompt } from "@/lib/ai/system-prompt";
 import { searchEmails, getEmailBody } from "@/lib/google/gmail";
 import { findContactByName, getPersonaSummary } from "@/lib/contacts-lookup";
@@ -208,12 +209,9 @@ CRITICAL: The reply must address the specific content of THIS message. If you fi
   try {
     const system = await getSystemPrompt(username);
     const { text } = await generateText({
-      model: "anthropic/claude-sonnet-4.6",
+      model: anthropic("claude-3-5-sonnet-20241022"),
       system,
       messages: [{ role: "user", content: userPrompt }],
-      providerOptions: {
-        gateway: { tags: ["feature:draft-generation", "env:production"] },
-      },
     });
 
     // Parse the JSON response

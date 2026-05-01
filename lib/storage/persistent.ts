@@ -159,6 +159,7 @@ async function persistSnapshot(): Promise<void> {
     const SNAPSHOT_EXCLUDE = new Set([
       "whatsapp-snapshot.json",
       "sage-events.json",
+      "chat-history.json",    // grows with every conversation; not needed for cold-start restore
     ]);
 
     // Auth + config files that must ALWAYS be in the snapshot — these are what

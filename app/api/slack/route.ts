@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { isSlackConnected, getRecentSlackMessages } from "@/lib/slack/client";
 import { getSessionUser } from "@/lib/auth";
+import { listEvents } from "@/lib/events/store";
 
 // AG-related keywords for prioritisation
 const AG_KEYWORDS = [
@@ -81,10 +82,31 @@ export async function GET() {
 
     const topMessages = merged.slice(0, 8).map(({ score, ...msg }) => msg);
 
+    // Enrich with analysis status by cross-referencing events store
+    const events = await listEvents();
+    const eventByRef = new Map<string, { analysed: boolean; materialized: boolean }>();
+    for (const ev of events) {
+      const ref = ev.sourceRef ?? ev.externalId;
+      if (!ref) continue;
+      const materialized = !!(ev.actionId || ev.decisionId || ev.memoryId ||
+        ev.status === "executed" || ev.status === "approved");
+      eventByRef.set(ref, { analysed: true, materialized });
+    }
+
+    const enriched = topMessages.map((m) => {
+      const ref = m.channelId ? `slack:${m.channelId}:${m.id}` : undefined;
+      const ev = ref ? eventByRef.get(ref) : undefined;
+      return {
+        ...m,
+        analysed: ev?.analysed ?? false,
+        materialized: ev?.materialized ?? false,
+      };
+    });
+
     return NextResponse.json({
       connected: true,
-      messages: topMessages,
-      message: topMessages.length === 0 ? "No recent messages." : `${topMessages.length} highlights.`,
+      messages: enriched,
+      message: enriched.length === 0 ? "No recent messages." : `${enriched.length} highlights.`,
     });
   } catch (e) {
     return NextResponse.json({

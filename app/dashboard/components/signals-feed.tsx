@@ -27,6 +27,8 @@ interface Email {
   snippet: string;
   date: string;
   unread: boolean;
+  analysed?: boolean;
+  materialized?: boolean;
 }
 
 interface SlackMessage {
@@ -38,6 +40,8 @@ interface SlackMessage {
   text: string;
   date: string;
   isMention: boolean;
+  analysed?: boolean;
+  materialized?: boolean;
 }
 
 type SlackChannelKind = "dm" | "group" | "channel";
@@ -63,6 +67,10 @@ interface UnifiedSignal {
   channelId?: string;
   /** For Slack pinned rows: true if there are newer messages since last seen */
   hasUnreadSince?: boolean;
+  /** Whether Basil has analysed this signal (cross-referenced from events store) */
+  analysed?: boolean;
+  /** Whether Basil extracted something actionable (action/decision/memory created) */
+  materialized?: boolean;
 }
 
 // Top-of-feed slots: always surface latest message from each, regardless of age.
@@ -216,6 +224,8 @@ export function SignalsFeed() {
       date: e.date,
       priority: e.unread,
       unread: e.unread,
+      analysed: e.analysed,
+      materialized: e.materialized,
     }));
 
     const slackSignals: UnifiedSignal[] = (slack?.messages ?? []).map((m) => {
@@ -238,6 +248,8 @@ export function SignalsFeed() {
         isGroup,
         isMention: m.isMention,
         channelKind,
+        analysed: m.analysed,
+        materialized: m.materialized,
       };
     });
 
@@ -524,6 +536,18 @@ function SignalRow({
           <span className="rounded-sm bg-violet-500/10 text-violet-600 text-[12px] font-mono uppercase tracking-wider px-1.5 py-0.5 shrink-0">
             Group
           </span>
+        )}
+        {s.materialized === true && (
+          <span
+            className="inline-block h-1.5 w-1.5 rounded-full bg-emerald-500 shrink-0"
+            title="Basil extracted an action, decision, or memory from this"
+          />
+        )}
+        {s.analysed === true && s.materialized !== true && (
+          <span
+            className="inline-block h-1.5 w-1.5 rounded-full bg-amber-400 shrink-0"
+            title="Basil analysed this but found nothing to extract"
+          />
         )}
         <span className="text-[12px] font-mono text-muted-foreground ml-auto shrink-0 tabular-nums">
           {relTime(s.date)}

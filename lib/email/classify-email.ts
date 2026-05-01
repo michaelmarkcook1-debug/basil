@@ -12,6 +12,7 @@
  */
 
 import { generateText } from "ai";
+import { anthropic } from "@ai-sdk/anthropic";
 import { getSystemPrompt } from "@/lib/ai/system-prompt";
 
 // ── Category types ─────────────────────────────────────────────────────────────
@@ -290,12 +291,9 @@ Respond with ONLY valid JSON — no markdown fences, no explanation:
   try {
     const system = await getSystemPrompt(username);
     const { text } = await generateText({
-      model: "anthropic/claude-sonnet-4.6",
+      model: anthropic("claude-3-5-haiku-20241022"),
       system,
       messages: [{ role: "user", content: prompt }],
-      providerOptions: {
-        gateway: { tags: ["feature:email-classify", "env:production"] },
-      },
     });
 
     return parseIntelligence(text);
