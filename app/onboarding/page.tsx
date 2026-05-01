@@ -21,6 +21,7 @@ interface IntegrationStatus {
   google: { state: string };
   microsoft: { state: string };
   slack: { state: string };
+  zoom?: { state: string };
 }
 
 // ── Constants ──────────────────────────────────────────────────────────────────
@@ -40,7 +41,7 @@ const PRIORITIES = [
   "Daily digest", "Document review",
 ];
 
-const TOTAL_STEPS = 8;
+const TOTAL_STEPS = 9;
 
 // ── Demo video ────────────────────────────────────────────────────────────────
 // Set NEXT_PUBLIC_DEMO_VIDEO_ID in Vercel environment variables to show a real
@@ -183,6 +184,7 @@ export default function OnboardingPage() {
   const [step, setStep] = useState(0);
   const [userName, setUserName] = useState("");
   const [loading, setLoading] = useState(false);
+  const [saveError, setSaveError] = useState("");
   const [integrations, setIntegrations] = useState<IntegrationStatus | null>(null);
 
   const [form, setForm] = useState<FormData>({
@@ -208,6 +210,11 @@ export default function OnboardingPage() {
     if (connected === "google" || error === "google_auth")         setStep(4);
     if (connected === "microsoft" || error === "microsoft_auth")    setStep(5);
     if (connected === "slack"     || error === "slack_auth")        setStep(6);
+    if (connected === "zoom"      || error === "zoom_oauth_failed") setStep(7);
+
+    // If returning from Zoom OAuth via ?step= param
+    const stepParam = params.get("step");
+    if (!connected && !error && stepParam) setStep(parseInt(stepParam, 10));
 
     // Clean the URL so refreshing doesn't re-trigger
     if (connected || error) {
@@ -215,7 +222,8 @@ export default function OnboardingPage() {
     }
   }, []);
 
-  // Fetch user name + integration statuses on mount
+  // Fetch user name + integration statuses on mount.
+  // Also redirect to dashboard if onboarding was already completed.
   useEffect(() => {
     fetch("/api/integrations/status")
       .then((r) => r.json())
@@ -225,8 +233,28 @@ export default function OnboardingPage() {
     fetch("/api/settings")
       .then((r) => r.json())
       .then((d) => {
+        // Redirect already-onboarded users straight to the dashboard
+        if (d?.onboardingCompleted) {
+          window.location.replace("/dashboard");
+          return;
+        }
+        // Pre-fill display name from real name saved at registration
         if (d?.name) setUserName(d.name);
         else if (d?.username) setUserName(d.username);
+        // Pre-fill profile fields if the user partially completed onboarding
+        if (d?.profile) {
+          setForm((f) => ({
+            ...f,
+            jobTitle: d.profile.jobTitle || f.jobTitle,
+            company:  d.profile.company  || f.company,
+            communicationStyle: d.profile.communicationStyle || f.communicationStyle,
+            priorities: d.profile.priorities?.length ? d.profile.priorities : f.priorities,
+          }));
+        }
+        // Use server-stored timezone if available
+        if (d?.timezone) setForm((f) => ({ ...f, timezone: d.timezone }));
+        if (d?.workStart) setForm((f) => ({ ...f, workStart: d.workStart }));
+        if (d?.workEnd)   setForm((f) => ({ ...f, workEnd:   d.workEnd }));
       })
       .catch(() => {});
   }, []);
@@ -256,8 +284,9 @@ export default function OnboardingPage() {
 
   async function finishOnboarding() {
     setLoading(true);
+    setSaveError("");
     try {
-      await fetch("/api/onboarding", {
+      const res = await fetch("/api/onboarding", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -272,8 +301,15 @@ export default function OnboardingPage() {
           facts: form.facts,
         }),
       });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        setSaveError(data.error || `Save failed (${res.status}) — please try again`);
+        setLoading(false);
+        return;
+      }
       window.location.href = "/dashboard";
     } catch {
+      setSaveError("Network error — check your connection and try again");
       setLoading(false);
     }
   }
@@ -481,8 +517,15 @@ export default function OnboardingPage() {
         </div>
       </div>
       {isConnected("google") ? (
-        <div className="flex items-center gap-2 text-emerald-400 text-sm mb-6">
-          <span>✓</span> Google is connected
+        <div className="mb-6 space-y-2">
+          <div className="flex items-center gap-2 text-emerald-400 text-sm">
+            <span>✓</span> Google is connected
+          </div>
+          <a href="/api/auth/google?from=onboarding"
+            className="inline-flex items-center gap-1.5 text-white/40 hover:text-white/70 text-xs transition">
+            <svg className="w-3 h-3" viewBox="0 0 24 24"><path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"/><path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/><path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z"/><path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"/></svg>
+            Reconnect with a different account
+          </a>
         </div>
       ) : (
         <a href="/api/auth/google?from=onboarding"
@@ -565,19 +608,60 @@ export default function OnboardingPage() {
         nextLabel={isConnected("slack") ? "Continue →" : "Skip for now"} />
     </div>,
 
-    // ── 7: All done + demo video ─────────────────────────────────────────────
+    // ── 7: Connect Zoom ──────────────────────────────────────────────────────
+    <div key="zoom">
+      <h2 className="text-2xl font-semibold text-white mb-1" style={{ fontFamily: "var(--font-fraunces), Georgia, serif" }}>
+        Connect Zoom
+      </h2>
+      <p className="text-white/50 text-sm mb-6">Optional — pulls in meeting summaries, recordings, and participant history.</p>
+      <div className="rounded-xl border border-white/10 bg-white/4 p-5 mb-6">
+        <div className="flex items-start gap-4">
+          <div className="text-3xl">📹</div>
+          <div>
+            <h3 className="text-white font-medium mb-1">Meetings & Recordings</h3>
+            <ul className="text-white/50 text-sm space-y-1">
+              <li>• Meeting summaries and transcripts</li>
+              <li>• Track meeting cadence with contacts</li>
+              <li>• Surface action items from calls</li>
+            </ul>
+          </div>
+        </div>
+      </div>
+      {integrations?.zoom?.state === "connected" ? (
+        <div className="flex items-center gap-2 rounded-xl border border-emerald-500/30 bg-emerald-500/10 px-4 py-3 text-emerald-400 text-sm mb-6">
+          <span>✓</span> Zoom is connected
+        </div>
+      ) : (
+        <button
+          onClick={() => { window.location.href = "/api/auth/zoom?from=%2Fonboarding%3Fconnected%3Dzoom"; }}
+          className="w-full flex items-center justify-center gap-3 rounded-xl border border-white/20 bg-white/8 hover:bg-white/12 hover:border-white/30 text-white font-semibold py-3.5 text-sm shadow-lg transition mb-4"
+        >
+          <svg className="w-5 h-5" viewBox="0 0 24 24" fill="none">
+            <rect width="24" height="24" rx="4" fill="#2D8CFF"/>
+            <path d="M4 8.5C4 7.67 4.67 7 5.5 7h9C15.33 7 16 7.67 16 8.5v7c0 .83-.67 1.5-1.5 1.5h-9C4.67 17 4 16.33 4 15.5v-7zm12 1.75l3.5-2.25v7.5L16 13.25V10.25z" fill="white"/>
+          </svg>
+          Connect with Zoom
+        </button>
+      )}
+      <NavButtons step={step} onBack={() => setStep((s) => s - 1)} onNext={() => setStep(8)} canSkip onSkip={() => setStep(8)}
+        nextLabel={integrations?.zoom?.state === "connected" ? "Continue →" : "Skip for now"} />
+    </div>,
+
+    // ── 8: All done + demo video ─────────────────────────────────────────────
     <div key="done">
       <div className="text-center mb-6">
         <div className="text-5xl mb-3">🎉</div>
         <h2 className="text-2xl font-semibold text-white mb-1.5" style={{ fontFamily: "var(--font-fraunces), Georgia, serif" }}>
-          You&apos;re all set{userName ? `, ${userName}` : ""}!
+          You&apos;re all set{userName ? `, ${userName.split(" ")[0]}` : ""}!
         </h2>
         <p className="text-white/50 text-sm leading-relaxed">
-          Watch the 3-minute tour below to get the most out of Basil from day one.
+          {DEMO_VIDEO_ID
+            ? "Watch the 3-minute tour below to get the most out of Basil from day one."
+            : "Here's how to get the most out of Basil from day one."}
         </p>
       </div>
 
-      {/* ── Demo video ────────────────────────────────────────────────────── */}
+      {/* ── Demo video (only shown when NEXT_PUBLIC_DEMO_VIDEO_ID is set) ── */}
       {DEMO_VIDEO_ID && <DemoVideo videoId={DEMO_VIDEO_ID} />}
 
       {/* ── Power tips ───────────────────────────────────────────────────── */}
@@ -605,6 +689,7 @@ export default function OnboardingPage() {
           [isConnected("google"), "Google Gmail & Calendar connected"],
           [isConnected("microsoft"), "Microsoft 365 connected"],
           [isConnected("slack"), "Slack connected"],
+          [integrations?.zoom?.state === "connected", "Zoom meetings connected"],
         ]
           .filter(([cond]) => cond)
           .map(([, label]) => (
@@ -621,6 +706,12 @@ export default function OnboardingPage() {
           Google not connected —{" "}
           <a href="/api/auth/google?from=onboarding" className="underline hover:text-amber-200">connect now</a>
           {" "}to unlock email & calendar features.
+        </div>
+      )}
+
+      {saveError && (
+        <div className="mt-4 rounded-lg border border-red-500/30 bg-red-500/10 p-3 text-sm text-red-400">
+          ✕ {saveError}
         </div>
       )}
 

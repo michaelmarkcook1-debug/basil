@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { createSession } from "@/lib/auth";
 import { findByEmail, findByUsername, createUser } from "@/lib/users";
+import { patchSettings } from "@/lib/settings/store";
 import { checkRateLimit, getClientIp } from "@/lib/rate-limit";
 
 export async function POST(req: Request) {
@@ -70,6 +71,10 @@ export async function POST(req: Request) {
   // Create the user (password hashed inside createUser) and start a session
   await createUser({ name, surname, country, email, username, password, onboardingCompleted: false });
   await createSession(username);
+
+  // Write the real full name to the settings store immediately so Basil uses
+  // "Jane Smith" rather than the username-derived default ("Janesmith").
+  await patchSettings(username, { name: `${name} ${surname}`.trim() });
 
   return NextResponse.json({ success: true, username, onboardingCompleted: false });
 }

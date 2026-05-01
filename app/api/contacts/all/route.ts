@@ -13,7 +13,7 @@ import { getSessionUser } from "@/lib/auth";
 export async function GET() {
   const username = await getSessionUser();
   if (!username) return NextResponse.json({ error: "Unauthorised" }, { status: 401 });
-  const userContacts = await listUserContacts();
+  const userContacts = await listUserContacts(username);
 
   // Deduplicate: user contacts win over seed contacts with the same id
   const userIds = new Set(userContacts.map((c) => c.id));

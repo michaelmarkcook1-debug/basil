@@ -35,7 +35,7 @@ export async function PATCH(
         | "linkedActionIds"
       >
     >;
-    const updated = await updateDecision(id, patch);
+    const updated = await updateDecision(username, id, patch);
     if (!updated) {
       console.warn(`[decisions/${id}] PATCH: not found`);
       return NextResponse.json({ error: "not_found" }, { status: 404 });
@@ -59,7 +59,7 @@ export async function DELETE(
     const username = await getSessionUser();
     if (!username) return NextResponse.json({ error: "Unauthorised" }, { status: 401 });
     ({ id } = await ctx.params);
-    const ok = await deleteDecision(id);
+    const ok = await deleteDecision(username, id);
     return NextResponse.json(
       { status: ok ? "deleted" : "not_found", id },
       { status: ok ? 200 : 404 }

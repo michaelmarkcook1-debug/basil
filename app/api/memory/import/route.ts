@@ -226,14 +226,26 @@ function deduplicateMemories(items: ExtractedMemory[]): ExtractedMemory[] {
   return accepted;
 }
 
+// 500 KB limit — large enough for full documents, prevents abuse
+const MAX_BODY_BYTES = 500_000;
+
 export async function POST(req: Request) {
   const username = await getSessionUser();
   if (!username) return NextResponse.json({ error: "Unauthorised" }, { status: 401 });
+
+  // Enforce body size before parsing to avoid memory exhaustion
+  const contentLength = req.headers.get("content-length");
+  if (contentLength && parseInt(contentLength, 10) > MAX_BODY_BYTES) {
+    return NextResponse.json({ error: "Request body too large (max 500 KB)" }, { status: 413 });
+  }
 
   let text: string;
   try {
     ({ text } = await req.json());
     if (!text || typeof text !== "string" || text.trim().length < 10) throw new Error();
+    if (text.length > MAX_BODY_BYTES) {
+      return NextResponse.json({ error: "Text too large (max 500 KB)" }, { status: 413 });
+    }
   } catch {
     return NextResponse.json({ error: "Provide non-empty text to analyse" }, { status: 400 });
   }

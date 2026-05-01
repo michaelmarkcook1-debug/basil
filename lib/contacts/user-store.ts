@@ -1,11 +1,9 @@
 /**
- * Server-side persistent store for user-added contacts.
+ * Server-side persistent store for user-added contacts (per-user).
  *
- * These are contacts Michael has added from the "Suggested" strip — they share
- * the Contact shape but live in the server store rather than localStorage so:
- *   - AI features (drafter, meeting-prep, chat tools) can look them up without
- *     requiring the client to forward them in every request body.
- *   - The authoritative list is device-independent and survives browser clears.
+ * All public functions require a `username` argument.  Data is stored under
+ * DATA_DIR/users/<username>/sage-user-contacts.json so each user's contacts
+ * are completely isolated.
  *
  * Seed contacts (lib/contacts-data.ts) are compile-time constants and are never
  * stored here.  This store holds only user-created additions.
@@ -13,11 +11,14 @@
 
 import { randomUUID } from "node:crypto";
 import type { Contact } from "@/lib/contacts-data";
-import { readStore, writeStore } from "@/lib/storage/persistent";
+import { readUserStore, writeUserStore } from "@/lib/storage/user-store";
 import { withLock } from "@/lib/events/lock";
 
 const CONTACTS_FILE = "sage-user-contacts.json";
-const LOCK_KEY = "user-contacts";
+
+function lockKey(username: string): string {
+  return `user-contacts:${username}`;
+}
 
 // ── Normaliser ───────────────────────────────────────────────────────────────
 // 1. Back-compat: older records may be missing `directory` → default "work".
@@ -47,51 +48,52 @@ function normalize(c: Contact): Contact {
   return out;
 }
 
-async function readAll(): Promise<Contact[]> {
-  const items = await readStore<Contact[]>(CONTACTS_FILE, []);
+async function readAll(username: string): Promise<Contact[]> {
+  const items = await readUserStore<Contact[]>(username, CONTACTS_FILE, []);
   return items.map(normalize);
 }
 
-async function writeAll(items: Contact[]): Promise<void> {
-  await writeStore(CONTACTS_FILE, items);
+async function writeAll(username: string, items: Contact[]): Promise<void> {
+  await writeUserStore(username, CONTACTS_FILE, items);
 }
 
 // ── Public API ────────────────────────────────────────────────────────────────
 
-export async function listUserContacts(): Promise<Contact[]> {
-  return readAll();
+export async function listUserContacts(username: string): Promise<Contact[]> {
+  return readAll(username);
 }
 
-export async function addUserContactToStore(contact: Contact): Promise<Contact> {
-  return withLock(LOCK_KEY, async () => {
-    const items = await readAll();
+export async function addUserContactToStore(username: string, contact: Contact): Promise<Contact> {
+  return withLock(lockKey(username), async () => {
+    const items = await readAll(username);
     if (items.some((x) => x.id === contact.id)) return contact; // idempotent
     const normalised = normalize(contact);
-    await writeAll([...items, normalised]);
+    await writeAll(username, [...items, normalised]);
     return normalised;
   });
 }
 
 export async function updateUserContactInStore(
+  username: string,
   id: string,
   patch: Partial<Contact>
 ): Promise<Contact | null> {
-  return withLock(LOCK_KEY, async () => {
-    const items = await readAll();
+  return withLock(lockKey(username), async () => {
+    const items = await readAll(username);
     const idx = items.findIndex((c) => c.id === id);
     if (idx === -1) return null;
     items[idx] = normalize({ ...items[idx], ...patch });
-    await writeAll(items);
+    await writeAll(username, items);
     return items[idx];
   });
 }
 
-export async function deleteUserContactFromStore(id: string): Promise<boolean> {
-  return withLock(LOCK_KEY, async () => {
-    const items = await readAll();
+export async function deleteUserContactFromStore(username: string, id: string): Promise<boolean> {
+  return withLock(lockKey(username), async () => {
+    const items = await readAll(username);
     const next = items.filter((c) => c.id !== id);
     if (next.length === items.length) return false;
-    await writeAll(next);
+    await writeAll(username, next);
     return true;
   });
 }
@@ -114,10 +116,11 @@ function looksLikePhoneNumber(name: string): boolean {
  * first imported before the chat-name resolution was working correctly.
  */
 export async function bulkImportUserContacts(
+  username: string,
   incoming: Contact[]
 ): Promise<number> {
-  return withLock(LOCK_KEY, async () => {
-    const items = await readAll();
+  return withLock(lockKey(username), async () => {
+    const items = await readAll(username);
     const existingById = new Map(items.map((c) => [c.id, c]));
     let added = 0;
     let updated = 0;
@@ -144,7 +147,7 @@ export async function bulkImportUserContacts(
         }
       }
     }
-    if (added > 0 || updated > 0) await writeAll(items);
+    if (added > 0 || updated > 0) await writeAll(username, items);
     return added;
   });
 }

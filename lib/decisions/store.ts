@@ -1,21 +1,24 @@
 import { randomUUID } from "node:crypto";
 import type { Decision } from "@/lib/types/decision";
 import { withLock } from "@/lib/events/lock";
-import { readStore, writeStore } from "@/lib/storage/persistent";
+import { readUserStore, writeUserStore } from "@/lib/storage/user-store";
 
 const DECISIONS_FILE = "sage-decisions.json";
-const LOCK_KEY = "decisions";
 
-async function readAll(): Promise<Decision[]> {
-  return readStore<Decision[]>(DECISIONS_FILE, []);
+function lockKey(username: string): string {
+  return `decisions:${username}`;
 }
 
-async function writeAll(items: Decision[]): Promise<void> {
-  await writeStore(DECISIONS_FILE, items);
+async function readAll(username: string): Promise<Decision[]> {
+  return readUserStore<Decision[]>(username, DECISIONS_FILE, []);
 }
 
-export async function listDecisions(): Promise<Decision[]> {
-  const items = await readAll();
+async function writeAll(username: string, items: Decision[]): Promise<void> {
+  await writeUserStore(username, DECISIONS_FILE, items);
+}
+
+export async function listDecisions(username: string): Promise<Decision[]> {
+  const items = await readAll(username);
   // Fall back to createdAt when date is absent or invalid to avoid NaN in sort.
   return items.sort(
     (a, b) =>
@@ -156,9 +159,9 @@ export interface CreateDecisionInput {
  *    sourceRef to `additionalSourceRefs` and return the existing record.
  *  - Otherwise, create a new record.
  */
-export async function createDecision(input: CreateDecisionInput): Promise<Decision> {
-  return withLock(LOCK_KEY, async () => {
-    const items = await readAll();
+export async function createDecision(username: string, input: CreateDecisionInput): Promise<Decision> {
+  return withLock(lockKey(username), async () => {
+    const items = await readAll(username);
     const now = new Date().toISOString();
 
     // ── Dedup check ────────────────────────────────────────────────────────
@@ -180,7 +183,7 @@ export async function createDecision(input: CreateDecisionInput): Promise<Decisi
             ],
             updatedAt: now,
           };
-          await writeAll(items);
+          await writeAll(username, items);
           console.log(
             `[decisions] dedup: merged sourceRef "${input.sourceRef}" into existing decision ${existing.id}`
           );
@@ -220,12 +223,13 @@ export async function createDecision(input: CreateDecisionInput): Promise<Decisi
     };
 
     items.unshift(decision);
-    await writeAll(items);
+    await writeAll(username, items);
     return decision;
   });
 }
 
 export async function updateDecision(
+  username: string,
   id: string,
   patch: Partial<
     Pick<
@@ -251,12 +255,12 @@ export async function updateDecision(
     >
   >
 ): Promise<Decision | null> {
-  return withLock(LOCK_KEY, async () => {
-    const items = await readAll();
+  return withLock(lockKey(username), async () => {
+    const items = await readAll(username);
     const idx = items.findIndex((d) => d.id === id);
     if (idx === -1) return null;
     items[idx] = { ...items[idx], ...patch, updatedAt: new Date().toISOString() };
-    await writeAll(items);
+    await writeAll(username, items);
     return items[idx];
   });
 }
@@ -265,11 +269,12 @@ export async function updateDecision(
  * Append a linked action ID to a decision (idempotent — no duplicates added).
  */
 export async function linkActionToDecision(
+  username: string,
   decisionId: string,
   actionId: string
 ): Promise<Decision | null> {
-  return withLock(LOCK_KEY, async () => {
-    const items = await readAll();
+  return withLock(lockKey(username), async () => {
+    const items = await readAll(username);
     const idx = items.findIndex((d) => d.id === decisionId);
     if (idx === -1) return null;
     const existing = items[idx].linkedActionIds ?? [];
@@ -279,24 +284,24 @@ export async function linkActionToDecision(
       linkedActionIds: [...existing, actionId],
       updatedAt: new Date().toISOString(),
     };
-    await writeAll(items);
+    await writeAll(username, items);
     return items[idx];
   });
 }
 
-export async function deleteDecision(id: string): Promise<boolean> {
-  return withLock(LOCK_KEY, async () => {
-    const items = await readAll();
+export async function deleteDecision(username: string, id: string): Promise<boolean> {
+  return withLock(lockKey(username), async () => {
+    const items = await readAll(username);
     const next = items.filter((d) => d.id !== id);
     if (next.length === items.length) return false;
-    await writeAll(next);
+    await writeAll(username, next);
     return true;
   });
 }
 
-export async function bulkImport(incoming: Decision[]): Promise<number> {
-  return withLock(LOCK_KEY, async () => {
-    const items = await readAll();
+export async function bulkImport(username: string, incoming: Decision[]): Promise<number> {
+  return withLock(lockKey(username), async () => {
+    const items = await readAll(username);
     const existingIds = new Set(items.map((d) => d.id));
     let added = 0;
     for (const d of incoming) {
@@ -307,7 +312,7 @@ export async function bulkImport(incoming: Decision[]): Promise<number> {
     }
     if (added > 0) {
       items.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
-      await writeAll(items);
+      await writeAll(username, items);
     }
     return added;
   });

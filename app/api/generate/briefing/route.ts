@@ -170,11 +170,11 @@ export async function POST(req: Request) {
       console.error("Slack fetch failed:", err);
       return null;
     }),
-    listActions().catch((err) => {
+    listActions(username).catch((err) => {
       console.error("Actions fetch failed:", err);
       return [];
     }),
-    listDecisions().catch((err) => {
+    listDecisions(username).catch((err) => {
       console.error("Decisions fetch failed:", err);
       return [];
     }),
@@ -478,14 +478,23 @@ Return ONLY valid JSON, no markdown code fences:
         ]
       : undefined;
 
-  const result = await generateText({
-    model: "anthropic/claude-sonnet-4.6",
-    system: await getSystemPrompt(username, tz),
-    ...(messages ? { messages } : { prompt: promptText }),
-    providerOptions: {
-      gateway: { tags: ["feature:briefing", "env:production"] },
-    },
-  });
+  let result: Awaited<ReturnType<typeof generateText>>;
+  try {
+    result = await generateText({
+      model: "anthropic/claude-sonnet-4.6",
+      system: await getSystemPrompt(username, tz),
+      ...(messages ? { messages } : { prompt: promptText }),
+      providerOptions: {
+        gateway: { tags: ["feature:briefing", "env:production"] },
+      },
+    });
+  } catch (e) {
+    console.error("[briefing] generateText failed:", e instanceof Error ? e.message : e);
+    return Response.json(
+      { error: "AI generation failed. Please try again in a moment." },
+      { status: 503 }
+    );
+  }
 
   try {
     const parsed = parseAIJson<Record<string, unknown>>(result.text);

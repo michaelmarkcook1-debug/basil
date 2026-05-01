@@ -1,5 +1,11 @@
 /**
- * Action store — persistent CRUD with:
+ * Action store — persistent CRUD with per-user data isolation.
+ *
+ * All functions require a `username` argument.  Data is stored under
+ * DATA_DIR/users/<username>/sage-actions.json so each user's actions
+ * are completely isolated from other users.
+ *
+ * Dedup strategy:
  *   - Jaccard-similarity deduplication (two-layer: same-source idempotency +
  *     cross-source merge within 7 days)
  *   - Stale-action detection (open + no activity in 14 days + no due date)
@@ -9,18 +15,21 @@
 import { randomUUID } from "node:crypto";
 import type { ActionItem, ActionPriority } from "@/lib/types/action";
 import { withLock } from "@/lib/events/lock";
-import { readStore, writeStore } from "@/lib/storage/persistent";
+import { readUserStore, writeUserStore } from "@/lib/storage/user-store";
 export { isActionStalled, STALE_THRESHOLD_DAYS } from "./utils";
 
 const ACTIONS_FILE = "sage-actions.json";
-const LOCK_KEY = "actions";
 
-async function readAll(): Promise<ActionItem[]> {
-  return readStore<ActionItem[]>(ACTIONS_FILE, []);
+function lockKey(username: string): string {
+  return `actions:${username}`;
 }
 
-async function writeAll(items: ActionItem[]): Promise<void> {
-  await writeStore(ACTIONS_FILE, items);
+async function readAll(username: string): Promise<ActionItem[]> {
+  return readUserStore<ActionItem[]>(username, ACTIONS_FILE, []);
+}
+
+async function writeAll(username: string, items: ActionItem[]): Promise<void> {
+  await writeUserStore(username, ACTIONS_FILE, items);
 }
 
 function today(): string {
@@ -78,7 +87,7 @@ function findDuplicate(
   owner?: string
 ): ActionItem | null {
   const sevenDaysAgo = Date.now() - 7 * 24 * 60 * 60 * 1000;
-  const candidateOwner = (owner ?? "Michael Cook").toLowerCase();
+  const candidateOwner = (owner ?? "").toLowerCase();
 
   for (const item of items) {
     if (item.status === "done") continue;
@@ -92,13 +101,7 @@ function findDuplicate(
     const itemAge = new Date(item.createdAt).getTime();
     if (itemAge >= sevenDaysAgo && jaccardSimilarity(text, item.text) >= 0.72) {
       const itemOwner = (item.owner ?? "").toLowerCase();
-      // Accept as duplicate if owners match OR both default to Michael Cook
-      if (
-        itemOwner === candidateOwner ||
-        (itemOwner.includes("michael") && candidateOwner.includes("michael"))
-      ) {
-        return item;
-      }
+      if (itemOwner === candidateOwner && candidateOwner !== "") return item;
     }
   }
 
@@ -107,8 +110,8 @@ function findDuplicate(
 
 // ── Public interface ───────────────────────────────────────────────────────────
 
-export async function listActions(): Promise<ActionItem[]> {
-  const items = await readAll();
+export async function listActions(username: string): Promise<ActionItem[]> {
+  const items = await readAll(username);
   const t = today();
   // Compute overdue on-the-fly (not persisted) so stale data files don't matter
   const patched = items.map((a) =>
@@ -158,9 +161,9 @@ export interface CreateActionInput {
  * - Cross-source near-duplicate → appends sourceRef to additionalSourceRefs,
  *   returns existing without creating a new row
  */
-export async function createAction(input: CreateActionInput): Promise<ActionItem> {
-  return withLock(LOCK_KEY, async () => {
-    const items = await readAll();
+export async function createAction(username: string, input: CreateActionInput): Promise<ActionItem> {
+  return withLock(lockKey(username), async () => {
+    const items = await readAll(username);
     const now = new Date().toISOString();
 
     // Dedup check — skip or merge if a near-duplicate already exists
@@ -177,7 +180,7 @@ export async function createAction(input: CreateActionInput): Promise<ActionItem
               additionalSourceRefs: [...prev, input.sourceRef],
               updatedAt: now,
             };
-            await writeAll(items);
+            await writeAll(username, items);
           }
         }
       }
@@ -187,7 +190,7 @@ export async function createAction(input: CreateActionInput): Promise<ActionItem
     const action: ActionItem = {
       id: `act-${randomUUID().slice(0, 8)}`,
       text: input.text.trim(),
-      owner: (input.owner || "Michael Cook").trim(),
+      owner: (input.owner || "").trim(),
       ownerId: input.ownerId,
       dueDate: input.dueDate,
       status: input.status ?? "open",
@@ -204,12 +207,13 @@ export async function createAction(input: CreateActionInput): Promise<ActionItem
       ...(input.followUpDate && { followUpDate: input.followUpDate }),
     };
     items.unshift(action);
-    await writeAll(items);
+    await writeAll(username, items);
     return action;
   });
 }
 
 export async function updateAction(
+  username: string,
   id: string,
   patch: Partial<
     Pick<
@@ -230,8 +234,8 @@ export async function updateAction(
     >
   >
 ): Promise<ActionItem | null> {
-  return withLock(LOCK_KEY, async () => {
-    const items = await readAll();
+  return withLock(lockKey(username), async () => {
+    const items = await readAll(username);
     const idx = items.findIndex((a) => a.id === id);
     if (idx === -1) return null;
     const now = new Date().toISOString();
@@ -245,17 +249,17 @@ export async function updateAction(
           ? (patch.lastActivityAt ?? now)
           : (items[idx].lastActivityAt ?? now),
     };
-    await writeAll(items);
+    await writeAll(username, items);
     return items[idx];
   });
 }
 
-export async function deleteAction(id: string): Promise<boolean> {
-  return withLock(LOCK_KEY, async () => {
-    const items = await readAll();
+export async function deleteAction(username: string, id: string): Promise<boolean> {
+  return withLock(lockKey(username), async () => {
+    const items = await readAll(username);
     const next = items.filter((a) => a.id !== id);
     if (next.length === items.length) return false;
-    await writeAll(next);
+    await writeAll(username, next);
     return true;
   });
 }
@@ -264,11 +268,12 @@ export async function deleteAction(id: string): Promise<boolean> {
  * Link a decision to an action — appends decisionId to linkedDecisionIds (deduped).
  */
 export async function linkDecisionToAction(
+  username: string,
   actionId: string,
   decisionId: string
 ): Promise<ActionItem | null> {
-  return withLock(LOCK_KEY, async () => {
-    const items = await readAll();
+  return withLock(lockKey(username), async () => {
+    const items = await readAll(username);
     const idx = items.findIndex((a) => a.id === actionId);
     if (idx === -1) return null;
     const existing = items[idx].linkedDecisionIds ?? [];
@@ -278,14 +283,14 @@ export async function linkDecisionToAction(
       linkedDecisionIds: [...existing, decisionId],
       updatedAt: new Date().toISOString(),
     };
-    await writeAll(items);
+    await writeAll(username, items);
     return items[idx];
   });
 }
 
-export async function bulkImport(incoming: ActionItem[]): Promise<number> {
-  return withLock(LOCK_KEY, async () => {
-    const items = await readAll();
+export async function bulkImport(username: string, incoming: ActionItem[]): Promise<number> {
+  return withLock(lockKey(username), async () => {
+    const items = await readAll(username);
     const existingIds = new Set(items.map((a) => a.id));
     let added = 0;
     for (const a of incoming) {
@@ -298,7 +303,7 @@ export async function bulkImport(incoming: ActionItem[]): Promise<number> {
       items.sort(
         (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
       );
-      await writeAll(items);
+      await writeAll(username, items);
     }
     return added;
   });

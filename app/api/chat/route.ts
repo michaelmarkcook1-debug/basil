@@ -10,7 +10,15 @@ import { getSessionUser } from "@/lib/auth";
 import { getSettings } from "@/lib/settings/store";
 import { resolveTimezone } from "@/lib/timezone";
 
+// 200 KB limit — covers very long chat histories while preventing abuse
+const MAX_BODY_BYTES = 200_000;
+
 export async function POST(req: Request) {
+  const contentLength = req.headers.get("content-length");
+  if (contentLength && parseInt(contentLength, 10) > MAX_BODY_BYTES) {
+    return Response.json({ error: "Request body too large (max 200 KB)" }, { status: 413 });
+  }
+
   let messages: UIMessage[];
   try {
     ({ messages } = await req.json());
@@ -35,7 +43,7 @@ export async function POST(req: Request) {
     system,
     messages: modelMessages,
     tools: buildAssistantTools(username, firstName, timezone),
-    stopWhen: stepCountIs(5),
+    stopWhen: stepCountIs(8),
     providerOptions: {
       gateway: { tags: ["feature:chat", "env:production"] },
     },

@@ -208,12 +208,12 @@ export async function POST() {
       }
     })(),
 
-    listActions().catch((e) => {
+    listActions(username).catch((e) => {
       console.error("Failed to fetch actions:", e);
       return [];
     }),
 
-    listDecisions().catch((e) => {
+    listDecisions(username).catch((e) => {
       console.error("Failed to fetch decisions:", e);
       return [];
     }),
@@ -455,14 +455,23 @@ JSON. Each field is free-form text (paragraphs, bullets, numbered lists) or null
 
 Return ONLY valid JSON, no markdown code fences.`;
 
-  const result = await generateText({
-    model: "anthropic/claude-sonnet-4.6",
-    system: await getSystemPrompt(username, tz),
-    prompt,
-    providerOptions: {
-      gateway: { tags: ["feature:digest", "env:production"] },
-    },
-  });
+  let result: Awaited<ReturnType<typeof generateText>>;
+  try {
+    result = await generateText({
+      model: "anthropic/claude-sonnet-4.6",
+      system: await getSystemPrompt(username, tz),
+      prompt,
+      providerOptions: {
+        gateway: { tags: ["feature:digest", "env:production"] },
+      },
+    });
+  } catch (e) {
+    console.error("[digest] generateText failed:", e instanceof Error ? e.message : e);
+    return Response.json(
+      { error: "AI generation failed. Please try again in a moment." },
+      { status: 503 }
+    );
+  }
 
   try {
     const parsed = parseAIJson<Record<string, unknown>>(result.text);

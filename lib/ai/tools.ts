@@ -1,5 +1,6 @@
 import { tool } from "ai";
 import { z } from "zod";
+import { webSearch, fetchPageContent } from "@/lib/web/search";
 import { isGoogleConnected } from "@/lib/google/auth";
 import { getTodayEvents, createCalendarEvent, getEventsForDate, getEventsForDateRange, checkFreeBusy } from "@/lib/google/calendar";
 import { getRecentEmails, searchEmails, createDraft, getEmailBody } from "@/lib/google/gmail";
@@ -245,7 +246,7 @@ export function buildAssistantTools(username: string, firstName?: string, timezo
           .map((e) => ({ start: e.start, end: e.end }));
 
         // ── Resolve each attendee ─────────────────────────────────────────────
-        const userContacts = await listUserContacts().catch(() => []);
+        const userContacts = await listUserContacts(username).catch(() => []);
         const slackConnected = await isSlackConnected(username).catch(() => false);
 
         const resolved = await Promise.all(
@@ -545,7 +546,7 @@ export function buildAssistantTools(username: string, firstName?: string, timezo
           .describe("Filter by status. Defaults to all."),
       }),
       execute: async ({ status }) => {
-        const all = await listActions();
+        const all = await listActions(username);
         const filter = status ?? "all";
         const items = filter === "all" ? all : all.filter((a) => a.status === filter);
         return {
@@ -591,7 +592,7 @@ export function buildAssistantTools(username: string, firstName?: string, timezo
       needsApproval: true,
       execute: async ({ text, owner, dueDate, priority, source }) => {
         const ownerId = owner ? findContactByName(owner)?.id : undefined;
-        const action = await createAction({
+        const action = await createAction(username, {
           text,
           owner,
           ownerId,
@@ -617,7 +618,7 @@ export function buildAssistantTools(username: string, firstName?: string, timezo
         id: z.string().describe("The action id."),
       }),
       execute: async ({ id }) => {
-        const updated = await updateAction(id, { status: "done" });
+        const updated = await updateAction(username, id, { status: "done" });
         if (!updated) return { result: "not_found", id };
         return { result: "completed", action: updated };
       },
@@ -631,7 +632,7 @@ export function buildAssistantTools(username: string, firstName?: string, timezo
       }),
       needsApproval: true,
       execute: async ({ id }) => {
-        const ok = await deleteAction(id);
+        const ok = await deleteAction(username, id);
         return { result: ok ? "removed" : "not_found", id };
       },
     }),
@@ -648,7 +649,7 @@ export function buildAssistantTools(username: string, firstName?: string, timezo
           .describe("Filter by status. Defaults to all."),
       }),
       execute: async ({ status }) => {
-        const all = await listDecisions();
+        const all = await listDecisions(username);
         const filter = status ?? "all";
         const items = filter === "all" ? all : all.filter((d) => d.status === filter);
         return {
@@ -711,7 +712,7 @@ export function buildAssistantTools(username: string, firstName?: string, timezo
       needsApproval: true,
       execute: async ({ text, title, decidedBy, stakeholders, date, context, rationale, alternatives, consequences }) => {
         const decidedById = findContactByName(decidedBy)?.id;
-        const decision = await createDecision({
+        const decision = await createDecision(username, {
           text,
           title,
           decidedBy,
@@ -744,7 +745,7 @@ export function buildAssistantTools(username: string, firstName?: string, timezo
       }),
       needsApproval: true,
       execute: async ({ id }) => {
-        const updated = await updateDecision(id, { status: "superseded" });
+        const updated = await updateDecision(username, id, { status: "superseded" });
         if (!updated) return { result: "not_found", id };
         return { result: "superseded", decision: updated };
       },
@@ -831,6 +832,57 @@ export function buildAssistantTools(username: string, firstName?: string, timezo
           return { status: "message_sent", channel, preview: message.substring(0, 100) };
         }
         return { status: "failed", error: result.error };
+      },
+    }),
+
+    // ── WEB SEARCH TOOLS ─────────────────────────────────────────────────────
+
+    searchWeb: tool({
+      description: `Search the web for current information. Use this when ${name} asks about something you don't know, needs up-to-date facts, wants research on a company or person, needs market intelligence, or asks about recent news or events. Prefer this over guessing when current or external information is needed.`,
+      inputSchema: z.object({
+        query: z.string().describe(
+          "The search query. Be specific — include company names, dates, or context for better results."
+        ),
+        depth: z
+          .enum(["basic", "advanced"])
+          .optional()
+          .describe(
+            "Search depth. Use 'basic' (default) for quick lookups; 'advanced' for deep research on complex topics."
+          ),
+      }),
+      execute: async ({ query, depth = "basic" }) => {
+        const res = await webSearch(query, { maxResults: 5, depth, includeAnswer: true });
+        if (res.error) {
+          return { error: res.error, configured: !res.error.includes("not configured") };
+        }
+        return {
+          query: res.query,
+          answer: res.answer,
+          results: res.results.map((r) => ({
+            title: r.title,
+            url: r.url,
+            snippet: r.content,
+          })),
+          resultCount: res.results.length,
+        };
+      },
+    }),
+
+    readWebPage: tool({
+      description: `Fetch and read the full text content of a specific web page or URL. Use this when ${name} shares a link and wants you to read it, or when a search result needs deeper reading to answer a question. Do NOT use this for general searches — use searchWeb instead.`,
+      inputSchema: z.object({
+        url: z.string().url().describe("The full URL of the page to read."),
+      }),
+      execute: async ({ url }) => {
+        const res = await fetchPageContent(url);
+        if (res.error) {
+          return { error: res.error, url };
+        }
+        return {
+          url: res.url,
+          content: res.content,
+          wordCount: res.content.split(/\s+/).length,
+        };
       },
     }),
   };

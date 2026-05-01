@@ -10,7 +10,7 @@ import { getSessionUser } from "@/lib/auth";
 export async function GET() {
   const username = await getSessionUser();
   if (!username) return NextResponse.json({ error: "Unauthorised" }, { status: 401 });
-  const decisions = await listDecisions();
+  const decisions = await listDecisions(username);
   return NextResponse.json({ decisions });
 }
 
@@ -22,7 +22,7 @@ export async function POST(req: Request) {
 
     // Bulk import path (legacy data migration from localStorage)
     if (Array.isArray(body?.import)) {
-      const added = await bulkImport(body.import as Decision[]);
+      const added = await bulkImport(username, body.import as Decision[]);
       return NextResponse.json({ imported: added }, { status: 201 });
     }
 
@@ -50,7 +50,7 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "decidedBy is required" }, { status: 400 });
     }
 
-    const decision = await createDecision({
+    const decision = await createDecision(username, {
       text,
       title,
       summary,

@@ -96,6 +96,7 @@ interface AllStatuses {
   microsoft?: IntegrationStatus & { microsoft?: { mail: boolean; calendar: boolean; drive: boolean; teams: boolean } };
   linear?:    IntegrationStatus;
   claude:     IntegrationStatus;
+  zoom?:      IntegrationStatus;
   snapshot?:  SnapshotDiagnostics;
 }
 
@@ -234,6 +235,15 @@ export default function SettingsPage() {
     setStatuses((prev) => prev ? {
       ...prev,
       slack: { id: "slack", state: "disconnected", lastCheckedAt: new Date().toISOString() },
+    } : prev);
+    setTimeout(() => void loadStatuses(), 1500);
+  }
+
+  async function handleZoomDisconnect() {
+    await fetch("/api/auth/zoom", { method: "DELETE" });
+    setStatuses((prev) => prev ? {
+      ...prev,
+      zoom: { id: "zoom", state: "disconnected", lastCheckedAt: new Date().toISOString() },
     } : prev);
     setTimeout(() => void loadStatuses(), 1500);
   }
@@ -574,14 +584,11 @@ export default function SettingsPage() {
       key:         "zoom",
       name:        "Zoom",
       icon:        Video,
-      description: "Meeting summaries ingested automatically from email",
+      description: "Direct Zoom API connection — meetings, recordings & participants",
       color:       "text-blue-400",
       group:       "other",
-      // Zoom works via Gmail — it's only "available" when Gmail is connected
-      status:      g
-        ? { id: "zoom", state: googleConnected ? "connected" : "disconnected", lastCheckedAt: g.lastCheckedAt }
-        : null,
-      note:        "Zoom meeting summaries arrive via Gmail — no separate Zoom auth required.",
+      status:      statuses?.zoom ?? null,
+      note:        null,
     },
     {
       key:         "claude",
@@ -763,7 +770,7 @@ export default function SettingsPage() {
             <CardContent className="space-y-4">
               {items.map((integration, i) => {
                 const isConnected = integration.status?.state === "connected";
-                const isStatic = integration.key === "zoom" || integration.key === "claude";
+                const isStatic = integration.key === "claude";
                 return (
                 <div key={integration.key}>
                   <div className="flex items-start gap-3">
@@ -881,6 +888,24 @@ export default function SettingsPage() {
                           </Button>
                         )}
                       </div>
+                    ) : integration.key === "zoom" ? (
+                      /* Zoom: standalone OAuth */
+                      isConnected ? (
+                        <div className="flex items-center gap-2 shrink-0">
+                          <StateBadge state="connected" />
+                          <Button size="sm" variant="ghost"
+                            className="h-7 px-2 text-xs text-muted-foreground hover:text-red-600"
+                            onClick={handleZoomDisconnect}>
+                            Disconnect
+                          </Button>
+                        </div>
+                      ) : (
+                        <Button size="sm" variant="outline"
+                          className="shrink-0 h-7 px-2.5 text-xs text-blue-600 border-blue-200 hover:bg-blue-50"
+                          onClick={() => { window.location.href = "/api/auth/zoom?from=%2Fdashboard%2Fsettings%3Fconnected%3Dzoom"; }}>
+                          Connect →
+                        </Button>
+                      )
                     ) : (
                       <StateBadge state={integration.status ? integration.status.state : "loading"} />
                     )}

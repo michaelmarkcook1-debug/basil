@@ -1,6 +1,7 @@
 import { getAllPersonaSummaries } from "@/lib/contacts-lookup";
 import { memoriesForPrompt } from "@/lib/memory/store";
 import { getSettings } from "@/lib/settings/store";
+import { findByUsername } from "@/lib/users";
 
 /**
  * @param username     The authenticated user.
@@ -8,11 +9,13 @@ import { getSettings } from "@/lib/settings/store";
  *                          Falls back to the stored settings timezone when omitted.
  */
 export async function getSystemPrompt(username: string, timezoneOverride?: string): Promise<string> {
-  const [personas, memories, settings] = await Promise.all([
+  const [personas, memories, settings, userRecord] = await Promise.all([
     Promise.resolve(getAllPersonaSummaries()),
     memoriesForPrompt(username),
     getSettings(username),
+    findByUsername(username),
   ]);
+  const profile = userRecord?.profile;
 
   // Use the IP-resolved timezone when available, otherwise fall back to the stored setting.
   const effectiveTimezone = timezoneOverride || settings.timezone;
@@ -68,6 +71,14 @@ Do not wait to be asked.`;
     : `${settings.videoTool} only (never Google Meet).`;
 
   // ── Michael-specific org context (only shown when logged in as michael) ──
+  // Build a profile block for non-michael users from onboarding data
+  const profileLines: string[] = [];
+  if (profile?.jobTitle && profile?.company) profileLines.push(`- Role: ${profile.jobTitle} at ${profile.company}`);
+  else if (profile?.jobTitle) profileLines.push(`- Job title: ${profile.jobTitle}`);
+  else if (profile?.company) profileLines.push(`- Company: ${profile.company}`);
+  if (profile?.communicationStyle) profileLines.push(`- Communication style: ${profile.communicationStyle}`);
+  if (profile?.priorities?.length) profileLines.push(`- Priorities: ${profile.priorities.join(", ")}`);
+
   const orgContext = username === "michael" ? `
 ## Who ${firstName} Is
 - CEO of AnalystGenius (AG) — AI-native industry analyst platform targeting AR professionals. Pre-launch, V1.0.
@@ -112,7 +123,7 @@ Always maintain ${firstName}'s voice — professional, direct, warm. Never menti
 - Video calls: ${settings.videoTool} only.
 - All times: ${effectiveTimezone} unless referencing a colleague's local time.` : `
 ## About ${firstName}
-- Timezone: ${effectiveTimezone}. Works ${workHours}.
+${profileLines.length > 0 ? profileLines.join("\n") + "\n" : ""}- Timezone: ${effectiveTimezone}. Works ${workHours}.
 - ${videoNote}
 
 ## Rules

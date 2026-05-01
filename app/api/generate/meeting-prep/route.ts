@@ -93,7 +93,7 @@ export async function POST(req: Request) {
   // meeting prep always reflects the latest profile data without the client
   // having to forward them through the request body.
   const [userContacts, overrideMap] = await Promise.all([
-    listUserContacts().catch(() => [] as Contact[]),
+    listUserContacts(username).catch(() => [] as Contact[]),
     getAllOverridesFromStore().catch(() => ({} as Record<string, unknown>)),
   ]);
 
@@ -157,13 +157,13 @@ export async function POST(req: Request) {
     ),
 
     // All active decisions — filter client-side to those relevant to this meeting
-    listDecisions().catch((err) => {
+    listDecisions(username).catch((err) => {
       console.error("Failed to fetch decisions for meeting prep:", err);
       return [];
     }),
 
     // All open actions — filter client-side to those relevant to this meeting
-    listActions().catch((err) => {
+    listActions(username).catch((err) => {
       console.error("Failed to fetch actions for meeting prep:", err);
       return [];
     }),
@@ -549,14 +549,23 @@ Return ONLY valid JSON, no markdown code fences:
         ]
       : undefined;
 
-  const result = await generateText({
-    model: "anthropic/claude-sonnet-4.6",
-    system: await getSystemPrompt(username, tz),
-    ...(messages ? { messages } : { prompt: promptText }),
-    providerOptions: {
-      gateway: { tags: ["feature:meeting-prep", "env:production"] },
-    },
-  });
+  let result: Awaited<ReturnType<typeof generateText>>;
+  try {
+    result = await generateText({
+      model: "anthropic/claude-sonnet-4.6",
+      system: await getSystemPrompt(username, tz),
+      ...(messages ? { messages } : { prompt: promptText }),
+      providerOptions: {
+        gateway: { tags: ["feature:meeting-prep", "env:production"] },
+      },
+    });
+  } catch (e) {
+    console.error("[meeting-prep] generateText failed:", e instanceof Error ? e.message : e);
+    return Response.json(
+      { error: "AI generation failed. Please try again in a moment." },
+      { status: 503 }
+    );
+  }
 
   try {
     const parsed = parseAIJson<Record<string, unknown>>(result.text);

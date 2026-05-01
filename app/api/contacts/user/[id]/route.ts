@@ -19,7 +19,7 @@ export async function PATCH(
     if (!username) return NextResponse.json({ error: "Unauthorised" }, { status: 401 });
     const { id } = await params;
     const patch = (await req.json()) as Partial<Contact>;
-    const updated = await updateUserContactInStore(id, patch);
+    const updated = await updateUserContactInStore(username, id, patch);
     if (!updated) {
       return NextResponse.json({ error: "Contact not found" }, { status: 404 });
     }
@@ -44,7 +44,7 @@ export async function DELETE(
     const username = await getSessionUser();
     if (!username) return NextResponse.json({ error: "Unauthorised" }, { status: 401 });
     const { id } = await params;
-    const deleted = await deleteUserContactFromStore(id);
+    const deleted = await deleteUserContactFromStore(username, id);
     if (!deleted) {
       return NextResponse.json({ error: "Contact not found" }, { status: 404 });
     }

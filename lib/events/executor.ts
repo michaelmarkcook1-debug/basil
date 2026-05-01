@@ -173,9 +173,9 @@ export async function executeEvent(
           email: "email",
           slack: "slack",
         };
-        const action = await createAction({
+        const action = await createAction(username, {
           text,
-          owner: event.entityName ?? "Michael Cook",
+          owner: event.entityName,
           source: sourceMap[event.source] ?? "manual",
           eventId: event.id,
           sourceRef: event.sourceRef,
@@ -202,9 +202,9 @@ export async function executeEvent(
         return { ok: false, error: "No text to create decision from.", summary: "" };
       }
       try {
-        const decision = await createDecision({
+        const decision = await createDecision(username, {
           text,
-          decidedBy: event.entityName ?? "Michael Cook",
+          decidedBy: event.entityName ?? username,
           context: event.context,
           source: (event.source === "email" || event.source === "slack" || event.source === "manual") ? event.source : "manual",
           eventId: event.id,

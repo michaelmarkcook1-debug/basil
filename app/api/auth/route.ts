@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { createSession } from "@/lib/auth";
+import { createSession, destroySession } from "@/lib/auth";
 import { validateCredentials, updateUser } from "@/lib/users";
 import { checkRateLimit, getClientIp } from "@/lib/rate-limit";
 
@@ -42,15 +42,6 @@ export async function POST(req: Request) {
 }
 
 export async function DELETE() {
-  const headers = new Headers();
-  headers.append("Content-Type", "application/json");
-  headers.append(
-    "Set-Cookie",
-    "execauto_session=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0"
-  );
-
-  return new Response(JSON.stringify({ success: true }), {
-    status: 200,
-    headers,
-  });
+  await destroySession();
+  return NextResponse.json({ success: true });
 }

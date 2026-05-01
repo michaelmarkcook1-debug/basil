@@ -17,6 +17,7 @@ export default function DashboardPage() {
   const greeting = getGreeting();
   const router = useRouter();
   const [searchQuery, setSearchQuery] = useState("");
+  const [firstName, setFirstName] = useState("");
   // Hydration-safe date: initialise empty, set on client only so server and
   // client always render the same initial HTML.
   const [today, setToday] = useState("");
@@ -28,6 +29,13 @@ export default function DashboardPage() {
         month: "long",
       })
     );
+    // Load the real user's first name from settings
+    fetch("/api/settings", { cache: "no-store" })
+      .then((r) => r.ok ? r.json() : null)
+      .then((d) => {
+        if (d?.name) setFirstName(d.name.split(" ")[0]);
+      })
+      .catch(() => {});
   }, []);
 
   function handleSearch(e: React.FormEvent) {
@@ -45,7 +53,7 @@ export default function DashboardPage() {
             <p className="basil-eyebrow">{today}</p>
             <h1 className="basil-display text-3xl sm:text-4xl lg:text-[44px] leading-[1.05] text-foreground">
               {greeting},{" "}
-              <span className="italic text-[oklch(0.72_0.15_85)]">Michael</span>
+              <span className="italic text-[oklch(0.72_0.15_85)]">{firstName || "there"}</span>
               <span className="text-[oklch(0.72_0.15_85)]">.</span>
             </h1>
             <p className="text-sm text-muted-foreground max-w-md leading-relaxed">

@@ -95,6 +95,14 @@ export async function patchSettings(
     );
   }
 
+  const HH_MM = /^([01]\d|2[0-3]):[0-5]\d$/;
+  if (patch.workStart !== undefined && !HH_MM.test(patch.workStart)) {
+    throw new Error(`Invalid workStart: "${patch.workStart}". Must be HH:MM in 24-hour format (e.g. "09:00").`);
+  }
+  if (patch.workEnd !== undefined && !HH_MM.test(patch.workEnd)) {
+    throw new Error(`Invalid workEnd: "${patch.workEnd}". Must be HH:MM in 24-hour format (e.g. "18:00").`);
+  }
+
   const safe: Partial<UserSettings> = {};
   const keys: Array<keyof UserSettings> = [
     "name", "timezone", "workStart", "workEnd", "videoTool", "meetingUrl", "useIpTimezone",

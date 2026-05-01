@@ -95,9 +95,8 @@ export async function materializeEmailIntelligence(
       for (const item of intel.actions) {
         if (!item.text?.trim()) continue;
         try {
-          await createAction({
+          await createAction(username, {
             text: item.text.trim(),
-            owner: "Michael Cook",
             dueDate: item.dueDate,
             source: "email",
             eventId,
@@ -118,9 +117,8 @@ export async function materializeEmailIntelligence(
       const actionText = synthesizeActionText(intel.category, shortSubject, from);
       if (actionText) {
         try {
-          await createAction({
+          await createAction(username, {
             text: actionText,
-            owner: "Michael Cook",
             source: "email",
             eventId,
             sourceRef,
@@ -142,7 +140,7 @@ export async function materializeEmailIntelligence(
     for (const dec of intel.decisions) {
       if (!dec.text?.trim()) continue;
       try {
-        const decision = await createDecision({
+        const decision = await createDecision(username, {
           text: dec.text.trim(),
           title: dec.title?.trim(),
           rationale: dec.rationale?.trim(),
@@ -169,16 +167,15 @@ export async function materializeEmailIntelligence(
           for (const consequence of dec.consequences) {
             if (!consequence.trim()) continue;
             try {
-              const action = await createAction({
+              const action = await createAction(username, {
                 text: consequence.trim(),
-                owner: "Michael Cook",
                 source: "email",
                 eventId,
                 sourceRef,
                 needsReview: needsReviewFlag(dTier),
                 linkedDecisionIds: [decision.id],
               });
-              await linkActionToDecision(decision.id, action.id);
+              await linkActionToDecision(username, decision.id, action.id);
               actionsCreated++;
             } catch {
               // Non-fatal — decision was already created

@@ -1,14 +1,21 @@
 import { NextResponse } from "next/server";
 import { getSettings, patchSettings } from "@/lib/settings/store";
 import { getSessionUser } from "@/lib/auth";
+import { findByUsername } from "@/lib/users";
 import type { UserSettings } from "@/lib/settings/store";
 
-/** GET /api/settings — returns the full UserSettings object for the current user. */
+/** GET /api/settings — returns the full UserSettings object for the current user,
+ *  extended with onboardingCompleted and profile fields from the user record. */
 export async function GET() {
   const username = (await getSessionUser());
   if (!username) return NextResponse.json({ error: "Unauthorised" }, { status: 401 });
-  const settings = await getSettings(username);
-  return NextResponse.json(settings);
+  const [settings, user] = await Promise.all([getSettings(username), findByUsername(username)]);
+  return NextResponse.json({
+    ...settings,
+    username,
+    onboardingCompleted: user?.onboardingCompleted ?? false,
+    profile: user?.profile ?? {},
+  });
 }
 
 /**

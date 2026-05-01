@@ -14,10 +14,15 @@ import { promises as fs } from "node:fs";
 import path from "node:path";
 import { DATA_DIR } from "@/lib/storage/paths";
 import { readStore } from "@/lib/storage/persistent";
-import { verifySession } from "@/lib/auth";
+import { verifySession, getSessionUser } from "@/lib/auth";
+import { isAdminUser } from "@/lib/users";
 
 export async function GET() {
   if (!(await verifySession())) {
+    return NextResponse.json({ error: "forbidden" }, { status: 403 });
+  }
+  const username = await getSessionUser();
+  if (!username || !isAdminUser(username)) {
     return NextResponse.json({ error: "forbidden" }, { status: 403 });
   }
 

@@ -46,11 +46,22 @@ import { materializeTeamsIntelligence } from "@/lib/teams/materialize-teams";
  */
 
 
-export async function POST() {
-  // TODO: iterate over all registered users once multi-user is fully live.
-  // Cron and webhook callers run without sessions, so we fall back to the admin user.
-  const username = (await getSessionUser());
-  if (!username) return NextResponse.json({ error: "Unauthorised" }, { status: 401 });
+export async function POST(req: Request) {
+  // Cron and server-to-server callers authenticate with CRON_SECRET.
+  // Browser callers (manual trigger from settings page) use the session cookie.
+  const authHeader = req.headers.get("authorization");
+  const cronSecret = process.env.CRON_SECRET;
+  const isCronCall = cronSecret && authHeader === `Bearer ${cronSecret}`;
+
+  let username: string | null = null;
+  if (isCronCall) {
+    username = process.env.WEBHOOK_USERNAME ?? "michael";
+  } else {
+    username = await getSessionUser();
+    if (!username) {
+      return NextResponse.json({ error: "Unauthorised" }, { status: 401 });
+    }
+  }
 
   // ── Parallel source fetch ────────────────────────────────────────────────────
   // Zoom emails are fetched separately so they can be excluded from the regular
@@ -503,7 +514,7 @@ export async function POST() {
   let actionsAutoCompleted = 0;
   after(async () => {
     try {
-      const allActions = await listActions();
+      const allActions = await listActions(username);
       const emailActions = allActions
         .filter((a) => a.status === "open" && a.source === "email" && a.sourceRef?.startsWith("gmail:"))
         .slice(0, 10);
@@ -514,7 +525,7 @@ export async function POST() {
         if (!reply) continue;
 
         // Mark action done
-        await updateAction(action.id, {
+        await updateAction(username, action.id, {
           status:         "done",
           lastActivityAt: reply.sentAt,
         });
@@ -524,15 +535,15 @@ export async function POST() {
           .toISOString().split("T")[0];
 
         // Create a Decision capturing the completed action and suggested next steps
-        await createDecision({
+        await createDecision(username, {
           title:   `Replied to ${reply.originalFrom} re: ${reply.subject.slice(0, 50)}`,
           text:    `Sent reply to ${reply.originalFrom} regarding "${reply.subject}". Original action: ${action.text}`,
-          summary: `Michael replied to ${reply.originalFrom} completing the pending action: "${action.text}"`,
+          summary: `Replied to ${reply.originalFrom} completing the pending action: "${action.text}"`,
           consequences: [
             `Await response from ${reply.originalFrom}`,
             `Follow up if no reply by ${followUpDate}`,
           ],
-          decidedBy:      "Michael Cook",
+          decidedBy:      username,
           context:        reply.subject,
           source:         "email",
           sourceRef:      `gmail:${reply.messageId}`,
@@ -564,9 +575,8 @@ export async function POST() {
       for (const issue of linearIssues) {
         const sourceRef = `linear:${issue.identifier}`;
         const projectLabel = issue.project?.name ? ` [${issue.project.name}]` : "";
-        await createAction({
+        await createAction(username, {
           text:      `${issue.identifier}: ${issue.title}${projectLabel}`,
-          owner:     "Michael Cook",
           source:    "linear",
           sourceRef,
           priority:  linearPriorityToBasil(issue.priority),

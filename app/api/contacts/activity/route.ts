@@ -22,6 +22,12 @@ interface ContactActivity {
   lastInteraction: string | null; // ISO date string
   sources: string[];
   recentItems: string[];
+  /** Number of confirmed Zoom meetings with this contact in the last 30 days. */
+  zoomMeetingCount: number;
+  /** Human-readable Zoom meeting cadence, e.g. "weekly", "bi-weekly", or null if no meetings. */
+  zoomCadence: string | null;
+  /** Total interactions across all sources in the last 30 days. */
+  totalInteractionCount: number;
 }
 
 function nameMatchesContact(
@@ -217,12 +223,35 @@ export async function GET() {
     const lastInteraction =
       interactions.length > 0 ? interactions[0].date : contact.lastInteraction || null;
 
+    // ── Zoom meeting cadence ──────────────────────────────────────────────────
+    // Count confirmed Zoom meetings (from memory store + calendar video calls)
+    // in the last 30 days and derive a human-readable cadence label.
+    const zoomInteractions = interactions.filter(
+      (i) => i.source === "Zoom"
+    );
+    const zoomMeetingCount = zoomInteractions.length;
+
+    // Cadence: meetings per 30-day window expressed as a readable label.
+    // Thresholds: ≥8 = "2×/week", ≥4 = "weekly", ≥2 = "bi-weekly", ≥1 = "monthly", 0 = "inactive"
+    const zoomCadence =
+      zoomMeetingCount >= 8 ? "2×/week"
+      : zoomMeetingCount >= 4 ? "weekly"
+      : zoomMeetingCount >= 2 ? "bi-weekly"
+      : zoomMeetingCount >= 1 ? "monthly"
+      : null;
+
+    // Total interaction count across all sources (useful for relationship heat)
+    const totalInteractionCount = interactions.length;
+
     return {
       contactId: contact.id,
       name: contact.name,
       lastInteraction,
       sources: Array.from(sources),
       recentItems: interactions.slice(0, 5).map((i) => i.description),
+      zoomMeetingCount,
+      zoomCadence,
+      totalInteractionCount,
     };
   });
 

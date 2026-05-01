@@ -21,7 +21,7 @@ export async function POST() {
   const username = await getSessionUser();
   if (!username) return NextResponse.json({ error: "Unauthorised" }, { status: 401 });
 
-  const all = await listUserContacts();
+  const all = await listUserContacts(username);
 
   const toUpdate = all.filter(
     (c) =>
@@ -35,7 +35,7 @@ export async function POST() {
   const results: { id: string; name: string; email: string }[] = [];
 
   for (const c of toUpdate) {
-    await updateUserContactInStore(c.id, {
+    await updateUserContactInStore(username, c.id, {
       type: "internal",
       company: "TalentGenius",
       directory: "work",

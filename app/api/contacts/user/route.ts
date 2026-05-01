@@ -14,7 +14,7 @@ import { getSessionUser } from "@/lib/auth";
 export async function GET() {
   const username = await getSessionUser();
   if (!username) return NextResponse.json({ error: "Unauthorised" }, { status: 401 });
-  const contacts = await listUserContacts();
+  const contacts = await listUserContacts(username);
   return NextResponse.json({ contacts });
 }
 
@@ -31,7 +31,7 @@ export async function POST(req: Request) {
 
     // Bulk migration path
     if (Array.isArray(body?.import)) {
-      const added = await bulkImportUserContacts(body.import as Contact[]);
+      const added = await bulkImportUserContacts(username, body.import as Contact[]);
       return NextResponse.json({ imported: added }, { status: 201 });
     }
 
@@ -42,7 +42,7 @@ export async function POST(req: Request) {
         { status: 400 }
       );
     }
-    const saved = await addUserContactToStore(contact);
+    const saved = await addUserContactToStore(username, contact);
     return NextResponse.json({ contact: saved }, { status: 201 });
   } catch (e) {
     return NextResponse.json(

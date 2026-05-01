@@ -174,7 +174,7 @@ export async function POST() {
 
 
   // Write to canonical store (server file-system + in-memory).
-  const imported = await bulkImportUserContacts(stubs);
+  const imported = await bulkImportUserContacts(username, stubs);
 
   // ── Build compact signal index ───────────────────────────────────────────
   // The full whatsapp-snapshot.json is excluded from BASIL_DATA (too large).

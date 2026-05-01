@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Menu } from "lucide-react";
 import { AppSidebar } from "@/components/app-sidebar";
 import { Sheet, SheetContent } from "@/components/ui/sheet";
@@ -12,6 +12,22 @@ export default function DashboardLayout({
   children: React.ReactNode;
 }) {
   const [mobileOpen, setMobileOpen] = useState(false);
+
+  // Client-side guard: redirect to login if session is gone, or to onboarding
+  // if the user hasn't completed it. The middleware handles the unauthenticated
+  // case on first load; this catches session expiry mid-session.
+  useEffect(() => {
+    fetch("/api/settings", { cache: "no-store" })
+      .then((r) => {
+        if (r.status === 401) { window.location.replace("/login"); return null; }
+        return r.json();
+      })
+      .then((d) => {
+        if (!d) return;
+        if (d.onboardingCompleted === false) window.location.replace("/onboarding");
+      })
+      .catch(() => {});
+  }, []);
 
   return (
     <div className="flex h-screen overflow-hidden">

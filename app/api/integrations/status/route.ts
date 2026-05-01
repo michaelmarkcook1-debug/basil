@@ -3,6 +3,7 @@ import { getGoogleConnectionStatus } from "@/lib/google/auth";
 import { getMicrosoftConnectionStatus } from "@/lib/microsoft/auth";
 import { isSlackConnected } from "@/lib/slack/client";
 import { isLinearConnected } from "@/lib/linear/client";
+import { isZoomConnected } from "@/lib/zoom/auth";
 import { getSnapshotDiagnostics } from "@/lib/storage/persistent";
 import { getSessionUser } from "@/lib/auth";
 import type { IntegrationStatus } from "@/lib/integrations/types";
@@ -61,10 +62,18 @@ export async function GET() {
       lastCheckedAt: now,
     };
 
+    // ── Zoom ────────────────────────────────────────────────────────────────
+    const zoomConnected = await isZoomConnected(username);
+    const zoom: IntegrationStatus = {
+      id:            "zoom",
+      state:         zoomConnected ? "connected" : "disconnected",
+      lastCheckedAt: now,
+    };
+
     // ── Snapshot diagnostics ────────────────────────────────────────────────
     const snapshot = getSnapshotDiagnostics();
 
-    return NextResponse.json({ google, slack, microsoft, linear, claude, snapshot });
+    return NextResponse.json({ google, slack, microsoft, linear, claude, zoom, snapshot });
   } catch (err) {
     console.error("[integrations/status] Unexpected error:", err);
     return NextResponse.json(

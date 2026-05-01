@@ -126,6 +126,8 @@ function ContactDetail({
   liveItems,
   liveSources,
   lastInteraction,
+  zoomCadence,
+  zoomMeetingCount,
   canMove,
   isUserContact,
   onMove,
@@ -139,6 +141,8 @@ function ContactDetail({
   liveItems: string[];
   liveSources: string[];
   lastInteraction?: string;
+  zoomCadence?: string | null;
+  zoomMeetingCount?: number;
   /** True if this is a user-added contact that can be reassigned / renamed. */
   canMove: boolean;
   isUserContact: boolean;
@@ -705,6 +709,15 @@ function ContactDetail({
                     <Activity className="h-3 w-3" /> Sources: {liveSources.join(", ")}
                   </p>
                 )}
+                {zoomCadence && (
+                  <p className="text-[12px] text-muted-foreground mt-1.5 flex items-center gap-1.5">
+                    <span className="inline-block h-1.5 w-1.5 rounded-full bg-blue-500 shrink-0" />
+                    Zoom cadence: <span className="font-medium text-foreground">{zoomCadence}</span>
+                    {zoomMeetingCount && zoomMeetingCount > 0 && (
+                      <span className="text-muted-foreground/60">({zoomMeetingCount} meeting{zoomMeetingCount !== 1 ? "s" : ""} / 30d)</span>
+                    )}
+                  </p>
+                )}
               </CardContent>
             </Card>
           )}
@@ -736,6 +749,9 @@ interface ContactActivityItem {
   lastInteraction: string | null;
   sources: string[];
   recentItems: string[];
+  zoomMeetingCount?: number;
+  zoomCadence?: string | null;
+  totalInteractionCount?: number;
 }
 
 export default function ContactsPage() {
@@ -932,6 +948,14 @@ export default function ContactsPage() {
 
   function getLiveSources(contactId: string): string[] {
     return liveActivity.find((a) => a.contactId === contactId)?.sources || [];
+  }
+
+  function getZoomCadence(contactId: string): string | null {
+    return liveActivity.find((a) => a.contactId === contactId)?.zoomCadence ?? null;
+  }
+
+  function getZoomMeetingCount(contactId: string): number {
+    return liveActivity.find((a) => a.contactId === contactId)?.zoomMeetingCount ?? 0;
   }
 
   const allTags = Array.from(
@@ -1156,6 +1180,11 @@ export default function ContactsPage() {
                         {days === 999 ? "No interaction data" : `${days}d ago`}
                         {liveSources.length > 0 ? ` (${liveSources.join(", ")})` : ""}
                       </p>
+                      {getZoomCadence(c.id) && (
+                        <p className="text-blue-400 mt-0.5">
+                          Zoom: {getZoomCadence(c.id)} ({getZoomMeetingCount(c.id)} meetings/30d)
+                        </p>
+                      )}
                       {liveItems[0] && (
                         <p className="text-muted-foreground mt-0.5 truncate">{liveItems[0]}</p>
                       )}
@@ -1296,6 +1325,8 @@ export default function ContactsPage() {
             liveItems={getLiveItems(selected.id)}
             liveSources={getLiveSources(selected.id)}
             lastInteraction={getLastInteraction(selected.id, selected.lastInteraction)}
+            zoomCadence={getZoomCadence(selected.id)}
+            zoomMeetingCount={getZoomMeetingCount(selected.id)}
             canMove={isSelectedUserContact}
             isUserContact={isSelectedUserContact}
             onMove={(target) => handleMoveDirectory(selected.id, target)}

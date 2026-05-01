@@ -130,6 +130,7 @@ export async function processRegularEmail(opts: ProcessEmailOpts): Promise<void>
       subject,
       from,
       date,
+      username,
     });
 
     if (result.actionsCreated + result.decisionsCreated + result.memoriesCreated > 0) {
@@ -231,9 +232,9 @@ export async function processZoomEmail(opts: ProcessZoomEmailOpts): Promise<void
               : /this week|by \w+day|follow.?up/.test(textLower)
               ? ("medium" as const)
               : ("low" as const);
-          await createAction({
+          await createAction(username, {
             text: item.text.trim(),
-            owner: item.owner || "Michael Cook",
+            owner: item.owner,
             dueDate: item.dueDate,
             source: "meeting",
             eventId,
@@ -262,7 +263,7 @@ export async function processZoomEmail(opts: ProcessZoomEmailOpts): Promise<void
         const itemTier = zoomDecisionTier(itemConf);
         if (itemTier === "skip") continue;
         try {
-          const decision = await createDecision({
+          const decision = await createDecision(username, {
             text: dec.text.trim(),
             title: dec.title?.trim(),
             rationale: dec.rationale?.trim(),
@@ -284,9 +285,8 @@ export async function processZoomEmail(opts: ProcessZoomEmailOpts): Promise<void
           for (const consequence of dec.consequences ?? []) {
             if (!consequence.trim()) continue;
             try {
-              const action = await createAction({
+              const action = await createAction(username, {
                 text: consequence.trim(),
-                owner: "Michael Cook",
                 source: "meeting",
                 eventId,
                 sourceRef,
@@ -294,7 +294,7 @@ export async function processZoomEmail(opts: ProcessZoomEmailOpts): Promise<void
                 needsReview: needsReviewFlag(itemTier),
                 linkedDecisionIds: [decision.id],
               });
-              await linkActionToDecision(decision.id, action.id);
+              await linkActionToDecision(username, decision.id, action.id);
               actionsCreated++;
             } catch {
               /* non-fatal — decision was already created */

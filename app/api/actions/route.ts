@@ -10,7 +10,7 @@ import { getSessionUser } from "@/lib/auth";
 export async function GET() {
   const username = await getSessionUser();
   if (!username) return NextResponse.json({ error: "Unauthorised" }, { status: 401 });
-  const actions = await listActions();
+  const actions = await listActions(username);
   return NextResponse.json({ actions });
 }
 
@@ -22,7 +22,7 @@ export async function POST(req: Request) {
 
     // Bulk import path — used for one-time localStorage → server migration.
     if (Array.isArray(body?.import)) {
-      const added = await bulkImport(body.import as ActionItem[]);
+      const added = await bulkImport(username, body.import as ActionItem[]);
       return NextResponse.json({ imported: added }, { status: 201 });
     }
 
@@ -44,7 +44,7 @@ export async function POST(req: Request) {
       );
     }
 
-    const action = await createAction({
+    const action = await createAction(username, {
       text,
       owner,
       ownerId,

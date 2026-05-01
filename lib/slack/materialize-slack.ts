@@ -97,9 +97,9 @@ export async function materializeSlackIntelligence(
       for (const item of intel.actions) {
         if (!item.text?.trim()) continue;
         try {
-          await createAction({
+          await createAction(username, {
             text: item.text.trim(),
-            owner: item.owner || "Michael Cook",
+            owner: item.owner,
             dueDate: item.dueDate,
             source: "slack",
             eventId,
@@ -125,9 +125,8 @@ export async function materializeSlackIntelligence(
       );
       if (actionText) {
         try {
-          await createAction({
+          await createAction(username, {
             text: actionText,
-            owner: "Michael Cook",
             source: "slack",
             eventId,
             sourceRef,
@@ -149,7 +148,7 @@ export async function materializeSlackIntelligence(
     for (const dec of intel.decisions) {
       if (!dec.text?.trim()) continue;
       try {
-        const decision = await createDecision({
+        const decision = await createDecision(username, {
           text: dec.text.trim(),
           title: dec.title?.trim(),
           rationale: dec.rationale?.trim(),
@@ -175,16 +174,15 @@ export async function materializeSlackIntelligence(
           for (const consequence of dec.consequences) {
             if (!consequence.trim()) continue;
             try {
-              const action = await createAction({
+              const action = await createAction(username, {
                 text: consequence.trim(),
-                owner: "Michael Cook",
                 source: "slack",
                 eventId,
                 sourceRef,
                 needsReview: needsReviewFlag(dTier),
                 linkedDecisionIds: [decision.id],
               });
-              await linkActionToDecision(decision.id, action.id);
+              await linkActionToDecision(username, decision.id, action.id);
               actionsCreated++;
             } catch {
               // Non-fatal

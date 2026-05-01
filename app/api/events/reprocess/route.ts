@@ -31,8 +31,8 @@ export async function POST(_req: Request) {
 
   // ── Gather existing sourceRefs so we can skip already-classified events ──
   const [actions, decisions] = await Promise.all([
-    listActions(),
-    listDecisions(),
+    listActions(username),
+    listDecisions(username),
   ]);
 
   const classifiedRefs = new Set<string>();

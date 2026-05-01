@@ -1,5 +1,6 @@
 {
   "buildCommand": "VERCEL_TOKEN_CLEAN=\"$(printf '%s' \"${VERCEL_TOKEN}\" | tr -d '\\r\\n')\" && export VERCEL_TOKEN=\"$VERCEL_TOKEN_CLEAN\" && next build",
+  "alias": ["ag-contracts.vercel.app"],
   "crons": [
     {
       "path": "/api/events/poll-ingest",

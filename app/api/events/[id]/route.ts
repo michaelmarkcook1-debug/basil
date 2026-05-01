@@ -71,15 +71,18 @@ export async function PATCH(
     // When a notify alert is acknowledged, log a completed action as a receipt so
     // the user has a permanent record that they reviewed the alert.
     if (body.status === "acknowledged" && event.disposition === "notify") {
-      void createAction({
-        text: `Reviewed: ${event.headline}`,
-        owner: "Michael Cook",
-        source: toActionSource(event.source),
-        eventId: event.id,
-        sourceRef: event.sourceRef ?? event.externalId,
-        status: "done",
-        confidence: 1.0,
-      });
+      // username may be null here (status update path), resolve it best-effort
+      const ackUsername = await getSessionUser();
+      if (ackUsername) {
+        void createAction(ackUsername, {
+          text: `Reviewed: ${event.headline}`,
+          source: toActionSource(event.source),
+          eventId: event.id,
+          sourceRef: event.sourceRef ?? event.externalId,
+          status: "done",
+          confidence: 1.0,
+        });
+      }
     }
 
     return NextResponse.json({ event });

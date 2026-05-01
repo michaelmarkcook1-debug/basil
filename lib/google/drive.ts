@@ -70,20 +70,25 @@ export async function searchDriveFiles(username: string, query: string, maxResul
 
   const drive = google.drive({ version: "v3", auth });
 
-  const res = await drive.files.list({
-    q: `fullText contains '${query.replace(/'/g, "\\'")}'`,
-    pageSize: maxResults,
-    fields: "files(id, name, mimeType, modifiedTime, webViewLink)",
-    orderBy: "modifiedTime desc",
-  });
+  try {
+    const res = await drive.files.list({
+      q: `fullText contains '${query.replace(/'/g, "\\'")}'`,
+      pageSize: maxResults,
+      fields: "files(id, name, mimeType, modifiedTime, webViewLink)",
+      orderBy: "modifiedTime desc",
+    });
 
-  return (res.data.files || []).map((f) => ({
-    id: f.id || "",
-    name: f.name || "Untitled",
-    type: mimeTypeToLabel(f.mimeType || ""),
-    modifiedDate: f.modifiedTime || "",
-    webViewLink: f.webViewLink || undefined,
-  }));
+    return (res.data.files || []).map((f) => ({
+      id: f.id || "",
+      name: f.name || "Untitled",
+      type: mimeTypeToLabel(f.mimeType || ""),
+      modifiedDate: f.modifiedTime || "",
+      webViewLink: f.webViewLink || undefined,
+    }));
+  } catch (e) {
+    console.error("searchDriveFiles error:", e instanceof Error ? e.message : e);
+    return [];
+  }
 }
 
 function mimeTypeToLabel(mime: string): string {
