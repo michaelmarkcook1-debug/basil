@@ -34,6 +34,14 @@ jobs:
           node-version: 22
           cache: npm
 
+      # libsignal (transitive dep of @whiskeysockets/baileys) is pinned via a
+      # git+ssh:// URL in package-lock.json. GitHub Actions runners have no SSH
+      # key, so npm ci fails without this rewrite.
+      - name: Rewrite SSH git URLs to HTTPS
+        run: |
+          git config --global url."https://github.com/".insteadOf "git+ssh://git@github.com/"
+          git config --global url."https://github.com/".insteadOf "ssh://git@github.com/"
+
       - name: Install dependencies
         run: npm ci
 
