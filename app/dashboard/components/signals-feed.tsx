@@ -18,6 +18,8 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { relativeTime } from "@/lib/utils";
 import { cn } from "@/lib/utils";
+import { basilFetch, BasilFetchError } from "@/lib/basil-fetch";
+import { DataState } from "@/components/ui/data-state";
 
 type Tab = "priority" | "mail" | "slack" | "linear";
 
@@ -194,24 +196,24 @@ function TabButton({
           />
         )}
         {label}
+        {typeof count === "number" && count > 0 && (
+          <span
+            className={cn(
+              "inline-flex items-center justify-center h-4 min-w-4 rounded-full px-1 text-[12px] font-mono tabular-nums",
+              active
+                ? "bg-[oklch(0.72_0.15_85)]/15 text-[oklch(0.72_0.15_85)]"
+                : "bg-muted text-muted-foreground"
+            )}
+          >
+            {count}
+          </span>
+        )}
         {connected === false && (
           <span className="text-[10px] font-normal text-muted-foreground/60">
             (disconnected)
           </span>
         )}
       </span>
-      {typeof count === "number" && count > 0 && (
-        <span
-          className={cn(
-            "ml-1 inline-flex items-center justify-center h-4 min-w-4 rounded-full px-1 text-[12px] font-mono tabular-nums",
-            active
-              ? "bg-[oklch(0.72_0.15_85)]/15 text-[oklch(0.72_0.15_85)]"
-              : "bg-muted text-muted-foreground"
-          )}
-        >
-          {count}
-        </span>
-      )}
       {active && (
         <span className="absolute -bottom-[1px] left-2 right-2 h-[2px] bg-[oklch(0.72_0.15_85)] rounded-full" />
       )}
@@ -224,16 +226,27 @@ export function SignalsFeed() {
   const [slack, setSlack] = useState<{ connected: boolean; messages: SlackMessage[] } | null>(null);
   const [linear, setLinear] = useState<{ connected: boolean; issues: LinearIssueData[] } | null>(null);
   const [tab, setTab] = useState<Tab>("priority");
+  const [loading, setLoading] = useState(true);
+  const [fetchError, setFetchError] = useState<BasilFetchError | Error | null>(null);
 
   useEffect(() => {
-    Promise.all([
-      fetch("/api/email").then((r) => r.json()).catch(() => null),
-      fetch("/api/slack").then((r) => r.json()).catch(() => null),
-      fetch("/api/linear").then((r) => r.json()).catch(() => null),
-    ]).then(([m, s, l]) => {
-      setMail(m);
-      setSlack(s);
-      setLinear(l);
+    setLoading(true);
+    setFetchError(null);
+    Promise.allSettled([
+      basilFetch<{ connected: boolean; emails: Email[] }>("/api/email", { component: "SignalsFeed" }),
+      basilFetch<{ connected: boolean; messages: SlackMessage[] }>("/api/slack", { component: "SignalsFeed" }),
+      basilFetch<{ connected: boolean; issues: LinearIssueData[] }>("/api/linear", { component: "SignalsFeed" }),
+    ]).then(([mResult, sResult, lResult]) => {
+      // Apply each result independently — one failed endpoint shouldn't blank the others
+      if (mResult.status === "fulfilled") setMail(mResult.value);
+      if (sResult.status === "fulfilled") setSlack(sResult.value);
+      if (lResult.status === "fulfilled") setLinear(lResult.value);
+
+      // Only surface an error if ALL three failed (partial data is still useful)
+      if (mResult.status === "rejected" && sResult.status === "rejected" && lResult.status === "rejected") {
+        setFetchError(mResult.reason instanceof Error ? mResult.reason : new Error("Failed to load signals"));
+      }
+      setLoading(false);
     });
   }, []);
 
@@ -395,7 +408,6 @@ export function SignalsFeed() {
             ]
           : linearOnly;
 
-  const loading = mail === null || slack === null || linear === null;
   const mailConnected = mail?.connected;
   const slackConnected = slack?.connected;
   const linearConnected = linear?.connected;
@@ -451,6 +463,8 @@ export function SignalsFeed() {
               </div>
             ))}
           </div>
+        ) : fetchError ? (
+          <DataState error={fetchError} fill />
         ) : allDisconnected ? (
           <div className="flex flex-col items-center py-8 text-center">
             <Unplug className="h-8 w-8 text-muted-foreground/40 mb-2" />

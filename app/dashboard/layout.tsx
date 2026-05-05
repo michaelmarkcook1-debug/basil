@@ -5,6 +5,7 @@ import { Menu } from "lucide-react";
 import { AppSidebar } from "@/components/app-sidebar";
 import { Sheet, SheetContent } from "@/components/ui/sheet";
 import { ThemeToggle } from "@/components/theme-toggle";
+import { clearSessionUsername } from "@/lib/session-user";
 
 export default function DashboardLayout({
   children,
@@ -19,14 +20,16 @@ export default function DashboardLayout({
   useEffect(() => {
     fetch("/api/settings", { cache: "no-store" })
       .then((r) => {
-        if (r.status === 401) { window.location.replace("/login"); return null; }
+        if (r.status === 401) { clearSessionUsername(); window.location.replace("/login"); return null; }
         return r.json();
       })
       .then((d) => {
         if (!d) return;
         if (d.onboardingCompleted === false) window.location.replace("/onboarding");
       })
-      .catch(() => {});
+      .catch((e: unknown) => {
+        console.error("[basil-fetch] network_error", { route: "/api/settings", component: "DashboardLayout", error: e instanceof Error ? e.message : String(e) });
+      });
   }, []);
 
   return (

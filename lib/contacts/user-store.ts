@@ -106,49 +106,114 @@ function looksLikePhoneNumber(name: string): boolean {
   return /^\+?\d[\d\s\-(). ]{4,}$/.test(name.trim());
 }
 
+/** Non-empty string that isn't a dash/placeholder sentinel. */
+function hasRealValue(v: string | undefined): v is string {
+  return !!v && v.trim().length > 0 && v.trim() !== "—";
+}
+
+export interface BulkImportResult {
+  /** Contacts that did not exist before and were added. */
+  added: number;
+  /** Contacts that existed but received richer field values. */
+  updated: number;
+  /** Contacts that existed and had no upgrades to apply. */
+  unchanged: number;
+  /** Incoming stubs with no resolvable name (still a phone number). */
+  unresolved: number;
+}
+
 /**
  * Bulk import — idempotent by ID.
  *
- * New contacts are appended.  Existing contacts are skipped UNLESS:
- *   • their stored name is just a phone number AND
- *   • the incoming stub has a real resolved name (not also a phone number)
- * In that case we upgrade the name + initials — this repairs contacts that were
- * first imported before the chat-name resolution was working correctly.
+ * New contacts are appended.  Existing contacts receive richer field values
+ * when the incoming stub has better data:
+ *   - name upgrade: stored name is a raw phone number → incoming has a real name
+ *   - title upgrade: stored title is the placeholder "WhatsApp contact" → incoming differs
+ *   - phone, lastInteraction, activitySource: incoming has a value, stored is missing
+ *   - tags: incoming tags are merged (union) into the stored set
+ *
+ * Returns { added, updated, unchanged, unresolved } so callers can show exact counts.
  */
 export async function bulkImportUserContacts(
   username: string,
   incoming: Contact[]
-): Promise<number> {
+): Promise<BulkImportResult> {
   return withLock(lockKey(username), async () => {
     const items = await readAll(username);
     const existingById = new Map(items.map((c) => [c.id, c]));
     let added = 0;
     let updated = 0;
+    let unchanged = 0;
+    let unresolved = 0;
+
     for (const c of incoming) {
       const existing = existingById.get(c.id);
       if (!existing) {
         items.push(normalize(c));
         added++;
-      } else if (
-        looksLikePhoneNumber(existing.name) &&
-        c.name &&
-        !looksLikePhoneNumber(c.name)
-      ) {
-        // Upgrade: replace phone-number placeholder with a real name.
-        const idx = items.findIndex((x) => x.id === c.id);
-        if (idx !== -1) {
-          items[idx] = normalize({
-            ...items[idx],
-            name: c.name,
-            initials: c.initials,
-            color: c.color,
-          });
-          updated++;
+        continue;
+      }
+
+      // --- Upgrade existing record with richer values from the incoming stub ---
+      let patch: Partial<Contact> = {};
+
+      // Name: upgrade from phone-number placeholder to a real resolved name.
+      if (looksLikePhoneNumber(existing.name) && hasRealValue(c.name) && !looksLikePhoneNumber(c.name)) {
+        patch = {
+          ...patch,
+          name: c.name,
+          initials: c.initials,
+          color: c.color,
+        };
+      }
+
+      // Track unresolved even if no upgrade applies.
+      if (looksLikePhoneNumber(c.name)) unresolved++;
+
+      // Title: replace stale "WhatsApp contact" placeholder with a real value.
+      if (existing.title === "WhatsApp contact" && hasRealValue(c.title) && c.title !== "WhatsApp contact") {
+        patch.title = c.title;
+      }
+
+      // Phone: fill in if stored is missing.
+      if (!hasRealValue(existing.phone) && hasRealValue(c.phone)) {
+        patch.phone = c.phone;
+      }
+
+      // lastInteraction: take whichever is newer.
+      if (hasRealValue(c.lastInteraction)) {
+        if (!hasRealValue(existing.lastInteraction) ||
+            c.lastInteraction! > existing.lastInteraction!) {
+          patch.lastInteraction = c.lastInteraction;
         }
       }
+
+      // activitySource: fill in if stored is missing.
+      if (!hasRealValue(existing.activitySource) && hasRealValue(c.activitySource)) {
+        patch.activitySource = c.activitySource;
+      }
+
+      // tags: union merge (dedupe).
+      if (c.tags.length > 0) {
+        const merged = Array.from(new Set([...existing.tags, ...c.tags]));
+        if (merged.length > existing.tags.length) {
+          patch.tags = merged;
+        }
+      }
+
+      if (Object.keys(patch).length > 0) {
+        const idx = items.findIndex((x) => x.id === c.id);
+        if (idx !== -1) {
+          items[idx] = normalize({ ...items[idx], ...patch });
+          updated++;
+        }
+      } else {
+        unchanged++;
+      }
     }
+
     if (added > 0 || updated > 0) await writeAll(username, items);
-    return added;
+    return { added, updated, unchanged, unresolved };
   });
 }
 

@@ -33,6 +33,16 @@ export interface Contact {
   activitySource: string;
   // Relationship tracking
   lastInteraction?: string; // ISO date
+  // Source metadata
+  /** How this contact entered the store. */
+  source?: "seed" | "user-added" | "whatsapp-import" | "suggested";
+  /** ISO timestamp when this record was first created in the user store. */
+  createdAt?: string;
+  // AI-generated profile metadata (written by generate-profile → accept flow)
+  /** ISO timestamp of the most recent AI profile generation accepted by the user. */
+  generatedAt?: string;
+  /** Short signal-density line from the AI generator (audit/debug only). */
+  profileSummary?: string;
 }
 
 // Personality profiles built from real Slack messages, email threads, and meeting patterns

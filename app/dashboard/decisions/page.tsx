@@ -2,8 +2,10 @@
 
 import { useState, useEffect, useRef, useCallback } from "react";
 import { useDomainSync } from "@/lib/sync/use-domain-sync";
-import { useDraft } from "@/lib/hooks/use-draft";
+import { usePersistentDraft } from "@/lib/hooks/use-persistent-draft";
+import { DraftSavedIndicator } from "@/components/ui/draft-saved-indicator";
 import { Card, CardContent } from "@/components/ui/card";
+import { Skeleton } from "@/components/ui/skeleton";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -26,6 +28,8 @@ import {
 import { findContactByName } from "@/lib/contacts-lookup";
 import { dashboardCache } from "@/lib/dashboard-cache";
 import type { Decision } from "@/lib/types/decision";
+import { DataState } from "@/components/ui/data-state";
+import { EvidencePanel } from "@/components/ui/trust-badge";
 
 const LEGACY_STORAGE_KEY = "sage-decisions";
 
@@ -309,6 +313,16 @@ function DecisionCard({
                 )}
               </div>
             )}
+
+            {/* Evidence panel — always shown when provenance or confidence is available */}
+            {(d.sourceRef || d.additionalSourceRefs?.length || d.confidence !== undefined) && (
+              <EvidencePanel
+                sourceRef={d.sourceRef}
+                additionalSourceRefs={d.additionalSourceRefs}
+                confidence={d.confidence}
+                context={expanded ? d.context : undefined}
+              />
+            )}
           </div>
         </div>
       </CardContent>
@@ -318,21 +332,57 @@ function DecisionCard({
 
 export default function DecisionsPage() {
   const [decisions, setDecisions] = useState<Decision[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [fetchError, setFetchError] = useState<Error | null>(null);
   const [search, setSearch] = useState("");
   // Form draft — survives tab switches; cleared on save or explicit cancel.
-  const [form, setForm, clearForm] = useDraft<DecisionFormDraft>(DECISION_DRAFT_KEY, decisionDraftDefault());
+  const { draft: form, setDraft: setForm, clearDraft: clearForm, draftSaved: formDraftSaved } =
+    usePersistentDraft<DecisionFormDraft>("draft-decision", { defaultValue: decisionDraftDefault() });
   const migratedRef = useRef(false);
+  // sourceActionId — set when navigating from Actions page "Decision needed" badge
+  const [sourceActionId, setSourceActionId] = useState<string | null>(null);
+
+  // Read query params once on mount — avoids useSearchParams Suspense requirement
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const params = new URLSearchParams(window.location.search);
+    const fromAction = params.get("fromAction");
+    const actionText = params.get("text");
+    if (fromAction && actionText) {
+      setSourceActionId(fromAction);
+      // Open form pre-filled with the action context
+      setForm((f) => ({
+        ...f,
+        showForm: true,
+        context: `Action: ${actionText}`,
+        date: new Date().toISOString().split("T")[0],
+      }));
+      // Clean URL without reload so navigating back/forward works cleanly
+      const clean = new URL(window.location.href);
+      clean.searchParams.delete("fromAction");
+      clean.searchParams.delete("text");
+      window.history.replaceState(null, "", clean.toString());
+    }
+  }, []);
 
   const refresh = useCallback(async () => {
     // Serve cached data instantly — eliminates blank flash on tab switch
     const cached = dashboardCache.get<Decision[]>("decisions");
-    if (cached) setDecisions(cached);
+    if (cached) { setDecisions(cached); setLoading(false); }
     // Always revalidate from server
     const res = await fetch("/api/decisions", { cache: "no-store" });
-    const data = await res.json();
+    if (!res.ok) {
+      console.error("[basil-fetch]", res.status === 401 ? "auth_error" : "server_error", { route: "/api/decisions", status: res.status, component: "DecisionsPage" });
+      if (!cached) setFetchError(new Error(`HTTP ${res.status}`));
+      setLoading(false);
+      return;
+    }
+    setFetchError(null);
+    const data = await res.json() as { decisions?: Decision[] };
     const fresh: Decision[] = data.decisions || [];
     dashboardCache.set("decisions", fresh);
     setDecisions(fresh);
+    setLoading(false);
   }, []);
 
   const notify = useDomainSync("decisions", refresh);
@@ -372,7 +422,7 @@ export default function DecisionsPage() {
 
   async function handleAdd() {
     if (!form.text.trim()) return;
-    await fetch("/api/decisions", {
+    const res = await fetch("/api/decisions", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -386,6 +436,29 @@ export default function DecisionsPage() {
         source: "manual",
       }),
     });
+    // If this decision was triggered from an action's "Decision needed" badge,
+    // mark that action's decisionRequired resolved and store the decision ID.
+    if (sourceActionId && res.ok) {
+      let decision: { id: string } | undefined;
+      try {
+        const body = await res.json() as { decision?: { id: string } };
+        decision = body.decision;
+      } catch (e) {
+        console.error("[basil-fetch] json_parse_error", { route: "/api/decisions", component: "DecisionsPage", error: e instanceof Error ? e.message : String(e) });
+      }
+      if (decision?.id) {
+        await fetch(`/api/actions/${sourceActionId}`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            decisionRequired: false,
+            linkedDecisionId: decision.id,
+            linkedDecisionIds: [decision.id],
+          }),
+        });
+        setSourceActionId(null);
+      }
+    }
     clearForm();
     notify();
   }
@@ -458,6 +531,13 @@ export default function DecisionsPage() {
       {form.showForm && (
         <Card className="border-[oklch(0.72_0.15_85)]/30">
           <CardContent className="p-4 space-y-3">
+            {/* Context banner when arriving from Actions page */}
+            {sourceActionId && (
+              <div className="flex items-start gap-2 rounded-lg bg-violet-50 border border-violet-200 px-3 py-2 text-[12px] text-violet-800">
+                <GitBranch className="h-3.5 w-3.5 mt-0.5 shrink-0 text-violet-500" />
+                <span>Logging a decision from your Actions list. Once saved, the action will be marked resolved.</span>
+              </div>
+            )}
             <Input
               placeholder="Short headline (optional, e.g. 'Adopt REST API')"
               value={form.title}
@@ -494,7 +574,7 @@ export default function DecisionsPage() {
               onChange={(e) => setForm(f => ({ ...f, rationale: e.target.value }))}
               rows={2}
             />
-            <div className="flex gap-2">
+            <div className="flex items-center gap-2">
               <Button
                 size="sm"
                 onClick={handleAdd}
@@ -505,6 +585,7 @@ export default function DecisionsPage() {
               <Button size="sm" variant="outline" onClick={clearForm}>
                 Cancel
               </Button>
+              <DraftSavedIndicator saved={formDraftSaved} className="ml-1" />
             </div>
           </CardContent>
         </Card>
@@ -543,14 +624,31 @@ export default function DecisionsPage() {
 
       {/* ── Active decisions ────────────────────────────────────────────────── */}
       <div className="space-y-3">
-        {active.length === 0 && !search && (
+        {loading ? (
+          <>
+            {[1,2,3].map((i) => (
+              <Card key={i}>
+                <CardContent className="py-4 space-y-2">
+                  <Skeleton className="h-4 w-2/3" />
+                  <Skeleton className="h-3 w-1/2" />
+                </CardContent>
+              </Card>
+            ))}
+          </>
+        ) : fetchError ? (
+          <Card>
+            <CardContent className="py-2">
+              <DataState error={fetchError} onRetry={refresh} />
+            </CardContent>
+          </Card>
+        ) : active.length === 0 && !search ? (
           <Card>
             <CardContent className="py-8 text-center text-muted-foreground">
               No active decisions logged yet.
             </CardContent>
           </Card>
-        )}
-        {active.length === 0 && search && (
+        ) : null}
+        {!loading && active.length === 0 && search && (
           <Card>
             <CardContent className="py-6 text-center text-muted-foreground text-sm">
               No decisions match &ldquo;{search}&rdquo;.

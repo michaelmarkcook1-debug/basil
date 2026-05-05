@@ -43,6 +43,25 @@ export function getUserContacts(): Contact[] {
 }
 
 /**
+ * Replace a single contact in the localStorage cache with an authoritative
+ * server-returned record.  Used after a PATCH succeeds so the cache reflects
+ * the canonical server value immediately without a full re-fetch.
+ *
+ * Does NOT emit a domain-change event — callers that need cross-tab/surface
+ * sync should call `emitChange("contacts")` separately.
+ */
+export function patchContactInCache(serverContact: Contact): void {
+  if (typeof window === "undefined") return;
+  const contacts = getUserContacts();
+  const idx = contacts.findIndex((c) => c.id === serverContact.id);
+  if (idx === -1) return;
+  contacts[idx] = normalize(serverContact);
+  try {
+    localStorage.setItem(USER_CONTACTS_KEY, JSON.stringify(contacts));
+  } catch { /* storage full */ }
+}
+
+/**
  * Synchronously merge contacts into the localStorage cache.
  * Used to seed the cache from a POST response body so subsequent reads
  * don't depend on a server round-trip that might hit a stale instance.

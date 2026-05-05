@@ -118,7 +118,7 @@ function ResetPasswordForm() {
             className={inputClass}
           />
           {mismatch && (
-            <p className="text-xs text-red-400">Passwords don't match</p>
+            <p className="text-xs text-red-400">Passwords don&apos;t match</p>
           )}
         </div>
 

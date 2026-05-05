@@ -12,6 +12,9 @@ export interface CalendarEvent {
   attendeeCount: number;
   attendees: string[];
   dateLabel?: string; // "Today", "Tomorrow", or "Wednesday, 16 April"
+  location?: string;
+  description?: string;
+  videoLink?: string;  // extracted meet/zoom/teams join URL
 }
 
 function cleanSummary(summary: string): string {
@@ -23,8 +26,32 @@ function cleanSummary(summary: string): string {
     .trim();
 }
 
+/** Extract a joinable video-call URL from the raw Google Calendar event object. */
+function extractVideoLink(e: any): string | undefined { // eslint-disable-line @typescript-eslint/no-explicit-any
+  // Google Meet
+  if (e.hangoutLink) return e.hangoutLink as string;
+  const entryPoints: any[] = e.conferenceData?.entryPoints || []; // eslint-disable-line @typescript-eslint/no-explicit-any
+  const video = entryPoints.find((ep: any) => ep.entryPointType === "video"); // eslint-disable-line @typescript-eslint/no-explicit-any
+  if (video?.uri) return video.uri as string;
+  // Zoom / Teams — scan location and description
+  const haystack = `${e.location || ""} ${e.description || ""}`;
+  const match = haystack.match(/(https:\/\/[^\s<"]+(?:zoom\.us\/j|teams\.microsoft\.com\/l\/meetup|meet\.google\.com)[^\s<"]*)/i);
+  return match?.[1];
+}
+
 function mapEvent(e: any, dateLabel: string): CalendarEvent { // eslint-disable-line @typescript-eslint/no-explicit-any
   const isAllDay = !e.start?.dateTime;
+  const videoLink = extractVideoLink(e);
+  // Strip plain HTML tags from description for clean display
+  const rawDesc: string = e.description || "";
+  const description = rawDesc
+    .replace(/<br\s*\/?>/gi, "\n")
+    .replace(/<[^>]+>/g, "")
+    .replace(/&nbsp;/g, " ")
+    .replace(/&amp;/g, "&")
+    .trim()
+    .slice(0, 600) || undefined;
+
   return {
     id: e.id || "",
     summary: cleanSummary(e.summary || "Untitled"),
@@ -49,6 +76,9 @@ function mapEvent(e: any, dateLabel: string): CalendarEvent { // eslint-disable-
         .filter(Boolean)
     ),
     dateLabel,
+    location: e.location || undefined,
+    description,
+    videoLink,
   };
 }
 

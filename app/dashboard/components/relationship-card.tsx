@@ -191,6 +191,18 @@ export function RelationshipCard() {
       .sort((a, b) => b.days - a.days); // stale first
   }, [liveData]);
 
+  // Featured cards: up to 2 drifting contacts shown as large cards.
+  const needsAttention = useMemo(
+    () => enriched.filter((c) => c.bucket === "drifting").slice(0, 2),
+    [enriched]
+  );
+
+  // Avatar rows exclude featured contacts so nothing appears twice.
+  const featuredIds = useMemo(
+    () => new Set(needsAttention.map((c) => c.id)),
+    [needsAttention]
+  );
+
   const groupedByBucket = useMemo(() => {
     const g: Record<Bucket, typeof enriched> = {
       cold: [],
@@ -198,15 +210,11 @@ export function RelationshipCard() {
       loop: [],
       unknown: [],
     };
-    for (const c of enriched) g[c.bucket].push(c);
+    for (const c of enriched) {
+      if (!featuredIds.has(c.id)) g[c.bucket].push(c);
+    }
     return g;
-  }, [enriched]);
-
-  // The 2 stalest real-contacts (have interaction data) — these get featured cards.
-  const needsAttention = useMemo(
-    () => [...groupedByBucket.cold, ...groupedByBucket.drifting].slice(0, 2),
-    [groupedByBucket]
-  );
+  }, [enriched, featuredIds]);
 
   return (
     <Card className="border-[oklch(0.72_0.15_85)]/30">

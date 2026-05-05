@@ -1,6 +1,9 @@
-import { generateText } from "ai";
+export const maxDuration = 300;
+
+import { getTextModel, MAX_TOKENS } from "@/lib/ai/model-config";
 import { getSystemPrompt } from "@/lib/ai/system-prompt";
-import { parseAIJson } from "@/lib/ai/parse-json";
+import { generateValidated, AIValidationError, aiValidationErrorResponse } from "@/lib/ai/generate-validated";
+import { ContactProfileSchema } from "@/lib/ai/schemas";
 import { searchEmails, getRecentEmails } from "@/lib/google/gmail";
 import {
   getRecentSlackMessages,
@@ -74,7 +77,7 @@ export async function POST(req: Request) {
       ? getZoomSummaries(username, 30).catch(() => [])
       : Promise.resolve([]),
     // WhatsApp signal is available for any contact regardless of directory.
-    getWhatsAppSignalForContact(name, body.phone, 40).catch(() => [] as string[]),
+    getWhatsAppSignalForContact(username, name, body.phone, 40).catch(() => [] as string[]),
     // Teams chat messages — work contacts only
     shouldPullWorkSignal
       ? getTeamsChatSignalForContact(username, name, 30).catch(() => [] as string[])
@@ -246,7 +249,7 @@ Each field is one compact paragraph, Michael's voice, grounded in evidence:
 - **whatMakesThemTick** — What they care about, what energises them. Draw from what they share, what they return to, what they get excited about.
 - **watchOut** — Failure modes and friction points for Michael to anticipate. "His silence usually means X." "He expects Y within hours." Practical — what Michael can actually DO with this info.
 - **recentActivity** — 2-4 concrete recent observations. Name specific emails, Slack threads, meetings. Dates where available. Not generalities.
-- **activitySource** — The sources used, comma-separated (e.g. "Slack, Email, Calendar", or "Michael's notes" if no app signal).
+- **activitySource** — The sources used, comma-separated (e.g. "Slack, Email, Calendar", or "Owner's notes" if no app signal).
 
 ## Factual guardrails — non-negotiable
 - Every specific claim must trace to evidence above. If the data doesn't support it, don't claim it.
@@ -278,38 +281,26 @@ Return ONLY valid JSON, no markdown fences:
 }`;
 
   try {
-    const result = await generateText({
-      model: "anthropic/claude-sonnet-4.6",
+    const parsed = await generateValidated({
+      kind: "object",
+      schema: ContactProfileSchema,
+      schemaName: "ContactProfile",
+      model: getTextModel(),
+      maxOutputTokens: MAX_TOKENS.default,
       system: await getSystemPrompt(username),
       prompt: promptText,
-      providerOptions: {
-        gateway: { tags: ["feature:contact-profile", "env:production"] },
-      },
+      tag: "contact-profile",
+      providerOptions: { gateway: { tags: ["feature:contact-profile", "env:production"] } },
     });
-
-    const parsed = parseAIJson<{
-      personality: string;
-      whatMakesThemTick: string;
-      watchOut: string;
-      recentActivity: string;
-      activitySource: string;
-      summary?: string;
-      /** Structured fields explicitly stated in Michael's notes — not inferred. */
-      canonicalFields?: {
-        name?: string;
-        title?: string;
-        company?: string;
-        location?: string;
-        email?: string;
-        phone?: string;
-      };
-    }>(result.text);
     return Response.json({
       ...parsed,
       signalCount,
       generatedAt: new Date().toISOString(),
     });
   } catch (e) {
+    if (e instanceof AIValidationError) {
+      return Response.json(aiValidationErrorResponse(e), { status: 422 });
+    }
     const msg = e instanceof Error ? e.message : String(e);
     console.error("[generate-profile] failed:", msg);
     return Response.json(

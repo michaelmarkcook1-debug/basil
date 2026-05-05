@@ -1,0 +1,143 @@
+name: Basil CI
+
+on:
+  push:
+    branches: ["main"]
+  pull_request:
+    branches: ["main"]
+  workflow_dispatch:
+
+jobs:
+  ci:
+    name: Lint · Typecheck · Test · Build · Guards · E2E
+    runs-on: ubuntu-latest
+
+    env:
+      NODE_ENV: test
+      NEXT_TELEMETRY_DISABLED: "1"
+      BASIL_APP_URL: http://localhost:3000
+      NEXT_PUBLIC_APP_URL: http://localhost:3000
+      # Dummy values — real secrets are never stored here.
+      # The app must build without them; routes that need them fail at runtime, not build time.
+      AUTH_SECRET: ci-test-secret
+      OPENAI_API_KEY: dummy
+      ANTHROPIC_API_KEY: dummy
+      # ── Persistence guard mode ────────────────────────────────────────────────
+      # false (default): BASIL_DATA and durable /tmp usage emit warnings but do
+      #                  not block merges.  Use this while the migration is in
+      #                  progress.
+      # true  (strict):  Those same patterns become hard failures.  Enable once
+      #                  all exit criteria in docs/stability-sprint-exit-criteria.md
+      #                  are met and verified on production.
+      CI_STRICT_PERSISTENCE: "false"
+      #
+      # ── TO ENABLE STRICT MODE — uncomment and flip to true ────────────────────
+      # Prerequisites (all must be done before flipping):
+      #   1. No process.env.BASIL_DATA references outside lib/storage/
+      #   2. No route handler writes user data to /tmp without a Blob mirror
+      #   3. Health endpoint shows storage: "blob" on production
+      #   4. Actions, decisions, and memories survive a Vercel redeploy
+      #   5. WhatsApp snapshots confirmed scoped per-user in Blob
+      #   6. Contact saves confirmed atomic (no partial writes on cold start)
+      # See docs/stability-sprint-exit-criteria.md for the full checklist.
+      #
+      # CI_STRICT_PERSISTENCE: "true"
+
+    steps:
+      # ── Checkout ──────────────────────────────────────────────────────────────
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # ── Node ──────────────────────────────────────────────────────────────────
+      - name: Set up Node 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          # Cache only activates when a lockfile exists; no-op otherwise.
+          cache: ${{ hashFiles('package-lock.json') != '' && 'npm' || '' }}
+
+      # ── Install ───────────────────────────────────────────────────────────────
+      - name: Install dependencies
+        run: |
+          if [ -f package-lock.json ]; then
+            npm ci
+          else
+            echo "::warning::No package-lock.json found — using npm install. Commit a lockfile for reproducible builds."
+            npm install
+          fi
+
+      # ── Lint ──────────────────────────────────────────────────────────────────
+      - name: Lint
+        run: npm run lint --if-present
+
+      # ── TypeScript ────────────────────────────────────────────────────────────
+      - name: TypeScript check
+        run: npm run typecheck --if-present
+
+      # ── Tests ─────────────────────────────────────────────────────────────────
+      - name: Tests
+        run: npm test --if-present
+
+      # ── Build ─────────────────────────────────────────────────────────────────
+      - name: Build
+        run: npm run build
+
+      # ── Code quality guards ───────────────────────────────────────────────────
+      # Defined in scripts/ci-guards.sh and wired via package.json "ci:guards".
+      # Checks:
+      #   • No hardcoded username equality comparisons (=== "michael" etc.)
+      #   • No unannotated silent catch(() => {}) blocks
+      #   • No process.env.BASIL_DATA usage outside lib/storage/
+      - name: Code quality guards
+        run: npm run ci:guards --if-present
+
+      # ── Playwright browsers ───────────────────────────────────────────────────
+      # Install only Chromium — keeps download size small (~200 MB vs ~600 MB).
+      # Cached between runs via the Playwright cache action.
+      - name: Cache Playwright browsers
+        uses: actions/cache@v4
+        id: playwright-cache
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-chromium-${{ hashFiles('package-lock.json') }}
+
+      - name: Install Playwright browsers
+        if: steps.playwright-cache.outputs.cache-hit != 'true'
+        run: npx playwright install --with-deps chromium
+
+      - name: Install Playwright system dependencies
+        if: steps.playwright-cache.outputs.cache-hit == 'true'
+        run: npx playwright install-deps chromium
+
+      # ── E2E smoke tests ───────────────────────────────────────────────────────
+      # Runs against a production build to match what Vercel deploys.
+      # The webServer in playwright.config.ts is skipped in CI (reuseExistingServer
+      # is false when CI=true), so we start next start here instead.
+      #
+      # E2E_TEST_MODE=true enables POST /api/e2e/test-session (test-only auth
+      # bypass).  This flag is guarded at request time — setting it here is safe
+      # and has no effect once the server process exits.
+      - name: Start production server for e2e
+        run: |
+          NODE_ENV=production npm start &
+          # Wait for the server to be ready.
+          npx wait-on http://127.0.0.1:3000 --timeout 60000
+        env:
+          PORT: 3000
+          E2E_TEST_MODE: "true"
+          PLAYWRIGHT_BASE_URL: http://127.0.0.1:3000
+
+      - name: E2E smoke tests
+        run: npm run test:e2e --if-present
+        env:
+          CI: "true"
+          E2E_TEST_MODE: "true"
+          PLAYWRIGHT_BASE_URL: http://127.0.0.1:3000
+
+      - name: Upload Playwright report on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report
+          path: playwright-report/
+          retention-days: 7

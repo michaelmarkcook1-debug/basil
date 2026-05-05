@@ -228,7 +228,7 @@ export default function OnboardingPage() {
     fetch("/api/integrations/status")
       .then((r) => r.json())
       .then((d) => setIntegrations(d))
-      .catch(() => {});
+      .catch(() => {}); // fire-and-forget — integration status is non-critical on mount
 
     fetch("/api/settings")
       .then((r) => r.json())
@@ -256,7 +256,7 @@ export default function OnboardingPage() {
         if (d?.workStart) setForm((f) => ({ ...f, workStart: d.workStart }));
         if (d?.workEnd)   setForm((f) => ({ ...f, workEnd:   d.workEnd }));
       })
-      .catch(() => {});
+      .catch(() => {}); // fire-and-forget — settings prefill is best-effort
   }, []);
 
   function setField<K extends keyof FormData>(key: K, value: FormData[K]) {
@@ -331,7 +331,7 @@ export default function OnboardingPage() {
           Welcome{userName ? `, ${userName}` : ""}!
         </h2>
         <p className="text-white/60 leading-relaxed max-w-sm mx-auto">
-          Basil is your personal executive assistant. Let's take 3 minutes to
+          Basil is your personal executive assistant. Let&apos;s take 3 minutes to
           personalise your workspace so Basil can hit the ground running.
         </p>
       </div>

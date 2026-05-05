@@ -19,7 +19,7 @@ export async function PUT(
     if (!username) return NextResponse.json({ error: "Unauthorised" }, { status: 401 });
     const { id } = await params;
     const patch = (await req.json()) as ProfileOverride;
-    const merged = await setOverrideInStore(id, patch);
+    const merged = await setOverrideInStore(username, id, patch);
     return NextResponse.json({ override: merged });
   } catch (e) {
     return NextResponse.json(
@@ -41,7 +41,7 @@ export async function DELETE(
     const username = await getSessionUser();
     if (!username) return NextResponse.json({ error: "Unauthorised" }, { status: 401 });
     const { id } = await params;
-    await clearOverrideFromStore(id);
+    await clearOverrideFromStore(username, id);
     return new NextResponse(null, { status: 204 });
   } catch (e) {
     return NextResponse.json(

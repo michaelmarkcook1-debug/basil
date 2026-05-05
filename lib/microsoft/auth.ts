@@ -233,9 +233,79 @@ export async function getAccessToken(username: string): Promise<string | null> {
 // ── Graph fetch helpers ───────────────────────────────────────────────────────
 
 /**
+ * Unconditionally refresh the access token using the stored refresh_token,
+ * bypassing the cached `expires_at` check.  Called on 401 responses to recover
+ * from server-side token invalidation (password change, conditional access,
+ * admin revoke) that makes a locally-valid-looking token rejected by Graph.
+ *
+ * On refresh failure: writes `expires_at: 0` so that the next
+ * `getMicrosoftConnectionStatus` call returns `token_expired` and the Settings
+ * page prompts the user to re-authorise.
+ */
+async function forceRefreshToken(username: string): Promise<string | null> {
+  const tokens = await getStoredTokens(username);
+  if (!tokens?.refresh_token) return null;
+
+  try {
+    const res = await fetch(getTokenEndpoint(), {
+      method:  "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body:    new URLSearchParams({
+        client_id:     process.env.MICROSOFT_CLIENT_ID || "",
+        client_secret: process.env.MICROSOFT_CLIENT_SECRET || "",
+        refresh_token: tokens.refresh_token,
+        grant_type:    "refresh_token",
+        scope:         SCOPES,
+      }),
+    });
+
+    if (!res.ok) {
+      const body = await res.text().catch(() => "");
+      console.error(`[microsoft-auth] Force-refresh failed HTTP ${res.status}: ${body.slice(0, 200)}`);
+      // Mark token as expired so status page shows "re-authorize" prompt
+      await writeUserStore<MicrosoftTokens>(username, TOKENS_FILE, {
+        ...tokens,
+        access_token: "",
+        expires_at:   0,
+      });
+      return null;
+    }
+
+    const data = await res.json() as {
+      access_token:   string;
+      refresh_token?: string;
+      expires_in:     number;
+      scope:          string;
+      token_type:     string;
+    };
+
+    const refreshed: MicrosoftTokens = {
+      access_token:  data.access_token,
+      refresh_token: data.refresh_token || tokens.refresh_token,
+      expires_at:    Date.now() + data.expires_in * 1000,
+      scope:         data.scope || tokens.scope,
+      token_type:    data.token_type,
+    };
+
+    await writeUserStore<MicrosoftTokens>(username, TOKENS_FILE, refreshed);
+    console.log("[microsoft-auth] Force-refresh succeeded — new token stored");
+    return refreshed.access_token;
+  } catch (err) {
+    console.error("[microsoft-auth] Force-refresh error:", err instanceof Error ? err.message : err);
+    return null;
+  }
+}
+
+/**
  * Low-level fetch against Microsoft Graph with Authorization header injected.
  * If path starts with "https://" it is used as-is; otherwise GRAPH_BASE is prepended.
  * Returns null if not authenticated.
+ *
+ * Handles 401 responses automatically: attempts a forced token refresh and
+ * retries once.  This recovers from server-side invalidation (password changes,
+ * conditional access, admin revoke) where the locally-cached token looks valid
+ * but is rejected by Graph.  If the retry also fails, returns the 401 response
+ * to the caller so it can log/surface the error.
  */
 export async function graphFetch(
   username: string,
@@ -247,13 +317,27 @@ export async function graphFetch(
 
   const url = path.startsWith("https://") ? path : `${GRAPH_BASE}${path}`;
 
-  const headers = new Headers(options.headers ?? {});
-  headers.set("Authorization", `Bearer ${token}`);
-  if (!headers.has("Content-Type") && options.method && options.method !== "GET") {
-    headers.set("Content-Type", "application/json");
+  const buildHeaders = (t: string): Headers => {
+    const h = new Headers(options.headers ?? {});
+    h.set("Authorization", `Bearer ${t}`);
+    if (!h.has("Content-Type") && options.method && options.method !== "GET") {
+      h.set("Content-Type", "application/json");
+    }
+    return h;
+  };
+
+  const res = await fetch(url, { ...options, headers: buildHeaders(token) });
+
+  // On 401: locally-cached token may be server-side invalidated.
+  // Force-refresh using refresh_token and retry once.
+  if (res.status === 401) {
+    console.warn(`[microsoft-auth] 401 on ${path} — attempting force-refresh`);
+    const freshToken = await forceRefreshToken(username);
+    if (!freshToken) return res; // refresh failed — caller gets the 401
+    return fetch(url, { ...options, headers: buildHeaders(freshToken) });
   }
 
-  return fetch(url, { ...options, headers });
+  return res;
 }
 
 /**

@@ -272,7 +272,7 @@ export default function AdminPage() {
         </Card>
 
         <p className="text-xs text-muted-foreground text-center mt-6">
-          Only <strong>@{process.env.NEXT_PUBLIC_ADMIN_USERNAME ?? "admin"}</strong> can access this panel.
+          Only <strong>@{process.env.NEXT_PUBLIC_ADMIN_USERNAME ?? "admin"}</strong> can access this panel. {/* ci-ok: display-only label, not an auth check */}
         </p>
       </div>
 

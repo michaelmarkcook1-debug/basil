@@ -70,8 +70,10 @@ Do not wait to be asked.`;
     ? `${settings.videoTool} only (never Google Meet). Room: ${settings.meetingUrl}`
     : `${settings.videoTool} only (never Google Meet).`;
 
-  // ── Michael-specific org context (only shown when logged in as michael) ──
-  // Build a profile block for non-michael users from onboarding data
+  // ── Primary-owner org context (only shown when PRIMARY_OWNER_USERNAME matches) ──
+  // Set PRIMARY_OWNER_USERNAME in the environment to inject full org context for
+  // the primary user. Other users get a generic profile-based prompt instead.
+  // Build a profile block for non-primary users from onboarding data
   const profileLines: string[] = [];
   if (profile?.jobTitle && profile?.company) profileLines.push(`- Role: ${profile.jobTitle} at ${profile.company}`);
   else if (profile?.jobTitle) profileLines.push(`- Job title: ${profile.jobTitle}`);
@@ -79,7 +81,8 @@ Do not wait to be asked.`;
   if (profile?.communicationStyle) profileLines.push(`- Communication style: ${profile.communicationStyle}`);
   if (profile?.priorities?.length) profileLines.push(`- Priorities: ${profile.priorities.join(", ")}`);
 
-  const orgContext = username === "michael" ? `
+  const primaryOwner = process.env.PRIMARY_OWNER_USERNAME;
+  const orgContext = (primaryOwner && username === primaryOwner) ? `
 ## Who ${firstName} Is
 - CEO of AnalystGenius (AG) — AI-native industry analyst platform targeting AR professionals. Pre-launch, V1.0.
 - VP of Product at TalentGenius (holding company) — oversight across AG, AgentPowered/TalentGenius (AP/TG), and BoardRadar (BR).

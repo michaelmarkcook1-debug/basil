@@ -83,7 +83,12 @@ function PlatformStatusBar({ data }: { data: AIProjectsData }) {
       {allPlatforms.map((status) => (
         <div
           key={status.platform}
-          className="shrink-0 flex flex-col items-center gap-1.5 rounded-xl border border-border bg-card px-4 py-3 min-w-[90px]"
+          className={cn(
+            "shrink-0 flex flex-col items-center gap-1.5 rounded-xl border px-4 py-3 min-w-[90px]",
+            status.connected && status.scraped
+              ? "border-amber-200 bg-amber-50/60"
+              : "border-border bg-card"
+          )}
         >
           {/* Traffic light dot */}
           <span
@@ -92,13 +97,20 @@ function PlatformStatusBar({ data }: { data: AIProjectsData }) {
               status.connected
                 ? status.error
                   ? "bg-red-500"
-                  : "bg-emerald-500"
+                  : status.scraped
+                    ? "bg-amber-400"
+                    : "bg-emerald-500"
                 : "bg-muted-foreground/30"
             )}
           />
           <span className="text-xs font-medium text-center leading-tight">
             {status.label}
           </span>
+          {status.connected && status.scraped && (
+            <span className="text-[10px] text-amber-600 font-medium text-center leading-tight">
+              scraped
+            </span>
+          )}
           {status.connected && status.itemCount !== undefined && (
             <span className="text-[11px] text-muted-foreground tabular-nums">
               {status.itemCount} item{status.itemCount !== 1 ? "s" : ""}
@@ -129,11 +141,14 @@ function ProjectRow({
   project,
   onHide,
   onCategoryChange,
+  scrapedPlatforms,
 }: {
   project: AIProject;
   onHide: (id: string) => void;
   onCategoryChange: (id: string, category: Category) => void;
+  scrapedPlatforms: Set<Platform>;
 }) {
+  const isScraped = scrapedPlatforms.has(project.platform);
   const [showPopover, setShowPopover] = useState(false);
   const imp = effectiveImportance(project);
   const hasRelated = (project.relatedProjectIds?.length ?? 0) > 0;
@@ -141,14 +156,21 @@ function ProjectRow({
   return (
     <div className="relative flex items-start gap-3 py-3 border-b border-border/50 last:border-0 group">
       {/* Platform badge */}
-      <span
-        className={cn(
-          "shrink-0 mt-0.5 rounded px-1.5 py-0.5 text-[11px] font-medium",
-          platformBadgeStyle(project.platform)
+      <div className="shrink-0 mt-0.5 flex flex-col items-start gap-0.5">
+        <span
+          className={cn(
+            "rounded px-1.5 py-0.5 text-[11px] font-medium",
+            platformBadgeStyle(project.platform)
+          )}
+        >
+          {PLATFORM_LABELS[project.platform]}
+        </span>
+        {isScraped && (
+          <span className="rounded px-1.5 py-0.5 text-[10px] font-medium bg-amber-100 text-amber-700 border border-amber-200">
+            scraped
+          </span>
         )}
-      >
-        {PLATFORM_LABELS[project.platform]}
-      </span>
+      </div>
 
       {/* Content */}
       <div
@@ -249,6 +271,7 @@ function ProjectColumn({
   count,
   onHide,
   onCategoryChange,
+  scrapedPlatforms,
 }: {
   title: string;
   projects: AIProject[];
@@ -256,6 +279,7 @@ function ProjectColumn({
   count: number;
   onHide: (id: string) => void;
   onCategoryChange: (id: string, category: Category) => void;
+  scrapedPlatforms: Set<Platform>;
 }) {
   const [sort, setSort] = useState<SortOption>("recency");
   const sorted = sortProjects(projects, sort);
@@ -287,7 +311,7 @@ function ProjectColumn({
           <p className="py-6 text-center text-sm text-muted-foreground">No projects here yet.</p>
         ) : (
           sorted.map((p) => (
-            <ProjectRow key={p.id} project={p} onHide={onHide} onCategoryChange={onCategoryChange} />
+            <ProjectRow key={p.id} project={p} onHide={onHide} onCategoryChange={onCategoryChange} scrapedPlatforms={scrapedPlatforms} />
           ))
         )}
       </CardContent>
@@ -371,6 +395,10 @@ export default function AIProjectsPage() {
   const personalProjects = visible.filter((p) => effectiveCategory(p) === "personal");
   const unknownProjects = visible.filter((p) => effectiveCategory(p) === "unknown");
 
+  const scrapedPlatforms = new Set<Platform>(
+    data ? Object.values(data.platforms).filter((s) => s.scraped).map((s) => s.platform) : []
+  );
+
   const connectedCount = data
     ? Object.values(data.platforms).filter((s) => s.connected).length
     : 0;
@@ -443,6 +471,7 @@ export default function AIProjectsPage() {
                 count={workProjects.length}
                 onHide={handleHide}
                 onCategoryChange={handleCategoryChange}
+                scrapedPlatforms={scrapedPlatforms}
               />
               <ProjectColumn
                 title="Personal Projects"
@@ -451,6 +480,7 @@ export default function AIProjectsPage() {
                 count={personalProjects.length}
                 onHide={handleHide}
                 onCategoryChange={handleCategoryChange}
+                scrapedPlatforms={scrapedPlatforms}
               />
             </div>
           </section>
@@ -467,6 +497,7 @@ export default function AIProjectsPage() {
                       project={p}
                       onHide={handleHide}
                       onCategoryChange={handleCategoryChange}
+                      scrapedPlatforms={scrapedPlatforms}
                     />
                   ))}
                 </CardContent>

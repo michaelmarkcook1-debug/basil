@@ -25,7 +25,7 @@ async function readTokens(): Promise<ResetToken[]> {
 }
 
 async function writeTokens(tokens: ResetToken[]): Promise<void> {
-  await writeStore(TOKENS_FILE, tokens);
+  await writeStore(TOKENS_FILE, tokens, undefined, { durability: "strong" });
 }
 
 /** Purge expired or used tokens to keep the file small. */

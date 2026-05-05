@@ -32,6 +32,16 @@ export interface Briefing {
   inboxSlack:          string | null;
   generatedAt: string;
   extraContextSummary?: string;
+  /** Signal counts used to generate this briefing — used by the trust UX. */
+  dataSources?: {
+    todayEvents:      number;
+    emails:           number;
+    slackMessages:    number;
+    zoomSummaries:    number;
+    openActions:      number;
+    activeDecisions:  number;
+    recentMemories:   number;
+  };
 }
 
 // ── Weekly Digest ─────────────────────────────────────────────────────────────

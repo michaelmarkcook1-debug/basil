@@ -14,45 +14,52 @@
  */
 
 import type { ProfileOverride } from "@/lib/contact-profile-overrides";
-import { readStore, writeStore } from "@/lib/storage/persistent";
+import { readUserStore, writeUserStore } from "@/lib/storage/user-store";
 import { withLock } from "@/lib/events/lock";
 
 type OverrideMap = Record<string, ProfileOverride>;
 
 const OVERRIDES_FILE = "sage-contact-overrides.json";
-const LOCK_KEY = "contact-overrides";
+
+function lockKey(username: string): string {
+  return `contact-overrides:${username}`;
+}
 
 // ── Public API ────────────────────────────────────────────────────────────────
+// All functions require `username` so each user's overrides are stored under
+// DATA_DIR/users/<username>/sage-contact-overrides.json (isolated per user).
 
-export async function getAllOverridesFromStore(): Promise<OverrideMap> {
-  return readStore<OverrideMap>(OVERRIDES_FILE, {});
+export async function getAllOverridesFromStore(username: string): Promise<OverrideMap> {
+  return readUserStore<OverrideMap>(username, OVERRIDES_FILE, {});
 }
 
 export async function getOverrideFromStore(
+  username: string,
   contactId: string
 ): Promise<ProfileOverride | undefined> {
-  const all = await getAllOverridesFromStore();
+  const all = await getAllOverridesFromStore(username);
   return all[contactId];
 }
 
 export async function setOverrideInStore(
+  username: string,
   contactId: string,
   patch: ProfileOverride
 ): Promise<ProfileOverride> {
-  return withLock(LOCK_KEY, async () => {
-    const all = await readStore<OverrideMap>(OVERRIDES_FILE, {});
+  return withLock(lockKey(username), async () => {
+    const all = await readUserStore<OverrideMap>(username, OVERRIDES_FILE, {});
     const merged: ProfileOverride = { ...all[contactId], ...patch };
     all[contactId] = merged;
-    await writeStore(OVERRIDES_FILE, all);
+    await writeUserStore(username, OVERRIDES_FILE, all);
     return merged;
   });
 }
 
-export async function clearOverrideFromStore(contactId: string): Promise<void> {
-  return withLock(LOCK_KEY, async () => {
-    const all = await readStore<OverrideMap>(OVERRIDES_FILE, {});
+export async function clearOverrideFromStore(username: string, contactId: string): Promise<void> {
+  return withLock(lockKey(username), async () => {
+    const all = await readUserStore<OverrideMap>(username, OVERRIDES_FILE, {});
     if (!all[contactId]) return;
     delete all[contactId];
-    await writeStore(OVERRIDES_FILE, all);
+    await writeUserStore(username, OVERRIDES_FILE, all);
   });
 }

@@ -22,8 +22,14 @@ export async function GET(req: NextRequest) {
   const name = searchParams.get("name") || undefined;
   const queries = [email, name].filter(Boolean) as string[];
 
-  // Dev-only route — always uses admin user "michael"
-  const devUsername = "michael";
+  // Dev-only route — caller must supply ?username= to identify whose tokens to use.
+  const devUsername = searchParams.get("username") || process.env.ADMIN_USERNAME;
+  if (!devUsername) {
+    return NextResponse.json(
+      { error: "Provide ?username= or set ADMIN_USERNAME" },
+      { status: 400 }
+    );
+  }
 
   const profile = email ? await getUserProfile(devUsername, email) : null;
 

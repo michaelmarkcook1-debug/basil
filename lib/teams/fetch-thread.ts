@@ -106,8 +106,8 @@ export async function fetchTeamsThread(
       : `/me/chats/${chatOrTeamId}/messages/${messageId}/replies?$top=${MAX_THREAD_REPLIES}`;
 
     const [parentData, repliesData] = await Promise.all([
-      graphGet<GraphChatMessage>(username, parentPath).catch(() => null),
-      graphGet<GraphListResponse<GraphChatMessage>>(username, repliesPath).catch(() => null),
+      graphGet<GraphChatMessage>(username, parentPath).catch(() => null), // ci-ok: partial Teams thread data is acceptable; null handled in caller
+      graphGet<GraphListResponse<GraphChatMessage>>(username, repliesPath).catch(() => null), // ci-ok: partial Teams thread data is acceptable; null handled in caller
     ]);
 
     const result: TeamsThreadMessage[] = [];

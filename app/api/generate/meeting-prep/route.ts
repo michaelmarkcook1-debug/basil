@@ -1,11 +1,15 @@
 import { generateText, type ModelMessage } from "ai";
+import { getTextModel, MAX_TOKENS } from "@/lib/ai/model-config";
+
+export const maxDuration = 300;
 import { getSystemPrompt } from "@/lib/ai/system-prompt";
 import { getSettings } from "@/lib/settings/store";
 import { findContactByName, getPersonaSummary } from "@/lib/contacts-lookup";
 import { listUserContacts } from "@/lib/contacts/user-store";
 import { getAllOverridesFromStore } from "@/lib/contacts/overrides-store";
 import type { Contact } from "@/lib/contacts-data";
-import { parseAIJson } from "@/lib/ai/parse-json";
+import { parseAndValidate } from "@/lib/ai/parse-json";
+import { MeetingPrepOutputSchema } from "@/lib/ai/schemas";
 import { getRecentEmails } from "@/lib/google/gmail";
 
 // ── Context window constants ───────────────────────────────────────────────────
@@ -36,6 +40,13 @@ import {
 import { getMemoriesForEntity, listMemories } from "@/lib/memory/store";
 import { getSessionUser } from "@/lib/auth";
 import type { Memory } from "@/lib/memory/types";
+import {
+  readGenerateCache,
+  writeGenerateCache,
+  isCacheValid,
+  computeInputHash,
+  MEETING_PREP_TTL_MS,
+} from "@/lib/generate-cache/store";
 
 export async function POST(req: Request) {
   const username = (await getSessionUser());
@@ -50,6 +61,8 @@ export async function POST(req: Request) {
   let attendees: string[];
   let date: string;
   let time: string;
+  /** When true, bypass the server-side cache and always regenerate. */
+  let regenerate = false;
   let extra: ExtraContext = {
     notes: "",
     textBlock: "",
@@ -67,6 +80,7 @@ export async function POST(req: Request) {
       attendees = meta.attendees || [];
       date = meta.date;
       time = meta.time;
+      regenerate = !!meta.regenerate;
       // userContacts is no longer forwarded — read from the server store below
     } catch {
       return Response.json({ error: "Invalid meeting payload" }, { status: 400 });
@@ -82,11 +96,12 @@ export async function POST(req: Request) {
     attendees = body.attendees || [];
     date = body.date;
     time = body.time;
+    regenerate = !!body.regenerate;
     // userContacts is no longer forwarded — read from the server store below
   }
 
   // Resolve user timezone early — used for date arithmetic and system prompt.
-  const settings = await getSettings(username).catch(() => null);
+  const settings = await getSettings(username).catch(() => null); // ci-ok: settings optional, null falls back to defaults
   const tz = settings?.timezone || "Europe/London";
 
   // Fetch user contacts and AI-generated overrides from the server store so
@@ -94,12 +109,44 @@ export async function POST(req: Request) {
   // having to forward them through the request body.
   const [userContacts, overrideMap] = await Promise.all([
     listUserContacts(username).catch(() => [] as Contact[]),
-    getAllOverridesFromStore().catch(() => ({} as Record<string, unknown>)),
+    getAllOverridesFromStore(username).catch(() => ({} as Record<string, unknown>)),
   ]);
 
   // Michael isn't an attendee of his own meeting — strip him everywhere.
   const attendeeNames = stripSelf(attendees as string[]);
   const attendeeNamesLower = attendeeNames.map((n: string) => n.toLowerCase());
+
+  // ── Server-side cache check ────────────────────────────────────────────────
+  // The input hash covers the meeting's stable identity (title + date +
+  // attendees sorted).  Extra-context changes (notes, files) are intentional
+  // user input and always bypass the cache to incorporate new information.
+  const hasExtraContext =
+    extra.notes.trim().length > 0 ||
+    extra.textBlock.trim().length > 0 ||
+    extra.fileParts.length > 0;
+
+  const meetingInputHash = computeInputHash(
+    username,
+    title,
+    date,
+    [...attendeeNames].sort().join(","),
+  );
+
+  if (!regenerate && !hasExtraContext) {
+    try {
+      const cached = await readGenerateCache<Record<string, unknown>>(
+        username,
+        "meeting-prep"
+      );
+      if (cached && isCacheValid(cached, { inputHash: meetingInputHash })) {
+        console.log(`[meeting-prep] cache hit for ${username} / "${title}" on ${date}`);
+        return Response.json(cached.content);
+      }
+    } catch (e) {
+      // Cache read failure is non-fatal — fall through to generation
+      console.warn("[meeting-prep] cache read failed:", e instanceof Error ? e.message : e);
+    }
+  }
 
   const attendeeProfiles = attendeeNames
     .map((name: string) => {
@@ -549,55 +596,90 @@ Return ONLY valid JSON, no markdown code fences:
         ]
       : undefined;
 
+  let systemPrompt: string;
+  try {
+    systemPrompt = await getSystemPrompt(username, tz);
+  } catch (e) {
+    const msg = e instanceof Error ? e.message.slice(0, 120) : String(e).slice(0, 120);
+    console.error("[mp] systemPrompt fail:", msg);
+    return Response.json({ error: "AI generation failed. Please try again in a moment." }, { status: 503 });
+  }
+
   let result: Awaited<ReturnType<typeof generateText>>;
   try {
     result = await generateText({
-      model: "anthropic/claude-sonnet-4.6",
-      system: await getSystemPrompt(username, tz),
+      model: getTextModel("long"),
+      maxOutputTokens: MAX_TOKENS.long,
+      system: systemPrompt,
       ...(messages ? { messages } : { prompt: promptText }),
-      providerOptions: {
-        gateway: { tags: ["feature:meeting-prep", "env:production"] },
-      },
     });
   } catch (e) {
-    console.error("[meeting-prep] generateText failed:", e instanceof Error ? e.message : e);
+    const name = e instanceof Error ? e.constructor.name : "unknown";
+    const msg  = e instanceof Error ? e.message : String(e);
+    const status = (e as Record<string, unknown>)?.statusCode ?? (e as Record<string, unknown>)?.status ?? "";
+    console.error(`[mp-err] ${name} ${status}:`, msg.slice(0, 100));
     return Response.json(
       { error: "AI generation failed. Please try again in a moment." },
       { status: 503 }
     );
   }
 
-  try {
-    const parsed = parseAIJson<Record<string, unknown>>(result.text);
-    return Response.json({
-      ...parsed,
-      generatedAt: new Date().toISOString(),
-      extraContextSummary: extra.summary,
-      // Structured reference data — passed directly from store, not AI-generated,
-      // so provenance and exact text are preserved.
-      openActions: relevantActions.map((a) => ({
-        id: a.id,
-        text: a.text,
-        owner: a.owner,
-        dueDate: a.dueDate,
-        status: a.status,
-        priority: a.priority,
-        source: a.source,
-        createdAt: a.createdAt,
-      })),
-      priorDecisions: relevantDecisions.map((d) => ({
-        id: d.id,
-        text: d.text,
-        title: d.title,
-        decidedBy: d.decidedBy,
-        date: d.date,
-        rationale: d.rationale,
-        consequences: d.consequences,
-        source: d.source,
-        confidence: d.confidence,
-      })),
-    });
-  } catch {
-    return Response.json({ error: "Failed to parse AI response", raw: result.text });
+  const parseResult = parseAndValidate(result.text, MeetingPrepOutputSchema, "[meeting-prep]");
+  if (!parseResult.ok) {
+    console.error("[meeting-prep] parse failed:", parseResult.error);
+    return Response.json(
+      { error: "Failed to parse AI response" },
+      { status: 422 }
+    );
   }
+
+  const prepResult = {
+    ...parseResult.data,
+    generatedAt: new Date().toISOString(),
+    extraContextSummary: extra.summary,
+    // Signal counts for trust UX — how much evidence backed this prep
+    dataSources: {
+      emails:          relevantEmails.length,
+      slackMessages:   relevantSlack.length,
+      zoomSummaries:   relevantZoom.length,
+      openActions:     relevantActions.length,
+      activeDecisions: relevantDecisions.length,
+    },
+    // Structured reference data — passed directly from store, not AI-generated,
+    // so provenance and exact text are preserved.
+    openActions: relevantActions.map((a) => ({
+      id: a.id,
+      text: a.text,
+      owner: a.owner,
+      dueDate: a.dueDate,
+      status: a.status,
+      priority: a.priority,
+      source: a.source,
+      createdAt: a.createdAt,
+    })),
+    priorDecisions: relevantDecisions.map((d) => ({
+      id: d.id,
+      text: d.text,
+      title: d.title,
+      decidedBy: d.decidedBy,
+      date: d.date,
+      rationale: d.rationale,
+      consequences: d.consequences,
+      source: d.source,
+      confidence: d.confidence,
+    })),
+  };
+
+  // Cache the result — only when there's no extra context so we don't serve
+  // a personalised prep (with user notes/files) as a generic cache hit.
+  if (!hasExtraContext) {
+    writeGenerateCache(username, "meeting-prep", prepResult, {
+      inputHash: meetingInputHash,
+      ttlMs: MEETING_PREP_TTL_MS,
+    }).catch((e) =>
+      console.warn("[meeting-prep] cache write failed:", e instanceof Error ? e.message : e)
+    );
+  }
+
+  return Response.json(prepResult);
 }

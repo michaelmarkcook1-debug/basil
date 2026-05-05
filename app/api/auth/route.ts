@@ -31,7 +31,7 @@ export async function POST(req: Request) {
   }
 
   // Record last login time (best-effort, non-blocking)
-  updateUser(username, { lastLoginAt: new Date().toISOString() }).catch(() => {});
+  updateUser(username, { lastLoginAt: new Date().toISOString() }).catch(() => {}); // fire-and-forget
 
   await createSession(username, user.sessionVersion ?? 1);
   return NextResponse.json({

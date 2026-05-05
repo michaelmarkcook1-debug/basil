@@ -32,5 +32,8 @@ export async function writeUserStore<T>(
   filename: string,
   data: T
 ): Promise<void> {
-  return writeStore<T>(filename, data, userSubdir(username));
+  // All user-scoped writes use strong durability: the Blob write is awaited
+  // before returning so that no user-mutating API response is sent before the
+  // data is durably persisted.
+  return writeStore<T>(filename, data, userSubdir(username), { durability: "strong" });
 }

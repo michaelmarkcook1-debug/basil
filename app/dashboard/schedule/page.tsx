@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -8,6 +8,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { usePersistentDraft } from "@/lib/hooks/use-persistent-draft";
 import {
   CalendarPlus,
   ChevronLeft,
@@ -34,6 +35,9 @@ interface CalEvent {
   hasVideo?: boolean;
   attendees?: string[];
   dateLabel?: string;
+  location?: string;
+  description?: string;
+  videoLink?: string;
 }
 
 interface ProposedMeeting {
@@ -45,6 +49,16 @@ interface ProposedMeeting {
   status: "proposed" | "approved" | "declined";
 }
 
+interface ScheduleDraft {
+  proposed: ProposedMeeting[];
+  basilResponse: string;
+}
+
+const EMPTY_SCHEDULE_DRAFT: ScheduleDraft = {
+  proposed: [],
+  basilResponse: "",
+};
+
 function toDay(e: CalEvent): DayEvent {
   return {
     id: e.id,
@@ -54,6 +68,9 @@ function toDay(e: CalEvent): DayEvent {
     isAllDay: !!e.isAllDay,
     hasVideo: !!e.hasVideo,
     attendees: e.attendees || [],
+    location: e.location,
+    description: e.description,
+    videoLink: e.videoLink,
   };
 }
 
@@ -81,55 +98,51 @@ export default function SchedulePage() {
   const [selectedDay, setSelectedDay] = useState<number | null>(now.getDate());
   const [basilInput, setBasilInput] = useState("");
   const [basilLoading, setBasilLoading] = useState(false);
-  const [basilResponse, setBasilResponse] = useState("");
-  const [proposed, setProposed] = useState<ProposedMeeting[]>([]);
   const [approving, setApproving] = useState<number | null>(null);
   // Proposed meeting inline editing
   const [editProposedIdx, setEditProposedIdx] = useState<number | null>(null);
   const [editProposedForm, setEditProposedForm] = useState<{
     title: string; date: string; startTime: string; duration: number;
   }>({ title: "", date: "", startTime: "09:00", duration: 30 });
-  const hydrated = useRef(false);
 
-  // Hydrate proposed meetings + last Basil response from localStorage on mount.
-  // Drop proposals whose date has already passed — stale "proposed" entries
-  // from days ago would clutter the diary view.
   // CLASSIFICATION: disposable UX state — Basil's scheduling proposals for
   // the current device session.  Proposals that the user approves are written
   // to Google Calendar (the durable truth); the localStorage copy is only a
   // pending-queue display aid.  Clearing this key loses unsent proposals, not
   // committed calendar events.
-  useEffect(() => {
-    if (hydrated.current) return;
-    hydrated.current = true;
-    try {
-      const cached = localStorage.getItem("sage-schedule-v1");
-      if (!cached) return;
-      const parsed = JSON.parse(cached) as {
-        proposed?: ProposedMeeting[];
-        basilResponse?: string;
-      };
-      const today = new Date().toISOString().slice(0, 10);
-      const fresh = (parsed.proposed || []).filter((p) => p.date >= today);
-      if (fresh.length > 0) setProposed(fresh);
-      if (parsed.basilResponse) setBasilResponse(parsed.basilResponse);
-    } catch {
-      /* ignore bad cache */
-    }
-  }, []);
+  const {
+    draft: scheduleDraft,
+    setDraft: setScheduleDraft,
+  } = usePersistentDraft<ScheduleDraft>("sage-schedule-v1", {
+    defaultValue: EMPTY_SCHEDULE_DRAFT,
+  });
 
-  // Persist proposed + basilResponse on change (skip during pre-hydration render).
+  const proposed = scheduleDraft.proposed;
+  const basilResponse = scheduleDraft.basilResponse;
+
+  const setProposed = (
+    updater: ProposedMeeting[] | ((prev: ProposedMeeting[]) => ProposedMeeting[])
+  ) => {
+    setScheduleDraft((d) => ({
+      ...d,
+      proposed: typeof updater === "function" ? updater(d.proposed) : updater,
+    }));
+  };
+
+  const setBasilResponse = (v: string) => {
+    setScheduleDraft((d) => ({ ...d, basilResponse: v }));
+  };
+
+  // Drop proposals whose date has already passed on first render.
   useEffect(() => {
-    if (!hydrated.current) return;
-    try {
-      localStorage.setItem(
-        "sage-schedule-v1",
-        JSON.stringify({ proposed, basilResponse })
-      );
-    } catch {
-      /* localStorage full or unavailable */
-    }
-  }, [proposed, basilResponse]);
+    const today = new Date().toISOString().slice(0, 10);
+    setScheduleDraft((d) => {
+      const fresh = d.proposed.filter((p) => p.date >= today);
+      if (fresh.length === d.proposed.length) return d; // no change
+      return { ...d, proposed: fresh };
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // Fetch events for the visible month
   const fetchEvents = useCallback(() => {

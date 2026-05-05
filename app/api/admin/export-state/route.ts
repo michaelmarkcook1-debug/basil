@@ -1,19 +1,18 @@
 /**
  * GET /api/admin/export-state
  *
- * Returns all .json files from DATA_DIR as a JSON object — the same shape
- * as the BASIL_DATA snapshot. Use this to capture live /tmp state before a
- * redeployment that would trigger a cold start.
+ * Returns a list of all store files visible from the current instance.
+ * With Blob-backed storage this reflects what's in Vercel Blob (via /tmp
+ * cache). Useful for debugging; no longer needed for pre-redeployment
+ * snapshots since Blob storage is redeployment-safe.
  *
- * Protected by the session cookie (same auth as the rest of the app).
- * The proxy already enforces auth for all /api routes, but we re-check here
- * as defence-in-depth since this endpoint exports the full data store.
+ * Protected by session cookie + admin check.
  */
 import { NextResponse } from "next/server";
 import { promises as fs } from "node:fs";
 import path from "node:path";
-import { DATA_DIR } from "@/lib/storage/paths";
-import { readStore } from "@/lib/storage/persistent";
+import { DATA_DIR } from "@/lib/storage/paths"; // ci-ok: importing the canonical path constant from storage layer
+import { listStore } from "@/lib/storage/persistent";
 import { verifySession, getSessionUser } from "@/lib/auth";
 import { isAdminUser } from "@/lib/users";
 
@@ -26,50 +25,39 @@ export async function GET() {
     return NextResponse.json({ error: "forbidden" }, { status: 403 });
   }
 
-  // Trigger maybeRestore() so BASIL_DATA is hydrated into /tmp on cold start
-  await readStore("__ping__.json", null);
+  // List root-level and user-scoped files from Blob (or local FS in dev)
+  const [rootFiles, userFiles] = await Promise.all([
+    listStore(),
+    listStore(`users/${username.replace(/[^a-zA-Z0-9._-]/g, "_")}`),
+  ]);
 
-  // Recursively collect all JSON files so user-scoped files (users/*/...)
-  // are included — a flat readdir misses them entirely.
-  async function collectAll(dir: string, relBase = ""): Promise<Array<{ key: string; absPath: string }>> {
+  // Also snapshot /tmp cache for debugging warm-instance state
+  async function collectTmp(dir: string, relBase = ""): Promise<string[]> {
     let entries: string[];
-    try { entries = await fs.readdir(dir); }
-    catch { return []; }
-    const results: Array<{ key: string; absPath: string }> = [];
+    try { entries = await fs.readdir(dir); } catch { return []; }
+    const results: string[] = [];
     for (const entry of entries) {
       const absPath = path.join(dir, entry);
       const relPath = relBase ? `${relBase}/${entry}` : entry;
-      let stat: Awaited<ReturnType<typeof fs.stat>>;
-      try { stat = await fs.stat(absPath); } catch { continue; }
-      if (stat.isDirectory()) {
-        results.push(...await collectAll(absPath, relPath));
+      let isDir = false;
+      try { isDir = (await fs.stat(absPath)).isDirectory(); } catch { continue; }
+      if (isDir) {
+        results.push(...await collectTmp(absPath, relPath));
       } else if (entry.endsWith(".json")) {
-        results.push({ key: relPath, absPath });
+        results.push(relPath);
       }
     }
     return results;
   }
 
-  let allFiles: Array<{ key: string; absPath: string }> = [];
-  try {
-    allFiles = await collectAll(DATA_DIR);
-  } catch {
-    return NextResponse.json({ files: [], note: "DATA_DIR empty or missing — cold start?" });
-  }
+  const tmpFiles = await collectTmp(DATA_DIR); // ci-ok: DATA_DIR from lib/storage/paths, legacy export only
 
-  const snapshot: Record<string, unknown> = {};
-  for (const { key, absPath } of allFiles) {
-    try {
-      const raw = await fs.readFile(absPath, "utf8");
-      snapshot[key] = JSON.parse(raw);
-    } catch {
-      // skip unreadable
-    }
-  }
-
+  console.log(`[export-state] user=${username} root=${rootFiles.length} userFiles=${userFiles.length} tmp=${tmpFiles.length}`);
   return NextResponse.json({
-    files: Object.keys(snapshot),
-    snapshot,
-    basil_data_b64: Buffer.from(JSON.stringify(snapshot)).toString("base64"),
+    storage: process.env.BLOB_READ_WRITE_TOKEN ? "vercel-blob" : "filesystem",
+    blobRootFiles: rootFiles,
+    blobUserFiles: userFiles,
+    tmpCacheFiles: tmpFiles,
+    note: "Data is durable in Vercel Blob — no pre-deployment snapshot needed.",
   });
 }

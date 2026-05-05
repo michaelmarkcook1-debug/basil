@@ -200,8 +200,9 @@ function ChatPageInner() {
         try { localStorage.setItem(CHAT_STORAGE_KEY, JSON.stringify(uiMessages)); } catch { /* ignore */ }
         serverSaved.current = true;
       })
-      .catch(() => {
+      .catch((e: unknown) => {
         // Server unavailable — session cache is the fallback, mark as ready
+        console.warn("[basil-fetch] network_error", { route: "/api/chat/history", component: "ChatPage", error: e instanceof Error ? e.message : String(e) });
         serverSaved.current = true;
       });
   }, [setMessages]);
@@ -260,7 +261,10 @@ function ChatPageInner() {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ messages: storedMessages }),
-    }).then(() => { serverSaved.current = true; }).catch(() => { /* best-effort */ });
+    }).then(() => { serverSaved.current = true; }).catch((e: unknown) => {
+      // best-effort auto-save — failure is non-fatal
+      console.warn("[basil-fetch] network_error", { route: "/api/chat/history", component: "ChatPage", error: e instanceof Error ? e.message : String(e) });
+    });
   }, [status, messages]);
 
   useEffect(() => {
@@ -273,7 +277,9 @@ function ChatPageInner() {
     setMessages([]);
     try { localStorage.removeItem(CHAT_STORAGE_KEY); } catch { /* ignore */ }
     // Clear server-side history so other devices/sessions also start fresh
-    fetch("/api/chat/history", { method: "DELETE" }).catch(() => { /* best-effort */ });
+    fetch("/api/chat/history", { method: "DELETE" }).catch((e: unknown) => {
+      console.warn("[basil-fetch] network_error", { route: "/api/chat/history", component: "ChatPage", error: e instanceof Error ? e.message : String(e) });
+    });
   }
 
   function handleSubmit(e: React.FormEvent) {

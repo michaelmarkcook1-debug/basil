@@ -1,6 +1,8 @@
 import { NextResponse, after } from "next/server";
 import { createEvent, hasExternalId, updateEvent, compactEvents } from "@/lib/events/store";
 import { forceFlushSnapshot } from "@/lib/storage/persistent";
+import { writeUserStore, readUserStore } from "@/lib/storage/user-store";
+import { HEALTH_META_FILE, type HealthMeta } from "@/lib/system/health";
 import { eventFromIngest, isAboutKeyPerson } from "@/lib/events/rules";
 import { publish } from "@/lib/events/bus";
 import { generateDraftForEvent } from "@/lib/events/drafter";
@@ -9,12 +11,16 @@ import { getTodayEvents } from "@/lib/google/calendar";
 import { getRecentEmails, searchEmails, checkThreadForSentReply } from "@/lib/google/gmail";
 import { getRecentSlackMessages } from "@/lib/slack/client";
 import { listActions, updateAction, createAction } from "@/lib/actions/store";
-import { createDecision } from "@/lib/decisions/store";
+import { createDecision, listDecisions } from "@/lib/decisions/store";
 import { getMyOpenIssues, linearPriorityToBasil } from "@/lib/linear/client";
+import { isZoomConnected, getValidZoomAccessToken } from "@/lib/zoom/auth";
+import { getPastMeetings, getMeetingParticipants, getRecentRecordingsWithTranscripts } from "@/lib/zoom/client";
+import { processZoomMeeting } from "@/lib/zoom/process-meeting";
 import { isSelf } from "@/lib/self-identity";
 import { ZOOM_GMAIL_QUERY, detectZoomEmail } from "@/lib/google/zoom-email-detector";
 import { processRegularEmail, processZoomEmail } from "@/lib/email/process-gmail-message";
 import { getSessionUser } from "@/lib/auth";
+import { getUsers, isAdminUser } from "@/lib/users";
 import { fetchSlackThread, formatThreadTranscript } from "@/lib/slack/fetch-thread";
 import { classifySlack, shouldClassifySlack, shouldMaterializeSlack } from "@/lib/slack/classify-slack";
 import { materializeSlackIntelligence } from "@/lib/slack/materialize-slack";
@@ -24,6 +30,9 @@ import { getRecentTeamsMessages } from "@/lib/teams/client";
 import { fetchTeamsThread, formatTeamsTranscript } from "@/lib/teams/fetch-thread";
 import { classifyTeams, shouldMaterializeSlack as shouldMaterializeTeams } from "@/lib/teams/classify-teams";
 import { materializeTeamsIntelligence } from "@/lib/teams/materialize-teams";
+import { hashContent } from "@/lib/ingest/content-hash";
+import { isHashUnchanged, recordIngest } from "@/lib/ingest/index";
+import { appendAuditEntries, auditSkipped } from "@/lib/ingest/audit-log";
 
 /**
  * POST /api/events/poll-ingest
@@ -55,7 +64,15 @@ export async function POST(req: Request) {
 
   let username: string | null = null;
   if (isCronCall) {
-    username = process.env.WEBHOOK_USERNAME ?? "michael";
+    // For cron-triggered ingestion, use the first admin user (or first user if
+    // no admin exists). poll-ingest is inherently single-user per call — the
+    // cron scheduler can POST multiple times to cover multiple users if needed.
+    const users = await getUsers();
+    const adminUser = users.find((u) => isAdminUser(u.username)) ?? users[0];
+    username = adminUser?.username ?? null;
+    if (!username) {
+      return NextResponse.json({ error: "No users configured" }, { status: 503 });
+    }
   } else {
     username = await getSessionUser();
     if (!username) {
@@ -362,6 +379,17 @@ export async function POST(req: Request) {
               ? formatThreadTranscript(threadMessages, channelName)
               : `Channel: ${channelName}\n\n${payload.from || "Unknown"}: ${payload.body || ""}`;
 
+          const slackSourceRef = payload.externalId!;
+          const slackContentHash = hashContent(channelName, transcript);
+          const slackUnchanged = await isHashUnchanged(username, slackSourceRef, slackContentHash);
+          if (slackUnchanged) {
+            console.log(`[poll-ingest] slack ${slackSourceRef} unchanged — skipping`);
+            void appendAuditEntries(username, [
+              auditSkipped(slackSourceRef, "action", `Slack content unchanged for ${slackSourceRef}`),
+            ]);
+            continue;
+          }
+
           const intel = await classifySlack({
             channelName,
             transcript,
@@ -371,18 +399,30 @@ export async function POST(req: Request) {
             date: payload.date || new Date().toISOString(),
           });
 
-          if (!shouldMaterializeSlack(intel)) continue;
+          if (!shouldMaterializeSlack(intel)) {
+            void recordIngest(username, { sourceRef: slackSourceRef, hash: slackContentHash });
+            continue;
+          }
 
-          const sourceRef = payload.externalId!;
           const result = await materializeSlackIntelligence({
             intelligence: intel,
-            sourceRef,
+            sourceRef: slackSourceRef,
             eventId,
             channelName,
             from: payload.from || "Unknown",
             // Use the Slack message's actual send date, not ingest time
             date: payload.date || new Date().toISOString(),
+            username,
           });
+
+          void recordIngest(username, {
+            sourceRef: slackSourceRef,
+            hash: slackContentHash,
+            actionIds: result.auditEntries.filter((e) => e.itemType === "action" && e.itemId).map((e) => e.itemId!),
+            decisionIds: result.auditEntries.filter((e) => e.itemType === "decision" && e.itemId).map((e) => e.itemId!),
+            memoryIds: result.auditEntries.filter((e) => e.itemType === "memory" && e.itemId).map((e) => e.itemId!),
+          });
+          void appendAuditEntries(username, result.auditEntries);
 
         } catch (err) {
           console.error(
@@ -406,6 +446,17 @@ export async function POST(req: Request) {
               ? formatTeamsTranscript(threadMessages, channelName)
               : `Channel: ${channelName}\n\n${payload.from || "Unknown"}: ${payload.body || ""}`;
 
+          const teamsSourceRef = payload.externalId!;
+          const teamsContentHash = hashContent(channelName, transcript);
+          const teamsUnchanged = await isHashUnchanged(username, teamsSourceRef, teamsContentHash);
+          if (teamsUnchanged) {
+            console.log(`[poll-ingest] teams ${teamsSourceRef} unchanged — skipping`);
+            void appendAuditEntries(username, [
+              auditSkipped(teamsSourceRef, "action", `Teams content unchanged for ${teamsSourceRef}`),
+            ]);
+            continue;
+          }
+
           const intel = await classifyTeams({
             channelName,
             transcript,
@@ -414,16 +465,31 @@ export async function POST(req: Request) {
             date: payload.date || new Date().toISOString(),
           });
 
-          if (!shouldMaterializeTeams(intel)) continue;
+          if (!shouldMaterializeTeams(intel)) {
+            void recordIngest(username, { sourceRef: teamsSourceRef, hash: teamsContentHash });
+            continue;
+          }
 
           const result = await materializeTeamsIntelligence({
             intelligence: intel,
-            sourceRef: payload.externalId!,
+            sourceRef: teamsSourceRef,
             eventId,
             channelName,
             from: payload.from || "Unknown",
             date: payload.date || new Date().toISOString(),
+            username,
           });
+
+          void recordIngest(username, {
+            sourceRef: teamsSourceRef,
+            hash: teamsContentHash,
+            actionIds: result.auditEntries?.filter((e) => e.itemType === "action" && e.itemId).map((e) => e.itemId!) ?? [],
+            decisionIds: result.auditEntries?.filter((e) => e.itemType === "decision" && e.itemId).map((e) => e.itemId!) ?? [],
+            memoryIds: result.auditEntries?.filter((e) => e.itemType === "memory" && e.itemId).map((e) => e.itemId!) ?? [],
+          });
+          if (result.auditEntries?.length) {
+            void appendAuditEntries(username, result.auditEntries);
+          }
 
         } catch (err) {
           console.error(`[poll-ingest] teams intelligence failed for ${payload.externalId}:`, err);
@@ -593,6 +659,81 @@ export async function POST(req: Request) {
       }
     } catch (err) {
       console.error("[poll-ingest] Linear sync failed:", err);
+    }
+  });
+
+  // ── Zoom direct API meeting sync ─────────────────────────────────────────
+  after(async () => {
+    try {
+      const zoomConnected = await isZoomConnected(username);
+      if (!zoomConnected) return;
+
+      // Fetch meetings from last 3 days (short window; polls run frequently)
+      const pastMeetings = await getPastMeetings(username, 3, 20);
+      if (pastMeetings.length === 0) return;
+
+      // Build set of already-processed zoom-api sourceRefs
+      const [allActions, allDecisions] = await Promise.all([
+        listActions(username),
+        listDecisions(username),
+      ]);
+      const processedRefs = new Set<string>();
+      for (const a of allActions) {
+        if (a.sourceRef?.startsWith("zoom-api:")) processedRefs.add(a.sourceRef);
+      }
+      for (const d of allDecisions) {
+        if (d.sourceRef?.startsWith("zoom-api:")) processedRefs.add(d.sourceRef);
+      }
+
+      // Fetch recordings with transcripts (best-effort; may be empty)
+      const recordings = await getRecentRecordingsWithTranscripts(username, 3, 10);
+      const recordingMap = new Map(recordings.map((r) => [r.meetingId, r]));
+
+      let processed = 0;
+      for (const meeting of pastMeetings) {
+        const sourceRef = `zoom-api:${meeting.id}`;
+        if (processedRefs.has(sourceRef)) continue;
+
+        const [participants, recording] = await Promise.all([
+          getMeetingParticipants(username, meeting.uuid),
+          Promise.resolve(recordingMap.get(meeting.id)),
+        ]);
+
+        await processZoomMeeting({ username, meeting, participants, recording });
+        processed++;
+      }
+
+      if (processed > 0) {
+        console.log(`[poll-ingest] Zoom API: processed ${processed} meeting(s)`);
+        await forceFlushSnapshot();
+      }
+    } catch (err) {
+      console.error("[poll-ingest] Zoom API meeting sync failed:", err instanceof Error ? err.message : err);
+    }
+  });
+
+  // ── Write health metadata ───────────────────────────────────────────────────
+  // Updates health-meta.json with the current poll timestamp and source counts
+  // so the system health panel can show "last ingested Xm ago".
+  // Runs after the response is sent — non-blocking.
+  after(async () => {
+    try {
+      const existing = await readUserStore<HealthMeta>(username, HEALTH_META_FILE, {});
+      await writeUserStore<HealthMeta>(username, HEALTH_META_FILE, {
+        ...existing,
+        lastPollAt: new Date().toISOString(),
+        lastPollSources: {
+          email:        emails.length - zoomEmailIds.size,
+          slack:        slacks.length,
+          calendar:     calEvents.length,
+          zoom_email:   zoomEmails.length,
+          outlook_email: outlookEmails.length,
+          teams:        teamsMessages.length,
+        },
+      });
+    } catch (e) {
+      // Non-fatal — health meta is advisory only.
+      console.warn("[poll-ingest] Failed to write health-meta:", e instanceof Error ? e.message : e);
     }
   });
 

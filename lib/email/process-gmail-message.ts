@@ -21,9 +21,9 @@ import { getEmailBody } from "@/lib/google/gmail";
 import { classifyEmail, shouldMaterialize } from "@/lib/email/classify-email";
 import { materializeEmailIntelligence } from "@/lib/email/materialize-email";
 import { extractZoomMeeting } from "@/lib/zoom/extract-meeting";
-import { createAction } from "@/lib/actions/store";
-import { createDecision, linkActionToDecision } from "@/lib/decisions/store";
-import { createMemory } from "@/lib/memory/store";
+import { createActionTracked } from "@/lib/actions/store";
+import { createDecisionTracked, linkActionToDecision } from "@/lib/decisions/store";
+import { createMemoryTracked } from "@/lib/memory/store";
 import { updateEvent } from "@/lib/events/store";
 import { isSelf } from "@/lib/self-identity";
 import {
@@ -33,6 +33,15 @@ import {
   needsReviewFlag,
   ZOOM_REVIEW_FLOOR,
 } from "@/lib/trust/policy";
+import { hashContent } from "@/lib/ingest/content-hash";
+import { isHashUnchanged, recordIngest } from "@/lib/ingest/index";
+import {
+  appendAuditEntries,
+  auditSkipped,
+  auditCreated,
+  auditFailed,
+  type AuditEntry,
+} from "@/lib/ingest/audit-log";
 
 // ── HTML stripper ─────────────────────────────────────────────────────────────
 
@@ -94,7 +103,7 @@ export interface ProcessEmailOpts {
  * Called via next/server `after()` after the event record is created.
  */
 export async function processRegularEmail(opts: ProcessEmailOpts): Promise<void> {
-  const { gmailId, externalId, eventId, subject, from, dateFallback, snippetFallback, bodyFetcher, username = "michael" } = opts;
+  const { gmailId, externalId, eventId, subject, from, dateFallback, snippetFallback, bodyFetcher, username = process.env.PRIMARY_OWNER_USERNAME ?? "" } = opts;
 
   try {
     let body = snippetFallback || "";
@@ -115,13 +124,30 @@ export async function processRegularEmail(opts: ProcessEmailOpts): Promise<void>
       // Fall back to snippet + caller-provided date — better than nothing
     }
 
+    // ── Content hash idempotency check ────────────────────────────────────────
+    // Skip the AI call entirely if the content hasn't changed since last ingest.
+    const sourceRef = externalId;
+    const contentHash = hashContent(subject, body);
+    const unchanged = await isHashUnchanged(username, sourceRef, contentHash);
+    if (unchanged) {
+      console.log(`[email-process] ${externalId} unchanged (hash match) — skipping`);
+      void appendAuditEntries(username, [
+        auditSkipped(sourceRef, "action", `Content hash unchanged for ${externalId}`),
+      ]);
+      return;
+    }
+
     const intel = await classifyEmail({ subject, from, date, snippet: "", body });
 
     console.log(
       `[email-process] ${externalId} → ${intel.category} (confidence=${intel.confidence})`
     );
 
-    if (!shouldMaterialize(intel)) return;
+    if (!shouldMaterialize(intel)) {
+      // Record in index so we don't re-classify this message on the next poll
+      void recordIngest(username, { sourceRef, hash: contentHash });
+      return;
+    }
 
     const result = await materializeEmailIntelligence({
       intelligence: intel,
@@ -133,6 +159,20 @@ export async function processRegularEmail(opts: ProcessEmailOpts): Promise<void>
       username,
     });
 
+    // ── Record in ingest index + emit audit ───────────────────────────────────
+    const actionIds = result.auditEntries
+      .filter((e) => e.itemType === "action" && e.itemId)
+      .map((e) => e.itemId!);
+    const decisionIds = result.auditEntries
+      .filter((e) => e.itemType === "decision" && e.itemId)
+      .map((e) => e.itemId!);
+    const memoryIds = result.auditEntries
+      .filter((e) => e.itemType === "memory" && e.itemId)
+      .map((e) => e.itemId!);
+
+    void recordIngest(username, { sourceRef, hash: contentHash, actionIds, decisionIds, memoryIds });
+    void appendAuditEntries(username, result.auditEntries);
+
     if (result.actionsCreated + result.decisionsCreated + result.memoriesCreated > 0) {
       console.log(
         `[email-process] materialized ${externalId}: ` +
@@ -141,10 +181,11 @@ export async function processRegularEmail(opts: ProcessEmailOpts): Promise<void>
       );
     }
   } catch (err) {
-    console.error(
-      `[email-process] failed for ${externalId}:`,
-      err instanceof Error ? err.message : err
-    );
+    const errMsg = err instanceof Error ? err.message : String(err);
+    console.error(`[email-process] failed for ${externalId}:`, errMsg);
+    void appendAuditEntries(username, [
+      auditFailed(externalId, "action", errMsg, `processRegularEmail failed for ${externalId}`),
+    ]);
   }
 }
 
@@ -179,7 +220,7 @@ export interface ProcessZoomEmailOpts {
  * Called fire-and-forget after the event record is created.
  */
 export async function processZoomEmail(opts: ProcessZoomEmailOpts): Promise<void> {
-  const { gmailId, externalId, eventId, subject, dateFallback, username = "michael" } = opts;
+  const { gmailId, externalId, eventId, subject, dateFallback, username = process.env.PRIMARY_OWNER_USERNAME ?? "" } = opts;
 
   try {
     const fullEmail = await getEmailBody(username, gmailId);
@@ -194,6 +235,18 @@ export async function processZoomEmail(opts: ProcessZoomEmailOpts): Promise<void
     // Prefer the email's actual send date from internalDate
     const date = fullEmail.date || dateFallback || new Date().toISOString();
 
+    // ── Content hash idempotency check ────────────────────────────────────────
+    const sourceRef = externalId;
+    const contentHash = hashContent(subject, plainBody);
+    const unchanged = await isHashUnchanged(username, sourceRef, contentHash);
+    if (unchanged) {
+      console.log(`[zoom-process] ${externalId} unchanged (hash match) — skipping`);
+      void appendAuditEntries(username, [
+        auditSkipped(sourceRef, "action", `Zoom content hash unchanged for ${externalId}`),
+      ]);
+      return;
+    }
+
     const extract = await extractZoomMeeting(plainBody, { subject, date });
 
     console.log(
@@ -206,10 +259,11 @@ export async function processZoomEmail(opts: ProcessZoomEmailOpts): Promise<void
       console.log(
         `[zoom-process] confidence=${extract.confidence} below floor (${ZOOM_REVIEW_FLOOR}) — skipping materialization`
       );
+      void recordIngest(username, { sourceRef, hash: contentHash });
       return;
     }
 
-    const sourceRef = externalId;
+    const zoomAuditEntries: AuditEntry[] = [];
     const zoomATier = zoomActionTier(extract.confidence);
     const zoomDTier = zoomDecisionTier(extract.confidence);
     const zoomMTier = memoryTier(extract.confidence);
@@ -232,7 +286,7 @@ export async function processZoomEmail(opts: ProcessZoomEmailOpts): Promise<void
               : /this week|by \w+day|follow.?up/.test(textLower)
               ? ("medium" as const)
               : ("low" as const);
-          await createAction(username, {
+          const { item: action, created } = await createActionTracked(username, {
             text: item.text.trim(),
             owner: item.owner,
             dueDate: item.dueDate,
@@ -243,7 +297,10 @@ export async function processZoomEmail(opts: ProcessZoomEmailOpts): Promise<void
             confidence: itemConf,
             needsReview: needsReviewFlag(itemTier),
           });
-          actionsCreated++;
+          if (created) {
+            actionsCreated++;
+            zoomAuditEntries.push(auditCreated(sourceRef, "action", action.id, item.text.trim().slice(0, 80)));
+          }
         } catch (e) {
           console.error("[zoom-process] failed to create action:", e);
         }
@@ -263,7 +320,7 @@ export async function processZoomEmail(opts: ProcessZoomEmailOpts): Promise<void
         const itemTier = zoomDecisionTier(itemConf);
         if (itemTier === "skip") continue;
         try {
-          const decision = await createDecision(username, {
+          const { item: decision, created: decCreated } = await createDecisionTracked(username, {
             text: dec.text.trim(),
             title: dec.title?.trim(),
             rationale: dec.rationale?.trim(),
@@ -279,13 +336,16 @@ export async function processZoomEmail(opts: ProcessZoomEmailOpts): Promise<void
             eventId,
             sourceRef,
           });
-          decisionsCreated++;
+          if (decCreated) {
+            decisionsCreated++;
+            zoomAuditEntries.push(auditCreated(sourceRef, "decision", decision.id, dec.text.trim().slice(0, 80)));
+          }
 
           // Create follow-up actions for explicit decision consequences
           for (const consequence of dec.consequences ?? []) {
             if (!consequence.trim()) continue;
             try {
-              const action = await createAction(username, {
+              const { item: action, created: actCreated } = await createActionTracked(username, {
                 text: consequence.trim(),
                 source: "meeting",
                 eventId,
@@ -295,7 +355,10 @@ export async function processZoomEmail(opts: ProcessZoomEmailOpts): Promise<void
                 linkedDecisionIds: [decision.id],
               });
               await linkActionToDecision(username, decision.id, action.id);
-              actionsCreated++;
+              if (actCreated) {
+                actionsCreated++;
+                zoomAuditEntries.push(auditCreated(sourceRef, "action", action.id, consequence.trim().slice(0, 80)));
+              }
             } catch {
               /* non-fatal — decision was already created */
             }
@@ -324,7 +387,7 @@ export async function processZoomEmail(opts: ProcessZoomEmailOpts): Promise<void
           ? ` Attendees: ${extract.attendees.slice(0, 6).join(", ")}.`
           : "";
       try {
-        await createMemory(username, {
+        const { item: memory, created } = await createMemoryTracked(username, {
           kind: "context",
           content: `[Zoom meeting — ${extract.meetingTitle}]${attendeeNote} ${extract.summary.trim()}`,
           source: "inferred",
@@ -333,6 +396,9 @@ export async function processZoomEmail(opts: ProcessZoomEmailOpts): Promise<void
           eventId,
           sourceRef,
         });
+        if (created) {
+          zoomAuditEntries.push(auditCreated(sourceRef, "memory", memory.id, extract.summary.trim().slice(0, 80)));
+        }
       } catch (e) {
         console.error("[zoom-process] failed to create summary memory:", e);
       }
@@ -349,7 +415,7 @@ export async function processZoomEmail(opts: ProcessZoomEmailOpts): Promise<void
         .slice(0, 8);
       for (const attendee of participants) {
         try {
-          await createMemory(username, {
+          const { item: memory, created } = await createMemoryTracked(username, {
             kind: "person",
             content: `Zoom meeting participant: "${extract.meetingTitle}" on ${meetingDateStr}.`,
             entity: attendee.trim(),
@@ -359,6 +425,9 @@ export async function processZoomEmail(opts: ProcessZoomEmailOpts): Promise<void
             eventId,
             sourceRef,
           });
+          if (created) {
+            zoomAuditEntries.push(auditCreated(sourceRef, "memory", memory.id, `Attendee: ${attendee.trim()}`));
+          }
         } catch (e) {
           console.error("[zoom-process] failed to create attendee memory:", e);
         }
@@ -379,10 +448,31 @@ export async function processZoomEmail(opts: ProcessZoomEmailOpts): Promise<void
     } catch {
       /* non-fatal — UI context update failing does not affect durable records */
     }
+
+    // ── Record in ingest index + emit audit ───────────────────────────────────
+    const zoomActionIds = zoomAuditEntries
+      .filter((e) => e.itemType === "action" && e.itemId)
+      .map((e) => e.itemId!);
+    const zoomDecisionIds = zoomAuditEntries
+      .filter((e) => e.itemType === "decision" && e.itemId)
+      .map((e) => e.itemId!);
+    const zoomMemoryIds = zoomAuditEntries
+      .filter((e) => e.itemType === "memory" && e.itemId)
+      .map((e) => e.itemId!);
+
+    void recordIngest(username, {
+      sourceRef,
+      hash: contentHash,
+      actionIds: zoomActionIds,
+      decisionIds: zoomDecisionIds,
+      memoryIds: zoomMemoryIds,
+    });
+    void appendAuditEntries(username, zoomAuditEntries);
   } catch (err) {
-    console.error(
-      `[zoom-process] failed for ${externalId}:`,
-      err instanceof Error ? err.message : err
-    );
+    const errMsg = err instanceof Error ? err.message : String(err);
+    console.error(`[zoom-process] failed for ${externalId}:`, errMsg);
+    void appendAuditEntries(username, [
+      auditFailed(externalId, "action", errMsg, `processZoomEmail failed for ${externalId}`),
+    ]);
   }
 }

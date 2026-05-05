@@ -1,19 +1,29 @@
 /**
- * Persists Gmail + Calendar watch-channel state via the shared store so it
- * survives Vercel cold starts (included in the BASIL_DATA snapshot).
+ * Persists Gmail + Calendar watch-channel state per user via the shared store
+ * so it survives Vercel cold starts.
  *
- * Previously used node:fs directly against process.cwd()/.data, which is
- * read-only on Vercel Fluid Compute. Migrated to readStore/writeStore which
- * resolve to /tmp/basil-data on Vercel and .data/ in local dev.
+ * All functions require a username so each user's watch state is kept under
+ * users/<safe>/google-watch.json — preventing cross-user state leakage.
  */
 
 import { readStore, writeStore } from "@/lib/storage/persistent";
 
 const WATCH_FILE = "google-watch.json";
 
+/** Convert a username to a filesystem-safe directory component. */
+function safeUser(username: string): string {
+  return username.replace(/[^a-zA-Z0-9._-]/g, "_");
+}
+
+function subdir(username: string): string {
+  return `users/${safeUser(username)}`;
+}
+
 export interface GmailWatchState {
-  historyId?:  string;
-  expiration?: number; // ms epoch
+  historyId?:   string;
+  expiration?:  number; // ms epoch
+  /** The Gmail address being watched — used to resolve webhook → username. */
+  watchedEmail?: string;
 }
 
 export interface CalendarWatchState {
@@ -28,22 +38,22 @@ export interface WatchState {
   calendar?: CalendarWatchState;
 }
 
-export async function getWatchState(): Promise<WatchState> {
-  return readStore<WatchState>(WATCH_FILE, {});
+export async function getWatchState(username: string): Promise<WatchState> {
+  return readStore<WatchState>(WATCH_FILE, {}, subdir(username));
 }
 
-export async function updateGmail(patch: Partial<GmailWatchState>): Promise<void> {
-  const s = await getWatchState();
+export async function updateGmail(username: string, patch: Partial<GmailWatchState>): Promise<void> {
+  const s = await getWatchState(username);
   await writeStore<WatchState>(WATCH_FILE, {
     ...s,
     gmail: { ...s.gmail, ...patch },
-  });
+  }, subdir(username), { durability: "strong" });
 }
 
-export async function updateCalendar(patch: Partial<CalendarWatchState>): Promise<void> {
-  const s = await getWatchState();
+export async function updateCalendar(username: string, patch: Partial<CalendarWatchState>): Promise<void> {
+  const s = await getWatchState(username);
   await writeStore<WatchState>(WATCH_FILE, {
     ...s,
     calendar: { ...s.calendar, ...patch },
-  });
+  }, subdir(username), { durability: "strong" });
 }

@@ -1,6 +1,10 @@
+export const maxDuration = 300;
+
 import { generateText } from "ai";
+import { getTextModel, MAX_TOKENS } from "@/lib/ai/model-config";
 import { getSystemPrompt } from "@/lib/ai/system-prompt";
-import { parseAIJson } from "@/lib/ai/parse-json";
+import { parseAndValidate } from "@/lib/ai/parse-json";
+import { DigestOutputSchema } from "@/lib/ai/schemas";
 import { getSettings } from "@/lib/settings/store";
 import { getEventsForMonth } from "@/lib/google/calendar";
 import { getRecentEmails } from "@/lib/google/gmail";
@@ -16,6 +20,35 @@ import type { GmailMessage } from "@/lib/google/gmail";
 import type { SlackMessage } from "@/lib/slack/client";
 import type { ZoomSummary } from "@/lib/google/zoom-summaries";
 import type { Memory } from "@/lib/memory/types";
+import {
+  readGenerateCache,
+  writeGenerateCache,
+  deleteGenerateCache,
+  isCacheValid,
+  computeInputHash,
+  DIGEST_TTL_MS,
+} from "@/lib/generate-cache/store";
+import type { Digest } from "@/lib/types/briefing";
+
+// ── GET — return cached weekly digest ──────────────────────────────────────
+export async function GET() {
+  const username = await getSessionUser();
+  if (!username) return Response.json({ error: "Unauthorised" }, { status: 401 });
+
+  const record = await readGenerateCache<Digest>(username, "digest");
+  if (!record || !isCacheValid(record)) return Response.json(null);
+
+  return Response.json(record.content);
+}
+
+// ── DELETE — invalidate cached digest (force-regenerate on next POST) ───────
+export async function DELETE() {
+  const username = await getSessionUser();
+  if (!username) return Response.json({ error: "Unauthorised" }, { status: 401 });
+
+  await deleteGenerateCache(username, "digest");
+  return Response.json({ ok: true });
+}
 
 // ── Helpers ──
 
@@ -103,7 +136,7 @@ export async function POST() {
   const username = (await getSessionUser());
   if (!username) return Response.json({ error: "Unauthorised" }, { status: 401 });
 
-  const settings    = await getSettings(username).catch(() => null);
+  const settings    = await getSettings(username).catch(() => null); // ci-ok: settings optional, null falls back to defaults
   const tz          = settings?.timezone || "Europe/London";
 
   const now = new Date();
@@ -458,12 +491,10 @@ Return ONLY valid JSON, no markdown code fences.`;
   let result: Awaited<ReturnType<typeof generateText>>;
   try {
     result = await generateText({
-      model: "anthropic/claude-sonnet-4.6",
+      model: getTextModel("long"),
+      maxOutputTokens: MAX_TOKENS.long,
       system: await getSystemPrompt(username, tz),
       prompt,
-      providerOptions: {
-        gateway: { tags: ["feature:digest", "env:production"] },
-      },
     });
   } catch (e) {
     console.error("[digest] generateText failed:", e instanceof Error ? e.message : e);
@@ -473,10 +504,11 @@ Return ONLY valid JSON, no markdown code fences.`;
     );
   }
 
-  try {
-    const parsed = parseAIJson<Record<string, unknown>>(result.text);
-    return Response.json({
-      ...parsed,
+  let digestData: Digest;
+  const parseResult = parseAndValidate(result.text, DigestOutputSchema, "[digest]");
+  if (parseResult.ok) {
+    digestData = {
+      ...parseResult.data,
       generatedAt: now.toISOString(),
       weekStart: weekStart.toLocaleDateString("en-GB", { day: "numeric", month: "short", timeZone: tz }),
       weekEnd:   weekEnd.toLocaleDateString("en-GB",   { day: "numeric", month: "short", timeZone: tz }),
@@ -486,16 +518,15 @@ Return ONLY valid JSON, no markdown code fences.`;
         emails: emails.length,
         slackMessages: slackMessages.length,
         zoomSummaries: zoomSummaries.length,
-        teamsMeetings: teamsMeetings.length,
         completedActions: completedThisWeek.length,
         openActions: allOpenActions.length,
         recentDecisions: recentDecisions.length,
         memories: recentMemories.length,
       },
-    });
-  } catch {
+    } as Digest;
+  } else {
     // Fallback: wrap any parseable text in the primary section
-    return Response.json({
+    digestData = {
       majorMeetings: result.text || "Failed to parse digest response.",
       whatChanged: null,
       decisionsLog: null,
@@ -503,6 +534,25 @@ Return ONLY valid JSON, no markdown code fences.`;
       relationshipSignals: null,
       nextWeekNeeds: null,
       generatedAt: now.toISOString(),
-    });
+    };
   }
+
+  // Persist to the generate-cache store (isolated from critical app state).
+  try {
+    const inputHash = computeInputHash(
+      username,
+      todayStr,
+      String(actionsResult.length),
+      String(decisionsResult.length),
+      String(memoriesResult.length),
+    );
+    await writeGenerateCache(username, "digest", digestData, {
+      inputHash,
+      ttlMs: DIGEST_TTL_MS,
+    });
+  } catch (e) {
+    console.warn("[digest] Failed to cache digest:", e instanceof Error ? e.message : e);
+  }
+
+  return Response.json(digestData);
 }

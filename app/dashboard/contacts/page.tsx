@@ -9,6 +9,7 @@ import {
   loadUserContactsFromServer,
   addUserContact,
   updateUserContact,
+  patchContactInCache,
   getDismissedSuggestionIds,
   dismissSuggestion,
   pickAvatarColor,
@@ -32,16 +33,16 @@ import {
 } from "@/lib/contact-profile-overrides";
 
 import type { ContactSuggestion } from "@/lib/types/contact";
+import { usePersistentDraft } from "@/lib/hooks/use-persistent-draft";
+import { DraftSavedIndicator } from "@/components/ui/draft-saved-indicator";
+import { scopedKey } from "@/lib/session-user";
 
 // ── Per-contact draft store ───────────────────────────────────────────────────
 // CLASSIFICATION: sage-contact-draft-{id} → LOCAL-ONLY (transient in-progress
 // work; keyed by contact ID; cleared on explicit save or discard; never promoted
-// to server truth).
-//
 // Persists genNotes, the generated preview, extracted canonical fields, and
 // panel-open state across contact-list navigation and tab switches.
-// The ContactDetail component loads from here on mount; writes on every change.
-const DRAFT_KEY_PREFIX = "sage-contact-draft-";
+// usePersistentDraft handles load/save/clear with username scoping.
 
 interface ContactDraft {
   genNotes: string;
@@ -58,22 +59,6 @@ const EMPTY_DRAFT: ContactDraft = {
   preview: null,
   canonicalFields: null,
 };
-
-function readContactDraft(contactId: string): ContactDraft {
-  if (typeof window === "undefined") return EMPTY_DRAFT;
-  try {
-    const raw = localStorage.getItem(`${DRAFT_KEY_PREFIX}${contactId}`);
-    if (!raw) return EMPTY_DRAFT;
-    return JSON.parse(raw) as ContactDraft;
-  } catch {
-    return EMPTY_DRAFT;
-  }
-}
-
-function clearContactDraft(contactId: string): void {
-  if (typeof window === "undefined") return;
-  try { localStorage.removeItem(`${DRAFT_KEY_PREFIX}${contactId}`); } catch { /* ignore */ }
-}
 
 function ContactList({
   contacts: list,
@@ -171,14 +156,39 @@ function ContactDetail({
   //   genLoading      → EPHEMERAL  (in-flight flag)
   //
   // Draft is persisted to localStorage keyed by contact.id via the effect below.
-  // On contact change the draft is loaded; on save/discard it is explicitly cleared.
-  const [genOpen, setGenOpen] = useState(false);
-  const [genNotes, setGenNotes] = useState("");
+  // usePersistentDraft handles load/save/clear for the generation panel.
+  // entityId = contact.id ensures each contact has its own draft bucket.
+  const {
+    draft: contactDraft,
+    setDraft: setContactDraft,
+    clearDraft: clearContactDraft,
+    draftSaved: genDraftSaved,
+  } = usePersistentDraft<ContactDraft>("contact-gen", {
+    defaultValue: EMPTY_DRAFT,
+    entityId: contact.id,
+  });
+
+  const genOpen      = contactDraft.genOpen;
+  const genNotes     = contactDraft.genNotes;
+  const preview      = contactDraft.preview;
+  const canonicalFields = contactDraft.canonicalFields;
+
+  const setGenOpen        = (v: boolean)                                 => setContactDraft((d) => ({ ...d, genOpen: v }));
+  const setGenNotes       = (v: string)                                  => setContactDraft((d) => ({ ...d, genNotes: v }));
+  const setPreview        = (v: ProfileOverride | null)                  => setContactDraft((d) => ({ ...d, preview: v }));
+  const setCanonicalFields = (v: Partial<Contact> | null)                => setContactDraft((d) => ({ ...d, canonicalFields: v }));
+
   const [genLoading, setGenLoading] = useState(false);
   const [genError, setGenError] = useState("");
-  const [preview, setPreview] = useState<ProfileOverride | null>(null);
-  /** Structured canonical fields extracted by the AI from context notes. */
-  const [canonicalFields, setCanonicalFields] = useState<Partial<Contact> | null>(null);
+
+  // Save-to-server state — explicit feedback for every stage of accept flow.
+  // "idle"   → no in-progress save
+  // "saving" → awaiting server response (button disabled, spinner shown)
+  // "saved"  → server confirmed; draft cleared; resets to "idle" after 3 s
+  // "error"  → server returned an error; draft preserved so user can retry
+  type SaveState = "idle" | "saving" | "saved" | "error";
+  const [saveState, setSaveState] = useState<SaveState>("idle");
+  const [saveError, setSaveError] = useState("");
 
   // Inline name editing — only for user-added contacts.
   const [editingName, setEditingName] = useState(false);
@@ -195,38 +205,14 @@ function ContactDetail({
     setNameSaving(false);
   }
 
-  // ① Load per-contact draft from localStorage when the selected contact changes.
-  //   Restores durable state (genNotes, preview, canonicalFields, genOpen);
-  //   always clears ephemeral state (error, loading, editingName).
-  //   contact.name is in deps so nameInput stays current after a rename.
+  // Clear ephemeral UI state when contact changes (usePersistentDraft handles draft reload).
+  // contact.name dep keeps nameInput current after a rename.
   useEffect(() => {
-    const draft = readContactDraft(contact.id);
-    setGenOpen(draft.genOpen);
-    setGenNotes(draft.genNotes);
-    setPreview(draft.preview);
-    setCanonicalFields(draft.canonicalFields);
-    setGenError(""); // ephemeral — always clear on contact change
+    setGenError("");
     setGenLoading(false);
     setEditingName(false);
     setNameInput(contact.name);
   }, [contact.id, contact.name]); // eslint-disable-line react-hooks/exhaustive-deps
-
-  // ② Persist draft state to localStorage whenever durable fields change.
-  //   Draft is keyed by contact.id — switching contacts never bleeds state.
-  //   Auto-clears the key when all durable fields are empty (after save/discard).
-  useEffect(() => {
-    if (typeof window === "undefined") return;
-    if (!genNotes && !genOpen && !preview && !canonicalFields) {
-      localStorage.removeItem(`${DRAFT_KEY_PREFIX}${contact.id}`);
-    } else {
-      try {
-        localStorage.setItem(
-          `${DRAFT_KEY_PREFIX}${contact.id}`,
-          JSON.stringify({ genNotes, genOpen, preview, canonicalFields } satisfies ContactDraft)
-        );
-      } catch { /* storage full */ }
-    }
-  }, [contact.id, genNotes, genOpen, preview, canonicalFields]);
 
   async function generateProfile() {
     setGenLoading(true);
@@ -276,34 +262,97 @@ function ContactDetail({
     }
   }
 
-  function acceptPreview() {
-    if (!preview) return;
+  async function acceptPreview() {
+    if (!preview || saveState === "saving") return;
+    setSaveState("saving");
+    setSaveError("");
 
-    // 1. Save prose fields to the ProfileOverride store.
-    onSaveOverride(preview);
+    try {
+      if (isUserContact) {
+        // ── User contact: single atomic PATCH ────────────────────────────────
+        // Merge profile prose fields + AI-extracted canonical fields into one
+        // request so there is exactly one failure point and one server write.
+        const patch: Partial<Contact> = {};
 
-    // 2. Apply any canonical field extractions to the Contact record.
-    //    Only writes non-empty values — never blanks a field that already has data.
-    if (canonicalFields) {
-      const patch: Partial<Contact> = {};
-      for (const [key, value] of Object.entries(canonicalFields)) {
-        if (value && typeof value === "string" && (value as string).trim()) {
-          (patch as Record<string, string>)[key] = (value as string).trim();
+        // Profile prose fields (skip if empty / undefined).
+        const addStr = (key: keyof Contact, val: string | undefined) => {
+          if (val?.trim()) (patch as Record<string, string>)[key as string] = val.trim();
+        };
+        addStr("personality", preview.personality);
+        addStr("whatMakesThemTick", preview.whatMakesThemTick);
+        addStr("watchOut", preview.watchOut);
+        addStr("recentActivity", preview.recentActivity);
+        addStr("activitySource", preview.activitySource);
+        if (preview.generatedAt) patch.generatedAt = preview.generatedAt;
+        if (preview.summary?.trim()) patch.profileSummary = preview.summary.trim();
+
+        // Canonical fields extracted from notes (e.g. name, title, company).
+        if (canonicalFields) {
+          for (const [key, value] of Object.entries(canonicalFields)) {
+            if (value && typeof value === "string" && value.trim()) {
+              (patch as Record<string, string>)[key] = value.trim();
+            }
+          }
         }
-      }
-      if (Object.keys(patch).length > 0) {
-        void updateUserContact(contact.id, patch).then((updated) => {
-          if (updated) onContactUpdated();
-        });
-      }
-    }
 
-    // 3. Clear draft — work is complete.
-    clearContactDraft(contact.id);
-    setPreview(null);
-    setCanonicalFields(null);
-    setGenOpen(false);
-    setGenNotes("");
+        const res = await fetch(`/api/contacts/user/${contact.id}`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(patch),
+        });
+
+        if (!res.ok) {
+          let errMsg = `Server error (${res.status})`;
+          try {
+            const json = await res.json() as { error?: string };
+            if (json.error) errMsg = json.error;
+          } catch (e) {
+            console.error("[basil-fetch] json_parse_error", { route: `/api/contacts/user/${contact.id}`, status: res.status, component: "ContactsPage", error: e instanceof Error ? e.message : String(e) });
+          }
+          throw new Error(errMsg);
+        }
+
+        // Update localStorage cache with the authoritative server record so
+        // a page reload shows the saved state, not a stale optimistic write.
+        const { contact: serverContact } = await res.json() as { contact: Contact };
+        patchContactInCache(serverContact);
+        onContactUpdated(); // refresh React state from cache
+      } else {
+        // ── Seed contact: profile override only ───────────────────────────────
+        // Seed records are immutable; store generated fields in the overrides layer.
+        const res = await fetch(`/api/contacts/overrides/${contact.id}`, {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(preview),
+        });
+
+        if (!res.ok) {
+          let errMsg = `Server error (${res.status})`;
+          try {
+            const json = await res.json() as { error?: string };
+            if (json.error) errMsg = json.error;
+          } catch (e) {
+            console.error("[basil-fetch] json_parse_error", { route: `/api/contacts/overrides/${contact.id}`, status: res.status, component: "ContactsPage", error: e instanceof Error ? e.message : String(e) });
+          }
+          throw new Error(errMsg);
+        }
+
+        // Server confirmed — update local override cache so the UI reflects
+        // the saved state immediately (onSaveOverride does optimistic + server).
+        onSaveOverride(preview);
+      }
+
+      // ── Success ───────────────────────────────────────────────────────────
+      setSaveState("saved");
+      clearContactDraft(); // clears the scoped localStorage key + resets to EMPTY_DRAFT
+      // Reset badge after 3 s so subsequent regenerations start clean.
+      setTimeout(() => setSaveState("idle"), 3000);
+    } catch (e) {
+      // ── Failure ───────────────────────────────────────────────────────────
+      // Draft is intentionally preserved so the user can retry without re-generating.
+      setSaveState("error");
+      setSaveError(e instanceof Error ? e.message : "Save failed — please try again");
+    }
   }
   return (
     <div className="space-y-6">
@@ -505,17 +554,14 @@ function ContactDetail({
                 variant="outline"
                 onClick={() => {
                   // Cancel = abandon in-progress work entirely.
-                  clearContactDraft(contact.id);
-                  setGenOpen(false);
-                  setGenNotes("");
+                  clearContactDraft();
                   setGenError("");
-                  setPreview(null);
-                  setCanonicalFields(null);
                 }}
                 disabled={genLoading}
               >
                 Cancel
               </Button>
+              <DraftSavedIndicator saved={genDraftSaved} className="ml-1" />
               {contact.directory === "personal" && !genNotes.trim() && (
                 <span className="text-[12px] text-muted-foreground">
                   Add notes to generate a personal profile
@@ -579,37 +625,52 @@ function ContactDetail({
                 </p>
               )}
             </div>
-            <div className="flex items-center gap-2">
-              <Button
-                size="sm"
-                onClick={acceptPreview}
-                className="gap-1.5 bg-[oklch(0.72_0.15_85)] text-[oklch(0.18_0.04_250)] hover:bg-[oklch(0.78_0.12_85)]"
-              >
-                <Check className="h-3.5 w-3.5" />
-                Save profile
-              </Button>
-              <Button
-                size="sm"
-                variant="outline"
-                onClick={() => {
-                  // Discard preview only — keep notes so user can iterate.
-                  // Persistence effect will update the stored draft automatically.
-                  setPreview(null);
-                  setCanonicalFields(null);
-                }}
-              >
-                Discard
-              </Button>
-              <Button
-                size="sm"
-                variant="ghost"
-                onClick={generateProfile}
-                disabled={genLoading}
-                className="gap-1.5"
-              >
-                <RefreshCw className="h-3.5 w-3.5" />
-                Try again
-              </Button>
+            <div className="space-y-2">
+              <div className="flex items-center gap-2 flex-wrap">
+                <Button
+                  size="sm"
+                  onClick={acceptPreview}
+                  disabled={saveState === "saving"}
+                  className="gap-1.5 bg-[oklch(0.72_0.15_85)] text-[oklch(0.18_0.04_250)] hover:bg-[oklch(0.78_0.12_85)] disabled:opacity-70"
+                >
+                  {saveState === "saving" ? (
+                    <><Loader2 className="h-3.5 w-3.5 animate-spin" />Saving to Basil…</>
+                  ) : saveState === "saved" ? (
+                    <><Check className="h-3.5 w-3.5" />Saved</>
+                  ) : (
+                    <><Check className="h-3.5 w-3.5" />Save profile</>
+                  )}
+                </Button>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  disabled={saveState === "saving"}
+                  onClick={() => {
+                    // Discard preview only — keep notes so user can iterate.
+                    setPreview(null);
+                    setCanonicalFields(null);
+                    setSaveState("idle");
+                    setSaveError("");
+                  }}
+                >
+                  Discard
+                </Button>
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  onClick={generateProfile}
+                  disabled={genLoading || saveState === "saving"}
+                  className="gap-1.5"
+                >
+                  <RefreshCw className="h-3.5 w-3.5" />
+                  Try again
+                </Button>
+              </div>
+              {saveState === "error" && (
+                <p className="text-[12px] text-destructive bg-destructive/10 rounded px-2 py-1">
+                  {saveError}
+                </p>
+              )}
             </div>
           </div>
         )}
@@ -804,7 +865,7 @@ export default function ContactsPage() {
   // these keys means the next mount re-fetches from source rather than using
   // a stale cache.
   useEffect(() => {
-    const cached = localStorage.getItem("sage-contact-activity");
+    const cached = localStorage.getItem(scopedKey("contact-activity"));
     if (cached) {
       try {
         const parsed = JSON.parse(cached);
@@ -823,7 +884,7 @@ export default function ContactsPage() {
     loadOverridesFromServer().then(setOverrides);
 
     // Also auto-load a cached suggestion set so the strip doesn't come up empty.
-    const cachedSugg = localStorage.getItem("sage-contact-suggestions");
+    const cachedSugg = localStorage.getItem(scopedKey("contact-suggestions"));
     if (cachedSugg) {
       try {
         const parsed = JSON.parse(cachedSugg);
@@ -839,7 +900,7 @@ export default function ContactsPage() {
       if (!res.ok) throw new Error("Failed");
       const data = await res.json();
       setSuggestions(data.suggestions || []);
-      localStorage.setItem("sage-contact-suggestions", JSON.stringify(data));
+      localStorage.setItem(scopedKey("contact-suggestions"), JSON.stringify(data));
     } catch (e) {
       console.error("Suggestion refresh failed:", e);
     } finally {
@@ -855,7 +916,7 @@ export default function ContactsPage() {
       const data = await res.json();
       setLiveActivity(data.activity || []);
       setIsLive(true);
-      localStorage.setItem("sage-contact-activity", JSON.stringify(data));
+      localStorage.setItem(scopedKey("contact-activity"), JSON.stringify(data));
     } catch (e) {
       console.error("Activity refresh failed:", e);
     } finally {

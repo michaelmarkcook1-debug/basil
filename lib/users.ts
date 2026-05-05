@@ -49,7 +49,7 @@ export async function getUsers(): Promise<User[]> {
 
   // Backward-compat: honour ADMIN_USERNAME + APP_PASSWORD if set and not
   // already in the file store.
-  const adminUsername = process.env.ADMIN_USERNAME || "admin";
+  const adminUsername = process.env.ADMIN_USERNAME || "admin"; // ci-ok: ADMIN_USERNAME required in production; "admin" is the documented bootstrap default
   const adminPassword = process.env.APP_PASSWORD || "execauto2024";
   const alreadyInFile = fileUsers.some(
     (u) => u.username.toLowerCase() === adminUsername.toLowerCase()
@@ -127,7 +127,7 @@ async function upgradePasswordHash(username: string, hash: string): Promise<void
     );
     if (idx !== -1) {
       fileUsers[idx] = { ...fileUsers[idx], password: hash };
-      await writeStore(USERS_FILE, fileUsers);
+      await writeStore(USERS_FILE, fileUsers, undefined, { durability: "strong" });
     }
   } catch {
     // Non-fatal — user can still log in; hash will be upgraded next time
@@ -150,7 +150,7 @@ export async function createUser(
     createdAt: new Date().toISOString(),
   };
 
-  await writeStore(USERS_FILE, [...fileUsers, newUser]);
+  await writeStore(USERS_FILE, [...fileUsers, newUser], undefined, { durability: "strong" });
   return newUser;
 }
 
@@ -167,12 +167,12 @@ export async function updateUser(
     const user = allUsers.find((u) => u.username === username);
     if (user) {
       const updated = { ...user, ...patch };
-      await writeStore(USERS_FILE, [...fileUsers, updated]);
+      await writeStore(USERS_FILE, [...fileUsers, updated], undefined, { durability: "strong" });
     }
     return;
   }
   fileUsers[idx] = { ...fileUsers[idx], ...patch };
-  await writeStore(USERS_FILE, fileUsers);
+  await writeStore(USERS_FILE, fileUsers, undefined, { durability: "strong" });
 }
 
 /** Change a user's password and invalidate all existing sessions by bumping sessionVersion. */
@@ -190,7 +190,7 @@ export async function changePassword(
     password: hashed,
     sessionVersion: (current.sessionVersion ?? 1) + 1,
   };
-  await writeStore(USERS_FILE, fileUsers);
+  await writeStore(USERS_FILE, fileUsers, undefined, { durability: "strong" });
 }
 
 /** Revoke all active sessions for a user by bumping their sessionVersion. */
@@ -200,7 +200,7 @@ export async function revokeUserSessions(username: string): Promise<void> {
   if (idx === -1) throw new Error("User not found");
   const current = fileUsers[idx];
   fileUsers[idx] = { ...current, sessionVersion: (current.sessionVersion ?? 1) + 1 };
-  await writeStore(USERS_FILE, fileUsers);
+  await writeStore(USERS_FILE, fileUsers, undefined, { durability: "strong" });
 }
 
 /** Enable or disable a user account. */
@@ -209,7 +209,7 @@ export async function setUserDisabled(username: string, disabled: boolean): Prom
   const idx = fileUsers.findIndex((u) => u.username.toLowerCase() === username.toLowerCase());
   if (idx === -1) throw new Error("User not found");
   fileUsers[idx] = { ...fileUsers[idx], disabled };
-  await writeStore(USERS_FILE, fileUsers);
+  await writeStore(USERS_FILE, fileUsers, undefined, { durability: "strong" });
 }
 
 /** Delete a user account permanently. Cannot delete the env-admin. */
@@ -217,11 +217,11 @@ export async function deleteUser(username: string): Promise<void> {
   const fileUsers = await readStore<User[]>(USERS_FILE, []);
   const filtered = fileUsers.filter((u) => u.username.toLowerCase() !== username.toLowerCase());
   if (filtered.length === fileUsers.length) throw new Error("User not found in file store");
-  await writeStore(USERS_FILE, filtered);
+  await writeStore(USERS_FILE, filtered, undefined, { durability: "strong" });
 }
 
 /** Check whether a user is an admin (the primary account). */
 export function isAdminUser(username: string): boolean {
-  const adminUsername = process.env.ADMIN_USERNAME || "admin";
+  const adminUsername = process.env.ADMIN_USERNAME || "admin"; // ci-ok: ADMIN_USERNAME required in production; "admin" is the documented bootstrap default
   return username.toLowerCase() === adminUsername.toLowerCase();
 }

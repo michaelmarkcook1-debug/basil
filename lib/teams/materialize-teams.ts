@@ -12,10 +12,16 @@
  * for the same message/thread.
  */
 
-import { createAction } from "@/lib/actions/store";
-import { createDecision, linkActionToDecision } from "@/lib/decisions/store";
-import { createMemory } from "@/lib/memory/store";
+import { createActionTracked } from "@/lib/actions/store";
+import { createDecisionTracked, linkActionToDecision } from "@/lib/decisions/store";
+import { createMemoryTracked } from "@/lib/memory/store";
 import { actionTier, decisionTier, memoryTier, needsReviewFlag } from "@/lib/trust/policy";
+import {
+  auditCreated,
+  auditUpdated,
+  auditFailed,
+  type AuditEntry,
+} from "@/lib/ingest/audit-log";
 import type { SlackIntelligence, SlackSignalCategory } from "@/lib/teams/classify-teams";
 
 // ── Input / output types ───────────────────────────────────────────────────────
@@ -40,6 +46,8 @@ export interface MaterializeTeamsResult {
   actionsCreated: number;
   decisionsCreated: number;
   memoriesCreated: number;
+  /** Audit entries for every item outcome — ready to pass to appendAuditEntries. */
+  auditEntries: AuditEntry[];
 }
 
 // ── Categories that generate actions ──────────────────────────────────────────
@@ -73,7 +81,7 @@ const EXPLICIT_ONLY_ACTION_CATEGORIES = new Set<SlackSignalCategory>([
 export async function materializeTeamsIntelligence(
   input: MaterializeTeamsInput
 ): Promise<MaterializeTeamsResult> {
-  const { intelligence: intel, sourceRef, eventId, channelName, from, date, username = "michael" } = input;
+  const { intelligence: intel, sourceRef, eventId, channelName, from, date, username = process.env.PRIMARY_OWNER_USERNAME ?? "" } = input;
   const dateShort = date.slice(0, 10);
   const channelLabel = channelName.startsWith("Teams:")
     ? channelName
@@ -82,6 +90,7 @@ export async function materializeTeamsIntelligence(
   let actionsCreated = 0;
   let decisionsCreated = 0;
   let memoriesCreated = 0;
+  const auditEntries: AuditEntry[] = [];
 
   // ── Trust policy tier for this Teams message's confidence ─────────────────
   const aTier = actionTier(intel.confidence);
@@ -97,7 +106,7 @@ export async function materializeTeamsIntelligence(
       for (const item of intel.actions) {
         if (!item.text?.trim()) continue;
         try {
-          await createAction(username, {
+          const { item: action, created } = await createActionTracked(username, {
             text: item.text.trim(),
             owner: item.owner,
             dueDate: item.dueDate,
@@ -108,15 +117,18 @@ export async function materializeTeamsIntelligence(
             confidence: intel.confidence,
             needsReview: needsReviewFlag(aTier),
           });
-          actionsCreated++;
+          if (created) {
+            actionsCreated++;
+            auditEntries.push(auditCreated(sourceRef, "action", action.id, item.text.trim().slice(0, 80)));
+          } else {
+            auditEntries.push(auditUpdated(sourceRef, "action", action.id, item.text.trim().slice(0, 80)));
+          }
         } catch (e) {
           console.error("[teams-materialize] failed to create action:", e);
+          auditEntries.push(auditFailed(sourceRef, "action", e instanceof Error ? e.message : String(e)));
         }
       }
     } else if (intel.actions.length === 0 && isActionCategory) {
-      // No explicit actions extracted — synthesize a canonical "check this" action
-      // when Michael is specifically addressed or when the signal is high-stakes.
-      // (Never synthesize for relationship_signal — only honour explicit items.)
       const actionText = synthesizeTeamsAction(
         intel.category,
         channelLabel,
@@ -125,19 +137,24 @@ export async function materializeTeamsIntelligence(
       );
       if (actionText) {
         try {
-          await createAction(username, {
+          const { item: action, created } = await createActionTracked(username, {
             text: actionText,
             source: "slack",
             eventId,
             sourceRef,
-            // Map Teams urgency to action priority for synthesized actions
             priority: intel.urgency === "high" ? "high" : intel.urgency === "medium" ? "medium" : "low",
             confidence: intel.confidence,
             needsReview: needsReviewFlag(aTier),
           });
-          actionsCreated++;
+          if (created) {
+            actionsCreated++;
+            auditEntries.push(auditCreated(sourceRef, "action", action.id, actionText.slice(0, 80)));
+          } else {
+            auditEntries.push(auditUpdated(sourceRef, "action", action.id, actionText.slice(0, 80)));
+          }
         } catch (e) {
           console.error("[teams-materialize] failed to create synthesized action:", e);
+          auditEntries.push(auditFailed(sourceRef, "action", e instanceof Error ? e.message : String(e)));
         }
       }
     }
@@ -148,14 +165,13 @@ export async function materializeTeamsIntelligence(
     for (const dec of intel.decisions) {
       if (!dec.text?.trim()) continue;
       try {
-        const decision = await createDecision(username, {
+        const { item: decision, created: decCreated } = await createDecisionTracked(username, {
           text: dec.text.trim(),
           title: dec.title?.trim(),
           rationale: dec.rationale?.trim(),
           alternatives: dec.alternatives,
           consequences: dec.consequences,
           decidedBy: dec.decidedBy || from,
-          // Named people in the thread are implicit stakeholders
           stakeholders: intel.people
             .map((p) => p.name)
             .filter((n) => n !== dec.decidedBy),
@@ -167,14 +183,18 @@ export async function materializeTeamsIntelligence(
           eventId,
           sourceRef,
         });
-        decisionsCreated++;
+        if (decCreated) {
+          decisionsCreated++;
+          auditEntries.push(auditCreated(sourceRef, "decision", decision.id, dec.text.trim().slice(0, 80)));
+        } else {
+          auditEntries.push(auditUpdated(sourceRef, "decision", decision.id, dec.text.trim().slice(0, 80)));
+        }
 
-        // Consequence actions inherit the same review flag as their parent decision.
         if (dec.consequences && dec.consequences.length > 0) {
           for (const consequence of dec.consequences) {
             if (!consequence.trim()) continue;
             try {
-              const action = await createAction(username, {
+              const { item: action, created: actCreated } = await createActionTracked(username, {
                 text: consequence.trim(),
                 source: "slack",
                 eventId,
@@ -183,7 +203,10 @@ export async function materializeTeamsIntelligence(
                 linkedDecisionIds: [decision.id],
               });
               await linkActionToDecision(username, decision.id, action.id);
-              actionsCreated++;
+              if (actCreated) {
+                actionsCreated++;
+                auditEntries.push(auditCreated(sourceRef, "action", action.id, consequence.trim().slice(0, 80)));
+              }
             } catch {
               // Non-fatal
             }
@@ -191,6 +214,7 @@ export async function materializeTeamsIntelligence(
         }
       } catch (e) {
         console.error("[teams-materialize] failed to create decision:", e);
+        auditEntries.push(auditFailed(sourceRef, "decision", e instanceof Error ? e.message : String(e)));
       }
     }
   }
@@ -245,7 +269,7 @@ export async function materializeTeamsIntelligence(
     if (!mem.content.trim()) continue;
     if (mTier === "skip") continue;
     try {
-      await createMemory(username, {
+      const { item: memory, created } = await createMemoryTracked(username, {
         kind: "context",
         content: mem.content,
         entity: mem.entity,
@@ -255,13 +279,19 @@ export async function materializeTeamsIntelligence(
         eventId,
         sourceRef,
       });
-      memoriesCreated++;
+      if (created) {
+        memoriesCreated++;
+        auditEntries.push(auditCreated(sourceRef, "memory", memory.id, mem.content.slice(0, 80)));
+      } else {
+        auditEntries.push(auditUpdated(sourceRef, "memory", memory.id, mem.content.slice(0, 80)));
+      }
     } catch (e) {
       console.error("[teams-materialize] failed to create memory:", e);
+      auditEntries.push(auditFailed(sourceRef, "memory", e instanceof Error ? e.message : String(e)));
     }
   }
 
-  return { actionsCreated, decisionsCreated, memoriesCreated };
+  return { actionsCreated, decisionsCreated, memoriesCreated, auditEntries };
 }
 
 // ── Helpers ────────────────────────────────────────────────────────────────────

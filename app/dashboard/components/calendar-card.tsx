@@ -48,7 +48,11 @@ export function CalendarCard() {
     fetch("/api/calendar")
       .then((res) => res.json())
       .then((d) => { setData(d); setLoading(false); })
-      .catch(() => { setData({ connected: false, events: [], message: "Failed to load" }); setLoading(false); });
+      .catch((e: unknown) => {
+        console.error("[basil-fetch] network_error", { route: "/api/calendar", component: "CalendarCard", error: e instanceof Error ? e.message : String(e) });
+        setData({ connected: false, events: [], message: "Failed to load" });
+        setLoading(false);
+      });
   }, []);
 
   // Separate timed events from all-day

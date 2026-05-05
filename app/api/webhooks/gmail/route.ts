@@ -1,4 +1,4 @@
-import { NextResponse, after } from "next/server";
+import { NextResponse } from "next/server";
 import { google } from "googleapis";
 import { getAuthedClient } from "@/lib/google/auth";
 import { createEvent, hasExternalId } from "@/lib/events/store";
@@ -6,10 +6,11 @@ import { eventFromIngest } from "@/lib/events/rules";
 import { publish } from "@/lib/events/bus";
 import { getWatchState, updateGmail } from "@/lib/google/watch-state";
 import { detectZoomEmail } from "@/lib/google/zoom-email-detector";
-import {
-  processRegularEmail,
-  processZoomEmail,
-} from "@/lib/email/process-gmail-message";
+import { start } from "workflow/api";
+import { ingestGmailWorkflow } from "@/lib/jobs/workflows/ingest-gmail";
+import { createJobRecord } from "@/lib/jobs/store";
+import { resolveGmailUser } from "@/lib/webhooks/resolve-user";
+import { writeDeadLetter } from "@/lib/webhooks/dead-letter";
 
 /**
  * POST /api/webhooks/gmail — Gmail push notifications (via Cloud Pub/Sub).
@@ -45,7 +46,7 @@ export async function POST(req: Request) {
     return new NextResponse("forbidden", { status: 403 });
   }
 
-  const body = (await req.json().catch(() => null)) as PubSubEnvelope | null;
+  const body = (await req.json().catch(() => null)) as PubSubEnvelope | null; // ci-ok: malformed webhook body returns null, drained below
   const dataB64 = body?.message?.data;
   if (!dataB64) return NextResponse.json({ ok: true }); // invalid but drain
 
@@ -59,18 +60,24 @@ export async function POST(req: Request) {
   const newHistoryId = payload.historyId;
   if (!newHistoryId) return NextResponse.json({ ok: true });
 
-  // TODO: resolve username from emailAddress payload once multi-user is fully live
-  const webhookUsername = process.env.WEBHOOK_USERNAME ?? "michael";
+  // Resolve the owning user from the notification's emailAddress.
+  const emailAddress = payload.emailAddress ?? "";
+  const webhookUsername = await resolveGmailUser(emailAddress);
+  if (!webhookUsername) {
+    await writeDeadLetter("gmail", payload, `No user found for emailAddress: ${emailAddress}`);
+    return NextResponse.json({ ok: true, note: "unresolved owner" });
+  }
+
   const auth = await getAuthedClient(webhookUsername);
   if (!auth) return NextResponse.json({ ok: true, note: "gmail not connected" });
   const gmail = google.gmail({ version: "v1", auth });
 
-  const state = await getWatchState();
+  const state = await getWatchState(webhookUsername);
   const startHistoryId = state.gmail?.historyId;
 
   // No baseline yet — just record the current id and wait for the next push.
   if (!startHistoryId) {
-    await updateGmail({ historyId: newHistoryId });
+    await updateGmail(webhookUsername, { historyId: newHistoryId });
     return NextResponse.json({ ok: true, bootstrapped: true });
   }
 
@@ -112,7 +119,6 @@ export async function POST(req: Request) {
         const snippet = detail.data.snippet || "";
 
         // Zoom detection: use the raw From header (includes domain) for reliable detection.
-        // This is more accurate than the display-name-only version available in poll-ingest.
         const zoomSignal = detectZoomEmail({
           from: fromRaw,
           subject,
@@ -131,37 +137,37 @@ export async function POST(req: Request) {
         publish(event);
         processed++;
 
-        // Fire-and-forget: classify + materialize into canonical Action/Decision/Memory
-        // stores. This is what creates durable records — the event above is just a receipt.
-        // Both paths are idempotent: stores dedup by sourceRef + text similarity.
-        if (source === "zoom_email") {
-          after(processZoomEmail({
-            gmailId: id,
-            externalId,
-            eventId: event.id,
-            subject: subject || "(no subject)",
-          }));
-        } else {
-          after(processRegularEmail({
-            gmailId: id,
-            externalId,
-            eventId: event.id,
-            subject: subject || "(no subject)",
-            from: extractName(fromRaw),
-            snippetFallback: snippet,
-          }));
-        }
+        const gmailPayload = source === "zoom_email"
+          ? {
+              gmailId: id,
+              externalId,
+              eventId: event.id,
+              subject: subject || "(no subject)",
+              from: extractName(fromRaw),
+              isZoom: true as const,
+            }
+          : {
+              gmailId: id,
+              externalId,
+              eventId: event.id,
+              subject: subject || "(no subject)",
+              from: extractName(fromRaw),
+              isZoom: false as const,
+              snippetFallback: snippet,
+            };
+        void createJobRecord(webhookUsername, "ingest.gmail", externalId);
+        await start(ingestGmailWorkflow, [webhookUsername, gmailPayload]);
       } catch (e) {
         console.error("Gmail message fetch failed:", e instanceof Error ? e.message : e);
       }
     }
 
-    await updateGmail({ historyId: newHistoryId });
+    await updateGmail(webhookUsername, { historyId: newHistoryId });
     return NextResponse.json({ ok: true, processed });
   } catch (e) {
     // On 404 HISTORY_NOT_FOUND (startHistoryId too old) just reset baseline.
     console.error("Gmail history.list error:", e instanceof Error ? e.message : e);
-    await updateGmail({ historyId: newHistoryId });
+    await updateGmail(webhookUsername, { historyId: newHistoryId });
     return NextResponse.json({ ok: true, reset: true });
   }
 }

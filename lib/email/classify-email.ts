@@ -12,8 +12,10 @@
  */
 
 import { generateText } from "ai";
-import { anthropic } from "@ai-sdk/anthropic";
+import { getTextModel, MAX_TOKENS } from "@/lib/ai/model-config";
 import { getSystemPrompt } from "@/lib/ai/system-prompt";
+import { parseAndValidate } from "@/lib/ai/parse-json";
+import { EmailIntelligenceSchema } from "@/lib/ai/schemas";
 
 // ── Category types ─────────────────────────────────────────────────────────────
 
@@ -110,16 +112,6 @@ export const MATERIALIZE_CATEGORIES = new Set<EmailCategory>([
 
 // ── Helpers ────────────────────────────────────────────────────────────────────
 
-const VALID_CATEGORIES: EmailCategory[] = [
-  "action_required",
-  "decision_request",
-  "decision_made",
-  "follow_up_needed",
-  "relationship_signal",
-  "scheduling_signal",
-  "informational_only",
-  "low_value_noise",
-];
 
 function emptyIntelligence(): EmailIntelligence {
   return {
@@ -137,68 +129,10 @@ function emptyIntelligence(): EmailIntelligence {
 }
 
 function parseIntelligence(raw: string): EmailIntelligence {
-  // Strip markdown fences, then find the outermost JSON object.
-  // This handles models that prepend explanation text before the JSON
-  // (e.g. "Here is the result:") despite being told not to — without this
-  // guard JSON.parse throws, the catch returns emptyIntelligence(), and
-  // the email is silently classified as low_value_noise with confidence=0.
-  const stripped = raw
-    .trim()
-    .replace(/^```(?:json)?\s*\n?/, "")
-    .replace(/\n?```\s*$/, "");
-
-  const jsonStart = stripped.indexOf("{");
-  const jsonEnd = stripped.lastIndexOf("}");
-  if (jsonStart === -1 || jsonEnd === -1 || jsonEnd <= jsonStart) {
-    throw new Error("No JSON object found in classification response");
-  }
-
-  const parsed = JSON.parse(stripped.slice(jsonStart, jsonEnd + 1)) as Partial<EmailIntelligence>;
-
-  const category: EmailCategory = VALID_CATEGORIES.includes(parsed.category as EmailCategory)
-    ? (parsed.category as EmailCategory)
-    : "low_value_noise";
-
-  const urgency: EmailUrgency = ["high", "medium", "low"].includes(parsed.urgency as string)
-    ? (parsed.urgency as EmailUrgency)
-    : "low";
-
-  return {
-    category,
-    confidence:
-      typeof parsed.confidence === "number"
-        ? Math.min(1, Math.max(0, parsed.confidence))
-        : 0.5,
-    urgency,
-    actions: Array.isArray(parsed.actions)
-      ? parsed.actions
-          .filter((a) => a?.text)
-          .map((a) => ({
-            text: a.text as string,
-            dueDate: typeof a.dueDate === "string" ? a.dueDate : undefined,
-            priority: (["high", "medium", "low"] as string[]).includes(a.priority as string)
-              ? (a.priority as "high" | "medium" | "low")
-              : undefined,
-          }))
-      : [],
-    decisions: Array.isArray(parsed.decisions)
-      ? parsed.decisions
-          .filter((d) => d?.text)
-          .map((d) => ({
-            text: d.text as string,
-            title: typeof d.title === "string" ? d.title : undefined,
-            decidedBy: typeof d.decidedBy === "string" ? d.decidedBy : undefined,
-            rationale: typeof d.rationale === "string" ? d.rationale : undefined,
-            alternatives: Array.isArray(d.alternatives) ? d.alternatives.filter(Boolean) : undefined,
-            consequences: Array.isArray(d.consequences) ? d.consequences.filter(Boolean) : undefined,
-          }))
-      : [],
-    people: Array.isArray(parsed.people) ? parsed.people.filter((p) => p?.name) : [],
-    companies: Array.isArray(parsed.companies) ? parsed.companies.filter(Boolean) : [],
-    deadlines: Array.isArray(parsed.deadlines) ? parsed.deadlines.filter(Boolean) : [],
-    blockers: Array.isArray(parsed.blockers) ? parsed.blockers.filter(Boolean) : [],
-    keyContext: typeof parsed.keyContext === "string" ? parsed.keyContext.trim() : "",
-  };
+  const result = parseAndValidate(raw, EmailIntelligenceSchema, "[classify-email]");
+  if (result.ok) return result.data as EmailIntelligence;
+  // On parse/validation failure fall through to emptyIntelligence() at call site
+  throw new Error(result.error);
 }
 
 // ── Core classification function ───────────────────────────────────────────────
@@ -222,7 +156,7 @@ export interface ClassifyEmailInput {
 export async function classifyEmail(
   input: ClassifyEmailInput
 ): Promise<EmailIntelligence> {
-  const { subject, from, date, snippet, body, username = "michael" } = input;
+  const { subject, from, date, snippet, body, username = process.env.PRIMARY_OWNER_USERNAME ?? "" } = input;
 
   // Clip to 4 000 chars — enough for rich emails, bounded AI cost
   const bodyClip = (body || snippet || "").trim().slice(0, 4_000);
@@ -291,7 +225,8 @@ Respond with ONLY valid JSON — no markdown fences, no explanation:
   try {
     const system = await getSystemPrompt(username);
     const { text } = await generateText({
-      model: anthropic("claude-3-5-haiku-20241022"),
+      model: getTextModel("fast"),
+      maxOutputTokens: MAX_TOKENS.fast,
       system,
       messages: [{ role: "user", content: prompt }],
     });

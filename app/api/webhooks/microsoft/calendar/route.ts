@@ -4,6 +4,8 @@ import { getWatchState } from "@/lib/microsoft/watch-state";
 import { createEvent, hasExternalId } from "@/lib/events/store";
 import { eventFromIngest } from "@/lib/events/rules";
 import { publish } from "@/lib/events/bus";
+import { resolveMicrosoftSubscriptionUser } from "@/lib/webhooks/resolve-user";
+import { writeDeadLetter } from "@/lib/webhooks/dead-letter";
 
 /**
  * POST /api/webhooks/microsoft/calendar — Microsoft Graph push notification
@@ -32,20 +34,27 @@ export async function POST(req: Request) {
   }
 
   // ── Change notification ───────────────────────────────────────────────────
-  const body = (await req.json().catch(() => null)) as GraphNotificationEnvelope | null;
+  const body = (await req.json().catch(() => null)) as GraphNotificationEnvelope | null; // ci-ok: malformed webhook body returns null, empty check handles it
   if (!body?.value?.length) {
     return NextResponse.json({ ok: true });
   }
 
-  const state = await getWatchState();
-  const expectedClientState = state.calendar?.clientState;
-
   for (const notification of body.value) {
+    // Resolve owning user from the subscription ID in this notification.
+    const webhookUsername = await resolveMicrosoftSubscriptionUser(notification.subscriptionId, "calendar");
+    if (!webhookUsername) {
+      await writeDeadLetter("ms-calendar", notification, `No user found for subscriptionId: ${notification.subscriptionId}`);
+      continue;
+    }
+
+    const state = await getWatchState(webhookUsername);
+    const expectedClientState = state.calendar?.clientState;
+
     // Verify clientState to prevent spoofed notifications
     if (expectedClientState && notification.clientState !== expectedClientState) {
       console.error(
         "[ms-calendar-webhook] clientState mismatch — ignoring notification",
-        { subscriptionId: notification.subscriptionId }
+        { subscriptionId: notification.subscriptionId, user: webhookUsername }
       );
       continue;
     }
@@ -59,9 +68,8 @@ export async function POST(req: Request) {
       // Skip if already ingested
       if (await hasExternalId(externalId)) continue;
 
-      // TODO: resolve username from subscription owner once multi-user is fully live
       const ev = await graphGet<GraphCalendarEvent>(
-        process.env.WEBHOOK_USERNAME ?? "michael",
+        webhookUsername,
         `/me/events/${eventId}?$select=id,subject,start,end,attendees,isOnlineMeeting,organizer`
       );
       if (!ev) continue;

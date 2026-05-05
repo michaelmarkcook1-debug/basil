@@ -7,18 +7,13 @@ import { getSessionUser } from "@/lib/auth";
 export const maxDuration = 300;
 
 // POST /api/whatsapp/dump
-// Kicks off a one-shot snapshot job. Returns immediately — the UI polls
-// /api/whatsapp/dump/status for QR + progress.
-//
-// The background sync task is registered with after() so Vercel keeps this
-// instance alive for the full duration of the dump even after the HTTP
-// response has been sent. Without this, Vercel can recycle the instance as
-// soon as the 200 is delivered, killing the WhatsApp WebSocket mid-sync.
+// Kicks off a one-shot snapshot job for the authenticated user. Returns
+// immediately — the UI polls /api/whatsapp/dump/status for QR + progress.
 export async function POST() {
   const username = await getSessionUser();
   if (!username) return NextResponse.json({ error: "Unauthorised" }, { status: 401 });
 
-  const { task } = startDump();
+  const { jobId, task } = startDump(username);
   after(task);
-  return NextResponse.json({ status: getStatus() });
+  return NextResponse.json({ status: getStatus(username), jobId });
 }

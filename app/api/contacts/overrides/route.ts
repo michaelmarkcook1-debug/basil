@@ -9,6 +9,6 @@ import { getSessionUser } from "@/lib/auth";
 export async function GET() {
   const username = await getSessionUser();
   if (!username) return NextResponse.json({ error: "Unauthorised" }, { status: 401 });
-  const overrides = await getAllOverridesFromStore();
+  const overrides = await getAllOverridesFromStore(username);
   return NextResponse.json({ overrides });
 }

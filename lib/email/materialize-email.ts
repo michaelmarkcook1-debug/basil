@@ -12,10 +12,16 @@
  *   eventId   → the BasilEvent that triggered this ingestion
  */
 
-import { createAction } from "@/lib/actions/store";
-import { createDecision, linkActionToDecision } from "@/lib/decisions/store";
-import { createMemory } from "@/lib/memory/store";
+import { createActionTracked } from "@/lib/actions/store";
+import { createDecisionTracked, linkActionToDecision } from "@/lib/decisions/store";
+import { createMemoryTracked } from "@/lib/memory/store";
 import { actionTier, decisionTier, memoryTier, needsReviewFlag } from "@/lib/trust/policy";
+import {
+  auditCreated,
+  auditUpdated,
+  auditFailed,
+  type AuditEntry,
+} from "@/lib/ingest/audit-log";
 import type { EmailIntelligence, EmailCategory } from "./classify-email";
 
 // ── Input / output types ───────────────────────────────────────────────────────
@@ -40,6 +46,8 @@ export interface MaterializeEmailResult {
   actionsCreated: number;
   decisionsCreated: number;
   memoriesCreated: number;
+  /** Audit entries for every item outcome — ready to pass to appendAuditEntries. */
+  auditEntries: AuditEntry[];
 }
 
 // ── Categories that trigger action creation ────────────────────────────────────
@@ -72,7 +80,7 @@ const EXPLICIT_ONLY_ACTION_CATEGORIES = new Set<EmailCategory>([
 export async function materializeEmailIntelligence(
   input: MaterializeEmailInput
 ): Promise<MaterializeEmailResult> {
-  const { intelligence: intel, messageId, eventId, subject, from, date, username = "michael" } = input;
+  const { intelligence: intel, messageId, eventId, subject, from, date, username = process.env.PRIMARY_OWNER_USERNAME ?? "" } = input;
   const sourceRef = `gmail:${messageId}`;
   const dateShort = date.slice(0, 10);
   const shortSubject = subject.length > 60 ? subject.slice(0, 57) + "…" : subject;
@@ -80,6 +88,7 @@ export async function materializeEmailIntelligence(
   let actionsCreated = 0;
   let decisionsCreated = 0;
   let memoriesCreated = 0;
+  const auditEntries: AuditEntry[] = [];
 
   // ── Trust policy tier for this email's confidence ─────────────────────────
   const aTier = actionTier(intel.confidence);
@@ -95,7 +104,7 @@ export async function materializeEmailIntelligence(
       for (const item of intel.actions) {
         if (!item.text?.trim()) continue;
         try {
-          await createAction(username, {
+          const { item: action, created } = await createActionTracked(username, {
             text: item.text.trim(),
             dueDate: item.dueDate,
             source: "email",
@@ -105,9 +114,15 @@ export async function materializeEmailIntelligence(
             confidence: intel.confidence,
             needsReview: needsReviewFlag(aTier),
           });
-          actionsCreated++;
+          if (created) {
+            actionsCreated++;
+            auditEntries.push(auditCreated(sourceRef, "action", action.id, item.text.trim().slice(0, 80)));
+          } else {
+            auditEntries.push(auditUpdated(sourceRef, "action", action.id, item.text.trim().slice(0, 80)));
+          }
         } catch (e) {
           console.error("[email-materialize] failed to create action:", e);
+          auditEntries.push(auditFailed(sourceRef, "action", e instanceof Error ? e.message : String(e)));
         }
       }
     } else if (intel.actions.length === 0 && isActionCategory) {
@@ -117,7 +132,7 @@ export async function materializeEmailIntelligence(
       const actionText = synthesizeActionText(intel.category, shortSubject, from);
       if (actionText) {
         try {
-          await createAction(username, {
+          const { item: action, created } = await createActionTracked(username, {
             text: actionText,
             source: "email",
             eventId,
@@ -127,9 +142,15 @@ export async function materializeEmailIntelligence(
             confidence: intel.confidence,
             needsReview: needsReviewFlag(aTier),
           });
-          actionsCreated++;
+          if (created) {
+            actionsCreated++;
+            auditEntries.push(auditCreated(sourceRef, "action", action.id, actionText.slice(0, 80)));
+          } else {
+            auditEntries.push(auditUpdated(sourceRef, "action", action.id, actionText.slice(0, 80)));
+          }
         } catch (e) {
           console.error("[email-materialize] failed to create synthesized action:", e);
+          auditEntries.push(auditFailed(sourceRef, "action", e instanceof Error ? e.message : String(e)));
         }
       }
     }
@@ -140,7 +161,7 @@ export async function materializeEmailIntelligence(
     for (const dec of intel.decisions) {
       if (!dec.text?.trim()) continue;
       try {
-        const decision = await createDecision(username, {
+        const { item: decision, created: decCreated } = await createDecisionTracked(username, {
           text: dec.text.trim(),
           title: dec.title?.trim(),
           rationale: dec.rationale?.trim(),
@@ -159,7 +180,12 @@ export async function materializeEmailIntelligence(
           eventId,
           sourceRef,
         });
-        decisionsCreated++;
+        if (decCreated) {
+          decisionsCreated++;
+          auditEntries.push(auditCreated(sourceRef, "decision", decision.id, dec.text.trim().slice(0, 80)));
+        } else {
+          auditEntries.push(auditUpdated(sourceRef, "decision", decision.id, dec.text.trim().slice(0, 80)));
+        }
 
         // Create follow-up actions from consequences and link them back.
         // Consequence actions inherit the same review flag as their parent decision.
@@ -167,7 +193,7 @@ export async function materializeEmailIntelligence(
           for (const consequence of dec.consequences) {
             if (!consequence.trim()) continue;
             try {
-              const action = await createAction(username, {
+              const { item: action, created: actCreated } = await createActionTracked(username, {
                 text: consequence.trim(),
                 source: "email",
                 eventId,
@@ -176,7 +202,10 @@ export async function materializeEmailIntelligence(
                 linkedDecisionIds: [decision.id],
               });
               await linkActionToDecision(username, decision.id, action.id);
-              actionsCreated++;
+              if (actCreated) {
+                actionsCreated++;
+                auditEntries.push(auditCreated(sourceRef, "action", action.id, consequence.trim().slice(0, 80)));
+              }
             } catch {
               // Non-fatal — decision was already created
             }
@@ -184,6 +213,7 @@ export async function materializeEmailIntelligence(
         }
       } catch (e) {
         console.error("[email-materialize] failed to create decision:", e);
+        auditEntries.push(auditFailed(sourceRef, "decision", e instanceof Error ? e.message : String(e)));
       }
     }
   }
@@ -227,7 +257,7 @@ export async function materializeEmailIntelligence(
     if (!mem.content.trim()) continue;
     if (mTier === "skip") continue;
     try {
-      await createMemory(username, {
+      const { item: memory, created } = await createMemoryTracked(username, {
         kind: "context",
         content: mem.content,
         entity: mem.entity,
@@ -237,13 +267,19 @@ export async function materializeEmailIntelligence(
         eventId,
         sourceRef,
       });
-      memoriesCreated++;
+      if (created) {
+        memoriesCreated++;
+        auditEntries.push(auditCreated(sourceRef, "memory", memory.id, mem.content.slice(0, 80)));
+      } else {
+        auditEntries.push(auditUpdated(sourceRef, "memory", memory.id, mem.content.slice(0, 80)));
+      }
     } catch (e) {
       console.error("[email-materialize] failed to create memory:", e);
+      auditEntries.push(auditFailed(sourceRef, "memory", e instanceof Error ? e.message : String(e)));
     }
   }
 
-  return { actionsCreated, decisionsCreated, memoriesCreated };
+  return { actionsCreated, decisionsCreated, memoriesCreated, auditEntries };
 }
 
 // ── Helpers ────────────────────────────────────────────────────────────────────

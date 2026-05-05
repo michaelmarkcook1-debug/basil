@@ -1,10 +1,14 @@
-import { NextResponse, after } from "next/server";
+import { NextResponse } from "next/server";
 import { graphGet } from "@/lib/microsoft/auth";
 import { getWatchState } from "@/lib/microsoft/watch-state";
 import { createEvent, hasExternalId } from "@/lib/events/store";
 import { eventFromIngest } from "@/lib/events/rules";
 import { publish } from "@/lib/events/bus";
-import { processRegularEmail } from "@/lib/email/process-gmail-message";
+import { resolveMicrosoftSubscriptionUser } from "@/lib/webhooks/resolve-user";
+import { writeDeadLetter } from "@/lib/webhooks/dead-letter";
+import { start } from "workflow/api";
+import { ingestMicrosoftMailWorkflow } from "@/lib/jobs/workflows/ingest-microsoft-mail";
+import { createJobRecord } from "@/lib/jobs/store";
 
 /**
  * POST /api/webhooks/microsoft/mail — Microsoft Graph push notification handler
@@ -33,20 +37,27 @@ export async function POST(req: Request) {
   }
 
   // ── Change notification ───────────────────────────────────────────────────
-  const body = (await req.json().catch(() => null)) as GraphNotificationEnvelope | null;
+  const body = (await req.json().catch(() => null)) as GraphNotificationEnvelope | null; // ci-ok: malformed webhook body returns null, empty check handles it
   if (!body?.value?.length) {
     return NextResponse.json({ ok: true });
   }
 
-  const state = await getWatchState();
-  const expectedClientState = state.mail?.clientState;
-
   for (const notification of body.value) {
+    // Resolve owning user from the subscription ID in this notification.
+    const webhookUsername = await resolveMicrosoftSubscriptionUser(notification.subscriptionId, "mail");
+    if (!webhookUsername) {
+      await writeDeadLetter("ms-mail", notification, `No user found for subscriptionId: ${notification.subscriptionId}`);
+      continue;
+    }
+
+    const state = await getWatchState(webhookUsername);
+    const expectedClientState = state.mail?.clientState;
+
     // Verify clientState to prevent spoofed notifications
     if (expectedClientState && notification.clientState !== expectedClientState) {
       console.error(
         "[ms-mail-webhook] clientState mismatch — ignoring notification",
-        { subscriptionId: notification.subscriptionId }
+        { subscriptionId: notification.subscriptionId, user: webhookUsername }
       );
       continue;
     }
@@ -60,9 +71,8 @@ export async function POST(req: Request) {
       // Skip if already ingested (e.g. poll-ingest ran first)
       if (await hasExternalId(externalId)) continue;
 
-      // TODO: resolve username from subscription owner once multi-user is fully live
       const msg = await graphGet<GraphMailMessage>(
-        process.env.WEBHOOK_USERNAME ?? "michael",
+        webhookUsername,
         `/me/messages/${msgId}?$select=id,subject,from,bodyPreview,receivedDateTime,isRead`
       );
       if (!msg) continue;
@@ -79,18 +89,18 @@ export async function POST(req: Request) {
       const event = await createEvent(shaped);
       publish(event);
 
-      // Classify + materialize into canonical Action/Decision/Memory stores after response.
-      // TODO: resolve username from subscription owner once multi-user is fully live
-      after(processRegularEmail({
-        username: process.env.WEBHOOK_USERNAME ?? "michael",
-        gmailId: msgId,
-        externalId,
-        eventId: event.id,
-        subject: msg.subject || "(no subject)",
-        from,
-        dateFallback: msg.receivedDateTime,
-        snippetFallback: msg.bodyPreview || "",
-      }));
+      void createJobRecord(webhookUsername, "ingest.microsoft.mail", externalId);
+      await start(ingestMicrosoftMailWorkflow, [
+        webhookUsername,
+        {
+          messageId: msgId,
+          externalId,
+          eventId: event.id,
+          subject: msg.subject || "(no subject)",
+          from,
+          snippetFallback: msg.bodyPreview || "",
+        },
+      ]);
     } catch (e) {
       console.error(
         "[ms-mail-webhook] failed to process notification:",

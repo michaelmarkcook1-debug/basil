@@ -3,17 +3,29 @@ import { google } from "googleapis";
 import { randomUUID } from "node:crypto";
 import { getAuthedClient } from "@/lib/google/auth";
 import { updateCalendar } from "@/lib/google/watch-state";
+import { verifySession, getSessionUser } from "@/lib/auth";
 
 /**
  * POST /api/webhooks/calendar/register — create/renew the Calendar watch.
  *
  * Requires env:
- *   CALENDAR_WATCH_URL    — public HTTPS URL of the webhook (must be exactly this app's /api/webhooks/calendar)
+ *   CALENDAR_WATCH_URL    — public HTTPS URL of the webhook
  *   CALENDAR_WATCH_TOKEN  — shared secret Google will echo back in X-Goog-Channel-Token
+ *
+ * The channelId is stored per-user so inbound push notifications can be
+ * resolved back to the owning username via resolveCalendarChannelUser().
  *
  * Max TTL ≈ 30 days; cron renews before expiry.
  */
 export async function POST() {
+  if (!(await verifySession())) {
+    return NextResponse.json({ error: "forbidden" }, { status: 403 });
+  }
+  const username = await getSessionUser();
+  if (!username) {
+    return NextResponse.json({ error: "forbidden" }, { status: 403 });
+  }
+
   const watchUrl = process.env.CALENDAR_WATCH_URL;
   const watchToken = process.env.CALENDAR_WATCH_TOKEN;
   if (!watchUrl || !watchToken) {
@@ -23,8 +35,7 @@ export async function POST() {
     );
   }
 
-  // TODO: resolve username from session once multi-user is fully live
-  const auth = await getAuthedClient(process.env.WEBHOOK_USERNAME ?? "michael");
+  const auth = await getAuthedClient(username);
   if (!auth) {
     return NextResponse.json(
       { error: "Calendar not connected" },
@@ -46,7 +57,7 @@ export async function POST() {
       },
     });
 
-    await updateCalendar({
+    await updateCalendar(username, {
       channelId,
       resourceId: res.data.resourceId || undefined,
       expiration: res.data.expiration ? Number(res.data.expiration) : undefined,
@@ -61,6 +72,7 @@ export async function POST() {
         : null,
     });
   } catch (e) {
+    console.error("[calendar-register] failed:", e instanceof Error ? e.message : e);
     return NextResponse.json(
       { error: "Registration failed" },
       { status: 500 }

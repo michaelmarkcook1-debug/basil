@@ -10,6 +10,7 @@ import { NextResponse } from "next/server";
 import { changePassword } from "@/lib/users";
 import { validateResetToken, consumeResetToken } from "@/lib/auth/reset-tokens";
 import { checkRateLimit, getClientIp } from "@/lib/rate-limit";
+import { forceFlushSnapshot } from "@/lib/storage/persistent";
 
 export async function POST(req: Request) {
   const ip = getClientIp(req);
@@ -44,6 +45,7 @@ export async function POST(req: Request) {
   try {
     await changePassword(username, newPassword);
     await consumeResetToken(token);
+    await forceFlushSnapshot(); // persist updated sessionVersion so new password survives cold start
     return NextResponse.json({ ok: true });
   } catch (e) {
     console.error("[reset-password] Failed:", e instanceof Error ? e.message : e);

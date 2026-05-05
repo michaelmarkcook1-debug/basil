@@ -1,9 +1,12 @@
+export const maxDuration = 300;
+
 import {
   streamText,
   UIMessage,
   convertToModelMessages,
   stepCountIs,
 } from "ai";
+import { getTextModel, MAX_TOKENS } from "@/lib/ai/model-config";
 import { getSystemPrompt } from "@/lib/ai/system-prompt";
 import { buildAssistantTools } from "@/lib/ai/tools";
 import { getSessionUser } from "@/lib/auth";
@@ -39,7 +42,8 @@ export async function POST(req: Request) {
   const system    = await getSystemPrompt(username, timezone);
 
   const result = streamText({
-    model: "anthropic/claude-sonnet-4.6",
+    model: getTextModel(),
+    maxOutputTokens: MAX_TOKENS.default,
     system,
     messages: modelMessages,
     tools: buildAssistantTools(username, firstName, timezone),

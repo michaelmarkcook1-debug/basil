@@ -2,19 +2,19 @@ import { NextResponse } from "next/server";
 import { randomUUID } from "node:crypto";
 import { graphFetch } from "@/lib/microsoft/auth";
 import { updateMail } from "@/lib/microsoft/watch-state";
+import { verifySession, getSessionUser } from "@/lib/auth";
 
 /**
  * POST /api/webhooks/microsoft/mail/register — creates/renews an MS Graph
  * mail change notification subscription.
  *
- * Also exposed as GET for easy manual trigger.
+ * Also exposed as GET for easy manual trigger (with session auth).
  *
  * Requires env:
  *   MICROSOFT_MAIL_WEBHOOK_URL  — public HTTPS URL for this notification endpoint
  *   MICROSOFT_WEBHOOK_SECRET    — clientState secret (fallback: auto-generated UUID)
  *
  * Subscription expires in 3 days — renew via the cron job before expiry.
- * Auth: same CRON_SECRET Bearer token as renew-subscriptions.
  */
 export async function GET(req: Request) {
   return handle(req);
@@ -25,10 +25,11 @@ export async function POST(req: Request) {
 }
 
 async function handle(req: Request): Promise<Response> {
-  // Cron / manual auth — matches renew-subscriptions pattern
-  const authHeader = req.headers.get("authorization");
-  const expected = process.env.CRON_SECRET;
-  if (expected && authHeader !== `Bearer ${expected}`) {
+  if (!(await verifySession())) {
+    return new NextResponse("forbidden", { status: 403 });
+  }
+  const username = await getSessionUser();
+  if (!username) {
     return new NextResponse("forbidden", { status: 403 });
   }
 
@@ -40,18 +41,12 @@ async function handle(req: Request): Promise<Response> {
     );
   }
 
-  const clientState =
-    process.env.MICROSOFT_WEBHOOK_SECRET || randomUUID();
-
-  // Expiration: 3 days from now
-  const expirationDateTime = new Date(
-    Date.now() + 3 * 86400_000
-  ).toISOString();
+  const clientState = process.env.MICROSOFT_WEBHOOK_SECRET || randomUUID();
+  const expirationDateTime = new Date(Date.now() + 3 * 86400_000).toISOString();
 
   try {
-    // TODO: resolve username from session once multi-user is fully live
     const res = await graphFetch(
-      process.env.WEBHOOK_USERNAME ?? "michael",
+      username,
       "https://graph.microsoft.com/v1.0/subscriptions",
       {
         method: "POST",
@@ -85,9 +80,9 @@ async function handle(req: Request): Promise<Response> {
 
     const data = await res.json() as GraphSubscriptionResponse;
 
-    await updateMail({
+    await updateMail(username, {
       subscriptionId: data.id,
-      expirationDateTime: new Date(data.expirationDateTime).getTime().toString(),
+      expirationDateTime: data.expirationDateTime,
       resource: data.resource,
       clientState,
     });

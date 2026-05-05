@@ -2,6 +2,8 @@
 
 import { useState, useEffect } from "react";
 import { useParams } from "next/navigation";
+import { usePersistentDraft } from "@/lib/hooks/use-persistent-draft";
+import { scopedKey } from "@/lib/session-user";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -29,6 +31,7 @@ import {
   ExtraContextInput,
   buildExtraContextFormData,
 } from "@/components/extra-context-input";
+import { SignalSummary } from "@/components/ui/trust-badge";
 
 interface EventMeta { title: string; time: string; attendees: string[]; dateLabel?: string }
 
@@ -73,6 +76,13 @@ interface PrepData {
   openActions?: OpenAction[];
   priorDecisions?: PriorDecision[];
   generatedAt?: string;
+  dataSources?: {
+    emails:          number;
+    slackMessages:   number;
+    zoomSummaries:   number;
+    openActions:     number;
+    activeDecisions: number;
+  };
 }
 
 // Map free-form priority labels to visual styles. Labels are open-ended
@@ -111,15 +121,27 @@ export default function MeetingPrepPage() {
   const [prep, setPrep] = useState<PrepData | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
-  const [extraNotes, setExtraNotes] = useState("");
   const [extraFiles, setExtraFiles] = useState<File[]>([]);
-  const [extraUrls, setExtraUrls] = useState<string[]>([]);
+
+  // extraNotes and extraUrls persist across tab switches, scoped by eventId.
+  const {
+    draft: extraDraft,
+    setDraft: setExtraDraft,
+    clearDraft: clearExtraDraft,
+  } = usePersistentDraft<{ extraNotes: string; extraUrls: string[] }>(
+    "meeting-extra",
+    { defaultValue: { extraNotes: "", extraUrls: [] }, entityId: eventId ?? undefined }
+  );
+  const extraNotes = extraDraft.extraNotes;
+  const extraUrls = extraDraft.extraUrls;
+  const setExtraNotes = (v: string) => setExtraDraft((d) => ({ ...d, extraNotes: v }));
+  const setExtraUrls = (v: string[]) => setExtraDraft((d) => ({ ...d, extraUrls: v }));
 
   // Hydrate cached prep for this event id — so navigating away and back
-  // doesn't lose the generated cheatsheet. Key per eventId.
-  const cacheKey = `sage-meeting-prep-${eventId}`;
+  // doesn't lose the generated cheatsheet. Key per eventId, username-scoped.
   useEffect(() => {
     if (!eventId) return;
+    const cacheKey = scopedKey("meeting-prep", eventId);
     try {
       const cached = localStorage.getItem(cacheKey);
       if (!cached) return;
@@ -135,17 +157,17 @@ export default function MeetingPrepPage() {
     } catch {
       /* ignore bad cache */
     }
-  }, [cacheKey, eventId]);
+  }, [eventId]);
 
   // Persist prep whenever it changes (after generate or regenerate).
   useEffect(() => {
     if (!eventId || !prep) return;
     try {
-      localStorage.setItem(cacheKey, JSON.stringify(prep));
+      localStorage.setItem(scopedKey("meeting-prep", eventId), JSON.stringify(prep));
     } catch {
       /* localStorage full or unavailable */
     }
-  }, [prep, cacheKey, eventId]);
+  }, [prep, eventId]);
 
   useEffect(() => {
     fetch("/api/calendar/upcoming")
@@ -165,7 +187,11 @@ export default function MeetingPrepPage() {
         }
         setLoadingMeta(false);
       })
-      .catch(() => { setMeta({ title: "Meeting", time: "", attendees: [] }); setLoadingMeta(false); });
+      .catch((e: unknown) => {
+        console.error("[basil-fetch] network_error", { route: `/api/calendar/${eventId}`, component: "MeetingPage", error: e instanceof Error ? e.message : String(e) });
+        setMeta({ title: "Meeting", time: "", attendees: [] });
+        setLoadingMeta(false);
+      });
   }, [eventId]);
 
   async function generate() {
@@ -208,6 +234,7 @@ export default function MeetingPrepPage() {
       const data = await res.json();
       if (data.error) throw new Error(data.error);
       setPrep(data);
+      clearExtraDraft();
     } catch (e) {
       setError(e instanceof Error ? e.message : "Something went wrong");
     } finally {
@@ -252,7 +279,7 @@ export default function MeetingPrepPage() {
 
       <ExtraContextInput
         label="Add context for this meeting"
-        placeholder="e.g. 'Read this email thread', 'Here's the deck we're walking them through', 'Michael's open questions for Ed'…"
+        placeholder="e.g. 'Read this email thread', 'Here's the deck we're walking them through', 'My open questions for Ed'…"
         notes={extraNotes}
         onNotesChange={setExtraNotes}
         files={extraFiles}
@@ -508,9 +535,14 @@ export default function MeetingPrepPage() {
           )}
 
           <Separator />
-          <p className="text-xs text-muted-foreground text-center">
-            Prepared by Basil · {meta?.title} · {prep.generatedAt && new Date(prep.generatedAt).toLocaleString("en-GB", { timeZone: "Europe/London" })}
-          </p>
+          <div className="flex flex-col items-center gap-1 text-center">
+            <p className="text-xs text-muted-foreground">
+              Prepared by Basil · {meta?.title} · {prep.generatedAt && new Date(prep.generatedAt).toLocaleString("en-GB", { timeZone: "Europe/London" })}
+            </p>
+            {prep.dataSources && (
+              <SignalSummary counts={prep.dataSources} />
+            )}
+          </div>
         </div>
       )}
 

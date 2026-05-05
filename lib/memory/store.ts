@@ -52,7 +52,16 @@ export async function createMemory(username: string, input: CreateMemoryInput): 
     const items = await readAll(username);
     const now = new Date().toISOString();
 
-    // Dedupe: if an identical content+entity already exists, just bump updatedAt
+    // Dedupe layer 1 — same sourceRef: return existing without bumping updatedAt
+    // (avoids re-writing the same record on every replay of the same source message)
+    if (input.sourceRef) {
+      const byRef = items.find((m) => m.sourceRef === input.sourceRef &&
+        m.content.trim().toLowerCase() === input.content.trim().toLowerCase());
+      if (byRef) return byRef;
+    }
+
+    // Dedupe layer 2 — identical content+entity (cross-source or manual dedup):
+    // bump updatedAt so "last seen" recency is kept up to date
     const existingIdx = items.findIndex(
       (m) =>
         m.content.trim().toLowerCase() === input.content.trim().toLowerCase() &&
@@ -81,6 +90,28 @@ export async function createMemory(username: string, input: CreateMemoryInput): 
     await writeAll(username, items);
     return memory;
   });
+}
+
+// ── Tracked variant (idempotency layer) ───────────────────────────────────────
+
+export interface CreateMemoryResult {
+  item: Memory;
+  /** True when a new row was inserted; false when an existing item was returned. */
+  created: boolean;
+}
+
+/**
+ * Like createMemory but also reports whether the item was newly created.
+ * Used by the ingest layer to emit accurate audit entries.
+ */
+export async function createMemoryTracked(
+  username: string,
+  input: CreateMemoryInput
+): Promise<CreateMemoryResult> {
+  const before = await readAll(username);
+  const existingIds = new Set(before.map((m) => m.id));
+  const item = await createMemory(username, input);
+  return { item, created: !existingIds.has(item.id) };
 }
 
 export async function updateMemory(

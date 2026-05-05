@@ -1,5 +1,5 @@
 import { google } from "googleapis";
-import { getAuthedClient } from "./auth";
+import { getAuthedClient, getGrantedScopes, GOOGLE_SCOPE } from "./auth";
 
 export interface DriveFile {
   id: string;
@@ -29,6 +29,14 @@ export async function getRecentDriveActivity(
   sinceDaysAgo = 30,
   maxResults = 100
 ): Promise<DriveActivity[]> {
+  // Verify drive.readonly scope was actually granted before making the call.
+  // If missing, log clearly rather than hitting a 403 from the API.
+  const scopes = await getGrantedScopes(username);
+  if (scopes.length > 0 && !scopes.includes(GOOGLE_SCOPE.drive)) {
+    console.warn("[drive] drive.readonly scope not granted — skipping Drive activity fetch. Re-connect Google in Settings to grant Drive access.");
+    return [];
+  }
+
   const auth = await getAuthedClient(username);
   if (!auth) return [];
 
@@ -59,7 +67,15 @@ export async function getRecentDriveActivity(
       }))
       .filter((a) => a.lastModifyingUser); // must have a named editor
   } catch (e) {
-    console.error("Drive activity fetch failed:", e instanceof Error ? e.message : e);
+    const msg = e instanceof Error ? e.message : String(e);
+    // Distinguish credential errors from transient errors for clearer debugging
+    if (msg.includes("invalid_grant") || msg.includes("Token has been expired") || msg.includes("token has been expired")) {
+      console.error("[drive] Drive activity fetch failed — Google token expired or revoked. Re-connect Google in Settings.", msg);
+    } else if (msg.includes("insufficient") || msg.includes("PERMISSION_DENIED") || msg.includes("403")) {
+      console.error("[drive] Drive activity fetch failed — insufficient permissions. Re-connect Google with Drive scope.", msg);
+    } else {
+      console.error("[drive] Drive activity fetch failed:", msg);
+    }
     return [];
   }
 }

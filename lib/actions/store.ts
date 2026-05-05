@@ -16,6 +16,7 @@ import { randomUUID } from "node:crypto";
 import type { ActionItem, ActionPriority } from "@/lib/types/action";
 import { withLock } from "@/lib/events/lock";
 import { readUserStore, writeUserStore } from "@/lib/storage/user-store";
+import { classifyAction } from "./classify";
 export { isActionStalled, STALE_THRESHOLD_DAYS } from "./utils";
 
 const ACTIONS_FILE = "sage-actions.json";
@@ -69,14 +70,78 @@ function jaccardSimilarity(a: string, b: string): number {
 }
 
 /**
+ * Extract key entities from action text for entity-aware deduplication.
+ *
+ * Captures:
+ *   - Normalised clock times ("11:30 AM" → "11:30am", "11:30" → "11:30")
+ *   - Day/date words ("tuesday", "may 6")
+ *   - Proper-noun sequences (runs of Title-case words: "Roger Stringer")
+ *
+ * These high-signal anchors let us catch semantic duplicates like
+ * "Confirm attendance for 11:30 AM meeting with Roger Stringer" vs
+ * "Confirm or decline 11:30 AM meeting slot with Roger Stringer"
+ * even when Jaccard alone falls just below the threshold.
+ */
+function extractKeyEntities(text: string): Set<string> {
+  const entities = new Set<string>();
+
+  // Times: 11:30 AM, 1:00pm, 11:30
+  for (const m of text.matchAll(/\b(\d{1,2}:\d{2})\s*(am|pm)?\b/gi)) {
+    entities.add(`${m[1]}${(m[2] ?? "").toLowerCase()}`);
+  }
+
+  // Standalone hour with am/pm: 3pm, 11am
+  for (const m of text.matchAll(/\b(\d{1,2})(am|pm)\b/gi)) {
+    entities.add(`${m[1]}${m[2].toLowerCase()}`);
+  }
+
+  // Days of week
+  for (const m of text.matchAll(/\b(monday|tuesday|wednesday|thursday|friday|saturday|sunday)\b/gi)) {
+    entities.add(m[1].toLowerCase());
+  }
+
+  // Month + day: "May 6", "6th May"
+  for (const m of text.matchAll(/\b(jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|jun(?:e)?|jul(?:y)?|aug(?:ust)?|sep(?:tember)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?)\s+\d{1,2}\b/gi)) {
+    entities.add(m[0].toLowerCase());
+  }
+
+  // Proper-noun sequences: runs of 1-3 Title-case words (person names, company names)
+  for (const m of text.matchAll(/\b([A-Z][a-z]+(?:\s+[A-Z][a-z]+){0,2})\b/g)) {
+    // Skip single generic words that are just capitalised at sentence start
+    const words = m[1].split(/\s+/);
+    if (words.length >= 2 || (words.length === 1 && m[1].length >= 4)) {
+      entities.add(m[1].toLowerCase());
+    }
+  }
+
+  return entities;
+}
+
+/**
+ * Count shared key entities between two action texts.
+ * Two or more shared entities (e.g. "roger stringer" + "11:30am") is a
+ * strong signal that the actions refer to the same real-world event.
+ */
+function sharedKeyEntityCount(a: string, b: string): number {
+  const ka = extractKeyEntities(a);
+  const kb = extractKeyEntities(b);
+  let count = 0;
+  for (const e of ka) if (kb.has(e)) count++;
+  return count;
+}
+
+/**
  * Find an existing action that is a near-duplicate of the proposed one.
  *
- * Two-layer check:
+ * Three-layer check:
  *   Layer 1 — same-source idempotency
  *     sourceRef matches AND text Jaccard ≥ 0.55 → skip re-import
- *   Layer 2 — cross-source merge
- *     Different sourceRef, text Jaccard ≥ 0.72, within 7 days, same owner →
- *     same action mentioned in multiple places; accumulate source refs
+ *   Layer 2 — cross-source text overlap
+ *     Jaccard ≥ 0.65, within 7 days, same owner → merge source refs
+ *   Layer 3 — entity-aware semantic match
+ *     Jaccard ≥ 0.55, same owner, ≥2 shared key entities (person + time),
+ *     within 7 days → catches paraphrased duplicates like
+ *     "Confirm attendance … Roger Stringer" vs "Confirm or decline … Roger Stringer"
  *
  * Completed actions are excluded — we don't de-dup against done items.
  */
@@ -97,24 +162,136 @@ function findDuplicate(
       if (jaccardSimilarity(text, item.text) >= 0.55) return item;
     }
 
-    // Layer 2 — cross-source: high text overlap, recent, same owner
     const itemAge = new Date(item.createdAt).getTime();
-    if (itemAge >= sevenDaysAgo && jaccardSimilarity(text, item.text) >= 0.72) {
-      const itemOwner = (item.owner ?? "").toLowerCase();
-      if (itemOwner === candidateOwner && candidateOwner !== "") return item;
+    if (itemAge < sevenDaysAgo) continue; // layers 2+3 are time-bounded
+
+    const sim = jaccardSimilarity(text, item.text);
+    const itemOwner = (item.owner ?? "").toLowerCase();
+    const sameOwner = itemOwner === candidateOwner && candidateOwner !== "";
+
+    // Layer 2 — cross-source high text overlap (threshold lowered 0.72→0.65)
+    if (sim >= 0.65 && sameOwner) return item;
+
+    // Layer 3 — entity-aware: moderate text overlap + shared key entities
+    // Catches paraphrased duplicates that just miss the Jaccard threshold
+    if (sim >= 0.55 && sameOwner && sharedKeyEntityCount(text, item.text) >= 2) {
+      return item;
     }
   }
 
   return null;
 }
 
+/**
+ * Scan the existing action list for duplicates introduced before the improved
+ * dedup logic and merge them in-place.  Returns the cleaned list and whether
+ * any merges happened (so the caller can decide whether to persist).
+ *
+ * Merge strategy: keep the OLDER item (richer provenance), accumulate
+ * sourceRefs from the newer one, then discard the newer duplicate.
+ */
+function mergeExistingDuplicates(items: ActionItem[]): { items: ActionItem[]; changed: boolean } {
+  const now = new Date().toISOString();
+  const sevenDaysAgo = Date.now() - 7 * 24 * 60 * 60 * 1000;
+  const toRemove = new Set<string>();
+  const merged = items.map((a) => ({ ...a })); // shallow clone for mutation
+
+  for (let i = 0; i < merged.length; i++) {
+    if (toRemove.has(merged[i].id) || merged[i].status === "done") continue;
+
+    for (let j = i + 1; j < merged.length; j++) {
+      if (toRemove.has(merged[j].id) || merged[j].status === "done") continue;
+
+      const a = merged[i];
+      const b = merged[j];
+      const ownerA = (a.owner ?? "").toLowerCase();
+      const ownerB = (b.owner ?? "").toLowerCase();
+      if (ownerA !== ownerB || ownerA === "") continue;
+
+      const ageA = new Date(a.createdAt).getTime();
+      const ageB = new Date(b.createdAt).getTime();
+      // Only consider pairs created within 7 days of each other
+      if (Math.abs(ageA - ageB) > 7 * 24 * 60 * 60 * 1000) continue;
+      // Both must be recent (within 30 days)
+      if (Math.min(ageA, ageB) < Date.now() - 30 * 24 * 60 * 60 * 1000) continue;
+
+      const sim = jaccardSimilarity(a.text, b.text);
+      const entityOverlap = sharedKeyEntityCount(a.text, b.text);
+      const isDup = sim >= 0.65 || (sim >= 0.55 && entityOverlap >= 2);
+      if (!isDup) continue;
+
+      // Keep older item (lower age ms = created earlier)
+      const [keepIdx, dropIdx] = ageA <= ageB ? [i, j] : [j, i];
+      const keep = merged[keepIdx];
+      const drop = merged[dropIdx];
+
+      // Accumulate sourceRefs from the dropped item
+      const existing = keep.additionalSourceRefs ?? [];
+      const toAdd = [drop.sourceRef, ...(drop.additionalSourceRefs ?? [])]
+        .filter((r): r is string => !!r && r !== keep.sourceRef && !existing.includes(r));
+
+      if (toAdd.length > 0) {
+        merged[keepIdx] = {
+          ...keep,
+          additionalSourceRefs: [...existing, ...toAdd],
+          updatedAt: now,
+        };
+      }
+
+      toRemove.add(drop.id);
+    }
+  }
+
+  if (toRemove.size === 0) return { items, changed: false };
+
+  const cleaned = merged.filter((a) => !toRemove.has(a.id));
+  return { items: cleaned, changed: true };
+}
+
 // ── Public interface ───────────────────────────────────────────────────────────
 
 export async function listActions(username: string): Promise<ActionItem[]> {
   const items = await readAll(username);
+
+  // ── Dedup cleanup pass ──────────────────────────────────────────────────────
+  // Catches duplicates that slipped through before the improved dedup logic.
+  // Fire-and-forget: re-reads inside the lock to avoid races; never blocks the
+  // response — the deduped view is returned to the caller immediately.
+  const { items: deduped, changed: dedupChanged } = mergeExistingDuplicates(items);
+  if (dedupChanged) {
+    withLock(lockKey(username), async () => {
+      const current = await readAll(username);
+      const { items: clean, changed } = mergeExistingDuplicates(current);
+      if (changed) await writeAll(username, clean);
+    }).catch((err) => console.error("[actions] background dedup failed:", err));
+  }
+
+  // ── Category backfill ───────────────────────────────────────────────────────
+  // Assign category/decisionRequired to legacy items that predate classification.
+  // Fire-and-forget: same pattern as dedup — read inside lock, write if changed.
+  const needsCategory = deduped.filter((a) => a.category === undefined && a.status !== "done");
+  if (needsCategory.length > 0) {
+    withLock(lockKey(username), async () => {
+      const current = await readAll(username);
+      let changed = false;
+      const patched = current.map((a) => {
+        if (a.category !== undefined || a.status === "done") return a;
+        const result = classifyAction(a.text, a.priority);
+        if (result.category === undefined && !result.decisionRequired) return a;
+        changed = true;
+        return {
+          ...a,
+          ...(result.category     !== undefined && { category: result.category }),
+          ...(result.decisionRequired            && { decisionRequired: true }),
+        };
+      });
+      if (changed) await writeAll(username, patched);
+    }).catch((err) => console.error("[actions] background category backfill failed:", err));
+  }
+
   const t = today();
   // Compute overdue on-the-fly (not persisted) so stale data files don't matter
-  const patched = items.map((a) =>
+  const patched = deduped.map((a) =>
     a.status === "open" && a.dueDate && a.dueDate < t
       ? { ...a, status: "overdue" as const }
       : a
@@ -187,6 +364,12 @@ export async function createAction(username: string, input: CreateActionInput): 
       return existing;
     }
 
+    // Auto-classify: derive category + decision flag from action text
+    const { category, decisionRequired } = classifyAction(
+      input.text.trim(),
+      input.priority,
+    );
+
     const action: ActionItem = {
       id: `act-${randomUUID().slice(0, 8)}`,
       text: input.text.trim(),
@@ -205,6 +388,9 @@ export async function createAction(username: string, input: CreateActionInput): 
       ...(input.needsReview !== undefined && { needsReview: input.needsReview }),
       ...(input.linkedDecisionIds?.length && { linkedDecisionIds: input.linkedDecisionIds }),
       ...(input.followUpDate && { followUpDate: input.followUpDate }),
+      // Classification
+      ...(category         !== undefined && { category }),
+      ...(decisionRequired               && { decisionRequired: true }),
     };
     items.unshift(action);
     await writeAll(username, items);
@@ -231,6 +417,9 @@ export async function updateAction(
       | "linkedDecisionIds"
       | "followUpDate"
       | "lastActivityAt"
+      | "category"
+      | "decisionRequired"
+      | "linkedDecisionId"
     >
   >
 ): Promise<ActionItem | null> {
@@ -286,6 +475,30 @@ export async function linkDecisionToAction(
     await writeAll(username, items);
     return items[idx];
   });
+}
+
+// ── Tracked variant (idempotency layer) ───────────────────────────────────────
+
+export interface CreateActionResult {
+  item: ActionItem;
+  /** True when a new row was inserted; false when an existing item was returned. */
+  created: boolean;
+}
+
+/**
+ * Like createAction but also reports whether the item was newly created.
+ * Used by the ingest layer to emit accurate audit entries.
+ */
+export async function createActionTracked(
+  username: string,
+  input: CreateActionInput
+): Promise<CreateActionResult> {
+  // Read a snapshot of existing IDs before the create call.
+  // The create call acquires its own lock internally.
+  const before = await readAll(username);
+  const existingIds = new Set(before.map((a) => a.id));
+  const item = await createAction(username, input);
+  return { item, created: !existingIds.has(item.id) };
 }
 
 export async function bulkImport(username: string, incoming: ActionItem[]): Promise<number> {

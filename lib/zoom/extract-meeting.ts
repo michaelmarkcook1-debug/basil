@@ -13,8 +13,10 @@
  */
 
 import { generateText } from "ai";
-import { anthropic } from "@ai-sdk/anthropic";
+import { getTextModel, MAX_TOKENS } from "@/lib/ai/model-config";
 import { getSystemPrompt } from "@/lib/ai/system-prompt";
+import { parseAndValidate } from "@/lib/ai/parse-json";
+import { ZoomMeetingExtractSchema } from "@/lib/ai/schemas";
 
 // ── Typed schema ───────────────────────────────────────────────────────────────
 
@@ -96,73 +98,22 @@ function emptyExtract(subject: string, date: string): ZoomMeetingExtract {
   };
 }
 
-/** Parse and sanitize the raw JSON response from the AI. */
+/** Parse and validate the raw JSON response from the AI using Zod. */
 function parseExtract(
   raw: string,
   fallback: { subject: string; date: string }
 ): ZoomMeetingExtract {
-  // Strip markdown fences first, then find the outermost JSON object.
-  // This handles models that prepend explanation text like "Here's the result:"
-  // before the JSON block — JSON.parse would fail on that preamble without this.
-  const stripped = raw
-    .trim()
-    .replace(/^```(?:json)?\s*\n?/, "")
-    .replace(/\n?```\s*$/, "");
-
-  const jsonStart = stripped.indexOf("{");
-  const jsonEnd = stripped.lastIndexOf("}");
-  if (jsonStart === -1 || jsonEnd === -1 || jsonEnd <= jsonStart) {
-    throw new Error("No JSON object found in extraction response");
+  const result = parseAndValidate(raw, ZoomMeetingExtractSchema, "[extract-meeting]");
+  if (result.ok) {
+    // Apply fallbacks for fields the model may have left empty
+    const data = result.data as ZoomMeetingExtract;
+    return {
+      ...data,
+      meetingTitle: data.meetingTitle || fallback.subject || "Zoom Meeting",
+      meetingDate: data.meetingDate || fallback.date,
+    };
   }
-  const jsonStr = stripped.slice(jsonStart, jsonEnd + 1);
-
-  const parsed = JSON.parse(jsonStr) as Partial<ZoomMeetingExtract>;
-
-  const safeItemConfidence = (v: unknown): number | undefined => {
-    if (typeof v !== "number") return undefined;
-    const clamped = Math.min(1, Math.max(0, v));
-    return clamped > 0 ? clamped : undefined;
-  };
-
-  return {
-    meetingTitle: typeof parsed.meetingTitle === "string" && parsed.meetingTitle
-      ? parsed.meetingTitle
-      : fallback.subject || "Zoom Meeting",
-    meetingDate: typeof parsed.meetingDate === "string" && parsed.meetingDate
-      ? parsed.meetingDate
-      : fallback.date,
-    attendees: Array.isArray(parsed.attendees) ? parsed.attendees.filter(Boolean) : [],
-    summary: typeof parsed.summary === "string" ? parsed.summary : "",
-    actionItems: Array.isArray(parsed.actionItems)
-      ? parsed.actionItems
-          .filter((a) => typeof a?.text === "string" && a.text.trim())
-          .map((a) => ({
-            text: (a.text as string).trim(),
-            owner: typeof a?.owner === "string" ? a.owner.trim() || undefined : undefined,
-            dueDate: typeof a?.dueDate === "string" ? a.dueDate.trim() || undefined : undefined,
-            confidence: safeItemConfidence(a?.confidence),
-          }))
-      : [],
-    decisions: Array.isArray(parsed.decisions)
-      ? parsed.decisions
-          .map((d) => ({
-            text: typeof d?.text === "string" ? d.text : "",
-            title: typeof d?.title === "string" ? d.title : undefined,
-            decidedBy: typeof d?.decidedBy === "string" ? d.decidedBy : undefined,
-            rationale: typeof d?.rationale === "string" ? d.rationale : undefined,
-            alternatives: Array.isArray(d?.alternatives) ? d.alternatives.filter(Boolean) : undefined,
-            consequences: Array.isArray(d?.consequences) ? d.consequences.filter(Boolean) : undefined,
-            confidence: safeItemConfidence(d?.confidence),
-          }))
-          .filter((d) => d.text)
-      : [],
-    blockers: Array.isArray(parsed.blockers) ? parsed.blockers.filter(Boolean) : [],
-    followUps: Array.isArray(parsed.followUps) ? parsed.followUps.filter(Boolean) : [],
-    confidence:
-      typeof parsed.confidence === "number"
-        ? Math.min(1, Math.max(0, parsed.confidence))
-        : 0.7,
-  };
+  throw new Error(result.error);
 }
 
 // ── Core extraction function ───────────────────────────────────────────────────
@@ -178,7 +129,7 @@ function parseExtract(
 export async function extractZoomMeeting(
   emailBody: string,
   metadata: { subject: string; date: string },
-  username = "michael"
+  username = process.env.PRIMARY_OWNER_USERNAME ?? ""
 ): Promise<ZoomMeetingExtract> {
   if (!emailBody?.trim()) {
     return emptyExtract(metadata.subject, metadata.date);
@@ -233,7 +184,8 @@ Respond with ONLY valid JSON — no markdown fences, no explanation, no preamble
   try {
     const system = await getSystemPrompt(username);
     const { text } = await generateText({
-      model: anthropic("claude-3-5-sonnet-20241022"),
+      model: getTextModel(),
+      maxOutputTokens: MAX_TOKENS.default,
       system,
       messages: [{ role: "user", content: prompt }],
     });

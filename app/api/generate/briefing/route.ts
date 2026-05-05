@@ -1,3 +1,5 @@
+export const maxDuration = 300;
+
 /**
  * Daily briefing generator — v2.
  *
@@ -14,8 +16,10 @@
  */
 
 import { generateText, type ModelMessage } from "ai";
+import { getTextModel, MAX_TOKENS } from "@/lib/ai/model-config";
 import { getSystemPrompt } from "@/lib/ai/system-prompt";
-import { parseAIJson } from "@/lib/ai/parse-json";
+import { parseAndValidate } from "@/lib/ai/parse-json";
+import { BriefingOutputSchema } from "@/lib/ai/schemas";
 import { getSettings } from "@/lib/settings/store";
 import { getTodayEvents, type CalendarEvent } from "@/lib/google/calendar";
 import { getRecentEmails, type GmailMessage } from "@/lib/google/gmail";
@@ -35,6 +39,35 @@ import {
   formatExtraContextBlock,
   type ExtraContext,
 } from "@/lib/ai/extra-context";
+import {
+  readGenerateCache,
+  writeGenerateCache,
+  deleteGenerateCache,
+  isCacheValid,
+  computeInputHash,
+  BRIEFING_TTL_MS,
+} from "@/lib/generate-cache/store";
+import type { Briefing } from "@/lib/types/briefing";
+
+// ── GET — return today's cached briefing ────────────────────────────────────
+export async function GET() {
+  const username = await getSessionUser();
+  if (!username) return Response.json({ error: "Unauthorised" }, { status: 401 });
+
+  const record = await readGenerateCache<Briefing>(username, "briefing");
+  if (!record || !isCacheValid(record)) return Response.json(null);
+
+  return Response.json(record.content);
+}
+
+// ── DELETE — invalidate cached briefing (force-regenerate on next POST) ─────
+export async function DELETE() {
+  const username = await getSessionUser();
+  if (!username) return Response.json({ error: "Unauthorised" }, { status: 401 });
+
+  await deleteGenerateCache(username, "briefing");
+  return Response.json({ ok: true });
+}
 
 // ── Format helpers ─────────────────────────────────────────────────────────────
 
@@ -115,7 +148,7 @@ export async function POST(req: Request) {
   const username = (await getSessionUser());
   if (!username) return Response.json({ error: "Unauthorised" }, { status: 401 });
 
-  const settings  = await getSettings(username).catch(() => null);
+  const settings  = await getSettings(username).catch(() => null); // ci-ok: settings optional, null falls back to defaults
   const tz        = settings?.timezone || "Europe/London";
 
   const today = new Date().toLocaleDateString("en-GB", {
@@ -481,12 +514,10 @@ Return ONLY valid JSON, no markdown code fences:
   let result: Awaited<ReturnType<typeof generateText>>;
   try {
     result = await generateText({
-      model: "anthropic/claude-sonnet-4.6",
+      model: getTextModel("long"),
+      maxOutputTokens: MAX_TOKENS.long,
       system: await getSystemPrompt(username, tz),
       ...(messages ? { messages } : { prompt: promptText }),
-      providerOptions: {
-        gateway: { tags: ["feature:briefing", "env:production"] },
-      },
     });
   } catch (e) {
     console.error("[briefing] generateText failed:", e instanceof Error ? e.message : e);
@@ -496,16 +527,29 @@ Return ONLY valid JSON, no markdown code fences:
     );
   }
 
-  try {
-    const parsed = parseAIJson<Record<string, unknown>>(result.text);
-    return Response.json({
-      ...parsed,
+  // Signal counts for trust UX — computed from the same data fed to the AI
+  const dataSourceCounts: NonNullable<Briefing["dataSources"]> = {
+    todayEvents:     calendarResult?.length ?? 0,
+    emails:          emails.length,
+    slackMessages:   slackMessages.length,
+    zoomSummaries:   zoomResult.length,
+    openActions:     openActions.length,
+    activeDecisions: activeDecisions.length,
+    recentMemories:  recentMemories.length,
+  };
+
+  let briefingData: Briefing;
+  const parseResult = parseAndValidate(result.text, BriefingOutputSchema, "[briefing]");
+  if (parseResult.ok) {
+    briefingData = {
+      ...parseResult.data,
       generatedAt: new Date().toISOString(),
       extraContextSummary: extra.summary,
-    });
-  } catch {
+      dataSources: dataSourceCounts,
+    };
+  } else {
     // Parse failure — return raw text in criticalToday so the UI shows something
-    return Response.json({
+    briefingData = {
       criticalToday: result.text,
       followUps: null,
       decisionsToWatch: null,
@@ -514,6 +558,27 @@ Return ONLY valid JSON, no markdown code fences:
       inboxSlack: null,
       generatedAt: new Date().toISOString(),
       extraContextSummary: extra.summary,
-    });
+      dataSources: dataSourceCounts,
+    };
   }
+
+  // Persist to the generate-cache store (isolated from critical app state).
+  // A cold-start cache miss is acceptable — regeneration is the fallback.
+  try {
+    const inputHash = computeInputHash(
+      username,
+      todayDate,
+      String(actionsResult.length),
+      String(decisionsResult.length),
+      String(memoriesResult.length),
+    );
+    await writeGenerateCache(username, "briefing", briefingData, {
+      inputHash,
+      ttlMs: BRIEFING_TTL_MS,
+    });
+  } catch (e) {
+    console.warn("[briefing] Failed to cache briefing:", e instanceof Error ? e.message : e);
+  }
+
+  return Response.json(briefingData);
 }

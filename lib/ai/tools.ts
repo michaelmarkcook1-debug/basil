@@ -259,7 +259,7 @@ export function buildAssistantTools(username: string, firstName?: string, timezo
             // Slack profile has the most accurate IANA tz
             let slackTz: string | undefined;
             if (slackConnected) {
-              const profile = await getUserProfile(username, email || a).catch(() => null);
+              const profile = await getUserProfile(username, email || a).catch(() => null); // ci-ok: optional Slack profile for timezone; slackTz undefined if unavailable
               slackTz = profile?.tz;
             }
 

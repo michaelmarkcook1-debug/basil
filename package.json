@@ -6,14 +6,23 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint"
+    "typecheck": "tsc --noEmit",
+    "lint": "eslint",
+    "sync": "node scripts/basil-sync.mjs",
+    "whatsapp:import": "node scripts/whatsapp-import.mjs",
+    "check:models": "node scripts/check-model-usage.mjs",
+    "test": "node --test tests/**/*.mjs",
+    "ci:guards": "node scripts/ci-guards.mjs",
+    "test:e2e": "playwright test"
   },
   "dependencies": {
     "@ai-sdk/anthropic": "^3.0.69",
     "@ai-sdk/react": "^3.0.160",
     "@slack/web-api": "^7.15.0",
     "@types/bcryptjs": "^2.4.6",
+    "@vercel/blob": "^2.3.3",
     "@whiskeysockets/baileys": "^7.0.0-rc.9",
+    "@workflow/next": "^4.0.5",
     "ai": "^6.0.158",
     "bcryptjs": "^3.0.3",
     "class-variance-authority": "^0.7.1",
@@ -34,9 +43,11 @@
     "swr": "^2.4.1",
     "tailwind-merge": "^3.5.0",
     "tw-animate-css": "^1.4.0",
+    "workflow": "^4.2.4",
     "zod": "^4.3.6"
   },
   "devDependencies": {
+    "@playwright/test": "^1.59.1",
     "@tailwindcss/postcss": "^4",
     "@types/node": "^20",
     "@types/qrcode": "^1.5.6",
@@ -44,6 +55,7 @@
     "@types/react-dom": "^19",
     "eslint": "^9",
     "eslint-config-next": "16.2.3",
+    "playwright": "^1.59.1",
     "tailwindcss": "^4",
     "typescript": "^5"
   }

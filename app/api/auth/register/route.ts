@@ -3,6 +3,7 @@ import { createSession } from "@/lib/auth";
 import { findByEmail, findByUsername, createUser } from "@/lib/users";
 import { patchSettings } from "@/lib/settings/store";
 import { checkRateLimit, getClientIp } from "@/lib/rate-limit";
+import { forceFlushSnapshot } from "@/lib/storage/persistent";
 
 export async function POST(req: Request) {
   // Rate limit by IP — 10 attempts per minute
@@ -75,6 +76,9 @@ export async function POST(req: Request) {
   // Write the real full name to the settings store immediately so Basil uses
   // "Jane Smith" rather than the username-derived default ("Janesmith").
   await patchSettings(username, { name: `${name} ${surname}`.trim() });
+
+  // Flush snapshot so new user account survives a cold start
+  await forceFlushSnapshot();
 
   return NextResponse.json({ success: true, username, onboardingCompleted: false });
 }

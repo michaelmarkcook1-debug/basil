@@ -1,6 +1,8 @@
 "use client";
 
 import { useState, useEffect, useRef } from "react";
+import { usePersistentDraft } from "@/lib/hooks/use-persistent-draft";
+import { scopedKey } from "@/lib/session-user";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
@@ -23,6 +25,7 @@ import {
 import { useDomainSync } from "@/lib/sync/use-domain-sync";
 
 import type { Briefing } from "@/lib/types/briefing";
+import { SignalSummary } from "@/components/ui/trust-badge";
 
 type SectionKey =
   | "criticalToday"
@@ -183,14 +186,14 @@ function RichContent({ text }: { text: string }) {
     <div className="space-y-3">
       {blocks.map((b, i) =>
         b.type === "p" ? (
-          <p key={i} className="text-[18px] leading-[1.7] text-foreground/90">
+          <p key={i} className="text-sm leading-relaxed text-foreground/90">
             {b.text}
           </p>
         ) : (
-          <ul key={i} className="space-y-3">
+          <ul key={i} className="space-y-2">
             {b.items.map((item, j) => (
-              <li key={j} className="flex gap-3.5 text-[17px] leading-[1.6]">
-                <span className="mt-2.5 h-2 w-2 shrink-0 rounded-full bg-current opacity-70" />
+              <li key={j} className="flex gap-3 text-sm leading-relaxed">
+                <span className="mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full bg-current opacity-70" />
                 <span className="text-foreground/90">{item}</span>
               </li>
             ))}
@@ -205,9 +208,22 @@ export default function BriefingPage() {
   const [briefing, setBriefing] = useState<Briefing | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
-  const [extraNotes, setExtraNotes] = useState("");
   const [extraFiles, setExtraFiles] = useState<File[]>([]);
-  const [extraUrls, setExtraUrls] = useState<string[]>([]);
+
+  // extraNotes and extraUrls are user input — persist across tab switches.
+  // Files cannot be stored in localStorage, so they reset on navigation.
+  const {
+    draft: extraDraft,
+    setDraft: setExtraDraft,
+    clearDraft: clearExtraDraft,
+  } = usePersistentDraft<{ extraNotes: string; extraUrls: string[] }>(
+    "briefing-extra",
+    { defaultValue: { extraNotes: "", extraUrls: [] } }
+  );
+  const extraNotes = extraDraft.extraNotes;
+  const extraUrls = extraDraft.extraUrls;
+  const setExtraNotes = (v: string) => setExtraDraft((d) => ({ ...d, extraNotes: v }));
+  const setExtraUrls = (v: string[]) => setExtraDraft((d) => ({ ...d, extraUrls: v }));
   // True when actions, decisions, or memory have changed since the briefing
   // was last generated — prompts the user to regenerate for fresh data.
   const [isStale, setIsStale] = useState(false);
@@ -224,32 +240,38 @@ export default function BriefingPage() {
   useDomainSync("decisions", markStale);
   useDomainSync("memory",    markStale);
 
-  // CLASSIFICATION: disposable generation cache — today-scoped so it expires
-  // automatically at midnight.  The briefing is regenerated from live data on
-  // demand; clearing this key means the next visit re-generates rather than
-  // replaying a cached summary.  Not assistant truth.
+  // Load today's cached briefing from the server on mount so it persists
+  // across tab navigation. localStorage is kept as a fast client-side fallback
+  // to avoid a flash of the empty state while the fetch is in flight.
   useEffect(() => {
-    const cached = localStorage.getItem("sage-briefing-v2");
-    if (cached) {
-      try {
-        const parsed = JSON.parse(cached);
-        const today = new Date().toLocaleDateString("en-CA", {
-          timeZone: "Europe/London",
-        });
-        const cachedDate = parsed.generatedAt
-          ? new Date(parsed.generatedAt).toLocaleDateString("en-CA", {
-              timeZone: "Europe/London",
-            })
+    // Optimistic restore from localStorage while the API call is in flight
+    const cacheKey = scopedKey("briefing-v2");
+    try {
+      const lsRaw = localStorage.getItem(cacheKey);
+      if (lsRaw) {
+        const lsParsed = JSON.parse(lsRaw);
+        const today = new Date().toLocaleDateString("en-CA", { timeZone: "Europe/London" });
+        const lsDate = lsParsed.generatedAt
+          ? new Date(lsParsed.generatedAt).toLocaleDateString("en-CA", { timeZone: "Europe/London" })
           : "";
-        if (cachedDate === today) {
-          setBriefing(parsed);
-        } else {
-          localStorage.removeItem("sage-briefing-v2");
-        }
-      } catch {
-        /* ignore bad cache */
+        if (lsDate === today) setBriefing(lsParsed);
+        else localStorage.removeItem(cacheKey);
       }
-    }
+    } catch { /* ignore */ }
+
+    // Authoritative load from server — this is the source of truth
+    fetch("/api/generate/briefing", { cache: "no-store" })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((data) => {
+        if (data) {
+          setBriefing(data);
+          try { localStorage.setItem(scopedKey("briefing-v2"), JSON.stringify(data)); } catch { /* ignore */ }
+        }
+      })
+      .catch((e: unknown) => {
+        // Network error — keep localStorage state as fallback
+        console.error("[basil-fetch] network_error", { route: "/api/generate/briefing", component: "BriefingPage", error: e instanceof Error ? e.message : String(e) });
+      });
   }, []);
 
   async function generate() {
@@ -275,7 +297,8 @@ export default function BriefingPage() {
       if (!res.ok) throw new Error("Generation failed");
       const data = await res.json();
       setBriefing(data);
-      localStorage.setItem("sage-briefing-v2", JSON.stringify(data));
+      clearExtraDraft();
+      try { localStorage.setItem(scopedKey("briefing-v2"), JSON.stringify(data)); } catch { /* ignore */ }
     } catch (e) {
       setError(e instanceof Error ? e.message : "Something went wrong");
     } finally {
@@ -292,7 +315,7 @@ export default function BriefingPage() {
   });
 
   return (
-    <div className="p-4 sm:p-6 lg:p-10 space-y-8 max-w-5xl mx-auto">
+    <div className="p-4 sm:p-6 lg:p-8 space-y-8 max-w-5xl mx-auto">
       {/* Hero header */}
       <header className="flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
         <div className="space-y-2">
@@ -432,17 +455,22 @@ export default function BriefingPage() {
 
           <div className="pt-2">
             <div className="basil-hairline" />
-            <p className="text-sm text-muted-foreground text-center pt-4 font-mono tracking-wider uppercase">
-              Prepared by Basil ·{" "}
-              {new Date(briefing.generatedAt).toLocaleString("en-GB", {
-                timeZone: "Europe/London",
-                weekday: "short",
-                day: "numeric",
-                month: "short",
-                hour: "2-digit",
-                minute: "2-digit",
-              })}
-            </p>
+            <div className="pt-4 flex flex-col items-center gap-1.5 text-center">
+              <p className="text-sm text-muted-foreground font-mono tracking-wider uppercase">
+                Prepared by Basil ·{" "}
+                {new Date(briefing.generatedAt).toLocaleString("en-GB", {
+                  timeZone: "Europe/London",
+                  weekday: "short",
+                  day: "numeric",
+                  month: "short",
+                  hour: "2-digit",
+                  minute: "2-digit",
+                })}
+              </p>
+              {briefing.dataSources && (
+                <SignalSummary counts={briefing.dataSources} />
+              )}
+            </div>
           </div>
         </div>
       )}

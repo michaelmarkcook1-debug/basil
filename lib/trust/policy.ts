@@ -53,16 +53,12 @@ export const ACTION_CONFIDENCE = {
  * team. The auto-trust bar is higher.
  *
  * SKIP   < 0.45  — too uncertain to store
- * REVIEW 0.45–0.69 — create with needsReview=true
- * AUTO   ≥ 0.70  — auto-materialize
- *
- * Note: the previous threshold was 0.60. Decisions extracted at 0.60–0.69 that
- * were previously auto-materialized will now be flagged for review on new
- * ingestion. Existing stored decisions are not retroactively changed.
+ * REVIEW 0.45–0.59 — create with needsReview=true
+ * AUTO   ≥ 0.60  — auto-materialize
  */
 export const DECISION_CONFIDENCE = {
   SKIP: 0.45,
-  AUTO: 0.70,
+  AUTO: 0.60,
 } as const;
 
 /**

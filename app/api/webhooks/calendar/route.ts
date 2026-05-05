@@ -5,6 +5,8 @@ import { createEvent } from "@/lib/events/store";
 import { eventFromIngest } from "@/lib/events/rules";
 import { publish } from "@/lib/events/bus";
 import { getWatchState, updateCalendar } from "@/lib/google/watch-state";
+import { resolveCalendarChannelUser } from "@/lib/webhooks/resolve-user";
+import { writeDeadLetter } from "@/lib/webhooks/dead-letter";
 
 /**
  * POST /api/webhooks/calendar — Google Calendar push notifications.
@@ -31,13 +33,20 @@ export async function POST(req: Request) {
     return NextResponse.json({ ok: true, bootstrap: true });
   }
 
-  // TODO: resolve username from session once multi-user is fully live
-  const auth = await getAuthedClient(process.env.WEBHOOK_USERNAME ?? "michael");
+  // Resolve the owning user from the channel ID Google sends in the header.
+  const channelId = req.headers.get("x-goog-channel-id") ?? "";
+  const webhookUsername = await resolveCalendarChannelUser(channelId);
+  if (!webhookUsername) {
+    await writeDeadLetter("calendar", { channelId, resourceState }, `No user found for channelId: ${channelId}`);
+    return NextResponse.json({ ok: true, note: "unresolved owner" });
+  }
+
+  const auth = await getAuthedClient(webhookUsername);
   if (!auth) return NextResponse.json({ ok: true, note: "calendar not connected" });
   const cal = google.calendar({ version: "v3", auth });
 
-  const state = await getWatchState();
-  let syncToken = state.calendar?.syncToken;
+  const state = await getWatchState(webhookUsername);
+  const syncToken = state.calendar?.syncToken;
 
   try {
     // If we have no syncToken, seed one — we can only act from next push onward.
@@ -47,7 +56,7 @@ export async function POST(req: Request) {
         maxResults: 1,
       });
       if (seed.data.nextSyncToken) {
-        await updateCalendar({ syncToken: seed.data.nextSyncToken });
+        await updateCalendar(webhookUsername, { syncToken: seed.data.nextSyncToken });
       }
       return NextResponse.json({ ok: true, seeded: true });
     }
@@ -63,7 +72,7 @@ export async function POST(req: Request) {
     }
 
     if (res.data.nextSyncToken) {
-      await updateCalendar({ syncToken: res.data.nextSyncToken });
+      await updateCalendar(webhookUsername, { syncToken: res.data.nextSyncToken });
     }
     return NextResponse.json({
       ok: true,
@@ -74,7 +83,7 @@ export async function POST(req: Request) {
     const msg = e instanceof Error ? e.message : String(e);
     console.error("Calendar events.list error:", msg);
     if (msg.includes("410") || msg.toLowerCase().includes("sync token")) {
-      await updateCalendar({ syncToken: undefined });
+      await updateCalendar(webhookUsername, { syncToken: undefined });
     }
     return NextResponse.json({ ok: true, error: msg });
   }

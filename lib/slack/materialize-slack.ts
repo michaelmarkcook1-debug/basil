@@ -12,10 +12,16 @@
  * for the same message/thread.
  */
 
-import { createAction } from "@/lib/actions/store";
-import { createDecision, linkActionToDecision } from "@/lib/decisions/store";
-import { createMemory } from "@/lib/memory/store";
+import { createActionTracked } from "@/lib/actions/store";
+import { createDecisionTracked, linkActionToDecision } from "@/lib/decisions/store";
+import { createMemoryTracked } from "@/lib/memory/store";
 import { actionTier, decisionTier, memoryTier, needsReviewFlag } from "@/lib/trust/policy";
+import {
+  auditCreated,
+  auditUpdated,
+  auditFailed,
+  type AuditEntry,
+} from "@/lib/ingest/audit-log";
 import type { SlackIntelligence, SlackSignalCategory } from "./classify-slack";
 
 // ── Input / output types ───────────────────────────────────────────────────────
@@ -40,6 +46,8 @@ export interface MaterializeSlackResult {
   actionsCreated: number;
   decisionsCreated: number;
   memoriesCreated: number;
+  /** Audit entries for every item outcome — ready to pass to appendAuditEntries. */
+  auditEntries: AuditEntry[];
 }
 
 // ── Categories that generate actions ──────────────────────────────────────────
@@ -73,7 +81,7 @@ const EXPLICIT_ONLY_ACTION_CATEGORIES = new Set<SlackSignalCategory>([
 export async function materializeSlackIntelligence(
   input: MaterializeSlackInput
 ): Promise<MaterializeSlackResult> {
-  const { intelligence: intel, sourceRef, eventId, channelName, from, date, username = "michael" } = input;
+  const { intelligence: intel, sourceRef, eventId, channelName, from, date, username = process.env.PRIMARY_OWNER_USERNAME ?? "" } = input;
   const dateShort = date.slice(0, 10);
   const channelLabel = channelName.startsWith("#") || channelName.startsWith("DM")
     ? channelName
@@ -82,6 +90,7 @@ export async function materializeSlackIntelligence(
   let actionsCreated = 0;
   let decisionsCreated = 0;
   let memoriesCreated = 0;
+  const auditEntries: AuditEntry[] = [];
 
   // ── Trust policy tier for this Slack message's confidence ─────────────────
   const aTier = actionTier(intel.confidence);
@@ -97,7 +106,7 @@ export async function materializeSlackIntelligence(
       for (const item of intel.actions) {
         if (!item.text?.trim()) continue;
         try {
-          await createAction(username, {
+          const { item: action, created } = await createActionTracked(username, {
             text: item.text.trim(),
             owner: item.owner,
             dueDate: item.dueDate,
@@ -108,9 +117,15 @@ export async function materializeSlackIntelligence(
             confidence: intel.confidence,
             needsReview: needsReviewFlag(aTier),
           });
-          actionsCreated++;
+          if (created) {
+            actionsCreated++;
+            auditEntries.push(auditCreated(sourceRef, "action", action.id, item.text.trim().slice(0, 80)));
+          } else {
+            auditEntries.push(auditUpdated(sourceRef, "action", action.id, item.text.trim().slice(0, 80)));
+          }
         } catch (e) {
           console.error("[slack-materialize] failed to create action:", e);
+          auditEntries.push(auditFailed(sourceRef, "action", e instanceof Error ? e.message : String(e)));
         }
       }
     } else if (intel.actions.length === 0 && isActionCategory) {
@@ -125,7 +140,7 @@ export async function materializeSlackIntelligence(
       );
       if (actionText) {
         try {
-          await createAction(username, {
+          const { item: action, created } = await createActionTracked(username, {
             text: actionText,
             source: "slack",
             eventId,
@@ -135,9 +150,15 @@ export async function materializeSlackIntelligence(
             confidence: intel.confidence,
             needsReview: needsReviewFlag(aTier),
           });
-          actionsCreated++;
+          if (created) {
+            actionsCreated++;
+            auditEntries.push(auditCreated(sourceRef, "action", action.id, actionText.slice(0, 80)));
+          } else {
+            auditEntries.push(auditUpdated(sourceRef, "action", action.id, actionText.slice(0, 80)));
+          }
         } catch (e) {
           console.error("[slack-materialize] failed to create synthesized action:", e);
+          auditEntries.push(auditFailed(sourceRef, "action", e instanceof Error ? e.message : String(e)));
         }
       }
     }
@@ -148,7 +169,7 @@ export async function materializeSlackIntelligence(
     for (const dec of intel.decisions) {
       if (!dec.text?.trim()) continue;
       try {
-        const decision = await createDecision(username, {
+        const { item: decision, created: decCreated } = await createDecisionTracked(username, {
           text: dec.text.trim(),
           title: dec.title?.trim(),
           rationale: dec.rationale?.trim(),
@@ -167,14 +188,19 @@ export async function materializeSlackIntelligence(
           eventId,
           sourceRef,
         });
-        decisionsCreated++;
+        if (decCreated) {
+          decisionsCreated++;
+          auditEntries.push(auditCreated(sourceRef, "decision", decision.id, dec.text.trim().slice(0, 80)));
+        } else {
+          auditEntries.push(auditUpdated(sourceRef, "decision", decision.id, dec.text.trim().slice(0, 80)));
+        }
 
         // Consequence actions inherit the same review flag as their parent decision.
         if (dec.consequences && dec.consequences.length > 0) {
           for (const consequence of dec.consequences) {
             if (!consequence.trim()) continue;
             try {
-              const action = await createAction(username, {
+              const { item: action, created: actCreated } = await createActionTracked(username, {
                 text: consequence.trim(),
                 source: "slack",
                 eventId,
@@ -183,7 +209,10 @@ export async function materializeSlackIntelligence(
                 linkedDecisionIds: [decision.id],
               });
               await linkActionToDecision(username, decision.id, action.id);
-              actionsCreated++;
+              if (actCreated) {
+                actionsCreated++;
+                auditEntries.push(auditCreated(sourceRef, "action", action.id, consequence.trim().slice(0, 80)));
+              }
             } catch {
               // Non-fatal
             }
@@ -191,6 +220,7 @@ export async function materializeSlackIntelligence(
         }
       } catch (e) {
         console.error("[slack-materialize] failed to create decision:", e);
+        auditEntries.push(auditFailed(sourceRef, "decision", e instanceof Error ? e.message : String(e)));
       }
     }
   }
@@ -245,7 +275,7 @@ export async function materializeSlackIntelligence(
     if (!mem.content.trim()) continue;
     if (mTier === "skip") continue;
     try {
-      await createMemory(username, {
+      const { item: memory, created } = await createMemoryTracked(username, {
         kind: "context",
         content: mem.content,
         entity: mem.entity,
@@ -255,13 +285,19 @@ export async function materializeSlackIntelligence(
         eventId,
         sourceRef,
       });
-      memoriesCreated++;
+      if (created) {
+        memoriesCreated++;
+        auditEntries.push(auditCreated(sourceRef, "memory", memory.id, mem.content.slice(0, 80)));
+      } else {
+        auditEntries.push(auditUpdated(sourceRef, "memory", memory.id, mem.content.slice(0, 80)));
+      }
     } catch (e) {
       console.error("[slack-materialize] failed to create memory:", e);
+      auditEntries.push(auditFailed(sourceRef, "memory", e instanceof Error ? e.message : String(e)));
     }
   }
 
-  return { actionsCreated, decisionsCreated, memoriesCreated };
+  return { actionsCreated, decisionsCreated, memoriesCreated, auditEntries };
 }
 
 // ── Helpers ────────────────────────────────────────────────────────────────────

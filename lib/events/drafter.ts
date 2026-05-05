@@ -17,7 +17,7 @@
  */
 
 import { generateText } from "ai";
-import { anthropic } from "@ai-sdk/anthropic";
+import { getTextModel, MAX_TOKENS } from "@/lib/ai/model-config";
 import { getSystemPrompt } from "@/lib/ai/system-prompt";
 import { searchEmails, getEmailBody } from "@/lib/google/gmail";
 import { findContactByName, getPersonaSummary } from "@/lib/contacts-lookup";
@@ -119,7 +119,7 @@ function getToneGuidance(senderName: string | undefined): string {
  * Never throws — returns a `caveat` and empty/minimal body on failure so the
  * UI always has something to show.
  */
-export async function generateDraftForEvent(event: BasilEvent, username = "michael"): Promise<DraftResult> {
+export async function generateDraftForEvent(event: BasilEvent, username = process.env.PRIMARY_OWNER_USERNAME ?? ""): Promise<DraftResult> {
   const now = new Date().toISOString();
   const payload = event.payload as {
     title?: string; body?: string; from?: string;
@@ -180,7 +180,8 @@ export async function generateDraftForEvent(event: BasilEvent, username = "micha
     ? `Slack message${channel ? ` in ${channel}` : ""}`
     : `${event.source} message`;
 
-  const userPrompt = `You are drafting a reply to an incoming ${sourceLabel} on Michael's behalf.
+  const displayName = username.split(/[@._]/)[0] || username;
+  const userPrompt = `You are drafting a reply to an incoming ${sourceLabel} on ${displayName}'s behalf.
 
 ## INCOMING MESSAGE
 From: ${from}
@@ -193,7 +194,7 @@ ${recentExchangesBlock}${personaBlock}
 2. **Evidence only** — only reference facts that are in the message above or in your persistent memory section. Never invent timelines, commitments, figures, or status updates.
 3. **If you can't answer something** — write "Let me check on that and come back to you" rather than fabricating. Note what's missing in the caveat.
 4. **Tone**: ${toneGuidance}
-5. **Sign as**: "Michael" (first name only)
+5. **Sign as**: "${displayName}" (first name only)
 6. **Length**: Concise. 2–4 sentences for straightforward replies; a short paragraph or two for complex ones. No filler phrases like "Thanks for reaching out."
 
 Respond with valid JSON only, no markdown fences:
@@ -209,7 +210,8 @@ CRITICAL: The reply must address the specific content of THIS message. If you fi
   try {
     const system = await getSystemPrompt(username);
     const { text } = await generateText({
-      model: anthropic("claude-3-5-sonnet-20241022"),
+      model: getTextModel(),
+      maxOutputTokens: MAX_TOKENS.default,
       system,
       messages: [{ role: "user", content: userPrompt }],
     });

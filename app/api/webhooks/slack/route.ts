@@ -1,12 +1,15 @@
-import { NextResponse, after } from "next/server";
+import { NextResponse } from "next/server";
 import { verifySlackSignature } from "@/lib/slack/verify";
 import { createEvent, hasExternalId } from "@/lib/events/store";
 import { eventFromIngest } from "@/lib/events/rules";
 import { publish } from "@/lib/events/bus";
 import type { IngestPayload } from "@/lib/events/types";
-import { fetchSlackThread, formatThreadTranscript } from "@/lib/slack/fetch-thread";
-import { classifySlack, shouldClassifySlack, shouldMaterializeSlack } from "@/lib/slack/classify-slack";
-import { materializeSlackIntelligence } from "@/lib/slack/materialize-slack";
+import { shouldClassifySlack } from "@/lib/slack/classify-slack";
+import { resolveSlackUser } from "@/lib/webhooks/resolve-user";
+import { writeDeadLetter } from "@/lib/webhooks/dead-letter";
+import { start } from "workflow/api";
+import { ingestSlackWorkflow } from "@/lib/jobs/workflows/ingest-slack";
+import { createJobRecord } from "@/lib/jobs/store";
 
 /**
  * POST /api/webhooks/slack — Slack Events API endpoint.
@@ -48,11 +51,17 @@ export async function POST(req: Request) {
   });
   if (!ok) return new NextResponse("forbidden", { status: 403 });
 
-  // Slack expects a fast ack — we acknowledge then process async.
-  // (On Vercel Fluid Compute this is fine in-line; truly long work would go
-  // through Vercel Queues. For event ingestion + rule classification it's ms.)
   if (parsed.type === "event_callback" && parsed.event) {
     const inner = parsed.event;
+
+    // Resolve the owning user. Slack events don't carry a subscription ID, so
+    // we find the first user who has Slack connected.
+    const webhookUsername = await resolveSlackUser();
+    if (!webhookUsername) {
+      await writeDeadLetter("slack", { type: inner.type, channel: inner.channel }, "No user has Slack connected");
+      return NextResponse.json({ ok: true });
+    }
+
     try {
       const payload = slackEventToIngest(inner);
       if (payload) {
@@ -66,8 +75,6 @@ export async function POST(req: Request) {
         publish(event);
 
         // ── Slack intelligence: fire-and-forget for qualifying webhook events ──
-        // Real-time DMs and mentions are the highest-signal Slack events —
-        // always run intelligence on them even without poll-ingest queueing.
         const channelId = inner.channel;
         const messageTs = inner.ts;
 
@@ -81,45 +88,29 @@ export async function POST(req: Request) {
             tags: event.tags,
           })
         ) {
-          after(async () => {
-            try {
-              // TODO: resolve username from Slack team/user mapping once multi-user is fully live
-              const threadMessages = await fetchSlackThread(process.env.WEBHOOK_USERNAME ?? "michael", channelId, messageTs);
-              const channelName = payload.channel || payload.title || "Slack";
-              const transcript =
-                threadMessages.length > 0
-                  ? formatThreadTranscript(threadMessages, channelName)
-                  : `Channel: ${channelName}\n\n${payload.from || "Unknown"}: ${payload.body || ""}`;
+          const channelName = payload.channel || payload.title || "Slack";
+          const messageDate = inner.ts
+            ? new Date(parseFloat(inner.ts) * 1000).toISOString()
+            : new Date().toISOString();
+          const slackSourceRef = payload.externalId || `slack:${channelId}:${messageTs}`;
 
-              // Use the Slack event timestamp for accurate provenance dating.
-              // inner.ts is a Unix epoch in seconds (with decimal ms component).
-              const messageDate = inner.ts
-                ? new Date(parseFloat(inner.ts) * 1000).toISOString()
-                : new Date().toISOString();
-
-              const intel = await classifySlack({
-                channelName,
-                transcript,
-                isDM: !!payload.hints?.isDM,
-                isMention: !!payload.hints?.isMention,
-                date: messageDate,
-              });
-
-              if (!shouldMaterializeSlack(intel)) return;
-
-              const result = await materializeSlackIntelligence({
-                intelligence: intel,
-                sourceRef: payload.externalId || `slack:${channelId}:${messageTs}`,
-                eventId: event.id,
-                channelName,
-                from: payload.from || "Unknown",
-                date: messageDate,
-              });
-
-            } catch (err) {
-              console.error("[webhook/slack] intelligence failed:", err);
-            }
-          });
+          void createJobRecord(webhookUsername, "ingest.slack", slackSourceRef);
+          await start(ingestSlackWorkflow, [
+            webhookUsername,
+            {
+              channelId,
+              messageTs,
+              externalId: slackSourceRef,
+              eventId: event.id,
+              channelName,
+              from: payload.from || "Unknown",
+              date: messageDate,
+              isDM: !!payload.hints?.isDM,
+              isGroupDM: !!payload.hints?.isGroupDM,
+              isMention: !!payload.hints?.isMention,
+              bodyFallback: payload.body,
+            },
+          ]);
         }
       }
     } catch (e) {
@@ -164,7 +155,6 @@ function slackEventToIngest(e: SlackInnerEvent): IngestPayload | null {
 
   return {
     source: "slack",
-    // Stable external id for dedup — same format as poll-ingest
     externalId: e.channel && e.ts ? `slack:${e.channel}:${e.ts}` : undefined,
     title: isDM
       ? "Slack DM"

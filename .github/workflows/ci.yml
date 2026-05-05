@@ -1,0 +1,90 @@
+name: Basil CI
+
+on:
+  push:
+    branches: ["main"]
+  pull_request:
+    branches: ["main"]
+  workflow_dispatch:
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+
+    env:
+      NODE_ENV: test
+      NEXT_TELEMETRY_DISABLED: 1
+
+      # Safe dummy values so build-time env validation does not fail
+      BASIL_APP_URL: http://localhost:3000
+      NEXT_PUBLIC_APP_URL: http://localhost:3000
+      AUTH_SECRET: ci-test-secret
+      OPENAI_API_KEY: dummy
+      ANTHROPIC_API_KEY: dummy
+      # PRIMARY_OWNER_USERNAME is intentionally unset in CI — the build must
+      # work without it (other users get the generic profile-based prompt).
+
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Check for missing lockfile
+        run: test -f package-lock.json
+
+      - name: Run lint
+        run: npm run lint --if-present
+
+      - name: Run TypeScript check
+        run: npm run typecheck --if-present
+
+      - name: Run tests
+        run: npm test --if-present
+
+      - name: Build Next.js app
+        run: npm run build
+
+      # ── Code quality gates ──────────────────────────────────────────────────
+
+      - name: Check for hardcoded username comparisons
+        # Flags equality comparisons against literal session usernames.
+        # Legitimate name mentions in prompts/UI are fine; === "michael" is not.
+        # All intentional username-dependent logic must use process.env.PRIMARY_OWNER_USERNAME.
+        run: |
+          if grep -rEn --include="*.ts" --include="*.tsx" \
+            '===\s*["'"'"'](michael|demo-user)["'"'"']|["'"'"'](michael|demo-user)["'"'"']\s*===' \
+            app lib; then
+            echo "ERROR: Hardcoded username in equality comparison. Use process.env.PRIMARY_OWNER_USERNAME instead."
+            exit 1
+          fi
+
+      - name: Check for silent catch blocks
+        # Flags truly empty catch blocks with no logging or documented intent.
+        # Annotate intentional fire-and-forget uses with: // fire-and-forget
+        # catch(() => null) is excluded — it's a valid optional-fetch transform, not silence.
+        run: |
+          if grep -rn 'catch(() => {})' app lib components \
+            | grep -v ':[[:space:]]*\*\|:[[:space:]]*//' \
+            | grep -v 'fire-and-forget\|dedup handles'; then
+            echo "ERROR: Silent catch block found. Add logging or annotate with // fire-and-forget if intentional."
+            exit 1
+          fi
+
+      - name: Warn about BASIL_DATA usage
+        # BASIL_DATA is the legacy env-var persistence layer, superseded by Vercel Blob.
+        # New code must not depend on it. Legacy references in lib/storage/ and in
+        # comments are expected and excluded here.
+        run: |
+          if grep -rn 'process\.env\.BASIL_DATA' app lib \
+            | grep -v 'lib/storage/'; then
+            echo "WARNING: process.env.BASIL_DATA usage outside lib/storage/. Replace with Vercel Blob (readStore/writeStore)."
+            exit 1
+          fi

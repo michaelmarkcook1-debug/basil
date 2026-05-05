@@ -10,10 +10,16 @@
  * Returns: { imported: number; memories: Memory[] }
  */
 
+export const maxDuration = 300;
+
 import { NextResponse } from "next/server";
 import { generateText } from "ai";
+import { getTextModel, MAX_TOKENS } from "@/lib/ai/model-config";
+import { parseAndValidate } from "@/lib/ai/parse-json";
+import { MemoryImportArraySchema } from "@/lib/ai/schemas";
 import { getSessionUser } from "@/lib/auth";
 import { createMemory } from "@/lib/memory/store";
+import { forceFlushSnapshot } from "@/lib/storage/persistent";
 import type { MemoryKind } from "@/lib/memory/types";
 
 interface ExtractedMemory {
@@ -164,37 +170,22 @@ function isCompetitiveIntelligence(content: string): boolean {
  * Returns [] on any failure (errors are logged, not propagated).
  */
 async function extractChunk(chunk: string, chunkIndex: number, totalChunks: number): Promise<ExtractedMemory[]> {
-  const validKinds = new Set<string>(["fact", "preference", "person", "context"]);
-
   try {
     const result = await generateText({
-      model: "anthropic/claude-sonnet-4.6",
+      model: getTextModel(),
+      maxOutputTokens: MAX_TOKENS.default,
       messages: [{ role: "user", content: buildPrompt(chunk, chunkIndex, totalChunks) }],
       providerOptions: {
         gateway: { tags: ["feature:memory-import"] },
       },
     });
 
-    // Strip markdown code fences if the model wraps the JSON anyway
-    const raw = result.text
-      .trim()
-      .replace(/^```(?:json)?\s*/i, "")
-      .replace(/```\s*$/, "")
-      .trim();
-
-    const parsed = JSON.parse(raw);
-    if (!Array.isArray(parsed)) {
-      console.error("[memory/import] LLM returned non-array:", raw.slice(0, 200));
+    const parseResult = parseAndValidate(result.text, MemoryImportArraySchema, "[memory/import]");
+    if (!parseResult.ok) {
+      console.error(`[memory/import] Chunk ${chunkIndex + 1}/${totalChunks} validation failed:`, parseResult.error);
       return [];
     }
-
-    return parsed.filter(
-      (m) =>
-        m &&
-        typeof m.content === "string" &&
-        m.content.trim().length > 0 &&
-        validKinds.has(m.kind)
-    );
+    return parseResult.data;
   } catch (err) {
     console.error(`[memory/import] Chunk ${chunkIndex + 1}/${totalChunks} extraction error:`, err);
     return [];
@@ -309,6 +300,10 @@ export async function POST(req: Request) {
   );
 
   console.log(`[memory/import] Extracted ${allExtracted.length}, deduped to ${deduped.length}, saved ${saved.length}`);
+
+  // Flush snapshot so BASIL_DATA is current before the client re-fetches.
+  // Without this, memories are lost when the Vercel function instance recycles.
+  await forceFlushSnapshot();
 
   return NextResponse.json({ imported: saved.length, memories: saved });
 }

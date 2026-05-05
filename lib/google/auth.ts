@@ -125,19 +125,21 @@ export async function getGoogleConnectionStatus(username: string): Promise<Integ
       tokens.expiry_date && tokens.access_token &&
       tokens.expiry_date > Date.now() + 5 * 60 * 1000; // 5-min buffer
 
+    // Build OAuth2 client — used for refresh and optional Drive probe
+    const oauthClient = getOAuth2Client();
+    oauthClient.setCredentials(tokens);
+
     if (!tokenStillFresh) {
       // Access token is missing or expired — attempt a refresh to validate
       // the refresh_token is still accepted.
-      const client = getOAuth2Client();
-      client.setCredentials(tokens);
       try {
-        const { token } = await client.getAccessToken();
+        const { token } = await oauthClient.getAccessToken();
         if (!token) {
           return cache({ id: "google", state: "token_expired", lastCheckedAt: now,
             error: "Could not refresh access token — please re-authorize." });
         }
         // Persist the refreshed credentials so subsequent calls are fast
-        const updated = client.credentials as GoogleTokens;
+        const updated = oauthClient.credentials as GoogleTokens;
         await writeUserStore(username, TOKENS_FILE, { ...tokens, ...updated });
       } catch {
         return cache({ id: "google", state: "token_expired", lastCheckedAt: now,
@@ -149,7 +151,27 @@ export async function getGoogleConnectionStatus(username: string): Promise<Integ
     const hasCalendar = granted.has(GOOGLE_SCOPE.calendar);
     const hasGmail    = granted.has(GOOGLE_SCOPE.gmail);
     const hasDrive    = granted.has(GOOGLE_SCOPE.drive);
-    const allGranted  = hasCalendar && hasGmail && hasDrive;
+
+    // If drive scope is present in the token, do a lightweight API probe to
+    // confirm it actually works (token may be revoked or scope silently removed).
+    // Only run this when the token was refreshed (not-fresh path) so we avoid
+    // adding latency to every cached status hit.
+    let driveActuallyWorks = hasDrive;
+    if (hasDrive && !tokenStillFresh) {
+      try {
+        const driveClient = google.drive({ version: "v3", auth: oauthClient });
+        await driveClient.files.list({ pageSize: 1, fields: "files(id)" });
+      } catch (driveErr) {
+        const msg = driveErr instanceof Error ? driveErr.message : String(driveErr);
+        if (msg.includes("invalid_grant") || msg.includes("Token has been expired") || msg.includes("insufficient") || msg.includes("PERMISSION_DENIED")) {
+          console.warn("[google-auth] Drive probe failed:", msg);
+          driveActuallyWorks = false;
+        }
+        // Transient errors (network, quota) don't change drive status
+      }
+    }
+
+    const allGranted  = hasCalendar && hasGmail && driveActuallyWorks;
 
     return cache({
       id:            "google",
@@ -159,7 +181,7 @@ export async function getGoogleConnectionStatus(username: string): Promise<Integ
       google: {
         calendar: hasCalendar,
         gmail:    hasGmail,
-        drive:    hasDrive,
+        drive:    driveActuallyWorks,
       },
     });
   } catch (err) {

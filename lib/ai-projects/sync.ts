@@ -4,6 +4,7 @@ import { fetchClaudeCodeProjects } from "./platforms/claude-code";
 import { fetchGithubProjects } from "./platforms/github";
 import { fetchVercelProjects } from "./platforms/vercel";
 import { fetchLinearProjects } from "./platforms/linear";
+import { fetchOpenAIProjects } from "./platforms/openai";
 import type { AIProject, AIProjectsData, Platform } from "./types";
 import { isLinearConnected } from "@/lib/linear/client";
 
@@ -43,12 +44,13 @@ export async function syncProjects(username: string): Promise<AIProjectsData> {
   const vercelToken = process.env.VERCEL_TOKEN;
 
   // Fetch all platforms in parallel
-  const [claudeCodeProjects, githubProjects, vercelProjects, linearProjects] =
+  const [claudeCodeProjects, githubProjects, vercelProjects, linearProjects, openaiProjects] =
     await Promise.all([
       fetchClaudeCodeProjects(),
       settings.githubToken ? fetchGithubProjects(settings.githubToken) : Promise.resolve([]),
       vercelToken ? fetchVercelProjects(vercelToken) : Promise.resolve([]),
       linearConnected ? fetchLinearProjects(username) : Promise.resolve([]),
+      settings.openaiApiKey ? fetchOpenAIProjects(settings.openaiApiKey) : Promise.resolve([]),
     ]);
 
   const freshProjects = [
@@ -56,6 +58,7 @@ export async function syncProjects(username: string): Promise<AIProjectsData> {
     ...githubProjects,
     ...vercelProjects,
     ...linearProjects,
+    ...openaiProjects,
   ];
 
   // Build a map of existing projects keyed by id so we can preserve user overrides
@@ -131,8 +134,21 @@ export async function syncProjects(username: string): Promise<AIProjectsData> {
     };
   }
 
+  // openai / codex
+  if (settings.openaiApiKey) {
+    platforms["codex"] = {
+      ...platforms["codex"],
+      platform: "codex",
+      label: "Codex (OpenAI)",
+      connected: openaiProjects.length > 0,
+      lastSyncedAt: now,
+      itemCount: openaiProjects.length,
+      error: openaiProjects.length === 0 ? "No threads found or API key invalid" : undefined,
+    };
+  }
+
   // Platforms that require manual import — mark with setupUrl
-  const manualPlatforms: Platform[] = ["claude-chat", "chatgpt", "gemini", "perplexity", "grok", "codex"];
+  const manualPlatforms: Platform[] = ["claude-chat", "chatgpt", "gemini", "perplexity", "grok"];
   for (const p of manualPlatforms) {
     if (!platforms[p]?.connected) {
       platforms[p] = {

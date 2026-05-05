@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { getSessionUser } from "@/lib/auth";
 import { deleteUser, isAdminUser, findByUsername } from "@/lib/users";
-import { readStore, writeStore } from "@/lib/storage/persistent";
+import { readStore, writeStore, forceFlushSnapshot } from "@/lib/storage/persistent";
 import path from "path";
 import fs from "fs/promises";
 
@@ -44,12 +44,15 @@ export async function DELETE() {
     // 1. Remove from users.json
     await deleteUser(username);
 
-    // 2. Remove the user's data directory (google/microsoft/slack tokens etc.)
-    const DATA_DIR = process.env.DATA_DIR || path.join(process.cwd(), "data");
-    const userDir = path.join(DATA_DIR, "users", username.replace(/[^a-zA-Z0-9._-]/g, "_"));
+    // 2. Best-effort: remove legacy filesystem data directory if it exists (no-op on Vercel/Blob).
+    const DATA_DIR = process.env.DATA_DIR || path.join(process.cwd(), "data"); // ci-ok: legacy local-fs cleanup, harmless on Blob-backed deployments
+    const userDir = path.join(DATA_DIR, "users", username.replace(/[^a-zA-Z0-9._-]/g, "_")); // ci-ok: legacy local-fs cleanup
     await fs.rm(userDir, { recursive: true, force: true });
 
-    // 3. Clear the session cookie in the response
+    // 3. Persist deletion so removed user can't reappear on cold start
+    await forceFlushSnapshot();
+
+    // 4. Clear the session cookie in the response
     const res = NextResponse.json({ ok: true });
     res.cookies.set("basil_token", "", { path: "/", maxAge: 0 });
     return res;

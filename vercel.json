@@ -7,6 +7,10 @@
       "schedule": "0 7 * * *"
     },
     {
+      "path": "/api/events/reprocess",
+      "schedule": "0 3 * * 0"
+    },
+    {
       "path": "/api/cron/renew-subscriptions",
       "schedule": "0 4 * * *"
     },

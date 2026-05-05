@@ -4,6 +4,8 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { Calendar, Mail, Hash, Flame } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { basilFetch, BasilFetchError } from "@/lib/basil-fetch";
+import { DataErrorBadge } from "@/components/ui/data-state";
 
 type Pulse = {
   meetings: number;
@@ -21,9 +23,10 @@ interface PulseTileProps {
   href: string;
   icon: React.ComponentType<{ className?: string }>;
   loading?: boolean;
+  error?: BasilFetchError | Error | null;
 }
 
-function PulseTile({ label, value, accent, hint, href, icon: Icon, loading }: PulseTileProps) {
+function PulseTile({ label, value, accent, hint, href, icon: Icon, loading, error }: PulseTileProps) {
   return (
     <Link
       href={href}
@@ -45,13 +48,16 @@ function PulseTile({ label, value, accent, hint, href, icon: Icon, loading }: Pu
           <p
             className={cn(
               "basil-display text-3xl leading-none tracking-tight",
-              accent ?? "text-foreground",
+              error ? "text-muted-foreground/30" : (accent ?? "text-foreground"),
               loading && "text-muted-foreground/30"
             )}
           >
-            {loading ? "—" : value}
+            {loading ? "—" : error ? "—" : value}
           </p>
-          {hint && <p className="text-[12px] text-muted-foreground">{hint}</p>}
+          {error
+            ? <DataErrorBadge error={error} />
+            : hint && <p className="text-[12px] text-muted-foreground">{hint}</p>
+          }
         </div>
         <Icon className="h-4 w-4 text-muted-foreground/50 group-hover:text-[oklch(0.72_0.15_85)] transition-colors" />
       </div>
@@ -73,58 +79,53 @@ export function PulseStrip() {
     slack: false,
     act: false,
   });
+  const [errors, setErrors] = useState<{
+    cal: BasilFetchError | Error | null;
+    mail: BasilFetchError | Error | null;
+    slack: BasilFetchError | Error | null;
+    act: BasilFetchError | Error | null;
+  }>({ cal: null, mail: null, slack: null, act: null });
 
   useEffect(() => {
     // Fetch independently so one slow/rate-limited endpoint doesn't block others
-    fetch("/api/calendar")
-      .then((r) => r.json())
+    basilFetch<{ events?: { isAllDay?: boolean }[] }>("/api/calendar", { component: "PulseStrip" })
       .then((cal) => {
-        const meetings =
-          cal?.events?.filter((e: { isAllDay?: boolean }) => !e.isAllDay).length ?? 0;
+        const meetings = cal?.events?.filter((e) => !e.isAllDay).length ?? 0;
         setPulse((p) => ({ ...p, meetings }));
       })
-      .catch(() => {})
+      .catch((e: Error) => setErrors((err) => ({ ...err, cal: e })))
       .finally(() => setLoaded((l) => ({ ...l, cal: true })));
 
-    fetch("/api/email")
-      .then((r) => r.json())
+    basilFetch<{ emails?: { unread?: boolean }[] }>("/api/email", { component: "PulseStrip" })
       .then((mail) => {
-        const unread = mail?.emails?.filter((e: { unread?: boolean }) => e.unread).length ?? 0;
+        const unread = mail?.emails?.filter((e) => e.unread).length ?? 0;
         setPulse((p) => ({ ...p, unread }));
       })
-      .catch(() => {})
+      .catch((e: Error) => setErrors((err) => ({ ...err, mail: e })))
       .finally(() => setLoaded((l) => ({ ...l, mail: true })));
 
-    fetch("/api/slack")
-      .then((r) => r.json())
+    basilFetch<{ messages?: { channel: string; isMention?: boolean }[] }>("/api/slack", { component: "PulseStrip" })
       .then((slack) => {
         const messages = slack?.messages ?? [];
         const dms = messages.filter(
-          (m: { channel: string }) =>
-            m.channel.startsWith("DM:") || m.channel === "Group DM"
+          (m) => m.channel.startsWith("DM:") || m.channel === "Group DM"
         ).length;
-        const mentions = messages.filter(
-          (m: { isMention?: boolean }) => m.isMention
-        ).length;
+        const mentions = messages.filter((m) => m.isMention).length;
         setPulse((p) => ({ ...p, dms, mentions }));
       })
-      .catch(() => {})
+      .catch((e: Error) => setErrors((err) => ({ ...err, slack: e })))
       .finally(() => setLoaded((l) => ({ ...l, slack: true })));
 
-    fetch("/api/contacts/activity")
-      .then((r) => r.json())
+    basilFetch<{ activity?: { lastInteraction?: string | null }[] }>("/api/contacts/activity", { component: "PulseStrip" })
       .then((act) => {
-        const stale = (act?.activity ?? []).filter(
-          (a: { lastInteraction?: string | null }) => {
-            if (!a.lastInteraction) return true;
-            const days =
-              (Date.now() - new Date(a.lastInteraction).getTime()) / 86400000;
-            return days > 10;
-          }
-        ).length;
+        const stale = (act?.activity ?? []).filter((a) => {
+          if (!a.lastInteraction) return true;
+          const days = (Date.now() - new Date(a.lastInteraction).getTime()) / 86400000;
+          return days > 10;
+        }).length;
         setPulse((p) => ({ ...p, stale }));
       })
-      .catch(() => {})
+      .catch((e: Error) => setErrors((err) => ({ ...err, act: e })))
       .finally(() => setLoaded((l) => ({ ...l, act: true })));
   }, []);
 
@@ -138,6 +139,7 @@ export function PulseStrip() {
         icon={Calendar}
         accent="text-foreground"
         loading={!loaded.cal}
+        error={errors.cal}
       />
       <PulseTile
         label="Unread"
@@ -147,6 +149,7 @@ export function PulseStrip() {
         icon={Mail}
         accent="text-[oklch(0.72_0.15_85)]"
         loading={!loaded.mail}
+        error={errors.mail}
       />
       <PulseTile
         label="Slack"
@@ -156,6 +159,7 @@ export function PulseStrip() {
         icon={Hash}
         accent="text-foreground"
         loading={!loaded.slack}
+        error={errors.slack}
       />
       <PulseTile
         label="Need attention"
@@ -165,6 +169,7 @@ export function PulseStrip() {
         icon={Flame}
         accent={pulse.stale > 0 ? "text-red-500" : "text-foreground"}
         loading={!loaded.act}
+        error={errors.act}
       />
     </div>
   );

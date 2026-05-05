@@ -14,7 +14,7 @@ export async function PATCH(req: Request) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  const body = await req.json().catch(() => null);
+  const body = await req.json().catch(() => null); // ci-ok: malformed request body returns null, handled below
   const { currentPassword, newPassword } = body ?? {};
 
   if (!currentPassword || !newPassword) {

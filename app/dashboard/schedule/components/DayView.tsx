@@ -4,7 +4,10 @@ import { useState, useRef, useCallback, useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { X, Trash2, Video, Users, Save, Loader2, Plus, Pencil } from "lucide-react";
+import {
+  X, Trash2, Video, Users, Save, Loader2, Plus, Pencil,
+  MapPin, Clock, ExternalLink, Copy, Check, ChevronDown, ChevronUp,
+} from "lucide-react";
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 const HOUR_HEIGHT    = 80;          // px per hour
@@ -30,6 +33,20 @@ function timeToMin(hhmm: string): number {
   const [h, m] = hhmm.split(":").map(Number);
   return h * 60 + (m || 0);
 }
+function durationLabel(minutes: number): string {
+  if (minutes < 60) return `${minutes} min`;
+  const h = Math.floor(minutes / 60);
+  const m = minutes % 60;
+  return m ? `${h}h ${m}m` : `${h}h`;
+}
+function initials(name: string): string {
+  return name
+    .split(/[\s@.]+/)
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((w) => w[0].toUpperCase())
+    .join("");
+}
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 export interface DayEvent {
@@ -40,6 +57,9 @@ export interface DayEvent {
   isAllDay: boolean;
   hasVideo: boolean;
   attendees: string[];
+  location?: string;
+  description?: string;
+  videoLink?: string;
 }
 
 interface EditState {
@@ -77,6 +97,27 @@ function eventHeight(startMin: number, endMin: number): number {
 
 const HOURS = Array.from({ length: GRID_END_H - GRID_START_H }, (_, i) => GRID_START_H + i);
 
+// Palette for attendee avatars
+const AVATAR_COLORS = [
+  "bg-blue-500/20 text-blue-600 dark:text-blue-300",
+  "bg-violet-500/20 text-violet-600 dark:text-violet-300",
+  "bg-emerald-500/20 text-emerald-600 dark:text-emerald-300",
+  "bg-amber-500/20 text-amber-700 dark:text-amber-300",
+  "bg-rose-500/20 text-rose-600 dark:text-rose-300",
+  "bg-cyan-500/20 text-cyan-600 dark:text-cyan-300",
+];
+
+function avatarColor(index: number) {
+  return AVATAR_COLORS[index % AVATAR_COLORS.length];
+}
+
+function isVideoProvider(link: string): "zoom" | "meet" | "teams" | "other" {
+  if (link.includes("zoom.us")) return "zoom";
+  if (link.includes("meet.google.com")) return "meet";
+  if (link.includes("teams.microsoft.com")) return "teams";
+  return "other";
+}
+
 // ─── EventBlock ───────────────────────────────────────────────────────────────
 function EventBlock({
   event,
@@ -100,7 +141,7 @@ function EventBlock({
   const height = eventHeight(displayStart, displayEnd);
 
   let bg   = "bg-[oklch(0.72_0.15_85)]/20 border-[oklch(0.72_0.15_85)]/50";
-  let text = "text-[oklch(0.4_0.1_85)]";
+  let text = "text-[oklch(0.4_0.1_85)] dark:text-[oklch(0.8_0.12_85)]";
   const lower = event.summary.toLowerCase();
   if (lower.includes("focus") || lower.includes("deep work")) {
     bg   = "bg-blue-500/10 border-blue-400/40";
@@ -113,13 +154,13 @@ function EventBlock({
   return (
     <div
       className={`absolute left-0 right-2 rounded-md border px-2 py-1 select-none group
-        ${bg} ${dragging ? "opacity-70 shadow-lg ring-2 ring-[oklch(0.72_0.15_85)] z-20" : "hover:shadow-md z-10"}
-        transition-shadow cursor-grab active:cursor-grabbing`}
+        ${bg} ${dragging ? "opacity-70 shadow-lg ring-2 ring-[oklch(0.72_0.15_85)] z-20" : "hover:shadow-md hover:brightness-105 z-10"}
+        transition-all cursor-pointer active:cursor-grabbing`}
       style={{ top: `${top}px`, height: `${height}px`, minHeight: `${MIN_DURATION * PX_PER_MIN}px` }}
       onMouseDown={(e) => { e.stopPropagation(); onDragStart(e, event.id); }}
     >
       {/* Pencil icon hint on hover */}
-      <div className="absolute top-1 right-1 opacity-0 group-hover:opacity-60 transition-opacity pointer-events-none">
+      <div className="absolute top-1 right-1 opacity-0 group-hover:opacity-50 transition-opacity pointer-events-none">
         <Pencil className="h-2.5 w-2.5 text-current" />
       </div>
 
@@ -152,6 +193,184 @@ function EventBlock({
         onMouseDown={(e) => { e.stopPropagation(); onResizeStart(e, event.id); }}
       >
         <div className="w-8 h-1 rounded-full bg-current opacity-40" />
+      </div>
+    </div>
+  );
+}
+
+// ─── EventDetailPopover ───────────────────────────────────────────────────────
+function EventDetailPopover({
+  event,
+  onClose,
+  onEdit,
+  onDelete,
+  deleting,
+}: {
+  event: DayEvent;
+  onClose: () => void;
+  onEdit: () => void;
+  onDelete: () => void;
+  deleting: boolean;
+}) {
+  const { startMin, endMin } = parseEventTimes(event);
+  const dur = endMin - startMin;
+  const [copied, setCopied] = useState(false);
+  const [descExpanded, setDescExpanded] = useState(false);
+
+  const provider = event.videoLink ? isVideoProvider(event.videoLink) : null;
+  const videoLabel = provider === "zoom" ? "Join Zoom" : provider === "meet" ? "Join Meet" : provider === "teams" ? "Join Teams" : "Join Call";
+
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => { if (e.key === "Escape") onClose(); };
+    window.addEventListener("keydown", handler);
+    return () => window.removeEventListener("keydown", handler);
+  }, [onClose]);
+
+  function copyLink() {
+    if (!event.videoLink) return;
+    navigator.clipboard.writeText(event.videoLink).then(() => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    });
+  }
+
+  const descLines = event.description?.split("\n").filter(Boolean) ?? [];
+  const shortDesc = descLines.slice(0, 3).join(" ").slice(0, 200);
+  const hasMoreDesc = descLines.length > 3 || (event.description?.length ?? 0) > 200;
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+      {/* Backdrop */}
+      <div className="absolute inset-0 bg-black/30 backdrop-blur-[2px]" onClick={onClose} />
+
+      {/* Popover card */}
+      <div className="relative w-full max-w-sm bg-card border border-border rounded-xl shadow-2xl overflow-hidden">
+        {/* Colour accent bar */}
+        <div className="h-1 w-full bg-[oklch(0.72_0.15_85)]" />
+
+        <div className="p-5 space-y-4">
+          {/* Header */}
+          <div className="flex items-start justify-between gap-3">
+            <h3 className="font-semibold text-base leading-snug flex-1 pr-2">
+              {event.summary}
+            </h3>
+            <div className="flex items-center gap-1 shrink-0">
+              {/* Edit */}
+              <button
+                onClick={onEdit}
+                className="p-1.5 rounded-md text-muted-foreground hover:text-foreground hover:bg-accent transition-colors"
+                title="Edit event"
+              >
+                <Pencil className="h-3.5 w-3.5" />
+              </button>
+              {/* Delete */}
+              <button
+                onClick={onDelete}
+                disabled={deleting}
+                className="p-1.5 rounded-md text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors disabled:opacity-50"
+                title="Delete event"
+              >
+                {deleting ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Trash2 className="h-3.5 w-3.5" />}
+              </button>
+              {/* Close */}
+              <button
+                onClick={onClose}
+                className="p-1.5 rounded-md text-muted-foreground hover:text-foreground hover:bg-accent transition-colors"
+                title="Close"
+              >
+                <X className="h-3.5 w-3.5" />
+              </button>
+            </div>
+          </div>
+
+          {/* Time */}
+          <div className="flex items-center gap-2 text-sm text-muted-foreground">
+            <Clock className="h-4 w-4 shrink-0 text-[oklch(0.72_0.15_85)]" />
+            <span>
+              {minToTime(startMin)} – {minToTime(endMin)}
+              <span className="ml-1.5 text-xs opacity-70">({durationLabel(dur)})</span>
+            </span>
+          </div>
+
+          {/* Location */}
+          {event.location && !event.videoLink && (
+            <div className="flex items-start gap-2 text-sm text-muted-foreground">
+              <MapPin className="h-4 w-4 shrink-0 mt-0.5 text-[oklch(0.72_0.15_85)]" />
+              <span className="leading-snug">{event.location}</span>
+            </div>
+          )}
+
+          {/* Video call join button */}
+          {event.videoLink && (
+            <div className="flex items-center gap-2">
+              <a
+                href={event.videoLink}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="flex-1 flex items-center justify-center gap-1.5 h-9 rounded-md text-sm font-medium
+                  bg-[oklch(0.72_0.15_85)] text-[oklch(0.18_0.04_250)] hover:bg-[oklch(0.78_0.12_85)] transition-colors"
+              >
+                <Video className="h-4 w-4" />
+                {videoLabel}
+                <ExternalLink className="h-3 w-3 opacity-70" />
+              </a>
+              <button
+                onClick={copyLink}
+                className="h-9 w-9 flex items-center justify-center rounded-md border border-border text-muted-foreground hover:text-foreground hover:bg-accent transition-colors"
+                title="Copy link"
+              >
+                {copied ? <Check className="h-3.5 w-3.5 text-emerald-500" /> : <Copy className="h-3.5 w-3.5" />}
+              </button>
+            </div>
+          )}
+
+          {/* Attendees */}
+          {event.attendees.length > 0 && (
+            <div className="space-y-2">
+              <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide flex items-center gap-1.5">
+                <Users className="h-3 w-3" />
+                {event.attendees.length} {event.attendees.length === 1 ? "attendee" : "attendees"}
+              </p>
+              <div className="flex flex-wrap gap-1.5">
+                {event.attendees.slice(0, 8).map((name, i) => (
+                  <div
+                    key={i}
+                    className={`flex items-center gap-1.5 rounded-full pl-0.5 pr-2.5 py-0.5 text-xs font-medium ${avatarColor(i)}`}
+                    title={name}
+                  >
+                    <span className={`w-5 h-5 rounded-full flex items-center justify-center text-[9px] font-bold shrink-0 ${avatarColor(i)}`}>
+                      {initials(name)}
+                    </span>
+                    <span className="truncate max-w-[120px]">{name}</span>
+                  </div>
+                ))}
+                {event.attendees.length > 8 && (
+                  <div className="flex items-center gap-1 text-xs text-muted-foreground px-2 py-0.5">
+                    +{event.attendees.length - 8} more
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+
+          {/* Description */}
+          {descLines.length > 0 && (
+            <div className="space-y-1">
+              <p className="text-xs text-muted-foreground leading-relaxed">
+                {descExpanded ? event.description : shortDesc}
+                {!descExpanded && hasMoreDesc && "…"}
+              </p>
+              {hasMoreDesc && (
+                <button
+                  onClick={() => setDescExpanded(!descExpanded)}
+                  className="flex items-center gap-0.5 text-[11px] text-[oklch(0.55_0.12_85)] hover:text-[oklch(0.72_0.15_85)] transition-colors"
+                >
+                  {descExpanded ? <><ChevronUp className="h-3 w-3" /> Show less</> : <><ChevronDown className="h-3 w-3" /> Show more</>}
+                </button>
+              )}
+            </div>
+          )}
+        </div>
       </div>
     </div>
   );
@@ -314,12 +533,19 @@ export function DayView({
   const [drag, setDrag]  = useState<DragState | null>(null);
   const [dragPos, setDragPos]   = useState<{ startMin: number; endMin: number } | null>(null);
   const [editState, setEditState] = useState<EditState | null>(null);
+  const [detailEvent, setDetailEvent] = useState<DayEvent | null>(null);
   const [saving, setSaving]     = useState(false);
   const [deleting, setDeleting] = useState(false);
 
-  // ── Edit modal helpers (defined first so onMouseUp can reference them) ──────
+  // ── Open detail popover ───────────────────────────────────────────────────
+  const openDetail = useCallback((event: DayEvent) => {
+    setDetailEvent(event);
+  }, []);
+
+  // ── Edit modal helpers ─────────────────────────────────────────────────────
   const openEdit = useCallback((event: DayEvent) => {
     const { startMin, endMin } = parseEventTimes(event);
+    setDetailEvent(null);
     setEditState({
       eventId: event.id,
       title: event.summary,
@@ -331,6 +557,7 @@ export function DayView({
   }, [date]);
 
   const openNew = useCallback((clickMin?: number) => {
+    setDetailEvent(null);
     const startMin = clamp(
       snapMin(clickMin ?? 9 * 60),
       GRID_START_H * 60,
@@ -362,7 +589,7 @@ export function DayView({
     if (!drag) return;
     const deltaY = e.clientY - drag.startY;
 
-    // Only activate drag visuals after threshold to allow click-to-edit
+    // Only activate drag visuals after threshold to allow click-to-open-detail
     if (Math.abs(deltaY) > DRAG_THRESHOLD) hasDragged.current = true;
     if (!hasDragged.current) return;
 
@@ -380,12 +607,12 @@ export function DayView({
   const onMouseUp = useCallback(async () => {
     if (!drag) { setDragPos(null); return; }
 
-    // ── Click (no movement) → open edit modal ────────────────────────────────
+    // ── Click (no movement) → open detail popover ────────────────────────────
     if (!hasDragged.current) {
       const ev = events.find((x) => x.id === drag.eventId);
       setDrag(null);
       setDragPos(null);
-      if (ev && drag.type === "move") openEdit(ev);
+      if (ev && drag.type === "move") openDetail(ev);
       return;
     }
 
@@ -416,7 +643,7 @@ export function DayView({
     } catch {
       // silent — event snaps back on refresh
     }
-  }, [drag, dragPos, events, openEdit, onRefresh]);
+  }, [drag, dragPos, events, openDetail, onRefresh]);
 
   // ── Save / delete handlers ─────────────────────────────────────────────────
   const handleSave = async () => {
@@ -460,12 +687,14 @@ export function DayView({
     }
   };
 
-  const handleDelete = async () => {
-    if (!editState?.eventId) return;
+  const handleDelete = async (eventId?: string) => {
+    const id = eventId ?? editState?.eventId;
+    if (!id) return;
     setDeleting(true);
     try {
-      await fetch(`/api/calendar/${editState.eventId}`, { method: "DELETE" });
+      await fetch(`/api/calendar/${id}`, { method: "DELETE" });
       setEditState(null);
+      setDetailEvent(null);
       onRefresh();
     } finally {
       setDeleting(false);
@@ -509,7 +738,7 @@ export function DayView({
       {/* Hint bar */}
       <div className="flex items-center justify-between px-3 py-1.5 border-b border-border/50 shrink-0">
         <p className="text-[11px] text-muted-foreground">
-          Click event to edit · Drag to move · Drag bottom edge to resize
+          Click to view · Drag to move · Drag bottom edge to resize
         </p>
         <button
           onClick={() => openNew()}
@@ -586,6 +815,17 @@ export function DayView({
         </div>
       </div>
 
+      {/* Event Detail Popover */}
+      {detailEvent && (
+        <EventDetailPopover
+          event={detailEvent}
+          onClose={() => setDetailEvent(null)}
+          onEdit={() => openEdit(detailEvent)}
+          onDelete={() => handleDelete(detailEvent.id)}
+          deleting={deleting}
+        />
+      )}
+
       {/* Edit / Create modal */}
       {editState && (
         <EditModal
@@ -593,7 +833,7 @@ export function DayView({
           onChange={(patch) => setEditState((s) => s ? { ...s, ...patch } : s)}
           onClose={() => setEditState(null)}
           onSave={handleSave}
-          onDelete={handleDelete}
+          onDelete={() => handleDelete()}
           saving={saving}
           deleting={deleting}
         />

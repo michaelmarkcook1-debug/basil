@@ -2,6 +2,7 @@
 
 import React, { useEffect, useState } from "react";
 import { AIPlatformsSection } from "./components/ai-platforms-section";
+import { HealthPanel } from "./components/health-panel";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -36,6 +37,7 @@ import {
 } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import type { IntegrationStatus, IntegrationState } from "@/lib/integrations/types";
+import { clearSessionUsername } from "@/lib/session-user";
 
 // ── Status badge ─────────────────────────────────────────────────────────────
 
@@ -307,10 +309,17 @@ export default function SettingsPage() {
     try {
       const res = await fetch("/api/profile", { method: "DELETE" });
       if (res.ok) {
+        clearSessionUsername();
         window.location.href = "/login";
       } else {
-        const data = await res.json().catch(() => ({}));
-        setDeleteError(data.error || "Failed to delete account");
+        let errorMsg = "Failed to delete account";
+        try {
+          const data = await res.json() as { error?: string };
+          if (data.error) errorMsg = data.error;
+        } catch (e) {
+          console.error("[basil-fetch] json_parse_error", { route: "/api/profile", status: res.status, component: "SettingsPage", error: e instanceof Error ? e.message : String(e) });
+        }
+        setDeleteError(errorMsg);
         setDeleting(false);
       }
     } catch {
@@ -344,7 +353,8 @@ export default function SettingsPage() {
       }
       setPwSuccess(true);
       setPwForm({ current: "", next: "", confirm: "" });
-      // All sessions revoked — redirect to login after a moment
+      // All sessions revoked — clear username scope and redirect to login
+      clearSessionUsername();
       setTimeout(() => { window.location.href = "/login"; }, 2000);
     } catch {
       setPwError("Network error. Please try again.");
@@ -369,8 +379,9 @@ export default function SettingsPage() {
         setGithubConnected(!!data.githubToken);
       }
       if (profileRes.ok)  setAccount(await profileRes.json());
-    } catch {
+    } catch (e) {
       // Non-fatal — page still works, profile just shows nothing
+      console.error("[basil-fetch] network_error", { route: "/api/settings", component: "SettingsPage", error: e instanceof Error ? e.message : String(e) });
     }
   }
 
@@ -703,6 +714,9 @@ export default function SettingsPage() {
 
 
 
+      {/* ── System health ────────────────────────────────────────────────── */}
+      <HealthPanel />
+
       {/* ── Integrations grouped by provider ─────────────────────────────── */}
       {(["google", "microsoft", "other"] as const).map((group) => {
         const items = integrations.filter((i) => i.group === group);
@@ -804,7 +818,7 @@ export default function SettingsPage() {
                     Go to <a href="https://portal.azure.com" target="_blank" rel="noreferrer" className="underline inline-flex items-center gap-0.5">portal.azure.com <ExternalLink className="h-3 w-3" /></a> → <strong>App registrations</strong> → <strong>New registration</strong>
                   </AzureStep>
                   <AzureStep n={2}>
-                    Supported account types: <strong>"Accounts in any organizational directory … and personal Microsoft accounts"</strong>
+                    Supported account types: <strong>&quot;Accounts in any organizational directory … and personal Microsoft accounts&quot;</strong>
                   </AzureStep>
                   <AzureStep n={3}>
                     Redirect URI → <strong>Web</strong> → <CopyableCode value="https://basil-app.vercel.app/api/auth/microsoft/callback" copiedEnvVar={copiedEnvVar} setCopiedEnvVar={setCopiedEnvVar} />
@@ -959,11 +973,20 @@ export default function SettingsPage() {
                           : "disconnected"
                         } />
                         {microsoftConnected ? (
-                          <Button size="sm" variant="ghost"
-                            className="h-7 px-2 text-xs text-muted-foreground hover:text-red-600"
-                            onClick={handleMicrosoftDisconnect}>
-                            Disconnect
-                          </Button>
+                          integration.status?.state === "permission_missing" ? (
+                            /* Tile-level permission missing — re-auth to pick up missing scope */
+                            <Button size="sm" variant="outline"
+                              className="h-7 px-2.5 text-xs text-amber-600 border-amber-300 hover:bg-amber-50"
+                              onClick={() => { window.location.href = "/api/auth/microsoft?from=settings"; }}>
+                              Reconnect
+                            </Button>
+                          ) : (
+                            <Button size="sm" variant="ghost"
+                              className="h-7 px-2 text-xs text-muted-foreground hover:text-red-600"
+                              onClick={handleMicrosoftDisconnect}>
+                              Disconnect
+                            </Button>
+                          )
                         ) : (
                           <Button size="sm" variant="outline"
                             className="h-7 px-2.5 text-xs text-blue-600 border-blue-200 hover:bg-blue-50"
@@ -1343,8 +1366,9 @@ export default function SettingsPage() {
         </CardHeader>
         <CardContent className="space-y-3 text-sm">
           <p className="text-xs text-muted-foreground">
-            Re-classifies recent email events that haven&apos;t yet produced actions or decisions.
-            Safe to run at any time — existing records are never duplicated.
+            Re-classifies recent events across all sources — email (Gmail &amp; Outlook),
+            Zoom meeting summaries, Slack, and Teams — that haven&apos;t yet produced
+            actions or decisions. Safe to run at any time — existing records are never duplicated.
           </p>
           {reprocessResult && (
             <p className="text-xs text-emerald-700 bg-emerald-50 rounded px-2 py-1.5">

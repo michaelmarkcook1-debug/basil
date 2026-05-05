@@ -1,0 +1,557 @@
+/**
+ * System health aggregator.
+ *
+ * Gathers connection state, webhook health, and data freshness for every
+ * integration in a single concurrent fetch.  Designed to return within ~2s
+ * even on cold-start because all checks run in parallel via Promise.allSettled.
+ *
+ * Call from GET /api/system/health — do not import in client components.
+ */
+
+import { readStore } from "@/lib/storage/persistent";
+import { readGenerateCache } from "@/lib/generate-cache/store";
+import { readUserStore } from "@/lib/storage/user-store";
+import { getGoogleConnectionStatus } from "@/lib/google/auth";
+import { getMicrosoftConnectionStatus } from "@/lib/microsoft/auth";
+import { isSlackConnected } from "@/lib/slack/client";
+import { isLinearConnected } from "@/lib/linear/client";
+import { isZoomConnected } from "@/lib/zoom/auth";
+import { getWatchState as getGoogleWatchState } from "@/lib/google/watch-state";
+import { getWatchState as getMicrosoftWatchState } from "@/lib/microsoft/watch-state";
+import { getJobSummary } from "@/lib/jobs/store";
+import type { IntegrationState, IntegrationStatus } from "@/lib/integrations/types";
+
+// ── health-meta.json — written by poll-ingest and slack-sync crons ────────────
+
+export const HEALTH_META_FILE = "health-meta.json";
+
+export interface HealthMeta {
+  /** ISO — last time poll-ingest completed successfully for this user. */
+  lastPollAt?: string;
+  /** ISO — last time the slack-sync cron warmed the Slack cache. */
+  lastSlackSyncAt?: string;
+  /** ISO — most recent createdAt across memory/actions/decisions. */
+  lastClassifiedAt?: string;
+  /** Counts from the most recent poll-ingest run. */
+  lastPollSources?: {
+    email: number;
+    slack: number;
+    calendar: number;
+    zoom_email: number;
+    outlook_email: number;
+    teams: number;
+  };
+}
+
+// ── Public types ──────────────────────────────────────────────────────────────
+
+export type HealthColor = "green" | "amber" | "red" | "grey";
+
+export interface HealthTile {
+  id: string;
+  /** Display name shown in the UI. */
+  label: string;
+  color: HealthColor;
+  /** Short status phrase: "Connected", "Expires in 5d", "Never imported", etc. */
+  statusText: string;
+  /** ISO timestamp of when this check was last evaluated. */
+  lastCheckedAt: string;
+  /** Actionable plain-English guidance shown only when color is amber/red. */
+  nextAction?: string;
+  /** Optional per-service breakdown for multi-scope integrations (Google, MS). */
+  sub?: { label: string; ok: boolean }[];
+}
+
+export interface HealthSection {
+  id: string;
+  title: string;
+  tiles: HealthTile[];
+}
+
+export interface SystemHealthReport {
+  checkedAt: string;
+  /** Worst color across all tiles. */
+  overallColor: HealthColor;
+  /** Number of red tiles — requires user action. */
+  issueCount: number;
+  /** Number of amber tiles — warning / degraded. */
+  warnCount: number;
+  sections: HealthSection[];
+}
+
+// ── Internal helpers ──────────────────────────────────────────────────────────
+
+type ExtendedMicrosoftStatus = IntegrationStatus & {
+  microsoft?: { mail: boolean; calendar: boolean; drive: boolean; teams: boolean };
+};
+
+type ExtendedGoogleStatus = IntegrationStatus & {
+  google?: { calendar: boolean; gmail: boolean; drive: boolean };
+};
+
+function safeUser(u: string): string {
+  return u.replace(/[^a-zA-Z0-9._-]/g, "_");
+}
+function userSubdir(u: string): string {
+  return `users/${safeUser(u)}`;
+}
+
+/** Human-readable relative time from an ISO timestamp or ms-epoch number. */
+function relAgo(ts?: string | number | null): string {
+  if (!ts) return "never";
+  const ms =
+    typeof ts === "number" ? Date.now() - ts : Date.now() - new Date(ts).getTime();
+  const s = Math.floor(ms / 1000);
+  if (s < 60) return "just now";
+  const m = Math.floor(s / 60);
+  if (m < 60) return `${m}m ago`;
+  const h = Math.floor(m / 60);
+  if (h < 24) return `${h}h ago`;
+  const d = Math.floor(h / 24);
+  if (d === 1) return "yesterday";
+  return `${d}d ago`;
+}
+
+/** Evaluate a webhook expiry timestamp and return its health color + display text. */
+function webhookExpiry(
+  ts?: string | number | null
+): { text: string; color: HealthColor } {
+  if (!ts) return { text: "no webhook registered", color: "grey" };
+  const msUntil =
+    typeof ts === "number" ? ts - Date.now() : new Date(ts).getTime() - Date.now();
+  const d = Math.floor(msUntil / 86_400_000);
+  if (d < 0)  return { text: `expired ${Math.abs(d)}d ago`, color: "red" };
+  if (d < 2)  return { text: `expires in <2d`, color: "amber" };
+  if (d < 7)  return { text: `expires in ${d}d`, color: "amber" };
+  return { text: `expires in ${d}d`, color: "green" };
+}
+
+/** Map an IntegrationState to a HealthColor. */
+function integrationColor(state: IntegrationState | string): HealthColor {
+  switch (state) {
+    case "connected":          return "green";
+    case "token_expired":
+    case "permission_missing": return "amber";
+    case "error":              return "red";
+    default:                   return "grey";   // disconnected / unknown
+  }
+}
+
+/** Plain-English next action for a given integration + state combination. */
+function integrationNextAction(id: string, state: IntegrationState | string): string | undefined {
+  if (state === "connected") return undefined;
+  const label: Record<string, string> = {
+    google:    "Google",
+    microsoft: "Microsoft 365",
+    slack:     "Slack",
+    linear:    "Linear",
+    zoom:      "Zoom",
+  };
+  const name = label[id] ?? id;
+  if (state === "disconnected")        return `Connect ${name} in the Integrations section above`;
+  if (state === "token_expired")       return `Your ${name} session expired — reconnect in the Integrations section above`;
+  if (state === "permission_missing")  return `Reconnect ${name} above and approve all requested permissions`;
+  if (state === "error")               return `Check Vercel logs for ${name} credentials (client ID / secret)`;
+  return undefined;
+}
+
+/**
+ * Derive a freshness color from a timestamp.
+ * @param lastAt     ISO string of the last activity
+ * @param staleHours Hours before "green" becomes "amber"
+ * @param oldHours   Hours before "amber" becomes "red"
+ */
+function freshnessColor(
+  lastAt?: string | null,
+  staleHours = 48,
+  oldHours = 7 * 24
+): HealthColor {
+  if (!lastAt) return "grey";
+  const hAgo = (Date.now() - new Date(lastAt).getTime()) / 3_600_000;
+  if (hAgo < staleHours) return "green";
+  if (hAgo < oldHours)   return "amber";
+  return "red";
+}
+
+// ── Main aggregator ───────────────────────────────────────────────────────────
+
+export async function gatherSystemHealth(username: string): Promise<SystemHealthReport> {
+  const now = new Date().toISOString();
+  const sub = userSubdir(username);
+
+  // Run every check concurrently — one slow check won't block the rest.
+  const [
+    googleRes,
+    msRes,
+    slackRes,
+    linearRes,
+    zoomRes,
+    googleWatchRes,
+    msWatchRes,
+    waIndexRes,
+    briefingRes,
+    healthMetaRes,
+    actionsRes,
+    memoriesRes,
+    decisionsRes,
+    jobSummaryRes,
+  ] = await Promise.allSettled([
+    getGoogleConnectionStatus(username),
+    getMicrosoftConnectionStatus(username),
+    isSlackConnected(username),
+    isLinearConnected(username),
+    isZoomConnected(username),
+    getGoogleWatchState(username),
+    getMicrosoftWatchState(username),
+    // whatsapp-signal-index.json is small (~KB); safe to read for health checks.
+    readStore<{ capturedAt?: string } | null>("whatsapp-signal-index.json", null, sub),
+    // Briefing cache — read from the isolated gen-cache store; we only need generatedAt.
+    readGenerateCache<{ generatedAt?: string }>(username, "briefing"),
+    // health-meta.json — written by poll-ingest and slack-sync.
+    readUserStore<HealthMeta>(username, HEALTH_META_FILE, {}),
+    // Read just the first (newest) item from each intel store for classification freshness.
+    readUserStore<{ createdAt?: string; updatedAt?: string }[]>(username, "sage-actions.json", []),
+    readUserStore<{ updatedAt?: string; createdAt?: string }[]>(username, "sage-memory.json", []),
+    readUserStore<{ createdAt?: string; date?: string }[]>(username, "sage-decisions.json", []),
+    // Job queue summary for the background jobs health tile.
+    getJobSummary(username),
+  ]);
+
+  function settled<T>(r: PromiseSettledResult<T>): T | null {
+    return r.status === "fulfilled" ? r.value : null;
+  }
+
+  // Unwrap results — failures produce safe defaults so the report always completes.
+  const google = (settled(googleRes) ?? {
+    id: "google",
+    state: "error" as IntegrationState,
+    lastCheckedAt: now,
+    error:
+      googleRes.status === "rejected"
+        ? String(googleRes.reason)
+        : "Check failed",
+  }) as ExtendedGoogleStatus;
+
+  const ms = (settled(msRes) ?? {
+    id: "microsoft",
+    state: "error" as IntegrationState,
+    lastCheckedAt: now,
+    error:
+      msRes.status === "rejected" ? String(msRes.reason) : "Check failed",
+  }) as ExtendedMicrosoftStatus;
+
+  const slackConn   = settled(slackRes)   ?? false;
+  const linearConn  = settled(linearRes)  ?? false;
+  const zoomConn    = settled(zoomRes)    ?? false;
+  const googleWatch = settled(googleWatchRes) ?? {};
+  const msWatch     = settled(msWatchRes)     ?? {};
+  const waIndex     = settled(waIndexRes);
+  // briefingRes is now a CacheRecord — use .generatedAt from the envelope
+  // (not .content.generatedAt) since that's where the write timestamp lives.
+  const briefingRecord = settled(briefingRes);
+  const briefing = briefingRecord
+    ? { generatedAt: briefingRecord.generatedAt }
+    : null;
+  const healthMeta  = settled(healthMetaRes)  ?? {};
+
+  // Most-recent classification timestamp across all intel stores (newest first).
+  const actionsArr   = settled(actionsRes)   ?? [];
+  const memoriesArr  = settled(memoriesRes)  ?? [];
+  const decisionsArr = settled(decisionsRes) ?? [];
+  const jobSummary   = settled(jobSummaryRes) ?? null;
+  const latestClassifiedAt = [
+    actionsArr[0]?.createdAt ?? actionsArr[0]?.updatedAt,
+    memoriesArr[0]?.updatedAt ?? memoriesArr[0]?.createdAt,
+    decisionsArr[0]?.createdAt ?? decisionsArr[0]?.date,
+    healthMeta.lastClassifiedAt,
+  ]
+    .filter(Boolean)
+    .sort()
+    .pop() ?? null;
+
+  // ── Section 1: Storage ────────────────────────────────────────────────────
+
+  const blobConfigured = !!process.env.BLOB_READ_WRITE_TOKEN;
+
+  const storageTiles: HealthTile[] = [
+    {
+      id:            "blob",
+      label:         "Durable storage",
+      color:         blobConfigured ? "green" : "amber",
+      statusText:    blobConfigured ? "Vercel Blob connected" : "Filesystem only (local dev)",
+      lastCheckedAt: now,
+      nextAction:    blobConfigured
+        ? undefined
+        : "Set BLOB_READ_WRITE_TOKEN in Vercel project settings → Environment Variables",
+    },
+  ];
+
+  // ── Section 2: Integrations ───────────────────────────────────────────────
+
+  const googleSub = google.google;
+  const msSub     = ms.microsoft;
+
+  const integrationTiles: HealthTile[] = [
+    {
+      id:            "google",
+      label:         "Google",
+      color:         integrationColor(google.state),
+      statusText:    google.state === "connected" ? "Connected" : google.state.replace(/_/g, " "),
+      lastCheckedAt: google.lastCheckedAt ?? now,
+      nextAction:    integrationNextAction("google", google.state),
+      sub: googleSub
+        ? [
+            { label: "Gmail",    ok: googleSub.gmail },
+            { label: "Calendar", ok: googleSub.calendar },
+            { label: "Drive",    ok: googleSub.drive },
+          ]
+        : undefined,
+    },
+    {
+      id:            "microsoft",
+      label:         "Microsoft 365",
+      color:         integrationColor(ms.state),
+      statusText:    ms.state === "connected" ? "Connected" : ms.state.replace(/_/g, " "),
+      lastCheckedAt: ms.lastCheckedAt ?? now,
+      nextAction:    integrationNextAction("microsoft", ms.state),
+      sub: msSub
+        ? [
+            { label: "Mail",     ok: msSub.mail },
+            { label: "Calendar", ok: msSub.calendar },
+            { label: "Teams",    ok: msSub.teams },
+          ]
+        : undefined,
+    },
+    {
+      id:            "slack",
+      label:         "Slack",
+      color:         slackConn ? "green" : "grey",
+      statusText:    slackConn ? "Connected" : "Not connected",
+      lastCheckedAt: now,
+      nextAction:    !slackConn ? integrationNextAction("slack", "disconnected") : undefined,
+    },
+    {
+      id:            "linear",
+      label:         "Linear",
+      color:         linearConn ? "green" : "grey",
+      statusText:    linearConn ? "API key set" : "Not connected",
+      lastCheckedAt: now,
+      nextAction:    !linearConn ? "Add your Linear API key in the AI Platforms section below" : undefined,
+    },
+    {
+      id:            "zoom",
+      label:         "Zoom",
+      color:         zoomConn ? "green" : "grey",
+      statusText:    zoomConn ? "Connected" : "Not connected",
+      lastCheckedAt: now,
+      nextAction:    !zoomConn ? integrationNextAction("zoom", "disconnected") : undefined,
+    },
+  ];
+
+  // ── Section 3: Data freshness ─────────────────────────────────────────────
+
+  // Google webhooks — expiration is a ms-epoch number
+  const gmailWebhook = webhookExpiry(
+    google.state === "disconnected" ? null : (googleWatch as { gmail?: { expiration?: number } }).gmail?.expiration
+  );
+  const calWebhook = webhookExpiry(
+    google.state === "disconnected" ? null : (googleWatch as { calendar?: { expiration?: number } }).calendar?.expiration
+  );
+
+  // Microsoft webhooks — expirationDateTime is ISO string
+  const msMailWebhook = webhookExpiry(
+    ms.state === "disconnected" ? null : (msWatch as { mail?: { expirationDateTime?: string } }).mail?.expirationDateTime
+  );
+  const msCalWebhook  = webhookExpiry(
+    ms.state === "disconnected" ? null : (msWatch as { calendar?: { expirationDateTime?: string } }).calendar?.expirationDateTime
+  );
+
+  const waColor      = freshnessColor(waIndex?.capturedAt, 30 * 24, 90 * 24);
+  const briefColor   = freshnessColor(briefing?.generatedAt, 36, 7 * 24);
+
+  const freshnessTiles: HealthTile[] = [
+    // Gmail webhook health
+    {
+      id:            "gmail-webhook",
+      label:         "Gmail push",
+      color:         google.state === "disconnected" ? "grey" : gmailWebhook.color,
+      statusText:    google.state === "disconnected" ? "Google not connected" : gmailWebhook.text,
+      lastCheckedAt: now,
+      nextAction:
+        gmailWebhook.color === "red"
+          ? "Webhook auto-renews at 4am — or use Intelligence Backfill below to force-renew"
+          : undefined,
+    },
+    // Google Calendar webhook health
+    {
+      id:            "calendar-webhook",
+      label:         "Calendar push",
+      color:         google.state === "disconnected" ? "grey" : calWebhook.color,
+      statusText:    google.state === "disconnected" ? "Google not connected" : calWebhook.text,
+      lastCheckedAt: now,
+      nextAction:
+        calWebhook.color === "red"
+          ? "Webhook auto-renews at 4am — no manual action needed"
+          : undefined,
+    },
+    // WhatsApp import freshness
+    {
+      id:            "whatsapp",
+      label:         "WhatsApp",
+      color:         waColor,
+      statusText:    waIndex?.capturedAt
+        ? `Imported ${relAgo(waIndex.capturedAt)}`
+        : "Never imported",
+      lastCheckedAt: now,
+      nextAction:
+        waColor === "grey"
+          ? "Run npm run whatsapp:import to capture WhatsApp history"
+          : waColor === "red"
+          ? "Re-run npm run whatsapp:import — data is >90 days old"
+          : undefined,
+    },
+    // Zoom via Gmail summaries (active when Google is connected, regardless of Zoom OAuth)
+    {
+      id:            "zoom-gmail",
+      label:         "Zoom summaries",
+      color:         google.state === "connected" ? "green" : "grey",
+      statusText:
+        google.state === "connected"
+          ? "Active via Gmail"
+          : "Requires Google connection",
+      lastCheckedAt: now,
+      nextAction:
+        google.state !== "connected"
+          ? "Connect Google above — Basil detects Zoom meeting summaries from Gmail automatically"
+          : undefined,
+    },
+    // Slack sync freshness (cron runs daily at 06:00)
+    {
+      id:            "slack-sync",
+      label:         "Slack sync",
+      color:         !slackConn
+        ? "grey"
+        : freshnessColor(healthMeta.lastSlackSyncAt, 26, 50),   // amber after 26h (cron is daily)
+      statusText:    !slackConn
+        ? "Slack not connected"
+        : healthMeta.lastSlackSyncAt
+        ? `Synced ${relAgo(healthMeta.lastSlackSyncAt)}`
+        : "Awaiting first sync",
+      lastCheckedAt: now,
+      nextAction:    slackConn && !healthMeta.lastSlackSyncAt
+        ? "Slack sync runs at 6am daily — or trigger Intelligence Backfill below"
+        : undefined,
+    },
+    // Daily briefing freshness
+    {
+      id:            "briefing",
+      label:         "Daily briefing",
+      color:         briefColor,
+      statusText:    briefing?.generatedAt
+        ? `Generated ${relAgo(briefing.generatedAt)}`
+        : "Never generated",
+      lastCheckedAt: now,
+      nextAction:
+        briefColor === "grey"
+          ? "Visit Dashboard — Basil generates a briefing on first load"
+          : briefColor !== "green"
+          ? "Visit Dashboard to regenerate today's briefing"
+          : undefined,
+    },
+    // Intelligence classification (memory / actions / decisions)
+    {
+      id:            "intelligence",
+      label:         "Intelligence",
+      color:         freshnessColor(latestClassifiedAt, 48, 14 * 24),
+      statusText:    latestClassifiedAt
+        ? `Last classified ${relAgo(latestClassifiedAt)}`
+        : "No classifications yet",
+      lastCheckedAt: now,
+      nextAction:    !latestClassifiedAt
+        ? "Run Intelligence Backfill in the section below to classify recent events"
+        : freshnessColor(latestClassifiedAt, 48, 14 * 24) !== "green"
+        ? "Run Intelligence Backfill below to re-process recent events"
+        : undefined,
+    },
+    // Background job queue health
+    (() => {
+      if (!jobSummary || jobSummary.total === 0) {
+        return {
+          id:            "background-jobs",
+          label:         "Background jobs",
+          color:         "grey" as HealthColor,
+          statusText:    "No jobs recorded yet",
+          lastCheckedAt: now,
+        };
+      }
+      const hasDeadJobs  = jobSummary.dead > 0;
+      const hasFailedJobs = jobSummary.failed > 0;
+      const color: HealthColor = hasDeadJobs ? "red" : hasFailedJobs ? "amber" : "green";
+      const activeCount = jobSummary.running + jobSummary.queued;
+      let statusText = `${jobSummary.succeeded} succeeded`;
+      if (activeCount > 0) statusText += `, ${activeCount} active`;
+      if (jobSummary.failed > 0) statusText += `, ${jobSummary.failed} failed`;
+      if (jobSummary.dead > 0) statusText += `, ${jobSummary.dead} dead`;
+      return {
+        id:            "background-jobs",
+        label:         "Background jobs",
+        color,
+        statusText,
+        lastCheckedAt: now,
+        nextAction:    hasDeadJobs
+          ? `${jobSummary.dead} job(s) exhausted retries — check Vercel logs or run 'npx workflow web' for details`
+          : hasFailedJobs
+          ? `${jobSummary.failed} job(s) failing — retrying automatically; run 'npx workflow web' to inspect`
+          : undefined,
+      };
+    })(),
+  ];
+
+  // Insert Microsoft webhook tiles between Calendar and WhatsApp if MS is connected
+  if (ms.state !== "disconnected") {
+    freshnessTiles.splice(2, 0,
+      {
+        id:            "ms-mail-webhook",
+        label:         "Outlook push",
+        color:         ms.state === "connected" ? msMailWebhook.color : "grey",
+        statusText:    ms.state === "connected" ? msMailWebhook.text : "Microsoft not connected",
+        lastCheckedAt: now,
+        nextAction:
+          msMailWebhook.color === "red"
+            ? "Webhook auto-renews at 4am daily"
+            : undefined,
+      },
+      {
+        id:            "ms-cal-webhook",
+        label:         "Teams / Calendar push",
+        color:         ms.state === "connected" ? msCalWebhook.color : "grey",
+        statusText:    ms.state === "connected" ? msCalWebhook.text : "Microsoft not connected",
+        lastCheckedAt: now,
+        nextAction:
+          msCalWebhook.color === "red"
+            ? "Webhook auto-renews at 4am daily"
+            : undefined,
+      }
+    );
+  }
+
+  // ── Overall color ─────────────────────────────────────────────────────────
+
+  const allTiles = [...storageTiles, ...integrationTiles, ...freshnessTiles];
+  const issueCount = allTiles.filter((t) => t.color === "red").length;
+  const warnCount  = allTiles.filter((t) => t.color === "amber").length;
+  const overallColor: HealthColor =
+    issueCount > 0 ? "red" : warnCount > 0 ? "amber" : "green";
+
+  return {
+    checkedAt: now,
+    overallColor,
+    issueCount,
+    warnCount,
+    sections: [
+      { id: "storage",      title: "Storage",        tiles: storageTiles },
+      { id: "integrations", title: "Integrations",   tiles: integrationTiles },
+      { id: "freshness",    title: "Data freshness",  tiles: freshnessTiles },
+    ],
+  };
+}

@@ -30,6 +30,8 @@ export interface PlatformStatus {
   platform: Platform;
   label: string;
   connected: boolean;
+  /** When true, data came from basil-sync scraping rather than a live API */
+  scraped?: boolean;
   lastSyncedAt?: string;
   error?: string;
   itemCount?: number;

@@ -322,32 +322,49 @@ const PLATFORMS: PlatformDef[] = [
     ),
   },
 
-  // ── Codex ───────────────────────────────────────────────────────────────
+  // ── Codex / OpenAI Assistants ────────────────────────────────────────────
   {
     id: "codex",
     label: "Codex (OpenAI)",
-    tagline: "OpenAI Codex / Assistants — API key required",
-    kind: "coming-soon",
+    tagline: "OpenAI Assistants API — surfaces your AI threads as projects",
+    kind: "api-key",
     dotColor: "#ff6b35",
     logoBg: "bg-orange-500/10",
     logoText: "text-orange-600",
+    keyLabel: "OpenAI API Key",
+    keyPlaceholder: "sk-…",
+    keyHint: "Needs access to the Assistants API (any standard key works)",
+    keyUrl: "https://platform.openai.com/api-keys",
+    settingsField: "openaiApiKey",
     instructions: (
       <div className="space-y-2 text-xs text-muted-foreground">
         <p>
-          Basil can surface OpenAI Assistants API threads as work projects.
-          This integration is coming soon.
+          Basil reads your OpenAI Assistant threads and surfaces them as AI
+          projects. Any recent conversation with an Assistant appears as a
+          tracked project with automatic work/personal classification.
         </p>
-        <p className="text-blue-700 bg-blue-50 rounded px-2 py-1.5 border border-blue-200">
-          🔜 When released, you will need an{" "}
-          <a
-            href="https://platform.openai.com/api-keys"
-            target="_blank"
-            rel="noopener noreferrer"
-            className="underline inline-flex items-center gap-0.5"
-          >
-            OpenAI API key <ExternalLink className="h-3 w-3" />
-          </a>{" "}
-          with <code className="font-mono text-[11px]">Assistants: Read</code> permission.
+        <ol className="space-y-1 pl-4 list-decimal">
+          <li>
+            Go to{" "}
+            <a
+              href="https://platform.openai.com/api-keys"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="underline inline-flex items-center gap-0.5"
+            >
+              platform.openai.com/api-keys <ExternalLink className="h-3 w-3" />
+            </a>
+          </li>
+          <li>Click <strong>Create new secret key</strong></li>
+          <li>
+            Give it a name (e.g. <em>Basil</em>) — no special permissions needed,
+            any standard key has Assistants API access
+          </li>
+          <li>Copy the key and paste it below — it starts with <code className="font-mono text-[11px]">sk-</code></li>
+        </ol>
+        <p className="text-amber-700 bg-amber-50 rounded px-2 py-1.5 border border-amber-200">
+          ⚠️ Your key is stored securely in your Basil account and is never
+          shared or used for anything other than reading your own threads.
         </p>
       </div>
     ),
@@ -515,7 +532,7 @@ interface PlatformRowProps {
   def: PlatformDef;
   connected: boolean;
   onConnect: (field: string, value: string) => Promise<{ ok: boolean; error?: string }>;
-  onDisconnect: (field: string) => Promise<void>;
+  onDisconnect: (field: string) => Promise<{ ok: boolean; error?: string }>;
 }
 
 function PlatformRow({ def, connected, onConnect, onDisconnect }: PlatformRowProps) {
@@ -542,7 +559,11 @@ function PlatformRow({ def, connected, onConnect, onDisconnect }: PlatformRowPro
   async function handleDisconnect() {
     if (!def.settingsField) return;
     setDisconnecting(true);
-    await onDisconnect(def.settingsField);
+    setError(null);
+    const result = await onDisconnect(def.settingsField);
+    if (!result.ok) {
+      setError(result.error ?? "Disconnect failed");
+    }
     setDisconnecting(false);
   }
 
@@ -654,23 +675,30 @@ function PlatformRow({ def, connected, onConnect, onDisconnect }: PlatformRowPro
           {canDisconnect && (
             <>
               <Separator />
-              <div className="flex items-center justify-between">
-                <p className="text-xs text-muted-foreground">
-                  Token saved — Basil is syncing from {def.label}.
-                </p>
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  className="h-7 text-xs text-muted-foreground hover:text-destructive"
-                  onClick={handleDisconnect}
-                  disabled={disconnecting}
-                >
-                  {disconnecting ? (
-                    <Loader2 className="h-3 w-3 animate-spin" />
-                  ) : (
-                    "Disconnect"
-                  )}
-                </Button>
+              <div className="space-y-2">
+                <div className="flex items-center justify-between">
+                  <p className="text-xs text-muted-foreground">
+                    Token saved — Basil is syncing from {def.label}.
+                  </p>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="h-7 text-xs text-muted-foreground hover:text-destructive"
+                    onClick={handleDisconnect}
+                    disabled={disconnecting}
+                  >
+                    {disconnecting ? (
+                      <Loader2 className="h-3 w-3 animate-spin" />
+                    ) : (
+                      "Disconnect"
+                    )}
+                  </Button>
+                </div>
+                {error && (
+                  <p className="text-[11px] text-destructive bg-destructive/10 rounded px-2 py-1">
+                    {error}
+                  </p>
+                )}
               </div>
             </>
           )}
@@ -692,7 +720,7 @@ interface AIPlatformsSectionProps {
 
 export function AIPlatformsSection({
   githubConnected,
-  linearConnected,
+  linearConnected: linearConnectedProp,
   vercelConnected,
   onSettingsPatch,
 }: AIPlatformsSectionProps) {
@@ -701,16 +729,20 @@ export function AIPlatformsSection({
   const [syncResult, setSyncResult] = useState<string | null>(null);
 
   const [vercelDetected, setVercelDetected] = useState(false);
+  // Local state so we can update immediately after connect/disconnect
+  const [linearConnected, setLinearConnected] = useState(linearConnectedProp);
 
   // Detect auto-connected platforms by calling /api/ai-projects
   useEffect(() => {
     fetch("/api/ai-projects")
-      .then((r) => r.json())
-      .then((d) => {
+      .then((r) => (r.ok ? r.json() : Promise.reject(new Error(`HTTP ${r.status}`))))
+      .then((d: { platforms?: Record<string, { connected?: boolean }> }) => {
         setClaudeCodeDetected(d?.platforms?.["claude-code"]?.connected === true);
         setVercelDetected(d?.platforms?.["vercel"]?.connected === true);
       })
-      .catch(() => {});
+      .catch((e: unknown) => {
+        console.error("[basil-fetch] server_error", { route: "/api/ai-projects", component: "AIPlatformsSection", error: e instanceof Error ? e.message : String(e) });
+      });
   }, []);
 
   function isConnected(platform: Platform): boolean {
@@ -734,6 +766,7 @@ export function AIPlatformsSection({
         });
         const json = await res.json();
         if (!res.ok) return { ok: false, error: json.error ?? "Connection failed" };
+        setLinearConnected(true);
         return { ok: true };
       } catch {
         return { ok: false, error: "Network error" };
@@ -743,14 +776,22 @@ export function AIPlatformsSection({
     return onSettingsPatch({ [field]: value });
   }
 
-  async function handleDisconnect(field: string) {
+  async function handleDisconnect(field: string): Promise<{ ok: boolean; error?: string }> {
     if (field === "linearApiKey") {
-      await fetch("/api/integrations/linear", {
-        method: "DELETE",
-      });
-      return;
+      try {
+        const res = await fetch("/api/integrations/linear", { method: "DELETE" });
+        let json: { error?: string } = {};
+        try { json = await res.json() as { error?: string }; } catch (e) {
+          console.error("[basil-fetch] json_parse_error", { route: "/api/integrations/linear", status: res.status, component: "AIPlatformsSection", error: e instanceof Error ? e.message : String(e) });
+        }
+        if (!res.ok) return { ok: false, error: json.error ?? "Disconnect failed" };
+        setLinearConnected(false);
+        return { ok: true };
+      } catch {
+        return { ok: false, error: "Network error" };
+      }
     }
-    await onSettingsPatch({ [field]: "" });
+    return onSettingsPatch({ [field]: "" });
   }
 
   async function handleSyncNow() {

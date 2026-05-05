@@ -299,6 +299,28 @@ export async function deleteDecision(username: string, id: string): Promise<bool
   });
 }
 
+// ── Tracked variant (idempotency layer) ───────────────────────────────────────
+
+export interface CreateDecisionResult {
+  item: Decision;
+  /** True when a new row was inserted; false when an existing decision was returned. */
+  created: boolean;
+}
+
+/**
+ * Like createDecision but also reports whether the item was newly created.
+ * Used by the ingest layer to emit accurate audit entries.
+ */
+export async function createDecisionTracked(
+  username: string,
+  input: CreateDecisionInput
+): Promise<CreateDecisionResult> {
+  const before = await readAll(username);
+  const existingIds = new Set(before.map((d) => d.id));
+  const item = await createDecision(username, input);
+  return { item, created: !existingIds.has(item.id) };
+}
+
 export async function bulkImport(username: string, incoming: Decision[]): Promise<number> {
   return withLock(lockKey(username), async () => {
     const items = await readAll(username);

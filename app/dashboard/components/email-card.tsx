@@ -36,7 +36,11 @@ export function EmailCard() {
     fetch("/api/email")
       .then((res) => res.json())
       .then((d) => { setData(d); setLoading(false); })
-      .catch(() => { setData({ connected: false, emails: [], message: "Failed to load" }); setLoading(false); });
+      .catch((e: unknown) => {
+        console.error("[basil-fetch] network_error", { route: "/api/email", component: "EmailCard", error: e instanceof Error ? e.message : String(e) });
+        setData({ connected: false, emails: [], message: "Failed to load" });
+        setLoading(false);
+      });
   }, []);
 
   useEffect(() => {
@@ -60,7 +64,8 @@ export function EmailCard() {
           setBodyLoading(false);
         }
       })
-      .catch(() => {
+      .catch((e: unknown) => {
+        console.error("[basil-fetch] network_error", { route: `/api/email/${selectedEmail.id}`, component: "EmailCard", error: e instanceof Error ? e.message : String(e) });
         if (!cancelled) {
           setEmailBody(selectedEmail.snippet);
           setBodyLoading(false);

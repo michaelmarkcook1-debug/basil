@@ -11,7 +11,7 @@ export async function GET(req: Request) {
   const url = new URL(req.url);
   const chatId = url.searchParams.get("chatId");
 
-  const snapshot = await getSnapshot();
+  const snapshot = await getSnapshot(username);
   if (!snapshot) {
     return NextResponse.json({ snapshot: null });
   }
@@ -22,8 +22,7 @@ export async function GET(req: Request) {
     return NextResponse.json({ chat });
   }
 
-  // Strip messages from the list payload — keeps the response small. Clients
-  // re-request a single chat when they want its messages.
+  // Strip messages from the list payload — keeps the response small.
   const lightChats = snapshot.chats.map((c) => ({
     id: c.id,
     name: c.name,
@@ -52,6 +51,6 @@ export async function DELETE() {
   const username = await getSessionUser();
   if (!username) return NextResponse.json({ error: "Unauthorised" }, { status: 401 });
 
-  await deleteSnapshot();
+  await deleteSnapshot(username);
   return NextResponse.json({ status: "deleted" });
 }

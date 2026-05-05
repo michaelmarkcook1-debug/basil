@@ -6,6 +6,7 @@ import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
+import { setSessionUsername } from "@/lib/session-user";
 
 // ── Getting-started steps shown below the login card ──────────────────────────
 
@@ -96,6 +97,8 @@ export default function LoginPage() {
 
     if (res.ok) {
       const data = await res.json();
+      // Scope future draft keys to this user (prevents cross-user bleed)
+      if (data.username) setSessionUsername(data.username as string);
       window.location.href = data.onboardingCompleted ? "/dashboard" : "/onboarding";
     } else {
       setError("Wrong username or password");

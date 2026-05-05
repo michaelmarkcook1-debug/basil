@@ -17,8 +17,10 @@
  */
 
 import { generateText } from "ai";
-import { anthropic } from "@ai-sdk/anthropic";
+import { getTextModel, MAX_TOKENS } from "@/lib/ai/model-config";
 import { getSystemPrompt } from "@/lib/ai/system-prompt";
+import { parseAndValidate } from "@/lib/ai/parse-json";
+import { SlackIntelligenceSchema } from "@/lib/ai/schemas";
 
 // ── Category types ─────────────────────────────────────────────────────────────
 
@@ -118,18 +120,6 @@ export const SLACK_MATERIALIZE_CATEGORIES = new Set<SlackSignalCategory>([
 
 // ── Helpers ────────────────────────────────────────────────────────────────────
 
-const VALID_CATEGORIES: SlackSignalCategory[] = [
-  "action_assigned",
-  "action_identified",
-  "decision_made",
-  "decision_needed",
-  "blocker_raised",
-  "escalation",
-  "relationship_signal",
-  "meeting_signal",
-  "informational",
-  "noise",
-];
 
 function emptyIntelligence(): SlackIntelligence {
   return {
@@ -147,70 +137,9 @@ function emptyIntelligence(): SlackIntelligence {
 }
 
 function parseIntelligence(raw: string): SlackIntelligence {
-  // Strip markdown fences, then find the outermost JSON object.
-  // Handles models that prepend explanation text despite explicit instructions —
-  // without this, JSON.parse throws, the catch returns emptyIntelligence()
-  // (noise/confidence=0), and nothing is ever materialized from the message.
-  const stripped = raw
-    .trim()
-    .replace(/^```(?:json)?\s*\n?/, "")
-    .replace(/\n?```\s*$/, "");
-
-  const jsonStart = stripped.indexOf("{");
-  const jsonEnd = stripped.lastIndexOf("}");
-  if (jsonStart === -1 || jsonEnd === -1 || jsonEnd <= jsonStart) {
-    throw new Error("No JSON object found in classification response");
-  }
-
-  const parsed = JSON.parse(stripped.slice(jsonStart, jsonEnd + 1)) as Partial<SlackIntelligence>;
-
-  const category: SlackSignalCategory = VALID_CATEGORIES.includes(
-    parsed.category as SlackSignalCategory
-  )
-    ? (parsed.category as SlackSignalCategory)
-    : "noise";
-
-  const urgency: SlackUrgency = ["high", "medium", "low"].includes(parsed.urgency as string)
-    ? (parsed.urgency as SlackUrgency)
-    : "low";
-
-  return {
-    category,
-    confidence:
-      typeof parsed.confidence === "number"
-        ? Math.min(1, Math.max(0, parsed.confidence))
-        : 0.5,
-    urgency,
-    isMichaelAddressed: !!parsed.isMichaelAddressed,
-    actions: Array.isArray(parsed.actions)
-      ? parsed.actions
-          .filter((a) => a?.text)
-          .map((a) => ({
-            text: a.text as string,
-            owner: typeof a.owner === "string" ? a.owner : undefined,
-            dueDate: typeof a.dueDate === "string" ? a.dueDate : undefined,
-            priority: (["high", "medium", "low"] as string[]).includes(a.priority as string)
-              ? (a.priority as "high" | "medium" | "low")
-              : undefined,
-          }))
-      : [],
-    decisions: Array.isArray(parsed.decisions)
-      ? parsed.decisions
-          .filter((d) => d?.text)
-          .map((d) => ({
-            text: d.text as string,
-            title: typeof d.title === "string" ? d.title : undefined,
-            decidedBy: typeof d.decidedBy === "string" ? d.decidedBy : undefined,
-            rationale: typeof d.rationale === "string" ? d.rationale : undefined,
-            alternatives: Array.isArray(d.alternatives) ? d.alternatives.filter(Boolean) : undefined,
-            consequences: Array.isArray(d.consequences) ? d.consequences.filter(Boolean) : undefined,
-          }))
-      : [],
-    blockers: Array.isArray(parsed.blockers) ? parsed.blockers.filter(Boolean) : [],
-    people: Array.isArray(parsed.people) ? parsed.people.filter((p) => p?.name) : [],
-    companies: Array.isArray(parsed.companies) ? parsed.companies.filter(Boolean) : [],
-    keyContext: typeof parsed.keyContext === "string" ? parsed.keyContext.trim() : "",
-  };
+  const result = parseAndValidate(raw, SlackIntelligenceSchema, "[classify-slack]");
+  if (result.ok) return result.data as SlackIntelligence;
+  throw new Error(result.error);
 }
 
 // ── Core classification function ───────────────────────────────────────────────
@@ -242,7 +171,7 @@ export interface ClassifySlackInput {
 export async function classifySlack(
   input: ClassifySlackInput
 ): Promise<SlackIntelligence> {
-  const { channelName, transcript, isDM, isMention, date, username = "michael" } = input;
+  const { channelName, transcript, isDM, isMention, date, username = process.env.PRIMARY_OWNER_USERNAME ?? "" } = input;
 
   if (!transcript.trim()) return emptyIntelligence();
 
@@ -321,7 +250,8 @@ Respond with ONLY valid JSON — no markdown fences, no explanation:
   try {
     const system = await getSystemPrompt(username);
     const { text } = await generateText({
-      model: anthropic("claude-3-5-haiku-20241022"),
+      model: getTextModel("fast"),
+      maxOutputTokens: MAX_TOKENS.fast,
       system,
       messages: [{ role: "user", content: prompt }],
     });

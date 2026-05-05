@@ -1,5 +1,16 @@
 export type ActionPriority = "high" | "medium" | "low";
 
+/**
+ * High-level category for grouping and routing actions.
+ *
+ * critical — role/project-critical work: strategic decisions, project deliverables,
+ *            key stakeholder commitments, hires, approvals, technical reviews.
+ * admin    — routine operational tasks: scheduling, confirmations, routine
+ *            replies, expense reports, meeting logistics.
+ * personal — non-work personal tasks: health, family, errands, personal finance.
+ */
+export type ActionCategory = "critical" | "admin" | "personal";
+
 export interface ActionItem {
   id: string;
   text: string;
@@ -44,6 +55,22 @@ export interface ActionItem {
   needsReview?: boolean;
   /** ISO timestamp when the user confirmed or dismissed the review flag. */
   reviewDismissedAt?: string;
+
+  // ── Categorisation ───────────────────────────────────────────────────────────
+  /**
+   * High-level category: "critical" | "admin" | "personal".
+   * Auto-classified on creation from rule-based patterns + LLM enrichment.
+   * Absent on legacy items — treated as uncategorized in the UI.
+   */
+  category?: ActionCategory;
+  /**
+   * True when the action implies a pending decision that needs to be made
+   * before it can be completed.  Detected heuristically and/or by LLM.
+   * Click-through on this flag navigates to the Decisions page to log one.
+   */
+  decisionRequired?: boolean;
+  /** ID of a decision the user created in response to the decisionRequired flag. */
+  linkedDecisionId?: string;
 
   // ── Provenance ───────────────────────────────────────────────────────────────
   /** ID of the BasilEvent that produced this item, if created via the event pipeline. */

@@ -18,7 +18,7 @@ async function readAll(): Promise<BasilEvent[]> {
 }
 
 async function writeAll(events: BasilEvent[]): Promise<void> {
-  await writeStore(EVENTS_FILE, events);
+  await writeStore(EVENTS_FILE, events, undefined, { durability: "strong" });
 }
 
 // ── One-time legacy migration ─────────────────────────────────────────────────
@@ -62,7 +62,7 @@ async function normaliseLegacyFields(): Promise<void> {
       }
     }
 
-    if (dirty) await writeStore(EVENTS_FILE, all);
+    if (dirty) await writeStore(EVENTS_FILE, all, undefined, { durability: "strong" });
   });
 }
 
@@ -229,7 +229,7 @@ export async function compactEvents(): Promise<number> {
 
     const pruned = before - compacted.length;
     if (pruned > 0) {
-      await writeStore(EVENTS_FILE, compacted);
+      await writeStore(EVENTS_FILE, compacted, undefined, { durability: "strong" });
       console.log(`[events] Compacted ${pruned} stale event(s) (${before} → ${compacted.length} total)`);
     }
     return pruned;

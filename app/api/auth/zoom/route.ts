@@ -7,6 +7,12 @@ import { forceFlushSnapshot } from "@/lib/storage/persistent";
 export async function GET(req: Request) {
   const from = new URL(req.url).searchParams.get("from") ?? "";
   const url  = getZoomAuthUrl();
+
+  // Log the redirect URI being used so mismatches are visible in Vercel logs
+  const clientId    = process.env.ZOOM_CLIENT_ID    ? "[set]" : "[MISSING]";
+  const redirectUri = process.env.ZOOM_REDIRECT_URI ?? "[MISSING]";
+  console.log(`[zoom-oauth] Initiating OAuth — client_id: ${clientId}, redirect_uri: ${redirectUri}`);
+
   const res  = NextResponse.redirect(url);
   if (from) res.cookies.set("basil_zoom_from", from, { path: "/", httpOnly: true, maxAge: 600 });
   return res;

@@ -1,3 +1,4 @@
+import { withWorkflow } from "workflow/next";
 import type { NextConfig } from "next";
 
 const securityHeaders = [
@@ -45,14 +46,14 @@ const nextConfig: NextConfig = {
   // optional imports fail silently as intended.
   serverExternalPackages: ["@whiskeysockets/baileys"],
 
-  async headers() {
-    return [
+  headers() {
+    return Promise.resolve([
       {
         source: "/(.*)",
         headers: securityHeaders,
       },
-    ];
+    ]);
   },
 };
 
-export default nextConfig;
+export default withWorkflow(nextConfig);

@@ -86,7 +86,7 @@ export default function WhatsAppPage() {
   const [chatLoading, setChatLoading] = useState(false);
   const [search, setSearch] = useState("");
   const [importing, setImporting] = useState(false);
-  const [importPreview, setImportPreview] = useState<{ added: number; unresolved?: number } | null>(null);
+  const [importPreview, setImportPreview] = useState<{ added: number; updated?: number; unresolved?: number } | null>(null);
   const [profileProgress, setProfileProgress] = useState<{ done: number; total: number } | null>(null);
   const pollRef = useRef<number | null>(null);
   // Track when the current QR code was received so we can show an expiry countdown.
@@ -99,10 +99,9 @@ export default function WhatsAppPage() {
   // subsequent polls return status without qrDataUrl (e.g. from another instance).
   // Cleared only when we leave awaiting_qr state entirely.
   const [stickyQrUrl, setStickyQrUrl] = useState<string | null>(null);
-  // When polling is active, importStartedAt guards against stale responses from
-  // other Vercel instances. Stored in a ref so loadStatus can access it without
-  // being re-created on every render.
-  const importStartedAtRef = useRef<number | null>(null);
+  // jobId issued by POST /api/whatsapp/dump — passed as ?jobId= to status polls
+  // so the server can flag responses from other Vercel instances (jobMismatch).
+  const jobIdRef = useRef<string | null>(null);
 
   const loadSnapshot = useCallback(async () => {
     setSnapshotLoading(true);
@@ -119,26 +118,20 @@ export default function WhatsAppPage() {
 
   const loadStatus = useCallback(async () => {
     try {
-      const res = await fetch("/api/whatsapp/dump/status", { cache: "no-store" });
+      const jobId = jobIdRef.current;
+      const url = jobId
+        ? `/api/whatsapp/dump/status?jobId=${encodeURIComponent(jobId)}`
+        : "/api/whatsapp/dump/status";
+      const res = await fetch(url, { cache: "no-store" });
       const data = await res.json();
       const s = data.status as DumpStatus;
 
       // ── Stale-instance guard ────────────────────────────────────────────────
-      // On Vercel, multiple function instances run concurrently. The dump runs
-      // on the instance that received the POST; polls can land on any instance.
-      // Instances that never ran the dump return "idle" (default bag state).
-      // Applying this "idle" to the React state immediately wipes the QR display.
-      //
-      // Fix: if importStartedAtRef is set (poll is active) and the response has
-      // no matching startedAt (or a stale one), skip the setStatus call entirely.
-      if (importStartedAtRef.current !== null) {
-        const importStartedAt = importStartedAtRef.current;
-        const dumpStartedAt = s.startedAt ? new Date(s.startedAt).getTime() : 0;
-        const isStale = dumpStartedAt < importStartedAt - 5_000;
-        if (isStale) {
-          // Don't update React state — UI keeps showing whatever it showed before.
-          return s;
-        }
+      // The server returns jobMismatch=true when the status comes from an
+      // instance that ran a different job (i.e. a stale warm instance returning
+      // "idle" or an unrelated run). Skip setStatus to avoid wiping the QR.
+      if (data.jobMismatch && jobIdRef.current) {
+        return s;
       }
 
       setStatus(s);
@@ -179,7 +172,10 @@ export default function WhatsAppPage() {
     // This bootstraps whatsapp-signal-index.json into BASIL_DATA from whichever
     // warm instance still has the snapshot file on disk — required so
     // generate-profile can find WhatsApp message signal on cold-start instances.
-    fetch("/api/whatsapp/rebuild-index", { method: "POST" }).catch(() => {/* best-effort */});
+    fetch("/api/whatsapp/rebuild-index", { method: "POST" }).catch((e: unknown) => {
+      // best-effort — failure is non-fatal; just log for debugging
+      console.warn("[basil-fetch] network_error", { route: "/api/whatsapp/rebuild-index", component: "WhatsAppPage", error: e instanceof Error ? e.message : String(e) });
+    });
     return () => {
       if (pollRef.current) window.clearInterval(pollRef.current);
       if (qrTimerRef.current) window.clearInterval(qrTimerRef.current);
@@ -191,29 +187,21 @@ export default function WhatsAppPage() {
     setStickyQrUrl(null);
     lastQrUrlRef.current = null;
 
-    // Record when this import session started. loadStatus() reads this ref to
-    // skip stale-instance responses before calling setStatus.
-    importStartedAtRef.current = Date.now();
-
     const res = await fetch("/api/whatsapp/dump", { method: "POST" });
-    const initData = await res.json() as { status?: DumpStatus };
-    // Apply the POST response immediately — this comes from the instance that
-    // actually started the dump, so it's always authoritative.
+    const initData = await res.json() as { status?: DumpStatus; jobId?: string };
+    // Store the jobId so subsequent status polls include it for stale-instance filtering.
+    jobIdRef.current = initData.jobId ?? null;
+    // Apply the POST response immediately — authoritative from the instance that started the dump.
     if (initData.status) setStatus(initData.status);
 
-    // Start polling. Stale-instance filtering is handled inside loadStatus()
-    // via importStartedAtRef, so the poll only needs to react to real transitions.
     if (pollRef.current) window.clearInterval(pollRef.current);
     pollRef.current = window.setInterval(async () => {
       const s = await loadStatus();
       if (!s) return;
-
       if (s.state === "done" || s.state === "error") {
-        // loadStatus() already applied the stale guard — if we get here the
-        // status is from the right instance and should be trusted.
         if (pollRef.current) window.clearInterval(pollRef.current);
         pollRef.current = null;
-        importStartedAtRef.current = null; // Clear guard when done
+        jobIdRef.current = null;
         if (s.state === "done") await loadSnapshot();
       }
     }, 1200);
@@ -224,7 +212,7 @@ export default function WhatsAppPage() {
       window.clearInterval(pollRef.current);
       pollRef.current = null;
     }
-    importStartedAtRef.current = null; // Allow loadStatus to update state freely
+    jobIdRef.current = null;
     setStickyQrUrl(null);
     lastQrUrlRef.current = null;
     await fetch("/api/whatsapp/reset", { method: "POST" });
@@ -258,10 +246,12 @@ export default function WhatsAppPage() {
         cache: "no-store",
       });
       if (!res.ok) throw new Error(`Import failed (${res.status})`);
-      const data = await res.json() as { imported: number; total: number; contacts?: Contact[] };
+      const data = await res.json() as {
+        added: number; updated: number; unchanged: number;
+        unresolved: number; imported: number; total: number; contacts?: Contact[];
+      };
 
-      const unresolved = (data as { unresolved?: number }).unresolved ?? 0;
-      setImportPreview({ added: data.imported, unresolved });
+      setImportPreview({ added: data.added, updated: data.updated, unresolved: data.unresolved });
       setImporting(false);
 
       // ── Seed localStorage directly from POST response ────────────────────
@@ -277,7 +267,10 @@ export default function WhatsAppPage() {
 
       // Authoritative refresh — await so upgraded names (phone → real name)
       // are in localStorage before we decide which contacts to auto-profile.
-      await loadUserContactsFromServer().catch(() => {/* fallback to cache */});
+      await loadUserContactsFromServer().catch((e: unknown) => {
+        // fallback to cache — non-fatal
+        console.warn("[basil-fetch] network_error", { route: "loadUserContactsFromServer", component: "WhatsAppPage", error: e instanceof Error ? e.message : String(e) });
+      });
 
       const allContacts = getUserContacts();
 
@@ -463,6 +456,31 @@ export default function WhatsAppPage() {
         </div>
       </div>
 
+      {/* ── LOCAL IMPORTER INSTRUCTIONS ── */}
+      <div className="rounded-xl ring-1 ring-border bg-muted/30 p-4 space-y-2">
+        <p className="text-[13px] font-semibold flex items-center gap-1.5">
+          <QrCode className="h-3.5 w-3.5 text-muted-foreground" />
+          Recommended: run the importer locally
+        </p>
+        <p className="text-[13px] text-muted-foreground leading-relaxed">
+          The in-browser import is limited by Vercel function timeouts. For large accounts
+          or unreliable connections, run the CLI worker on your own machine — it posts the
+          snapshot here when done.
+        </p>
+        <div className="rounded-md bg-background ring-1 ring-border px-3 py-2 font-mono text-[12px] text-foreground/80 space-y-1 select-all">
+          <p># Add these to .env.local first:</p>
+          <p>WHATSAPP_UPLOAD_TOKEN=&lt;same as server env&gt;</p>
+          <p>WHATSAPP_USERNAME=&lt;your Basil username&gt;</p>
+          <p>WHATSAPP_UPLOAD_URL=https://ag-contracts.vercel.app</p>
+          <p className="mt-2"># Then run:</p>
+          <p>npm run whatsapp:import</p>
+        </div>
+        <p className="text-[12px] text-muted-foreground">
+          The QR code prints in your terminal. Scan it, wait for the sync, and the contacts
+          appear here automatically — no browser QR needed.
+        </p>
+      </div>
+
       {/* ── PROGRESS / QR ── */}
       {inProgress && status && (
         <Card className="border-[oklch(0.72_0.15_85)]/30">
@@ -491,11 +509,17 @@ export default function WhatsAppPage() {
 
             {status.state === "awaiting_qr" && (status.qrDataUrl || stickyQrUrl) && (
               <div className="flex flex-col items-center gap-3 py-4">
-                {/* Stale QR warning */}
+                {/* Stale QR warning + restart button */}
                 {qrSecondsLeft === 0 && (
-                  <div className="rounded-lg bg-amber-50 border border-amber-200 px-4 py-2 text-[13px] text-amber-800 flex items-center gap-2">
-                    <AlertTriangle className="h-4 w-4 shrink-0" />
-                    This QR has expired — a fresh one should appear in a moment. If it doesn't, click Reset and start again.
+                  <div className="rounded-lg bg-amber-50 border border-amber-200 px-4 py-3 text-[13px] text-amber-800 flex flex-col items-center gap-2 text-center">
+                    <div className="flex items-center gap-2">
+                      <AlertTriangle className="h-4 w-4 shrink-0" />
+                      QR expired — a fresh one should appear shortly. If not, restart the import.
+                    </div>
+                    <Button size="sm" variant="outline" onClick={startImport} className="gap-1.5 border-amber-400 text-amber-800 hover:bg-amber-100">
+                      <RefreshCw className="h-3.5 w-3.5" />
+                      Get a new QR
+                    </Button>
                   </div>
                 )}
                 <div className={`relative rounded-xl ring-1 bg-white p-3 shadow-sm transition-all ${qrSecondsLeft === 0 ? "ring-amber-400 opacity-40 grayscale" : "ring-border"}`}>
@@ -605,13 +629,34 @@ export default function WhatsAppPage() {
             <div className="flex flex-col items-end gap-1.5">
               {importPreview ? (
                 <div className="flex flex-col items-end gap-1">
-                  <Badge
-                    variant="outline"
-                    className="text-[12px] gap-1 border-emerald-400 text-emerald-600 bg-emerald-50"
-                  >
-                    <Check className="h-3 w-3" />
-                    Added {importPreview.added} to Personal
-                  </Badge>
+                  {importPreview.added > 0 && (
+                    <Badge
+                      variant="outline"
+                      className="text-[12px] gap-1 border-emerald-400 text-emerald-600 bg-emerald-50"
+                    >
+                      <Check className="h-3 w-3" />
+                      {importPreview.added} new contact{importPreview.added === 1 ? "" : "s"} added
+                    </Badge>
+                  )}
+                  {(importPreview.updated ?? 0) > 0 && (
+                    <Badge
+                      variant="outline"
+                      className="text-[12px] gap-1 border-blue-400 text-blue-600 bg-blue-50"
+                      title="Existing contacts whose names, phone numbers, or other fields were updated with richer values from this import."
+                    >
+                      <Check className="h-3 w-3" />
+                      {importPreview.updated} contact{importPreview.updated === 1 ? "" : "s"} updated
+                    </Badge>
+                  )}
+                  {importPreview.added === 0 && (importPreview.updated ?? 0) === 0 && (
+                    <Badge
+                      variant="outline"
+                      className="text-[12px] gap-1 border-zinc-400 text-zinc-600 bg-zinc-50"
+                    >
+                      <Check className="h-3 w-3" />
+                      All contacts already up to date
+                    </Badge>
+                  )}
                   {(importPreview.unresolved ?? 0) > 0 && (
                     <Badge
                       variant="outline"
@@ -619,7 +664,7 @@ export default function WhatsAppPage() {
                       title="These contacts aren't in your phone's address book and didn't send you a message during the import. Re-scan after they message you to get their names."
                     >
                       <AlertTriangle className="h-3 w-3" />
-                      {importPreview.unresolved} name{importPreview.unresolved === 1 ? "" : "s"} not identified
+                      {importPreview.unresolved} name{importPreview.unresolved === 1 ? "" : "s"} not yet identified
                     </Badge>
                   )}
                   {profileProgress && (

@@ -155,24 +155,36 @@ export default function DigestPage() {
   const [error, setError] = useState("");
   const [copied, setCopied] = useState(false);
 
-  // CLASSIFICATION: disposable generation cache — 6-day-scoped weekly recap.
-  // Not assistant truth: clearing this key means the next visit regenerates
-  // the digest from live data (calendar, email, Slack, actions, decisions, memory).
+  // Load cached digest from the server on mount so it persists across tab
+  // navigation. localStorage is kept as a fast client-side fallback to avoid
+  // a flash of the empty state while the fetch is in flight.
   useEffect(() => {
-    const cached = localStorage.getItem("sage-digest-v3");
-    if (!cached) return;
+    const SIX_DAYS_MS = 6 * 24 * 60 * 60 * 1000;
+
+    // Optimistic restore from localStorage while the API call is in flight
     try {
-      const parsed = JSON.parse(cached);
-      const generated = parsed?.generatedAt ? new Date(parsed.generatedAt).getTime() : 0;
-      const SIX_DAYS_MS = 6 * 24 * 60 * 60 * 1000;
-      if (!generated || Date.now() - generated > SIX_DAYS_MS) {
-        localStorage.removeItem("sage-digest-v3");
-        return;
+      const lsRaw = localStorage.getItem("sage-digest-v3");
+      if (lsRaw) {
+        const lsParsed = JSON.parse(lsRaw);
+        const generated = lsParsed?.generatedAt ? new Date(lsParsed.generatedAt).getTime() : 0;
+        if (generated && Date.now() - generated <= SIX_DAYS_MS) setDigest(lsParsed);
+        else localStorage.removeItem("sage-digest-v3");
       }
-      setDigest(parsed);
-    } catch {
-      localStorage.removeItem("sage-digest-v3");
-    }
+    } catch { /* ignore */ }
+
+    // Authoritative load from server — this is the source of truth
+    fetch("/api/generate/digest", { cache: "no-store" })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((data) => {
+        if (data) {
+          setDigest(data);
+          localStorage.setItem("sage-digest-v3", JSON.stringify(data));
+        }
+      })
+      .catch((e: unknown) => {
+        // Network error — keep localStorage state as fallback
+        console.error("[basil-fetch] network_error", { route: "/api/generate/digest", component: "DigestPage", error: e instanceof Error ? e.message : String(e) });
+      });
   }, []);
 
   async function generate() {

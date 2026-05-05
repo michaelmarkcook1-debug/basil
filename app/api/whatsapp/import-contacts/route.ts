@@ -17,7 +17,7 @@
 
 import { NextResponse } from "next/server";
 import { getSnapshot, persistSignalIndex } from "@/lib/whatsapp/dump-job";
-import { bulkImportUserContacts } from "@/lib/contacts/user-store";
+import { bulkImportUserContacts, type BulkImportResult } from "@/lib/contacts/user-store";
 import { forceFlushSnapshot } from "@/lib/storage/persistent";
 import type { Contact } from "@/lib/contacts-data";
 import { getSessionUser } from "@/lib/auth";
@@ -76,7 +76,7 @@ export async function GET() {
   if (!username) return NextResponse.json({ error: "Unauthorised" }, { status: 401 });
 
   const t0 = Date.now();
-  const snapshot = await getSnapshot();
+  const snapshot = await getSnapshot(username);
   if (!snapshot) {
     return NextResponse.json(
       { error: "No snapshot yet — import WhatsApp first" },
@@ -115,7 +115,7 @@ export async function POST() {
   if (!username) return NextResponse.json({ error: "Unauthorised" }, { status: 401 });
 
   const t0 = Date.now();
-  const snapshot = await getSnapshot();
+  const snapshot = await getSnapshot(username);
   if (!snapshot) {
     return NextResponse.json({ error: "No snapshot" }, { status: 404 });
   }
@@ -168,19 +168,15 @@ export async function POST() {
       } satisfies Contact;
     });
 
-  // Count how many stubs could not be resolved to a real name — just a phone number.
-  const phonePattern = /^\+?\d[\d\s\-(). ]{4,}$/;
-  const unresolved = stubs.filter((s) => phonePattern.test(s.name.trim())).length;
-
-
   // Write to canonical store (server file-system + in-memory).
-  const imported = await bulkImportUserContacts(username, stubs);
+  // bulkImportUserContacts counts resolved/unresolved internally.
+  const result: BulkImportResult = await bulkImportUserContacts(username, stubs);
 
   // ── Build compact signal index ───────────────────────────────────────────
   // The full whatsapp-snapshot.json is excluded from BASIL_DATA (too large).
   // Persist a trimmed index so getWhatsAppSignalForContact works on cold-start
   // instances that haven't seen the snapshot file.
-  await persistSignalIndex(snapshot);
+  await persistSignalIndex(username, snapshot);
 
   // ── Guaranteed persistence ────────────────────────────────────────────────
   // forceFlushSnapshot() awaits the full BASIL_DATA env-var write before this
@@ -189,10 +185,24 @@ export async function POST() {
   // promise resolves, leaving BASIL_DATA stale and contacts lost on cold start.
   await forceFlushSnapshot();
 
+  console.log(
+    `[whatsapp/import] ${username}: added=${result.added} updated=${result.updated} ` +
+    `unchanged=${result.unchanged} unresolved=${result.unresolved} total=${stubs.length}`
+  );
+
   // Return the full stubs list so the client can seed localStorage directly
   // without a second GET that might hit a stale Vercel instance.
   return NextResponse.json(
-    { imported, total: stubs.length, unresolved, contacts: stubs },
+    {
+      added: result.added,
+      updated: result.updated,
+      unchanged: result.unchanged,
+      unresolved: result.unresolved,
+      /** @deprecated use `added` instead — kept for backwards compatibility */
+      imported: result.added,
+      total: stubs.length,
+      contacts: stubs,
+    },
     { status: 201 }
   );
 }

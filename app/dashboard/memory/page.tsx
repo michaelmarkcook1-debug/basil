@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useDomainSync } from "@/lib/sync/use-domain-sync";
+import { usePersistentDraft } from "@/lib/hooks/use-persistent-draft";
 import {
   Brain,
   Plus,
@@ -75,7 +76,12 @@ export default function MemoryPage() {
 
   // ── Import from another LLM / files ──────────────────────────────────────
   const [showImport, setShowImport]           = useState(false);
-  const [importText, setImportText]           = useState("");
+
+  const {
+    draft: importText,
+    setDraft: setImportText,
+    clearDraft: clearImportText,
+  } = usePersistentDraft<string>("memory-import", { defaultValue: "" });
   const [importing, setImporting]             = useState(false);
   const [importResult, setImportResult]       = useState<{ count: number } | null>(null);
   const [importError, setImportError]         = useState<string | null>(null);
@@ -180,7 +186,7 @@ export default function MemoryPage() {
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Import failed");
       setImportResult({ count: data.imported });
-      setImportText("");
+      clearImportText();
       setLoadedFileNames([]);
       load();
     } catch (err) {
@@ -328,7 +334,7 @@ export default function MemoryPage() {
   }
 
   return (
-    <div className="p-4 sm:p-6 lg:p-10 space-y-6 max-w-[1100px] mx-auto">
+    <div className="p-4 sm:p-6 lg:p-8 space-y-6 max-w-[1100px] mx-auto">
       <header className="space-y-2">
         <p className="basil-eyebrow flex items-center gap-2">
           <Brain className="h-3 w-3" />
@@ -381,7 +387,7 @@ export default function MemoryPage() {
             setImportResult(null);
             setImportError(null);
             setLoadedFileNames([]);
-            setImportText("");
+            clearImportText();
           }}
           className="inline-flex items-center gap-1.5 rounded-lg border border-border bg-background text-sm font-medium px-3.5 py-2 hover:bg-muted transition text-muted-foreground"
         >
@@ -476,7 +482,7 @@ export default function MemoryPage() {
                     : `${importResult.count} memor${importResult.count === 1 ? "y" : "ies"} extracted and saved.`}
                 </p>
                 <button
-                  onClick={() => { setImportResult(null); setImportText(""); setLoadedFileNames([]); }}
+                  onClick={() => { setImportResult(null); clearImportText(); setLoadedFileNames([]); }}
                   className="text-xs text-emerald-600 underline mt-0.5"
                 >
                   Import more

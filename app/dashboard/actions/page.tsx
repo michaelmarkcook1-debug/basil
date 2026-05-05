@@ -2,8 +2,9 @@
 
 import { useState, useEffect, useRef, useCallback } from "react";
 import { useDomainSync } from "@/lib/sync/use-domain-sync";
-import { useDraft } from "@/lib/hooks/use-draft";
+// useDraft kept for any legacy callers; actions now uses usePersistentDraft
 import { Card, CardContent } from "@/components/ui/card";
+import { Skeleton } from "@/components/ui/skeleton";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -22,11 +23,21 @@ import {
   ShieldQuestion,
   ThumbsUp,
   X,
+  AlertTriangle,
+  Briefcase,
+  ClipboardList,
+  User,
+  GitBranch,
 } from "lucide-react";
+import { useRouter } from "next/navigation";
 import { findContactByName } from "@/lib/contacts-lookup";
 import { isActionStalled } from "@/lib/actions/utils";
 import { dashboardCache } from "@/lib/dashboard-cache";
-import type { ActionItem } from "@/lib/types/action";
+import type { ActionItem, ActionCategory } from "@/lib/types/action";
+import { DataState } from "@/components/ui/data-state";
+import { usePersistentDraft } from "@/lib/hooks/use-persistent-draft";
+import { DraftSavedIndicator } from "@/components/ui/draft-saved-indicator";
+import { EvidencePanel } from "@/components/ui/trust-badge";
 
 const LEGACY_STORAGE_KEY = "sage-actions";
 
@@ -108,6 +119,37 @@ function NeedsReviewBadge() {
   );
 }
 
+/** Compact category chip. */
+function CategoryChip({ category }: { category?: ActionCategory }) {
+  if (!category) return null;
+  const styles: Record<ActionCategory, { cls: string; label: string; Icon: React.ComponentType<{ className?: string }> }> = {
+    critical: { cls: "bg-red-50 text-red-700 border-red-200",    label: "Critical", Icon: Briefcase },
+    admin:    { cls: "bg-sky-50  text-sky-700  border-sky-200",   label: "Admin",    Icon: ClipboardList },
+    personal: { cls: "bg-teal-50 text-teal-700 border-teal-200", label: "Personal", Icon: User },
+  };
+  const { cls, label, Icon } = styles[category];
+  return (
+    <span className={`inline-flex items-center gap-1 rounded border px-1.5 py-0 text-[11px] font-medium ${cls}`}>
+      <Icon className="h-2.5 w-2.5" />
+      {label}
+    </span>
+  );
+}
+
+/** Decision-required pill — click navigates to Decisions page. */
+function DecisionRequiredBadge({ onClick }: { onClick?: () => void }) {
+  return (
+    <button
+      onClick={onClick}
+      className="inline-flex items-center gap-1 rounded-full border border-violet-300 bg-violet-50 px-1.5 py-0 text-[11px] font-medium text-violet-700 hover:bg-violet-100 transition-colors cursor-pointer"
+      title="A decision needs to be made — click to log it"
+    >
+      <GitBranch className="h-2.5 w-2.5" />
+      Decision needed
+    </button>
+  );
+}
+
 // ── Section headings ───────────────────────────────────────────────────────────
 
 function SectionHeading({
@@ -137,12 +179,14 @@ function ActionCard({
   onToggle,
   onDelete,
   onConfirmReview,
+  onDecisionClick,
   todayStr,
 }: {
   action: ActionItem;
   onToggle: (id: string) => void;
   onDelete: (id: string) => void;
   onConfirmReview?: (id: string) => void;
+  onDecisionClick?: (action: ActionItem) => void;
   todayStr: string;
 }) {
   const contact = findContactByName(action.owner);
@@ -216,8 +260,14 @@ function ActionCard({
 
             <PriorityBadge priority={action.priority} />
             <SourceBadge source={action.source} />
+            <CategoryChip category={action.category} />
             <ConfidenceDot confidence={action.confidence} />
             {action.needsReview && <NeedsReviewBadge />}
+
+            {/* Decision needed — click-through to Decisions */}
+            {action.decisionRequired && !action.linkedDecisionId && (
+              <DecisionRequiredBadge onClick={() => onDecisionClick?.(action)} />
+            )}
 
             {/* Linked decisions */}
             {action.linkedDecisionIds && action.linkedDecisionIds.length > 0 && (
@@ -227,6 +277,16 @@ function ActionCard({
               </span>
             )}
           </div>
+
+          {/* Evidence panel — "Why am I seeing this?" */}
+          {(action.sourceRef || action.additionalSourceRefs?.length || action.confidence !== undefined) && (
+            <EvidencePanel
+              sourceRef={action.sourceRef}
+              additionalSourceRefs={action.additionalSourceRefs}
+              confidence={action.confidence}
+              context={action.source !== "manual" ? action.source : undefined}
+            />
+          )}
 
           {/* Review controls — confirm keeps it, dismiss removes it */}
           {action.needsReview && (
@@ -274,6 +334,7 @@ function CollapsibleSection({
   onToggle,
   onDelete,
   onConfirmReview,
+  onDecisionClick,
   todayStr,
 }: {
   label: string;
@@ -283,6 +344,7 @@ function CollapsibleSection({
   onToggle: (id: string) => void;
   onDelete: (id: string) => void;
   onConfirmReview?: (id: string) => void;
+  onDecisionClick?: (action: ActionItem) => void;
   todayStr: string;
 }) {
   const [open, setOpen] = useState(defaultOpen);
@@ -316,6 +378,7 @@ function CollapsibleSection({
               onToggle={onToggle}
               onDelete={onDelete}
               onConfirmReview={onConfirmReview}
+              onDecisionClick={onDecisionClick}
               todayStr={todayStr}
             />
           ))}
@@ -339,24 +402,52 @@ function sortByPriority(a: ActionItem, b: ActionItem): number {
 // ── Page ───────────────────────────────────────────────────────────────────────
 
 export default function ActionsPage() {
+  const router = useRouter();
   const [actions, setActions] = useState<ActionItem[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [fetchError, setFetchError] = useState<Error | null>(null);
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState<string>("all");
+  // "timeline" (default) vs "category" view
+  const [viewMode, setViewMode] = useState<"timeline" | "category">("timeline");
   // Form draft — survives tab switches; cleared on save or explicit cancel.
-  const [form, setForm, clearForm] = useDraft<ActionFormDraft>(ACTION_DRAFT_KEY, ACTION_DRAFT_DEFAULT);
+  const { draft: form, setDraft: setForm, clearDraft: clearForm, draftSaved: formDraftSaved } =
+    usePersistentDraft<ActionFormDraft>("draft-action", { defaultValue: ACTION_DRAFT_DEFAULT });
   const migratedRef = useRef(false);
+
+  function handleDecisionClick(action: ActionItem) {
+    // Navigate to Decisions page with action context pre-filled as a query param
+    const params = new URLSearchParams({
+      fromAction: action.id,
+      text: action.text.slice(0, 200),
+    });
+    router.push(`/dashboard/decisions?${params.toString()}`);
+  }
 
   const refresh = useCallback(async () => {
     // Serve cached data instantly — eliminates blank flash on tab switch
     const cached = dashboardCache.get<ActionItem[]>("actions");
-    if (cached) setActions(cached);
+    if (cached) { setActions(cached); setLoading(false); }
     // Always revalidate from server
-    const res = await fetch("/api/actions", { cache: "no-store" });
-    if (!res.ok) return; // don't clear UI on server error — keep showing cached/current state
-    const data = await res.json() as { actions?: ActionItem[] };
-    const fresh: ActionItem[] = data.actions ?? [];
-    dashboardCache.set("actions", fresh);
-    setActions(fresh);
+    try {
+      const res = await fetch("/api/actions", { cache: "no-store" });
+      if (!res.ok) {
+        console.error("[basil-fetch]", res.status === 401 ? "auth_error" : "server_error", { route: "/api/actions", status: res.status, component: "ActionsPage" });
+        if (!cached) setFetchError(new Error(`HTTP ${res.status}`));
+        setLoading(false);
+        return;
+      }
+      setFetchError(null);
+      const data = await res.json() as { actions?: ActionItem[] };
+      const fresh: ActionItem[] = data.actions ?? [];
+      dashboardCache.set("actions", fresh);
+      setActions(fresh);
+    } catch (e) {
+      console.error("[basil-fetch] network_error", { route: "/api/actions", component: "ActionsPage", error: e instanceof Error ? e.message : String(e) });
+      if (!cached) setFetchError(e instanceof Error ? e : new Error(String(e)));
+    } finally {
+      setLoading(false);
+    }
   }, []);
 
   const notify = useDomainSync("actions", refresh);
@@ -506,6 +597,14 @@ export default function ActionsPage() {
   const openCount = overdue.length + dueToday.length + upcoming.length + openNoDue.length + stalled.length;
   const showGrouped = statusFilter === "all" || statusFilter === "open" || statusFilter === "overdue" || statusFilter === "review";
 
+  // ── Category grouping (for "By Category" view) ─────────────────────────────
+  const openActions = filtered.filter((a) => a.status !== "done");
+  const critical = openActions.filter((a) => a.category === "critical").sort(sortByPriority);
+  const adminActs = openActions.filter((a) => a.category === "admin").sort(sortByPriority);
+  const personal  = openActions.filter((a) => a.category === "personal").sort(sortByPriority);
+  const uncategorized = openActions.filter((a) => !a.category).sort(sortByPriority);
+  const decisionNeeded = openActions.filter((a) => a.decisionRequired && !a.linkedDecisionId).sort(sortByPriority);
+
   return (
     <div className="p-4 sm:p-6 lg:p-8 space-y-6 max-w-4xl">
       <header className="flex items-center justify-between">
@@ -518,14 +617,27 @@ export default function ActionsPage() {
             Commitments from meetings, Slack, and email. Basil can read and add to this list.
           </p>
         </div>
-        <Button
-          size="sm"
-          className="bg-[oklch(0.22_0.05_250)] hover:bg-[oklch(0.28_0.06_250)] text-white gap-1.5"
-          onClick={() => setForm(f => ({ ...f, showForm: !f.showForm }))}
-        >
-          <Plus className="h-3.5 w-3.5" />
-          Add Action
-        </Button>
+        <div className="flex items-center gap-2">
+          {/* View mode toggle */}
+          <div className="hidden sm:flex rounded-lg border border-border overflow-hidden text-xs">
+            <button
+              className={`px-3 py-1.5 font-medium transition-colors ${viewMode === "timeline" ? "bg-[oklch(0.72_0.15_85)] text-[oklch(0.18_0.04_250)]" : "bg-background text-muted-foreground hover:text-foreground"}`}
+              onClick={() => setViewMode("timeline")}
+            >Timeline</button>
+            <button
+              className={`px-3 py-1.5 font-medium transition-colors ${viewMode === "category" ? "bg-[oklch(0.72_0.15_85)] text-[oklch(0.18_0.04_250)]" : "bg-background text-muted-foreground hover:text-foreground"}`}
+              onClick={() => setViewMode("category")}
+            >By Category</button>
+          </div>
+          <Button
+            size="sm"
+            className="bg-[oklch(0.72_0.15_85)] hover:bg-[oklch(0.78_0.12_85)] text-[oklch(0.18_0.04_250)] gap-1.5"
+            onClick={() => setForm(f => ({ ...f, showForm: !f.showForm }))}
+          >
+            <Plus className="h-3.5 w-3.5" />
+            Add Action
+          </Button>
+        </div>
       </header>
 
       {/* Add form */}
@@ -572,7 +684,7 @@ export default function ActionsPage() {
                 <option value="chat">Chat</option>
               </select>
             </div>
-            <div className="flex gap-2">
+            <div className="flex items-center gap-2">
               <Button
                 size="sm"
                 onClick={handleAdd}
@@ -583,6 +695,7 @@ export default function ActionsPage() {
               <Button size="sm" variant="outline" onClick={clearForm}>
                 Cancel
               </Button>
+              <DraftSavedIndicator saved={formDraftSaved} className="ml-1" />
             </div>
           </CardContent>
         </Card>
@@ -615,13 +728,129 @@ export default function ActionsPage() {
       </div>
 
       {/* Content */}
-      {filtered.length === 0 ? (
+      {loading ? (
+        <div className="space-y-3">
+          {[1,2,3].map((i) => (
+            <Card key={i}>
+              <CardContent className="py-4 space-y-2">
+                <Skeleton className="h-4 w-3/4" />
+                <Skeleton className="h-3 w-1/3" />
+              </CardContent>
+            </Card>
+          ))}
+        </div>
+      ) : fetchError ? (
         <Card>
-          <CardContent className="py-8 text-center text-muted-foreground">
-            No actions found.
+          <CardContent className="py-2">
+            <DataState error={fetchError} onRetry={refresh} />
           </CardContent>
         </Card>
+      ) : filtered.length === 0 ? (
+        <Card>
+          <CardContent className="py-8 text-center text-muted-foreground">
+            No actions found. Add one above or ask Basil.
+          </CardContent>
+        </Card>
+
+      ) : viewMode === "category" ? (
+        /* ── Category view ──────────────────────────────────────────────── */
+        <div className="space-y-6">
+          {/* Needs Review — always on top */}
+          {reviewItems.length > 0 && (
+            <CollapsibleSection
+              label="Needs Review"
+              accent="text-amber-600"
+              items={reviewItems}
+              defaultOpen={true}
+              onToggle={toggleDone}
+              onDelete={handleDelete}
+              onConfirmReview={handleConfirmReview}
+              onDecisionClick={handleDecisionClick}
+              todayStr={todayStr}
+            />
+          )}
+
+          {/* Decision needed — urgent signal section */}
+          {decisionNeeded.length > 0 && (
+            <CollapsibleSection
+              label="Decision Needed"
+              accent="text-violet-600"
+              items={decisionNeeded}
+              defaultOpen={true}
+              onToggle={toggleDone}
+              onDelete={handleDelete}
+              onConfirmReview={handleConfirmReview}
+              onDecisionClick={handleDecisionClick}
+              todayStr={todayStr}
+            />
+          )}
+
+          {/* Critical / role + project */}
+          <CollapsibleSection
+            label="Critical — Role & Project"
+            accent="text-red-600"
+            items={critical}
+            defaultOpen={true}
+            onToggle={toggleDone}
+            onDelete={handleDelete}
+            onConfirmReview={handleConfirmReview}
+            onDecisionClick={handleDecisionClick}
+            todayStr={todayStr}
+          />
+
+          {/* Admin */}
+          <CollapsibleSection
+            label="Admin & Operations"
+            accent="text-sky-600"
+            items={adminActs}
+            defaultOpen={true}
+            onToggle={toggleDone}
+            onDelete={handleDelete}
+            onConfirmReview={handleConfirmReview}
+            onDecisionClick={handleDecisionClick}
+            todayStr={todayStr}
+          />
+
+          {/* Personal */}
+          <CollapsibleSection
+            label="Personal"
+            accent="text-teal-600"
+            items={personal}
+            defaultOpen={true}
+            onToggle={toggleDone}
+            onDelete={handleDelete}
+            onConfirmReview={handleConfirmReview}
+            onDecisionClick={handleDecisionClick}
+            todayStr={todayStr}
+          />
+
+          {/* Uncategorized — collapsed by default */}
+          {uncategorized.length > 0 && (
+            <CollapsibleSection
+              label="Uncategorized"
+              items={uncategorized}
+              defaultOpen={false}
+              onToggle={toggleDone}
+              onDelete={handleDelete}
+              onConfirmReview={handleConfirmReview}
+              onDecisionClick={handleDecisionClick}
+              todayStr={todayStr}
+            />
+          )}
+
+          {/* Done — collapsed */}
+          <CollapsibleSection
+            label="Done"
+            items={done}
+            defaultOpen={false}
+            onToggle={toggleDone}
+            onDelete={handleDelete}
+            todayStr={todayStr}
+          />
+        </div>
+
       ) : showGrouped ? (
+        /* ── Timeline view (default) ──────────────────────────────────── */
         <div className="space-y-6">
           {/* Needs Review — amber section, shown only when items pending */}
           {statusFilter !== "review" && reviewItems.length > 0 && (
@@ -633,6 +862,7 @@ export default function ActionsPage() {
               onToggle={toggleDone}
               onDelete={handleDelete}
               onConfirmReview={handleConfirmReview}
+              onDecisionClick={handleDecisionClick}
               todayStr={todayStr}
             />
           )}
@@ -645,6 +875,7 @@ export default function ActionsPage() {
               onToggle={toggleDone}
               onDelete={handleDelete}
               onConfirmReview={handleConfirmReview}
+              onDecisionClick={handleDecisionClick}
               todayStr={todayStr}
             />
           )}
@@ -663,6 +894,7 @@ export default function ActionsPage() {
                         onToggle={toggleDone}
                         onDelete={handleDelete}
                         onConfirmReview={handleConfirmReview}
+                        onDecisionClick={handleDecisionClick}
                         todayStr={todayStr}
                       />
                     ))}
@@ -682,6 +914,7 @@ export default function ActionsPage() {
                         onToggle={toggleDone}
                         onDelete={handleDelete}
                         onConfirmReview={handleConfirmReview}
+                        onDecisionClick={handleDecisionClick}
                         todayStr={todayStr}
                       />
                     ))}
@@ -701,6 +934,7 @@ export default function ActionsPage() {
                         onToggle={toggleDone}
                         onDelete={handleDelete}
                         onConfirmReview={handleConfirmReview}
+                        onDecisionClick={handleDecisionClick}
                         todayStr={todayStr}
                       />
                     ))}
@@ -720,6 +954,7 @@ export default function ActionsPage() {
                         onToggle={toggleDone}
                         onDelete={handleDelete}
                         onConfirmReview={handleConfirmReview}
+                        onDecisionClick={handleDecisionClick}
                         todayStr={todayStr}
                       />
                     ))}
@@ -736,6 +971,7 @@ export default function ActionsPage() {
                 onToggle={toggleDone}
                 onDelete={handleDelete}
                 onConfirmReview={handleConfirmReview}
+                onDecisionClick={handleDecisionClick}
                 todayStr={todayStr}
               />
 
@@ -761,6 +997,7 @@ export default function ActionsPage() {
               onToggle={toggleDone}
               onDelete={handleDelete}
               onConfirmReview={handleConfirmReview}
+              onDecisionClick={handleDecisionClick}
               todayStr={todayStr}
             />
           ))}
