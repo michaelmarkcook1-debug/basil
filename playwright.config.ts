@@ -41,25 +41,23 @@ export default defineConfig({
   ],
 
   /* Start the dev server automatically in local dev.
-   * In CI the server is started separately by the workflow (next build + next start),
-   * so the webServer block is omitted entirely — Playwright connects to the
-   * already-running server via use.baseURL above.
+   * In CI the workflow starts `next start` before Playwright runs, so
+   * webServer is set to undefined — Playwright connects to the running
+   * server via use.baseURL without trying to manage the process itself.
    *
    * E2E_TEST_MODE=true enables POST /api/e2e/test-session (auth bypass).
    * Never set this in production — the endpoint returns 404 when unset. */
-  ...(process.env.CI
-    ? {}
+  webServer: process.env.CI
+    ? undefined
     : {
-        webServer: {
-          command: "E2E_TEST_MODE=true npm run dev",
-          url: "http://127.0.0.1:3000",
-          reuseExistingServer: true,
-          timeout: 120_000,
-          stdout: "ignore",
-          stderr: "pipe",
-          env: {
-            E2E_TEST_MODE: "true",
-          },
+        command: "E2E_TEST_MODE=true npm run dev",
+        url: "http://127.0.0.1:3000",
+        reuseExistingServer: true,
+        timeout: 120_000,
+        stdout: "ignore",
+        stderr: "pipe",
+        env: {
+          E2E_TEST_MODE: "true",
         },
-      }),
+      },
 });

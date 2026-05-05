@@ -136,6 +136,9 @@ jobs:
           E2E_TEST_MODE: "true"
           PLAYWRIGHT_BASE_URL: http://127.0.0.1:3000
 
+      - name: Verify server health before e2e
+        run: curl -sf http://127.0.0.1:3000/api/health | python3 -m json.tool
+
       - name: E2E smoke tests
         # Run only the lightweight home smoke tests in CI.
         # contact-persistence and whatsapp-ux require real contact/message data
