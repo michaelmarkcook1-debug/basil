@@ -71,11 +71,18 @@ export async function GET(req: Request) {
       ok: boolean;
       error?: string;
       access_token?: string;          // bot token
-      authed_user?: { access_token?: string }; // user token
+      scope?: string;                 // space-delimited bot scope string
+      bot_user_id?: string;           // bot's own Slack user ID
+      team?: { id: string; name?: string };
+      enterprise?: { id: string; name?: string } | null;
+      authed_user?: {
+        id?: string;                  // Slack user ID who authorised
+        access_token?: string;        // user token
+      };
     };
 
     if (!data.ok) {
-      console.error("Slack oauth.v2.access error:", data.error);
+      console.error("[slack/callback] oauth.v2.access error:", data.error);
       // Pass the actual Slack error code to the settings page for debugging
       const dest = from === "onboarding"
         ? `/onboarding?error=slack_auth&slack_error=${encodeURIComponent(data.error ?? "unknown")}`
@@ -83,9 +90,24 @@ export async function GET(req: Request) {
       return clearFromCookie(NextResponse.redirect(new URL(dest, req.url)));
     }
 
+    if (!data.team?.id) {
+      // team.id is essential for deterministic webhook routing — abort if absent.
+      console.error("[slack/callback] oauth.v2.access response missing team.id — cannot store without workspace identifier");
+      return clearFromCookie(NextResponse.redirect(new URL(errorDest, req.url)));
+    }
+
+    console.log(`[slack/callback] connected workspace ${data.team.id} (${data.team.name ?? "unknown"}) for user ${username}`);
+
     await saveSlackConfig(username, {
-      botToken:  data.access_token,
-      userToken: data.authed_user?.access_token,
+      botToken:     data.access_token,
+      userToken:    data.authed_user?.access_token,
+      teamId:       data.team.id,
+      teamName:     data.team.name,
+      enterpriseId: data.enterprise?.id,
+      authUserId:   data.authed_user?.id,
+      botUserId:    data.bot_user_id,
+      scopes:       data.scope,
+      connectedAt:  new Date().toISOString(),
     });
     await forceFlushSnapshot();
 

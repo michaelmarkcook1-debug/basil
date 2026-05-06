@@ -4,14 +4,36 @@ import { getIntegrationToken, saveIntegrationToken, deleteIntegrationToken } fro
 export interface SlackConfig {
   botToken?:  string;
   userToken?: string;
+  /**
+   * Workspace ownership metadata — persisted at OAuth connect time so that
+   * webhook events can be deterministically routed to the correct Basil user
+   * without first-match guessing.
+   *
+   * team_id is the canonical Slack workspace identifier and is the primary
+   * key used by resolveSlackUserByTeam().  Never null for Slack bot installs.
+   */
+  teamId?:      string;   // T0XXXXXXXXX — Slack workspace ID
+  teamName?:    string;   // Human-readable workspace name (cosmetic only)
+  enterpriseId?: string;  // E0XXXXXXXXX — present only for Enterprise Grid installs
+  authUserId?:  string;   // U0XXXXXXXXX — Slack user who authorised the install
+  botUserId?:   string;   // U0XXXXXXXXX — the bot's own Slack user ID
+  scopes?:      string;   // Space-delimited bot scope string from OAuth response
+  connectedAt?: string;   // ISO timestamp of initial connection
 }
 
 export async function getSlackConfig(username: string): Promise<SlackConfig> {
   // Strictly user-scoped — no env var fallback to prevent data bleed across users.
   const stored = await getIntegrationToken<SlackConfig>(username, "slack");
   return {
-    botToken:  stored?.botToken,
-    userToken: stored?.userToken,
+    botToken:     stored?.botToken,
+    userToken:    stored?.userToken,
+    teamId:       stored?.teamId,
+    teamName:     stored?.teamName,
+    enterpriseId: stored?.enterpriseId,
+    authUserId:   stored?.authUserId,
+    botUserId:    stored?.botUserId,
+    scopes:       stored?.scopes,
+    connectedAt:  stored?.connectedAt,
   };
 }
 

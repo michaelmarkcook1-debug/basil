@@ -81,11 +81,10 @@ export async function resolveMicrosoftSubscriptionUser(
 
 /**
  * Resolve the first user who has Slack configured (has a bot or user token).
- * Slack events arrive without user-identifying context beyond the team, so we
- * return the first connected user. When multiple users have Slack connected,
- * the event goes to the first one found — a future enhancement could store
- * the authed Slack user ID and match via the event's `user` field.
- * Returns null when no user has Slack connected.
+ *
+ * @deprecated Use resolveSlackUserByTeam() instead. This resolver uses first-match
+ * semantics and is only correct in single-user deployments. It is kept for backward
+ * compatibility with callers that do not yet have a team_id.
  */
 export async function resolveSlackUser(): Promise<string | null> {
   const users = await getUsers();
@@ -100,4 +99,49 @@ export async function resolveSlackUser(): Promise<string | null> {
     }
   }
   return null;
+}
+
+/**
+ * Resolve the user who owns a Slack workspace by matching the workspace's
+ * team_id (and optionally enterprise_id for Enterprise Grid) to the metadata
+ * stored at OAuth connect time.
+ *
+ * Returns:
+ *   - a username string   — exactly one match
+ *   - "ambiguous"         — multiple users share the same workspace (unusual but possible)
+ *   - null                — no user has this workspace connected
+ *
+ * Callers must dead-letter events that return "ambiguous" or null.
+ */
+export async function resolveSlackUserByTeam(
+  teamId: string,
+  enterpriseId?: string | null
+): Promise<string | "ambiguous" | null> {
+  if (!teamId) return null;
+
+  const users = await getUsers();
+  const matches: string[] = [];
+
+  for (const user of users) {
+    try {
+      const config = await getSlackConfig(user.username);
+      if (!config.teamId) continue;
+
+      const teamMatches = config.teamId === teamId;
+      const enterpriseMatches =
+        !enterpriseId ||
+        !config.enterpriseId ||
+        config.enterpriseId === enterpriseId;
+
+      if (teamMatches && enterpriseMatches) {
+        matches.push(user.username);
+      }
+    } catch {
+      // Skip users whose Slack config can't be read
+    }
+  }
+
+  if (matches.length === 0) return null;
+  if (matches.length === 1) return matches[0];
+  return "ambiguous";
 }
