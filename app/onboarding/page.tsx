@@ -21,7 +21,6 @@ interface IntegrationStatus {
   google: { state: string };
   microsoft: { state: string };
   slack: { state: string };
-  zoom?: { state: string };
 }
 
 // ── Constants ──────────────────────────────────────────────────────────────────
@@ -41,7 +40,7 @@ const PRIORITIES = [
   "Daily digest", "Document review",
 ];
 
-const TOTAL_STEPS = 9;
+const TOTAL_STEPS = 8;
 
 // ── Demo video ────────────────────────────────────────────────────────────────
 // Set NEXT_PUBLIC_DEMO_VIDEO_ID in Vercel environment variables to show a real
@@ -186,6 +185,9 @@ export default function OnboardingPage() {
   const [loading, setLoading] = useState(false);
   const [saveError, setSaveError] = useState("");
   const [integrations, setIntegrations] = useState<IntegrationStatus | null>(null);
+  // Tracks providers connected in THIS page session (from ?connected= URL params).
+  // Used to show confirmation immediately even if the status API cache is stale.
+  const [justConnected, setJustConnected] = useState<Set<string>>(new Set());
 
   const [form, setForm] = useState<FormData>({
     jobTitle: "",
@@ -201,18 +203,23 @@ export default function OnboardingPage() {
   });
 
   // Detect returning from OAuth (e.g. ?connected=google or ?error=microsoft_auth)
-  // and jump straight to the relevant connection step
+  // and jump straight to the relevant connection step.
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     const connected = params.get("connected");
     const error     = params.get("error");
 
-    if (connected === "google" || error === "google_auth")         setStep(4);
-    if (connected === "microsoft" || error === "microsoft_auth")    setStep(5);
-    if (connected === "slack"     || error === "slack_auth")        setStep(6);
-    if (connected === "zoom"      || error === "zoom_oauth_failed") setStep(7);
+    if (connected === "google"    || error === "google_auth")    setStep(4);
+    if (connected === "microsoft" || error === "microsoft_auth") setStep(5);
+    if (connected === "slack"     || error === "slack_auth")     setStep(6);
 
-    // If returning from Zoom OAuth via ?step= param
+    // If returning with a successful connection, record it for immediate UI feedback.
+    // The status API cache may be stale for up to 90 s after a new OAuth connection;
+    // this optimistic state ensures the ✓ shows right away without a flicker.
+    if (connected === "google" || connected === "microsoft" || connected === "slack") {
+      setJustConnected((prev) => new Set([...prev, connected]));
+    }
+
     const stepParam = params.get("step");
     if (!connected && !error && stepParam) setStep(parseInt(stepParam, 10));
 
@@ -315,7 +322,7 @@ export default function OnboardingPage() {
   }
 
   const isConnected = (key: keyof IntegrationStatus) =>
-    integrations?.[key]?.state === "connected";
+    integrations?.[key]?.state === "connected" || justConnected.has(key);
 
   // ── Step renders ─────────────────────────────────────────────────────────────
 
@@ -608,46 +615,7 @@ export default function OnboardingPage() {
         nextLabel={isConnected("slack") ? "Continue →" : "Skip for now"} />
     </div>,
 
-    // ── 7: Connect Zoom ──────────────────────────────────────────────────────
-    <div key="zoom">
-      <h2 className="text-2xl font-semibold text-white mb-1" style={{ fontFamily: "var(--font-fraunces), Georgia, serif" }}>
-        Connect Zoom
-      </h2>
-      <p className="text-white/50 text-sm mb-6">Optional — pulls in meeting summaries, recordings, and participant history.</p>
-      <div className="rounded-xl border border-white/10 bg-white/4 p-5 mb-6">
-        <div className="flex items-start gap-4">
-          <div className="text-3xl">📹</div>
-          <div>
-            <h3 className="text-white font-medium mb-1">Meetings & Recordings</h3>
-            <ul className="text-white/50 text-sm space-y-1">
-              <li>• Meeting summaries and transcripts</li>
-              <li>• Track meeting cadence with contacts</li>
-              <li>• Surface action items from calls</li>
-            </ul>
-          </div>
-        </div>
-      </div>
-      {integrations?.zoom?.state === "connected" ? (
-        <div className="flex items-center gap-2 rounded-xl border border-emerald-500/30 bg-emerald-500/10 px-4 py-3 text-emerald-400 text-sm mb-6">
-          <span>✓</span> Zoom is connected
-        </div>
-      ) : (
-        <button
-          onClick={() => { window.location.href = "/api/auth/zoom?from=%2Fonboarding%3Fconnected%3Dzoom"; }}
-          className="w-full flex items-center justify-center gap-3 rounded-xl border border-white/20 bg-white/8 hover:bg-white/12 hover:border-white/30 text-white font-semibold py-3.5 text-sm shadow-lg transition mb-4"
-        >
-          <svg className="w-5 h-5" viewBox="0 0 24 24" fill="none">
-            <rect width="24" height="24" rx="4" fill="#2D8CFF"/>
-            <path d="M4 8.5C4 7.67 4.67 7 5.5 7h9C15.33 7 16 7.67 16 8.5v7c0 .83-.67 1.5-1.5 1.5h-9C4.67 17 4 16.33 4 15.5v-7zm12 1.75l3.5-2.25v7.5L16 13.25V10.25z" fill="white"/>
-          </svg>
-          Connect with Zoom
-        </button>
-      )}
-      <NavButtons step={step} onBack={() => setStep((s) => s - 1)} onNext={() => setStep(8)} canSkip onSkip={() => setStep(8)}
-        nextLabel={integrations?.zoom?.state === "connected" ? "Continue →" : "Skip for now"} />
-    </div>,
-
-    // ── 8: All done + demo video ─────────────────────────────────────────────
+    // ── 7: All done + demo video ─────────────────────────────────────────────
     <div key="done">
       <div className="text-center mb-6">
         <div className="text-5xl mb-3">🎉</div>
@@ -689,7 +657,6 @@ export default function OnboardingPage() {
           [isConnected("google"), "Google Gmail & Calendar connected"],
           [isConnected("microsoft"), "Microsoft 365 connected"],
           [isConnected("slack"), "Slack connected"],
-          [integrations?.zoom?.state === "connected", "Zoom meetings connected"],
         ]
           .filter(([cond]) => cond)
           .map(([, label]) => (
