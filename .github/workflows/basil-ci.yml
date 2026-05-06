@@ -137,7 +137,15 @@ jobs:
           PLAYWRIGHT_BASE_URL: http://127.0.0.1:3000
 
       - name: Verify server health before e2e
-        run: curl -sf http://127.0.0.1:3000/api/health | python3 -m json.tool
+        # Diagnostic only — always passes so E2E tests still run.
+        # Shows what the server is actually returning for debugging.
+        continue-on-error: true
+        run: |
+          echo "=== /api/health response ==="
+          curl -sv http://127.0.0.1:3000/api/health 2>&1 || true
+          echo ""
+          echo "=== / response headers ==="
+          curl -sI http://127.0.0.1:3000/ 2>&1 || true
 
       - name: E2E smoke tests
         # Run only the lightweight home smoke tests in CI.

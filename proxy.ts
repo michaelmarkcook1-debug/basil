@@ -12,6 +12,7 @@ const PUBLIC_API_PREFIXES = [
   "/api/auth/google",    // Google OAuth callback
   "/api/auth/microsoft", // Microsoft OAuth callback
   "/api/webhooks",       // Inbound webhooks (signed by provider, not session-authed)
+  "/api/health",         // Liveness check — must be reachable without a session for CI and uptime monitors
 ];
 
 function isPublic(pathname: string): boolean {
