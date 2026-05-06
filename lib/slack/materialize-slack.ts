@@ -27,8 +27,8 @@ import type { SlackIntelligence, SlackSignalCategory } from "./classify-slack";
 // ── Input / output types ───────────────────────────────────────────────────────
 
 export interface MaterializeSlackInput {
-  /** Username to scope memory writes to. Defaults to "michael" on webhook paths. */
-  username?: string;
+  /** Username to scope memory writes to. Required — no fallback. */
+  username: string;
   intelligence: SlackIntelligence;
   /** Full sourceRef: "slack:<channelId>:<messageTs>" */
   sourceRef: string;
@@ -81,7 +81,13 @@ const EXPLICIT_ONLY_ACTION_CATEGORIES = new Set<SlackSignalCategory>([
 export async function materializeSlackIntelligence(
   input: MaterializeSlackInput
 ): Promise<MaterializeSlackResult> {
-  const { intelligence: intel, sourceRef, eventId, channelName, from, date, username = process.env.PRIMARY_OWNER_USERNAME ?? "" } = input;
+  const { intelligence: intel, sourceRef, eventId, channelName, from, date, username } = input;
+
+  if (!username) {
+    console.error("[slack-materialize] username is required — refusing to write without owner", { sourceRef });
+    return { actionsCreated: 0, decisionsCreated: 0, memoriesCreated: 0, auditEntries: [] };
+  }
+
   const dateShort = date.slice(0, 10);
   const channelLabel = channelName.startsWith("#") || channelName.startsWith("DM")
     ? channelName

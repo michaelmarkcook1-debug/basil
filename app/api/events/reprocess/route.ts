@@ -162,6 +162,7 @@ export async function POST(_req: Request) {
 
         // Classify the Slack intelligence
         const intel = await classifySlack({
+          username,
           channelName,
           transcript,
           isDM: false,
@@ -219,6 +220,7 @@ export async function POST(_req: Request) {
               }`;
 
         const intel = await classifyTeams({
+          username,
           channelName,
           transcript,
           isDM: false,

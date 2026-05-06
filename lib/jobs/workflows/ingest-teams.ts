@@ -59,7 +59,7 @@ async function processTeamsStep(username: string, payload: IngestTeamsPayload): 
     return;
   }
 
-  const intel = await classifyTeams({ channelName, transcript, isDM, isMention, date });
+  const intel = await classifyTeams({ username, channelName, transcript, isDM, isMention, date });
 
   if (!shouldMaterializeTeams(intel)) {
     void recordIngest(username, { sourceRef: externalId, hash: contentHash });

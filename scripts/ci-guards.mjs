@@ -468,6 +468,36 @@ for (const { full, rel, isTest } of ALL_FILES) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Guard 6c — PRIMARY_OWNER_USERNAME fallback in runtime ingestion paths
+// ─────────────────────────────────────────────────────────────────────────────
+//
+// process.env.PRIMARY_OWNER_USERNAME must never be used as a fallback for
+// user-owned data writes.  Any ingestion, classification, or materialisation
+// function that defaults to this env var silently assigns data to the wrong
+// user when the actual owner cannot be resolved.
+//
+// Allowed: lib/ai/system-prompt.ts (read-only AI personalization hint — annotated ci-ok).
+// All other uses in runtime code are a hard failure.
+//
+// Fix: make username a required parameter; dead-letter or reject when absent.
+// Suppress with // ci-ok only if the line is provably non-write (e.g. read-only AI prompt context).
+
+const PRIMARY_OWNER_RE = /process\.env\.PRIMARY_OWNER_USERNAME/;
+
+for (const { full, rel, isTest } of ALL_FILES) {
+  if (isTest) continue; // test fixtures may reference the env var name
+  const ls = lines(full);
+  for (let i = 0; i < ls.length; i++) {
+    const line = ls[i];
+    if (isCommentLine(line)) continue;
+    if (isSuppressed(line)) continue;
+    if (PRIMARY_OWNER_RE.test(line)) {
+      fail("primary-owner-fallback", rel, i + 1, line);
+    }
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Guard 7 — Missing key routes
 // ─────────────────────────────────────────────────────────────────────────────
 //
@@ -501,8 +531,9 @@ const LABELS = {
   "token-in-response":       "OAuth token field in API response",
   "auth-secret-in-response": "Auth secret (password/resetToken) in API response",
   "auth-secret-in-log":      "Auth secret mentioned in console.log/error",
-  "auth-store-direct-write": "Direct write to auth store file (bypasses encryption)",
-  "missing-route":           "Missing key route",
+  "auth-store-direct-write":  "Direct write to auth store file (bypasses encryption)",
+  "primary-owner-fallback":   "PRIMARY_OWNER_USERNAME used as default-user fallback",
+  "missing-route":            "Missing key route",
 };
 
 const HINTS = {
@@ -566,6 +597,12 @@ const HINTS = {
     "All writes are encrypted at rest via AES-256-GCM before reaching blob storage.",
     "Replace direct writeStore('users.json', ...) with writeUserRecords() from secure-auth-store.",
     "Replace direct writeStore('password-reset-tokens.json', ...) with writeResetTokenRecords().",
+  ],
+  "primary-owner-fallback": [
+    "process.env.PRIMARY_OWNER_USERNAME must never be used as a default owner in runtime code.",
+    "If username is missing: dead-letter the event, return early, or reject with 400/401.",
+    "Make username a required parameter — remove any '= process.env.PRIMARY_OWNER_USERNAME ?? \"\"' defaults.",
+    "The only permitted use is read-only AI system-prompt personalization, annotated with // ci-ok.",
   ],
 };
 

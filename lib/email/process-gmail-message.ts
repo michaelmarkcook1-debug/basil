@@ -61,8 +61,8 @@ function stripHtml(s: string): string {
 // ── Regular email materialization ─────────────────────────────────────────────
 
 export interface ProcessEmailOpts {
-  /** Username to scope Google API calls to. Defaults to "michael" for webhook paths. */
-  username?: string;
+  /** Username to scope Google API calls to. Required — no fallback. */
+  username: string;
   /** Raw message ID (no source prefix). Only used when bodyFetcher is absent. */
   gmailId: string;
   /** Full external ID, e.g. "gmail:<id>" or "outlook:<id>" — used as sourceRef. */
@@ -103,7 +103,12 @@ export interface ProcessEmailOpts {
  * Called via next/server `after()` after the event record is created.
  */
 export async function processRegularEmail(opts: ProcessEmailOpts): Promise<void> {
-  const { gmailId, externalId, eventId, subject, from, dateFallback, snippetFallback, bodyFetcher, username = process.env.PRIMARY_OWNER_USERNAME ?? "" } = opts;
+  const { gmailId, externalId, eventId, subject, from, dateFallback, snippetFallback, bodyFetcher, username } = opts;
+
+  if (!username) {
+    console.error("[process-gmail] username is required — refusing to process without owner", { externalId });
+    return;
+  }
 
   try {
     let body = snippetFallback || "";
@@ -137,7 +142,7 @@ export async function processRegularEmail(opts: ProcessEmailOpts): Promise<void>
       return;
     }
 
-    const intel = await classifyEmail({ subject, from, date, snippet: "", body });
+    const intel = await classifyEmail({ username, subject, from, date, snippet: "", body });
 
     console.log(
       `[email-process] ${externalId} → ${intel.category} (confidence=${intel.confidence})`
@@ -192,8 +197,8 @@ export async function processRegularEmail(opts: ProcessEmailOpts): Promise<void>
 // ── Zoom email materialization ─────────────────────────────────────────────────
 
 export interface ProcessZoomEmailOpts {
-  /** Username to scope Google API calls to. Defaults to "michael" for webhook paths. */
-  username?: string;
+  /** Username to scope Google API calls to. Required — no fallback. */
+  username: string;
   /** Raw Gmail message ID (no "gmail:" prefix). */
   gmailId: string;
   /** "gmail:<id>" — used as sourceRef on every created record. */
@@ -220,7 +225,12 @@ export interface ProcessZoomEmailOpts {
  * Called fire-and-forget after the event record is created.
  */
 export async function processZoomEmail(opts: ProcessZoomEmailOpts): Promise<void> {
-  const { gmailId, externalId, eventId, subject, dateFallback, username = process.env.PRIMARY_OWNER_USERNAME ?? "" } = opts;
+  const { gmailId, externalId, eventId, subject, dateFallback, username } = opts;
+
+  if (!username) {
+    console.error("[process-zoom-email] username is required — refusing to process without owner", { externalId });
+    return;
+  }
 
   try {
     const fullEmail = await getEmailBody(username, gmailId);
@@ -247,7 +257,7 @@ export async function processZoomEmail(opts: ProcessZoomEmailOpts): Promise<void
       return;
     }
 
-    const extract = await extractZoomMeeting(plainBody, { subject, date });
+    const extract = await extractZoomMeeting(plainBody, { subject, date }, username);
 
     console.log(
       `[zoom-process] extracted for ${externalId}: ` +

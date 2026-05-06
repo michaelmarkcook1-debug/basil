@@ -153,6 +153,7 @@ async function execIngestSlack(
   }
 
   const intel = await classifySlack({
+    username,
     channelName,
     transcript,
     isDM,
@@ -226,7 +227,7 @@ async function execIngestTeams(
     return;
   }
 
-  const intel = await classifyTeams({ channelName, transcript, isDM, isMention, date });
+  const intel = await classifyTeams({ username, channelName, transcript, isDM, isMention, date });
 
   if (!shouldMaterializeTeams(intel)) {
     void recordIngest(username, { sourceRef: externalId, hash: contentHash });
