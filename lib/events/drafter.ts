@@ -119,8 +119,13 @@ function getToneGuidance(senderName: string | undefined): string {
  * Never throws — returns a `caveat` and empty/minimal body on failure so the
  * UI always has something to show.
  */
-export async function generateDraftForEvent(event: BasilEvent, username = process.env.PRIMARY_OWNER_USERNAME ?? ""): Promise<DraftResult> {
+export async function generateDraftForEvent(event: BasilEvent, username: string): Promise<DraftResult> {
   const now = new Date().toISOString();
+
+  if (!username) {
+    console.error("[drafter] username is required — refusing to generate draft without owner", { eventId: event.id });
+    return { body: "", caveat: "Draft skipped — no user owner resolved.", generatedAt: now };
+  }
   const payload = event.payload as {
     title?: string; body?: string; from?: string;
     channel?: string; hints?: Record<string, unknown>;

@@ -27,8 +27,8 @@ import type { EmailIntelligence, EmailCategory } from "./classify-email";
 // ── Input / output types ───────────────────────────────────────────────────────
 
 export interface MaterializeEmailInput {
-  /** Username to scope memory writes to. Defaults to "michael" on webhook paths. */
-  username?: string;
+  /** Username to scope memory writes to. Required — no fallback. */
+  username: string;
   intelligence: EmailIntelligence;
   /** Gmail message ID (without "gmail:" prefix). */
   messageId: string;
@@ -80,7 +80,13 @@ const EXPLICIT_ONLY_ACTION_CATEGORIES = new Set<EmailCategory>([
 export async function materializeEmailIntelligence(
   input: MaterializeEmailInput
 ): Promise<MaterializeEmailResult> {
-  const { intelligence: intel, messageId, eventId, subject, from, date, username = process.env.PRIMARY_OWNER_USERNAME ?? "" } = input;
+  const { intelligence: intel, messageId, eventId, subject, from, date, username } = input;
+
+  if (!username) {
+    console.error("[email-materialize] username is required — refusing to write without owner");
+    return { actionsCreated: 0, decisionsCreated: 0, memoriesCreated: 0, auditEntries: [] };
+  }
+
   const sourceRef = `gmail:${messageId}`;
   const dateShort = date.slice(0, 10);
   const shortSubject = subject.length > 60 ? subject.slice(0, 57) + "…" : subject;

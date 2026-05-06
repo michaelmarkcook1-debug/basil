@@ -145,8 +145,8 @@ function parseIntelligence(raw: string): SlackIntelligence {
 // ── Core classification function ───────────────────────────────────────────────
 
 export interface ClassifySlackInput {
-  /** Username to scope the system prompt to. Defaults to "michael". */
-  username?: string;
+  /** Username to scope the system prompt to. Required — no fallback. */
+  username: string;
   /** Display name of the channel (e.g. "#eng-team", "DM: Ed Baum"). */
   channelName: string;
   /**
@@ -171,7 +171,12 @@ export interface ClassifySlackInput {
 export async function classifySlack(
   input: ClassifySlackInput
 ): Promise<SlackIntelligence> {
-  const { channelName, transcript, isDM, isMention, date, username = process.env.PRIMARY_OWNER_USERNAME ?? "" } = input;
+  const { channelName, transcript, isDM, isMention, date, username } = input;
+
+  if (!username) {
+    console.error("[slack-classify] username is required — refusing to classify without owner");
+    return emptyIntelligence();
+  }
 
   if (!transcript.trim()) return emptyIntelligence();
 

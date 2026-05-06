@@ -81,7 +81,7 @@ Do not wait to be asked.`;
   if (profile?.communicationStyle) profileLines.push(`- Communication style: ${profile.communicationStyle}`);
   if (profile?.priorities?.length) profileLines.push(`- Priorities: ${profile.priorities.join(", ")}`);
 
-  const primaryOwner = process.env.PRIMARY_OWNER_USERNAME;
+  const primaryOwner = process.env.PRIMARY_OWNER_USERNAME; // ci-ok: read-only personalization for AI system prompt; no data writes
   const orgContext = (primaryOwner && username === primaryOwner) ? `
 ## Who ${firstName} Is
 - CEO of AnalystGenius (AG) — AI-native industry analyst platform targeting AR professionals. Pre-launch, V1.0.

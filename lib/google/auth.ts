@@ -69,6 +69,10 @@ export async function exchangeCode(code: string, username: string): Promise<Goog
 
   try {
     await saveIntegrationToken(username, "google", tokens);
+    // Clear the per-user status cache so the very next call to
+    // getGoogleConnectionStatus returns fresh data, not a stale
+    // "disconnected" entry from before this OAuth flow.
+    _googleStatusCache.delete(username);
   } catch (saveErr) {
     const msg = saveErr instanceof Error ? saveErr.message : String(saveErr);
     console.error(`[google/auth] Token save failed for user ${username}:`, msg);

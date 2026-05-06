@@ -138,8 +138,8 @@ function parseIntelligence(raw: string): EmailIntelligence {
 // ── Core classification function ───────────────────────────────────────────────
 
 export interface ClassifyEmailInput {
-  /** Username to scope the system prompt to. Defaults to "michael". */
-  username?: string;
+  /** Username to scope the system prompt to. Required — no fallback. */
+  username: string;
   subject: string;
   from: string;
   date: string;
@@ -156,7 +156,12 @@ export interface ClassifyEmailInput {
 export async function classifyEmail(
   input: ClassifyEmailInput
 ): Promise<EmailIntelligence> {
-  const { subject, from, date, snippet, body, username = process.env.PRIMARY_OWNER_USERNAME ?? "" } = input;
+  const { subject, from, date, snippet, body, username } = input;
+
+  if (!username) {
+    console.error("[email-classify] username is required — refusing to classify without owner");
+    return emptyIntelligence();
+  }
 
   // Clip to 4 000 chars — enough for rich emails, bounded AI cost
   const bodyClip = (body || snippet || "").trim().slice(0, 4_000);

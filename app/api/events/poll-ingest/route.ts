@@ -391,6 +391,7 @@ export async function POST(req: Request) {
           }
 
           const intel = await classifySlack({
+            username,
             channelName,
             transcript,
             isDM: !!payload.hints?.isDM,
@@ -458,6 +459,7 @@ export async function POST(req: Request) {
           }
 
           const intel = await classifyTeams({
+            username,
             channelName,
             transcript,
             isDM: !!payload.hints?.isDM,

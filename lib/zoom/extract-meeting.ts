@@ -123,14 +123,20 @@ function parseExtract(
  *
  * @param emailBody  Plain text body (HTML already stripped). First 6 000 chars used.
  * @param metadata   Subject and ISO date from the email envelope (used as fallbacks).
+ * @param username   Required — the user who owns this meeting data. No fallback.
  *
  * @returns A fully-typed ZoomMeetingExtract. Never throws — returns empty extract on failure.
  */
 export async function extractZoomMeeting(
   emailBody: string,
   metadata: { subject: string; date: string },
-  username = process.env.PRIMARY_OWNER_USERNAME ?? ""
+  username: string
 ): Promise<ZoomMeetingExtract> {
+  if (!username) {
+    console.error("[zoom-extract] username is required — refusing to extract without owner");
+    return emptyExtract(metadata.subject, metadata.date);
+  }
+
   if (!emailBody?.trim()) {
     return emptyExtract(metadata.subject, metadata.date);
   }

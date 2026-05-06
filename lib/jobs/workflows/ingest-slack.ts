@@ -59,6 +59,7 @@ async function processSlackStep(username: string, payload: IngestSlackPayload): 
   }
 
   const intel = await classifySlack({
+    username,
     channelName,
     transcript,
     isDM,
