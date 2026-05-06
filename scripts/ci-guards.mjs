@@ -306,7 +306,89 @@ for (const { full, rel } of ALL_FILES) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Guard 5 — Missing key routes
+// Guard 5 — Plaintext OAuth token storage
+// ─────────────────────────────────────────────────────────────────────────────
+//
+// OAuth/integration tokens must be stored via secure-token-store (encrypted).
+// Direct writeUserStore calls with known token filenames are a hard failure.
+// Direct readUserStore calls with known token filenames are a hard failure.
+//
+// Token files that must be written only via secure-token-store:
+//   google-tokens.json, microsoft-tokens.json, zoom-tokens.json,
+//   slack-config.json, linear-config.json
+//
+// Exempt: lib/storage/secure-token-store.ts (the store itself migrates them),
+//         test files.
+//
+// Suppress with // ci-ok only if intentional and documented.
+
+const TOKEN_FILE_NAMES = [
+  "google-tokens.json",
+  "microsoft-tokens.json",
+  "zoom-tokens.json",
+  "slack-config.json",
+  "linear-config.json",
+];
+
+// Matches: writeUserStore(anything, "google-tokens.json",  or readUserStore(anything, "google-tokens.json",
+const TOKEN_WRITE_RES = TOKEN_FILE_NAMES.map(
+  (f) => new RegExp(`(?:write|read)(?:User)?Store\\s*\\([^)]*["']${f.replace(".", "\\.")}["']`)
+);
+
+for (const { full, rel, isTest } of ALL_FILES) {
+  if (isTest) continue;
+  if (rel === "lib/storage/secure-token-store.ts") continue; // exempt: owns migration
+  if (rel === "lib/storage/user-store.ts") continue;
+  if (rel === "lib/storage/persistent.ts") continue;
+
+  const ls = lines(full);
+  for (let i = 0; i < ls.length; i++) {
+    const line = ls[i];
+    if (isCommentLine(line)) continue;
+    if (isSuppressed(line)) continue;
+    if (TOKEN_WRITE_RES.some((re) => re.test(line))) {
+      fail("plaintext-token-storage", rel, i + 1, line);
+    }
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Guard 6 — Token values in API responses
+// ─────────────────────────────────────────────────────────────────────────────
+//
+// Route handler files must not include OAuth token field names in NextResponse.json()
+// calls.  We use a heuristic: flag route files that both import a token-holding
+// object AND spread it or return its raw token fields in a response.
+//
+// This is a warning (not a hard failure) because the pattern can have legitimate
+// uses (e.g. the settings route returns githubToken intentionally for the UI).
+// Use // ci-ok to suppress confirmed-safe cases.
+
+const TOKEN_FIELD_RE = /["'`](?:access_token|refresh_token|id_token)["'`]/;
+
+for (const { full, rel, isTest } of ALL_FILES) {
+  if (isTest) continue;
+  if (!rel.startsWith("app/api/")) continue; // only route handlers
+
+  const ls = lines(full);
+  for (let i = 0; i < ls.length; i++) {
+    const line = ls[i];
+    if (isCommentLine(line)) continue;
+    if (isSuppressed(line)) continue;
+    if (!TOKEN_FIELD_RE.test(line)) continue;
+
+    // Hard failure only if the line also looks like a JSON response field
+    const inResponse = /NextResponse\.json|JSON\.stringify|return\s+\{/.test(line);
+    if (inResponse) {
+      fail("token-in-response", rel, i + 1, line);
+    } else {
+      warn("token-in-response", `${rel}:${i + 1} — ${line.trim()}`);
+    }
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Guard 7 — Missing key routes
 // ─────────────────────────────────────────────────────────────────────────────
 //
 // These routes are referenced by clients or health checks. Their absence
@@ -331,11 +413,13 @@ for (const route of KEY_ROUTES) {
 // ─────────────────────────────────────────────────────────────────────────────
 
 const LABELS = {
-  "silent-catch":   "Silent catch block",
-  "hardcoded-user": "Hardcoded user identifier",
-  "basil-data":     "BASIL_DATA env-var persistence",
-  "tmp-durable":    "Potential durable /tmp or DATA_DIR usage", // ci-ok: label string, not a code reference
-  "missing-route":  "Missing key route",
+  "silent-catch":            "Silent catch block",
+  "hardcoded-user":          "Hardcoded user identifier",
+  "basil-data":              "BASIL_DATA env-var persistence",
+  "tmp-durable":             "Potential durable /tmp or DATA_DIR usage", // ci-ok: label string, not a code reference
+  "plaintext-token-storage": "Plaintext OAuth token storage (bypasses encryption)",
+  "token-in-response":       "OAuth token field in API response",
+  "missing-route":           "Missing key route",
 };
 
 const HINTS = {
@@ -368,6 +452,20 @@ const HINTS = {
     "Enable strict enforcement once all durable /tmp writes are removed:",
     "  Set CI_STRICT_PERSISTENCE=true in .github/workflows/basil-ci.yml",
     "  See docs/stability-sprint-exit-criteria.md for full exit criteria.",
+  ],
+  "plaintext-token-storage": [
+    "Use secure-token-store for all OAuth/integration token writes:",
+    "  import { saveIntegrationToken, getIntegrationToken } from '@/lib/storage/secure-token-store';",
+    "  await saveIntegrationToken(username, 'google', tokens);",
+    "Direct writeUserStore calls with token file names bypass AES-256-GCM encryption.",
+    "Suppress only if the file has been intentionally migrated away from token use:",
+    "  // ci-ok: <reason>",
+  ],
+  "token-in-response": [
+    "Never return raw OAuth token fields (access_token, refresh_token, id_token) in API responses.",
+    "Return only connection status (connected: boolean, expiresAt, scopes) to clients.",
+    "If the token field is needed server-side only, remove it from the JSON response object.",
+    "Suppress with // ci-ok if the field name coincidentally appears in a safe context.",
   ],
 };
 

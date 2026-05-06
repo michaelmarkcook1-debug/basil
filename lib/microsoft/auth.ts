@@ -12,12 +12,8 @@
  *   NEXT_PUBLIC_APP_URL      (optional fallback when MICROSOFT_REDIRECT_URI is not set)
  */
 
-import { readUserStore, writeUserStore } from "@/lib/storage/user-store";
+import { getIntegrationToken, saveIntegrationToken } from "@/lib/storage/secure-token-store";
 import type { IntegrationStatus } from "@/lib/integrations/types";
-
-// ── Constants ────────────────────────────────────────────────────────────────
-
-const TOKENS_FILE = "microsoft-tokens.json";
 
 // Teams channel scopes (Team.ReadBasic.All, Channel.ReadBasic.All,
 // ChannelMessage.Read.All) require admin consent for Azure AD work accounts.
@@ -153,7 +149,7 @@ export async function exchangeCode(code: string, username: string, appBaseUrl?: 
     token_type:     data.token_type,
   };
 
-  await writeUserStore<MicrosoftTokens>(username, TOKENS_FILE, tokens);
+  await saveIntegrationToken(username, "microsoft", tokens);
   return tokens;
 }
 
@@ -164,8 +160,8 @@ export async function exchangeCode(code: string, username: string, appBaseUrl?: 
  * Strictly user-scoped — no global fallback to prevent data bleed across users.
  */
 export async function getStoredTokens(username: string): Promise<MicrosoftTokens | null> {
-  const fromUserStore = await readUserStore<MicrosoftTokens | null>(username, TOKENS_FILE, null);
-  if (fromUserStore?.access_token) return fromUserStore;
+  const tokens = await getIntegrationToken<MicrosoftTokens>(username, "microsoft");
+  if (tokens?.access_token) return tokens;
   return null;
 }
 
@@ -222,7 +218,7 @@ export async function getAccessToken(username: string): Promise<string | null> {
       token_type:    data.token_type,
     };
 
-    await writeUserStore<MicrosoftTokens>(username, TOKENS_FILE, refreshed);
+    await saveIntegrationToken(username, "microsoft", refreshed);
     return refreshed.access_token;
   } catch (err) {
     console.error("[microsoft-auth] Token refresh error:", err instanceof Error ? err.message : err);
@@ -263,7 +259,7 @@ async function forceRefreshToken(username: string): Promise<string | null> {
       const body = await res.text().catch(() => "");
       console.error(`[microsoft-auth] Force-refresh failed HTTP ${res.status}: ${body.slice(0, 200)}`);
       // Mark token as expired so status page shows "re-authorize" prompt
-      await writeUserStore<MicrosoftTokens>(username, TOKENS_FILE, {
+      await saveIntegrationToken(username, "microsoft", {
         ...tokens,
         access_token: "",
         expires_at:   0,
@@ -287,7 +283,7 @@ async function forceRefreshToken(username: string): Promise<string | null> {
       token_type:    data.token_type,
     };
 
-    await writeUserStore<MicrosoftTokens>(username, TOKENS_FILE, refreshed);
+    await saveIntegrationToken(username, "microsoft", refreshed);
     console.log("[microsoft-auth] Force-refresh succeeded — new token stored");
     return refreshed.access_token;
   } catch (err) {

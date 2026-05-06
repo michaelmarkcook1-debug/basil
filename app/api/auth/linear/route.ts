@@ -5,7 +5,7 @@
 
 import { NextResponse } from "next/server";
 import { getSessionUser } from "@/lib/auth";
-import { saveLinearConfig, validateApiKey } from "@/lib/linear/client";
+import { saveLinearConfig, deleteLinearConfig, validateApiKey } from "@/lib/linear/client";
 import { forceFlushSnapshot } from "@/lib/storage/persistent";
 
 export async function POST(req: Request) {
@@ -42,7 +42,7 @@ export async function DELETE() {
   const username = await getSessionUser();
   if (!username) return NextResponse.json({ error: "Unauthorised" }, { status: 401 });
 
-  await saveLinearConfig(username, {});
+  await deleteLinearConfig(username);
   await forceFlushSnapshot();
   return NextResponse.json({ ok: true });
 }

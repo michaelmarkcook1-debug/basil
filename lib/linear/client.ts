@@ -5,10 +5,9 @@
  * persistent store (same pattern as Slack tokens).
  */
 
-import { readUserStore, writeUserStore } from "@/lib/storage/user-store";
+import { getIntegrationToken, saveIntegrationToken, deleteIntegrationToken } from "@/lib/storage/secure-token-store";
 
 const LINEAR_API = "https://api.linear.app/graphql";
-const CONFIG_FILE = "linear-config.json";
 
 // ── Config storage ─────────────────────────────────────────────────────────
 
@@ -17,11 +16,15 @@ interface LinearConfig {
 }
 
 export async function getLinearConfig(username: string): Promise<LinearConfig> {
-  return readUserStore<LinearConfig>(username, CONFIG_FILE, {});
+  return (await getIntegrationToken<LinearConfig>(username, "linear")) ?? {};
 }
 
 export async function saveLinearConfig(username: string, config: LinearConfig): Promise<void> {
-  await writeUserStore<LinearConfig>(username, CONFIG_FILE, config);
+  await saveIntegrationToken(username, "linear", config);
+}
+
+export async function deleteLinearConfig(username: string): Promise<void> {
+  await deleteIntegrationToken(username, "linear");
 }
 
 export async function isLinearConnected(username: string): Promise<boolean> {

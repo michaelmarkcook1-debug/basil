@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { getSessionUser } from "@/lib/auth";
-import { saveSlackConfig } from "@/lib/slack/client";
+import { saveSlackConfig, deleteSlackConfig } from "@/lib/slack/client";
 import { forceFlushSnapshot } from "@/lib/storage/persistent";
 
 /**
@@ -45,8 +45,7 @@ export async function DELETE() {
     return NextResponse.json({ error: "Unauthorised" }, { status: 401 });
   }
 
-  // Clear tokens by saving an empty config
-  await saveSlackConfig(username, {});
+  await deleteSlackConfig(username);
   await forceFlushSnapshot();
   return NextResponse.json({ ok: true });
 }

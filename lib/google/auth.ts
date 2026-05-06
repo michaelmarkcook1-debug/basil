@@ -1,10 +1,6 @@
 import { google } from "googleapis";
-import { readUserStore, writeUserStore } from "@/lib/storage/user-store";
+import { getIntegrationToken, saveIntegrationToken, deleteIntegrationToken } from "@/lib/storage/secure-token-store";
 import type { IntegrationStatus } from "@/lib/integrations/types";
-
-// ── Constants ────────────────────────────────────────────────────────────────
-
-const TOKENS_FILE = "google-tokens.json";
 
 const SCOPES = [
   "https://www.googleapis.com/auth/calendar",
@@ -54,7 +50,7 @@ export function getAuthUrl(): string {
 export async function exchangeCode(code: string, username: string): Promise<GoogleTokens> {
   const client = getOAuth2Client();
   const { tokens } = await client.getToken(code);
-  await writeUserStore<GoogleTokens>(username, TOKENS_FILE, tokens as GoogleTokens);
+  await saveIntegrationToken(username, "google", tokens as GoogleTokens);
   return tokens as GoogleTokens;
 }
 
@@ -63,8 +59,8 @@ export async function exchangeCode(code: string, username: string): Promise<Goog
  * Strictly user-scoped — no global fallback to prevent data bleed across users.
  */
 export async function getStoredTokens(username: string): Promise<GoogleTokens | null> {
-  const fromUserStore = await readUserStore<GoogleTokens | null>(username, TOKENS_FILE, null);
-  if (fromUserStore?.refresh_token) return fromUserStore;
+  const tokens = await getIntegrationToken<GoogleTokens>(username, "google");
+  if (tokens?.refresh_token) return tokens;
   return null;
 }
 
@@ -140,7 +136,7 @@ export async function getGoogleConnectionStatus(username: string): Promise<Integ
         }
         // Persist the refreshed credentials so subsequent calls are fast
         const updated = oauthClient.credentials as GoogleTokens;
-        await writeUserStore(username, TOKENS_FILE, { ...tokens, ...updated });
+        await saveIntegrationToken(username, "google", { ...tokens, ...updated });
       } catch {
         return cache({ id: "google", state: "token_expired", lastCheckedAt: now,
           error: "Token refresh failed — please re-authorize." });
