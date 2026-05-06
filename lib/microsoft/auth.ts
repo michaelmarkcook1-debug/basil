@@ -149,7 +149,19 @@ export async function exchangeCode(code: string, username: string, appBaseUrl?: 
     token_type:     data.token_type,
   };
 
-  await saveIntegrationToken(username, "microsoft", tokens);
+  if (!tokens.refresh_token) {
+    console.warn(`[microsoft/auth] No refresh_token in exchange response for user ${username}. ` +
+      "User may need to revoke and re-grant access in Microsoft account settings.");
+  }
+
+  try {
+    await saveIntegrationToken(username, "microsoft", tokens);
+  } catch (saveErr) {
+    const msg = saveErr instanceof Error ? saveErr.message : String(saveErr);
+    console.error(`[microsoft/auth] Token save failed for user ${username}:`, msg);
+    throw saveErr;
+  }
+
   return tokens;
 }
 

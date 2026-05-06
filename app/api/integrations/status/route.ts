@@ -31,12 +31,14 @@ export async function GET() {
     }
 
     // ── Slack ───────────────────────────────────────────────────────────────
-    const slackConnected = await isSlackConnected(username);
-    const slack: IntegrationStatus = {
-      id:            "slack",
-      state:         slackConnected ? "connected" : "disconnected",
-      lastCheckedAt: now,
-    };
+    let slack: IntegrationStatus;
+    try {
+      const slackConnected = await isSlackConnected(username);
+      slack = { id: "slack", state: slackConnected ? "connected" : "disconnected", lastCheckedAt: now };
+    } catch (err) {
+      console.error("[integrations/status] Slack status check failed:", err);
+      slack = { id: "slack", state: "error", lastCheckedAt: now, error: err instanceof Error ? err.message : String(err) };
+    }
 
     // ── Microsoft 365 ───────────────────────────────────────────────────────
     let microsoft: Awaited<ReturnType<typeof getMicrosoftConnectionStatus>>;
@@ -48,12 +50,14 @@ export async function GET() {
     }
 
     // ── Linear ──────────────────────────────────────────────────────────────
-    const linearConnected = await isLinearConnected(username);
-    const linear: IntegrationStatus = {
-      id:            "linear",
-      state:         linearConnected ? "connected" : "disconnected",
-      lastCheckedAt: now,
-    };
+    let linear: IntegrationStatus;
+    try {
+      const linearConnected = await isLinearConnected(username);
+      linear = { id: "linear", state: linearConnected ? "connected" : "disconnected", lastCheckedAt: now };
+    } catch (err) {
+      console.error("[integrations/status] Linear status check failed:", err);
+      linear = { id: "linear", state: "error", lastCheckedAt: now, error: err instanceof Error ? err.message : String(err) };
+    }
 
     // ── Claude / Anthropic ──────────────────────────────────────────────────
     const claude: IntegrationStatus = {
@@ -63,12 +67,14 @@ export async function GET() {
     };
 
     // ── Zoom ────────────────────────────────────────────────────────────────
-    const zoomConnected = await isZoomConnected(username);
-    const zoom: IntegrationStatus = {
-      id:            "zoom",
-      state:         zoomConnected ? "connected" : "disconnected",
-      lastCheckedAt: now,
-    };
+    let zoom: IntegrationStatus;
+    try {
+      const zoomConnected = await isZoomConnected(username);
+      zoom = { id: "zoom", state: zoomConnected ? "connected" : "disconnected", lastCheckedAt: now };
+    } catch (err) {
+      console.error("[integrations/status] Zoom status check failed:", err);
+      zoom = { id: "zoom", state: "error", lastCheckedAt: now, error: err instanceof Error ? err.message : String(err) };
+    }
 
     // ── Snapshot diagnostics ────────────────────────────────────────────────
     const snapshot = getSnapshotDiagnostics();
