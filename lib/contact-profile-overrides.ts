@@ -109,17 +109,19 @@ export async function loadOverridesFromServer(): Promise<OverrideMap> {
  * Save an override: persist to server, update the localStorage cache.
  * Returns the merged override.
  *
- * Optimistic: cache is written before the server round-trip.
+ * Optimistic: cache is written before the server round-trip so reads are
+ * instant. On server failure the cache is rolled back to the pre-write state
+ * and an error is thrown so callers can surface a retry prompt to the user.
  */
 export async function setOverride(
   contactId: string,
   patch: ProfileOverride
 ): Promise<ProfileOverride> {
-  // Optimistic local update.
-  const all = readAll();
-  const merged: ProfileOverride = { ...all[contactId], ...patch };
-  all[contactId] = merged;
-  writeAll(all);
+  // Snapshot before write so we can roll back on failure.
+  const before = readAll();
+  const merged: ProfileOverride = { ...before[contactId], ...patch };
+  const optimistic = { ...before, [contactId]: merged };
+  writeAll(optimistic);
 
   try {
     const res = await fetch(`/api/contacts/overrides/${contactId}`, {
@@ -127,16 +129,22 @@ export async function setOverride(
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(patch),
     });
-    if (res.ok) {
-      const data = await res.json();
-      const serverMerged = data.override as ProfileOverride;
-      // Update cache with the server-canonical version.
-      all[contactId] = serverMerged;
-      writeAll(all);
-      return serverMerged;
+    if (!res.ok) {
+      // Roll back the optimistic cache so the next server sync doesn't clobber
+      // the user's change with stale server data.
+      writeAll(before);
+      throw new Error(`Failed to save profile override (${res.status})`);
     }
-  } catch { /* cache already updated */ }
-  return merged;
+    const data = await res.json();
+    const serverMerged = data.override as ProfileOverride;
+    // Update cache with the server-canonical version.
+    writeAll({ ...optimistic, [contactId]: serverMerged });
+    return serverMerged;
+  } catch (err) {
+    // Roll back optimistic write on network errors too.
+    writeAll(before);
+    throw err;
+  }
 }
 
 /**

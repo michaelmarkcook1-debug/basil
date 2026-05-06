@@ -396,13 +396,21 @@ export default function DecisionsPage() {
           if (raw) {
             const parsed = JSON.parse(raw) as Decision[];
             if (Array.isArray(parsed) && parsed.length > 0) {
-              await fetch("/api/decisions", {
+              const res = await fetch("/api/decisions", {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({ import: parsed }),
               });
+              // Only remove local data after server confirms receipt.
+              // If the import fails, legacy data stays in localStorage for
+              // the next page load to retry — prevents silent data loss.
+              if (res.ok) {
+                window.localStorage.removeItem(LEGACY_STORAGE_KEY);
+              }
+            } else {
+              // Empty or invalid array — nothing to migrate, safe to clear.
+              window.localStorage.removeItem(LEGACY_STORAGE_KEY);
             }
-            window.localStorage.removeItem(LEGACY_STORAGE_KEY);
           }
         } catch {
           /* ignore */
