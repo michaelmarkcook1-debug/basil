@@ -1,9 +1,5 @@
 import { WebClient, LogLevel } from "@slack/web-api";
-import { readUserStore, writeUserStore } from "@/lib/storage/user-store";
-
-// ── Per-user Slack config ────────────────────────────────────────────────────
-
-const SLACK_CONFIG_FILE = "slack-config.json";
+import { getIntegrationToken, saveIntegrationToken, deleteIntegrationToken } from "@/lib/storage/secure-token-store";
 
 export interface SlackConfig {
   botToken?:  string;
@@ -12,7 +8,7 @@ export interface SlackConfig {
 
 export async function getSlackConfig(username: string): Promise<SlackConfig> {
   // Strictly user-scoped — no env var fallback to prevent data bleed across users.
-  const stored = await readUserStore<SlackConfig | null>(username, SLACK_CONFIG_FILE, null);
+  const stored = await getIntegrationToken<SlackConfig>(username, "slack");
   return {
     botToken:  stored?.botToken,
     userToken: stored?.userToken,
@@ -20,8 +16,14 @@ export async function getSlackConfig(username: string): Promise<SlackConfig> {
 }
 
 export async function saveSlackConfig(username: string, config: SlackConfig): Promise<void> {
-  await writeUserStore<SlackConfig>(username, SLACK_CONFIG_FILE, config);
+  await saveIntegrationToken(username, "slack", config);
   // Invalidate cached clients for this user
+  botClientCache.delete(username);
+  userClientCache.delete(username);
+}
+
+export async function deleteSlackConfig(username: string): Promise<void> {
+  await deleteIntegrationToken(username, "slack");
   botClientCache.delete(username);
   userClientCache.delete(username);
 }

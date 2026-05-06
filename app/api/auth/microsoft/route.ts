@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { getMicrosoftAuthUrl } from "@/lib/microsoft/auth";
 import { getSessionUser } from "@/lib/auth";
-import { writeUserStore } from "@/lib/storage/user-store";
+import { deleteIntegrationToken } from "@/lib/storage/secure-token-store";
 import { forceFlushSnapshot } from "@/lib/storage/persistent";
 
 // GET /api/auth/microsoft — redirects to Microsoft OAuth consent screen
@@ -26,7 +26,7 @@ export async function GET(req: Request) {
 export async function DELETE() {
   const username = await getSessionUser();
   if (!username) return NextResponse.json({ error: "Unauthorised" }, { status: 401 });
-  await writeUserStore(username, "microsoft-tokens.json", null);
+  await deleteIntegrationToken(username, "microsoft");
   await forceFlushSnapshot();
   return NextResponse.json({ ok: true });
 }

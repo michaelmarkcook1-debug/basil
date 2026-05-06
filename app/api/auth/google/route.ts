@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { getAuthUrl } from "@/lib/google/auth";
 import { getSessionUser } from "@/lib/auth";
-import { writeUserStore } from "@/lib/storage/user-store";
+import { deleteIntegrationToken } from "@/lib/storage/secure-token-store";
 import { forceFlushSnapshot } from "@/lib/storage/persistent";
 
 // GET /api/auth/google — redirects to Google OAuth consent screen
@@ -17,7 +17,7 @@ export async function GET(req: Request) {
 export async function DELETE() {
   const username = await getSessionUser();
   if (!username) return NextResponse.json({ error: "Unauthorised" }, { status: 401 });
-  await writeUserStore(username, "google-tokens.json", null);
+  await deleteIntegrationToken(username, "google");
   // Flush immediately so the disconnected state survives any subsequent cold start.
   await forceFlushSnapshot();
   return NextResponse.json({ ok: true });

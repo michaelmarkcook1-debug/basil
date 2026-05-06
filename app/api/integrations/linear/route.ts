@@ -8,7 +8,7 @@
  */
 import { NextResponse } from "next/server";
 import { verifySession, getSessionUser } from "@/lib/auth";
-import { saveLinearConfig, validateApiKey } from "@/lib/linear/client";
+import { saveLinearConfig, deleteLinearConfig, validateApiKey } from "@/lib/linear/client";
 
 export async function POST(req: Request) {
   if (!(await verifySession())) {
@@ -53,7 +53,7 @@ export async function DELETE() {
     return NextResponse.json({ error: "Unauthorised" }, { status: 401 });
   }
 
-  await saveLinearConfig(username, { apiKey: undefined });
+  await deleteLinearConfig(username);
   console.log(`[linear/disconnect] ${username} disconnected Linear`);
   return NextResponse.json({ ok: true });
 }

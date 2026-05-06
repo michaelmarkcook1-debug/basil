@@ -1,10 +1,6 @@
-import { readUserStore, writeUserStore } from "@/lib/storage/user-store";
+import { getIntegrationToken, saveIntegrationToken, deleteIntegrationToken } from "@/lib/storage/secure-token-store";
 import { forceFlushSnapshot } from "@/lib/storage/persistent";
 import type { IntegrationStatus } from "@/lib/integrations/types";
-
-// ── Constants ────────────────────────────────────────────────────────────────
-
-const TOKENS_FILE = "zoom-tokens.json";
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -69,14 +65,14 @@ export async function exchangeZoomCode(code: string, username: string): Promise<
     token_type:    data.token_type,
   };
 
-  await writeUserStore<ZoomTokens>(username, TOKENS_FILE, tokens);
+  await saveIntegrationToken(username, "zoom", tokens);
   return tokens;
 }
 
 // ── Token persistence ─────────────────────────────────────────────────────────
 
 export async function getZoomTokens(username: string): Promise<ZoomTokens | null> {
-  return readUserStore<ZoomTokens | null>(username, TOKENS_FILE, null);
+  return getIntegrationToken<ZoomTokens>(username, "zoom");
 }
 
 // ── Connection status ─────────────────────────────────────────────────────────
@@ -130,7 +126,7 @@ export async function refreshZoomTokens(username: string): Promise<ZoomTokens | 
     token_type:    data.token_type,
   };
 
-  await writeUserStore<ZoomTokens>(username, TOKENS_FILE, updated);
+  await saveIntegrationToken(username, "zoom", updated);
   return updated;
 }
 
@@ -164,6 +160,6 @@ export async function getZoomConnectionStatus(username: string): Promise<Integra
 // ── Disconnect ────────────────────────────────────────────────────────────────
 
 export async function disconnectZoom(username: string): Promise<void> {
-  await writeUserStore<null>(username, TOKENS_FILE, null);
+  await deleteIntegrationToken(username, "zoom");
   await forceFlushSnapshot();
 }
