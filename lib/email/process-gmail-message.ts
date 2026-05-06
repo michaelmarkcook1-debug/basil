@@ -444,7 +444,7 @@ export async function processZoomEmail(opts: ProcessZoomEmailOpts): Promise<void
       ]
         .filter(Boolean)
         .join("\n");
-      await updateEvent(eventId, { context: extractionSummary });
+      await updateEvent(username, eventId, { context: extractionSummary });
     } catch {
       /* non-fatal — UI context update failing does not affect durable records */
     }

@@ -11,6 +11,7 @@ import { createEvent } from "./store";
 import { publish } from "./bus";
 
 export interface AuditInput {
+  username: string;
   source: EventSource;
   headline: string;
   context: string;
@@ -24,7 +25,7 @@ export interface AuditInput {
  *  side effect the user approved. */
 export async function emitAuditEvent(input: AuditInput): Promise<BasilEvent | null> {
   try {
-    const event = await createEvent({
+    const event = await createEvent(input.username, {
       source: input.source,
       headline: input.headline,
       context: input.context,

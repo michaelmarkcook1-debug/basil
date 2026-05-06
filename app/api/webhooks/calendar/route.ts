@@ -68,7 +68,7 @@ export async function POST(req: Request) {
     });
 
     for (const e of res.data.items || []) {
-      handleCalendarChange(e);
+      handleCalendarChange(webhookUsername, e);
     }
 
     if (res.data.nextSyncToken) {
@@ -89,7 +89,7 @@ export async function POST(req: Request) {
   }
 }
 
-async function handleCalendarChange(ev: calendar_v3.Schema$Event) {
+async function handleCalendarChange(username: string, ev: calendar_v3.Schema$Event) {
   const summary = ev.summary || "(untitled)";
   const status = ev.status || "confirmed";
   const organizer = ev.organizer?.displayName || ev.organizer?.email || "";
@@ -104,6 +104,6 @@ async function handleCalendarChange(ev: calendar_v3.Schema$Event) {
     body,
     from: organizer,
   });
-  const created = await createEvent(shaped);
+  const created = await createEvent(username, shaped);
   publish(created);
 }

@@ -18,7 +18,7 @@ export async function GET() {
   try {
     const [issues, events] = await Promise.all([
       getMyOpenIssues(username),
-      listEvents(),
+      listEvents(username),
     ]);
 
     // Build enrichment map: linear:<id> → analysis status

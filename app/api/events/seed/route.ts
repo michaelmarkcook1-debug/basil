@@ -88,6 +88,6 @@ export async function POST() {
       updatedAt: createdAt,
     };
   });
-  await replaceAll(events);
+  await replaceAll(username, events);
   return NextResponse.json({ seeded: events.length, events });
 }

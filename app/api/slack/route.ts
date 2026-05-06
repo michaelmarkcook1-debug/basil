@@ -83,7 +83,7 @@ export async function GET() {
     const topMessages = merged.slice(0, 8).map(({ score, ...msg }) => msg);
 
     // Enrich with analysis status by cross-referencing events store
-    const events = await listEvents();
+    const events = await listEvents(username);
     const eventByRef = new Map<string, { analysed: boolean; materialized: boolean }>();
     for (const ev of events) {
       const ref = ev.sourceRef ?? ev.externalId;

@@ -80,7 +80,7 @@ export async function GET() {
   try {
     const [emails, events] = await Promise.all([
       getRecentEmails(username, 10),
-      listEvents(),
+      listEvents(username),
     ]);
 
     // Build a map from externalId → event for quick lookup

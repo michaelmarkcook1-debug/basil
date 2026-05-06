@@ -66,7 +66,7 @@ export async function POST(req: Request) {
 
     try {
       // Skip if already ingested
-      if (await hasExternalId(externalId)) continue;
+      if (await hasExternalId(webhookUsername, externalId)) continue;
 
       const ev = await graphGet<GraphCalendarEvent>(
         webhookUsername,
@@ -89,7 +89,7 @@ export async function POST(req: Request) {
         from,
         date: ev.start?.dateTime,
       });
-      const createdEvent = await createEvent(shaped);
+      const createdEvent = await createEvent(webhookUsername, shaped);
       publish(createdEvent);
     } catch (e) {
       console.error(

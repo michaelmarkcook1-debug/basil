@@ -1,47 +1,46 @@
 import { randomUUID } from "node:crypto";
 import type { BasilEvent, EventStatus } from "./types";
 import { withLock } from "./lock";
-import { readStore, writeStore } from "@/lib/storage/persistent";
+import { readUserStore, writeUserStore } from "@/lib/storage/user-store";
 
 // sage-events.json is deliberately excluded from the BASIL_DATA snapshot
 // (see lib/storage/persistent.ts EXCLUDED set) — events are ephemeral and
-// can grow large. We use the persistent layer so the file resolves to
-// /tmp/basil-data on Vercel (writable) rather than process.cwd()/.data
-// (read-only on Fluid Compute).
+// can grow large.  Events are now stored per-user under the user-store layer
+// so they live at basil/users/<safeUsername>/sage-events.json in Blob.
 const EVENTS_FILE = "sage-events.json";
-const LOCK_KEY = "events";
+
+// Per-user lock key — concurrent writes from different users don't block each other.
+function lockKey(username: string) {
+  return `events:${username}`;
+}
 
 // ── Internal read / write ────────────────────────────────────────────────────
 
-async function readAll(): Promise<BasilEvent[]> {
-  return readStore<BasilEvent[]>(EVENTS_FILE, []);
+async function readAll(username: string): Promise<BasilEvent[]> {
+  return readUserStore<BasilEvent[]>(username, EVENTS_FILE, []);
 }
 
-async function writeAll(events: BasilEvent[]): Promise<void> {
-  await writeStore(EVENTS_FILE, events, undefined, { durability: "strong" });
+async function writeAll(username: string, events: BasilEvent[]): Promise<void> {
+  await writeUserStore(username, EVENTS_FILE, events);
 }
 
 // ── One-time legacy migration ─────────────────────────────────────────────────
 //
-// Before the persistent-layer migration, the event store wrote directly to
-// `process.cwd()/.data/sage-events.json` using node:fs.  On local dev that
-// path is identical to what the persistent layer resolves to — so no file
-// migration is needed.  On Vercel the old path was read-only and nothing was
-// ever written there.
+// Before the user-scoping migration, events were stored in a global
+// sage-events.json (no user prefix).  Records written before the sourceRef
+// field existed need backfilling so hasExternalId works correctly.
 //
-// What DOES need normalisation: stored records that pre-date the `sourceRef`
-// field will have `externalId` set but `sourceRef` absent.  We backfill once
-// per process start so that `hasExternalId` works correctly for both old and
-// new records.
+// Normalisation is per-user and lazy: it runs once for each username per
+// process lifetime the first time that user's events are accessed.
 
-let normalisedOnce = false;
+const normalisedByUser = new Set<string>();
 
-async function normaliseLegacyFields(): Promise<void> {
-  if (normalisedOnce) return;
-  normalisedOnce = true;
+async function normaliseLegacyFields(username: string): Promise<void> {
+  if (normalisedByUser.has(username)) return;
+  normalisedByUser.add(username);
 
-  await withLock(LOCK_KEY, async () => {
-    const all = await readStore<BasilEvent[]>(EVENTS_FILE, []);
+  await withLock(lockKey(username), async () => {
+    const all = await readUserStore<BasilEvent[]>(username, EVENTS_FILE, []);
     let dirty = false;
 
     for (const e of all) {
@@ -62,26 +61,26 @@ async function normaliseLegacyFields(): Promise<void> {
       }
     }
 
-    if (dirty) await writeStore(EVENTS_FILE, all, undefined, { durability: "strong" });
+    if (dirty) await writeUserStore(username, EVENTS_FILE, all);
   });
 }
 
 // ── Public API ───────────────────────────────────────────────────────────────
 
-export async function listEvents(): Promise<BasilEvent[]> {
-  await normaliseLegacyFields();
-  const all = await readAll();
+export async function listEvents(username: string): Promise<BasilEvent[]> {
+  await normaliseLegacyFields(username);
+  const all = await readAll(username);
   return all.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
 }
 
-export async function listPendingEvents(): Promise<BasilEvent[]> {
-  const all = await listEvents();
+export async function listPendingEvents(username: string): Promise<BasilEvent[]> {
+  const all = await listEvents(username);
   return all.filter((e) => e.status === "pending");
 }
 
-export async function listActiveEvents(): Promise<BasilEvent[]> {
+export async function listActiveEvents(username: string): Promise<BasilEvent[]> {
   // Active = what Basil is "watching" — pending drafts + unacknowledged notifies
-  const all = await listEvents();
+  const all = await listEvents(username);
   return all.filter(
     (e) =>
       e.status === "pending" ||
@@ -89,13 +88,14 @@ export async function listActiveEvents(): Promise<BasilEvent[]> {
   );
 }
 
-export async function getEvent(id: string): Promise<BasilEvent | null> {
-  await normaliseLegacyFields();
-  const all = await readAll();
+export async function getEvent(username: string, id: string): Promise<BasilEvent | null> {
+  await normaliseLegacyFields(username);
+  const all = await readAll(username);
   return all.find((e) => e.id === id) ?? null;
 }
 
 export async function createEvent(
+  username: string,
   e: Omit<BasilEvent, "id" | "createdAt" | "updatedAt">
 ): Promise<BasilEvent> {
   // Ensure both sourceRef and externalId are in sync on creation
@@ -109,10 +109,10 @@ export async function createEvent(
     updatedAt: now,
   };
 
-  return withLock(LOCK_KEY, async () => {
-    const all = await readAll();
+  return withLock(lockKey(username), async () => {
+    const all = await readAll(username);
     all.push(unified);
-    await writeAll(all);
+    await writeAll(username, all);
     return unified;
   });
 }
@@ -122,11 +122,12 @@ export async function createEvent(
  * Automatically keeps sourceRef and externalId in sync if either is provided.
  */
 export async function updateEvent(
+  username: string,
   id: string,
   patch: Partial<Omit<BasilEvent, "id" | "createdAt">>
 ): Promise<BasilEvent | null> {
-  return withLock(LOCK_KEY, async () => {
-    const all = await readAll();
+  return withLock(lockKey(username), async () => {
+    const all = await readAll(username);
     const idx = all.findIndex((e) => e.id === id);
     if (idx === -1) return null;
 
@@ -137,32 +138,33 @@ export async function updateEvent(
     if (patch.externalId && !patch.sourceRef) merged.sourceRef = patch.externalId;
 
     all[idx] = merged;
-    await writeAll(all);
+    await writeAll(username, all);
     return all[idx];
   });
 }
 
 /** Convenience wrapper — kept for call-sites that only need to change status. */
 export async function updateEventStatus(
+  username: string,
   id: string,
   status: EventStatus
 ): Promise<BasilEvent | null> {
-  return updateEvent(id, { status });
+  return updateEvent(username, id, { status });
 }
 
-export async function deleteEvent(id: string): Promise<boolean> {
-  return withLock(LOCK_KEY, async () => {
-    const all = await readAll();
+export async function deleteEvent(username: string, id: string): Promise<boolean> {
+  return withLock(lockKey(username), async () => {
+    const all = await readAll(username);
     const next = all.filter((e) => e.id !== id);
     if (next.length === all.length) return false;
-    await writeAll(next);
+    await writeAll(username, next);
     return true;
   });
 }
 
 /** Replace the entire store — used by the seeding endpoint. */
-export async function replaceAll(events: BasilEvent[]): Promise<void> {
-  return withLock(LOCK_KEY, async () => writeAll(events));
+export async function replaceAll(username: string, events: BasilEvent[]): Promise<void> {
+  return withLock(lockKey(username), async () => writeAll(username, events));
 }
 
 // ── Event retention / compaction ─────────────────────────────────────────────
@@ -189,9 +191,9 @@ const MAX_EVENTS   = 300;
  * Safe to call at any time — never removes operationally pending events.
  * Idempotent: calling it repeatedly is harmless.
  */
-export async function compactEvents(): Promise<number> {
-  return withLock(LOCK_KEY, async () => {
-    const all    = await readStore<BasilEvent[]>(EVENTS_FILE, []);
+export async function compactEvents(username: string): Promise<number> {
+  return withLock(lockKey(username), async () => {
+    const all    = await readAll(username);
     const before = all.length;
     const cutoff = Date.now() - PRUNE_AGE_MS;
 
@@ -229,20 +231,20 @@ export async function compactEvents(): Promise<number> {
 
     const pruned = before - compacted.length;
     if (pruned > 0) {
-      await writeStore(EVENTS_FILE, compacted, undefined, { durability: "strong" });
-      console.log(`[events] Compacted ${pruned} stale event(s) (${before} → ${compacted.length} total)`);
+      await writeAll(username, compacted);
+      console.log(`[events:${username}] Compacted ${pruned} stale event(s) (${before} → ${compacted.length} total)`);
     }
     return pruned;
   });
 }
 
 /**
- * Returns true if an event with this external reference already exists.
- * Checks both sourceRef (canonical) and externalId (legacy) to handle
- * records written by either the old or the new code path.
+ * Returns true if an event with this external reference already exists for
+ * the given user.  Checks both sourceRef (canonical) and externalId (legacy)
+ * to handle records written by either the old or the new code path.
  */
-export async function hasExternalId(ref: string): Promise<boolean> {
-  await normaliseLegacyFields();
-  const all = await readAll();
+export async function hasExternalId(username: string, ref: string): Promise<boolean> {
+  await normaliseLegacyFields(username);
+  const all = await readAll(username);
   return all.some((e) => e.sourceRef === ref || e.externalId === ref);
 }

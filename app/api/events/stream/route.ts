@@ -92,7 +92,7 @@ export async function GET(req: Request) {
 
         // Poll the store: emit any events updated after the last-seen timestamp.
         try {
-          const all    = await listEvents();
+          const all    = await listEvents(username);
           const fresh  = all
             .filter((e) => e.updatedAt > since)
             .sort((a, b) => a.updatedAt.localeCompare(b.updatedAt));
