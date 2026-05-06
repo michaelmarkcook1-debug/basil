@@ -5,7 +5,7 @@ import { eventFromIngest } from "@/lib/events/rules";
 import { publish } from "@/lib/events/bus";
 import type { IngestPayload } from "@/lib/events/types";
 import { shouldClassifySlack } from "@/lib/slack/classify-slack";
-import { resolveSlackUser } from "@/lib/webhooks/resolve-user";
+import { resolveSlackUserByTeam } from "@/lib/webhooks/resolve-user";
 import { writeDeadLetter } from "@/lib/webhooks/dead-letter";
 import { start } from "workflow/api";
 import { ingestSlackWorkflow } from "@/lib/jobs/workflows/ingest-slack";
@@ -54,13 +54,36 @@ export async function POST(req: Request) {
   if (parsed.type === "event_callback" && parsed.event) {
     const inner = parsed.event;
 
-    // Resolve the owning user. Slack events don't carry a subscription ID, so
-    // we find the first user who has Slack connected.
-    const webhookUsername = await resolveSlackUser();
-    if (!webhookUsername) {
-      await writeDeadLetter("slack", { type: inner.type, channel: inner.channel }, "No user has Slack connected");
+    // Resolve the owning user deterministically via workspace team_id.
+    // Slack includes team_id at the top-level event_callback payload.
+    const teamId = parsed.team_id;
+    if (!teamId) {
+      await writeDeadLetter(
+        "slack",
+        { type: inner.type, channel: inner.channel },
+        "Missing team_id in Slack event_callback payload"
+      );
       return NextResponse.json({ ok: true });
     }
+
+    const resolved = await resolveSlackUserByTeam(teamId, parsed.enterprise_id);
+    if (resolved === null) {
+      await writeDeadLetter(
+        "slack",
+        { type: inner.type, channel: inner.channel, team_id: teamId },
+        `No user has Slack workspace ${teamId} connected`
+      );
+      return NextResponse.json({ ok: true });
+    }
+    if (resolved === "ambiguous") {
+      await writeDeadLetter(
+        "slack",
+        { type: inner.type, channel: inner.channel, team_id: teamId },
+        `Ambiguous owner: multiple users share Slack workspace ${teamId}`
+      );
+      return NextResponse.json({ ok: true });
+    }
+    const webhookUsername = resolved;
 
     try {
       const payload = slackEventToIngest(inner);
@@ -125,6 +148,10 @@ interface UnknownSlackPayload {
   type?: string;
   challenge?: string;
   event?: SlackInnerEvent;
+  /** Workspace ID — present on event_callback payloads (e.g. "T0XXXXXXXXX"). */
+  team_id?: string;
+  /** Enterprise Grid ID — present only on Enterprise Grid payloads (e.g. "E0XXXXXXXXX"). */
+  enterprise_id?: string | null;
 }
 
 interface SlackInnerEvent {
