@@ -9,6 +9,7 @@ export async function GET(req: Request) {
   const code = searchParams.get("code");
 
   if (!code) {
+    console.warn("[google/callback] Missing OAuth code — aborting flow.");
     return NextResponse.redirect(new URL("/dashboard/settings?error=no_code", req.url));
   }
 
@@ -16,20 +17,41 @@ export async function GET(req: Request) {
   const successDest = from === "onboarding" ? "/onboarding?connected=google" : "/dashboard/settings?connected=google";
   const errorDest   = from === "onboarding" ? "/onboarding?error=google_auth" : "/dashboard/settings?error=oauth_failed";
 
+  // Helper to produce a clean redirect and clear the from-cookie regardless of outcome
+  const redirect = (dest: string) => {
+    const res = NextResponse.redirect(new URL(dest, req.url));
+    res.cookies.set("basil_auth_from", "", { path: "/", maxAge: 0 });
+    return res;
+  };
+
+  // ── Session guard ──────────────────────────────────────────────────────────
+  // Must verify the user is logged in BEFORE exchanging the OAuth code.
+  // If the session is missing or expired, redirect to the error destination so
+  // the user sees the settings page (not a raw JSON 401 in the browser).
+  let username: string | null;
   try {
-    const username = (await getSessionUser());
-  if (!username) return NextResponse.json({ error: "Unauthorised" }, { status: 401 });
+    username = await getSessionUser();
+  } catch (sessionErr) {
+    console.error("[google/callback] Session validation error:", sessionErr instanceof Error ? sessionErr.message : sessionErr);
+    return redirect(errorDest);
+  }
+
+  if (!username) {
+    console.warn("[google/callback] No authenticated session — cannot save tokens. User must log in first.");
+    return redirect("/login?from=google_callback");
+  }
+
+  // ── Token exchange ─────────────────────────────────────────────────────────
+  try {
     await exchangeCode(code, username);
-    // Force-flush the snapshot before redirecting so tokens survive a cold start
-    // on the very next request (fire-and-forget writeStore is not enough here).
+    // Force-flush so tokens survive a cold start on the very next request.
     await forceFlushSnapshot();
-    const res = NextResponse.redirect(new URL(successDest, req.url));
-    res.cookies.set("basil_auth_from", "", { path: "/", maxAge: 0 });
-    return res;
+    console.log(`[google/callback] Tokens saved for user ${username}. Redirecting to ${successDest}`);
+    return redirect(successDest);
   } catch (e) {
-    console.error("Google OAuth error:", e);
-    const res = NextResponse.redirect(new URL(errorDest, req.url));
-    res.cookies.set("basil_auth_from", "", { path: "/", maxAge: 0 });
-    return res;
+    const msg = e instanceof Error ? e.message : String(e);
+    // Never log the code value — it may be usable for one exchange
+    console.error(`[google/callback] Token exchange or save failed for user ${username}:`, msg);
+    return redirect(errorDest);
   }
 }

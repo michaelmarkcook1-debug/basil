@@ -49,9 +49,33 @@ export function getAuthUrl(): string {
  */
 export async function exchangeCode(code: string, username: string): Promise<GoogleTokens> {
   const client = getOAuth2Client();
-  const { tokens } = await client.getToken(code);
-  await saveIntegrationToken(username, "google", tokens as GoogleTokens);
-  return tokens as GoogleTokens;
+  let tokens: GoogleTokens;
+  try {
+    const result = await client.getToken(code);
+    tokens = result.tokens as GoogleTokens;
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    console.error(`[google/auth] Code exchange failed for user ${username}:`, msg);
+    throw err;
+  }
+
+  if (!tokens.refresh_token) {
+    // Happens if the user previously granted consent and Google did not issue a
+    // new refresh_token.  We still save the access token — the next status check
+    // will attempt a refresh using any existing stored refresh_token.
+    console.warn(`[google/auth] No refresh_token in exchange response for user ${username}. ` +
+      "User may need to revoke and re-grant access in Google Account settings.");
+  }
+
+  try {
+    await saveIntegrationToken(username, "google", tokens);
+  } catch (saveErr) {
+    const msg = saveErr instanceof Error ? saveErr.message : String(saveErr);
+    console.error(`[google/auth] Token save failed for user ${username}:`, msg);
+    throw saveErr;
+  }
+
+  return tokens;
 }
 
 /**
@@ -131,13 +155,23 @@ export async function getGoogleConnectionStatus(username: string): Promise<Integ
       try {
         const { token } = await oauthClient.getAccessToken();
         if (!token) {
+          console.warn(`[google/auth] getAccessToken returned no token for user ${username}.`);
           return cache({ id: "google", state: "token_expired", lastCheckedAt: now,
             error: "Could not refresh access token — please re-authorize." });
         }
         // Persist the refreshed credentials so subsequent calls are fast
         const updated = oauthClient.credentials as GoogleTokens;
-        await saveIntegrationToken(username, "google", { ...tokens, ...updated });
-      } catch {
+        try {
+          await saveIntegrationToken(username, "google", { ...tokens, ...updated });
+        } catch (saveErr) {
+          // Encryption save failure is non-fatal for the status check itself,
+          // but we must log it so the missing key is obvious in server logs.
+          const msg = saveErr instanceof Error ? saveErr.message : String(saveErr);
+          console.error(`[google/auth] Failed to persist refreshed tokens for user ${username}:`, msg);
+        }
+      } catch (refreshErr) {
+        const msg = refreshErr instanceof Error ? refreshErr.message : String(refreshErr);
+        console.warn(`[google/auth] Token refresh failed for user ${username}:`, msg);
         return cache({ id: "google", state: "token_expired", lastCheckedAt: now,
           error: "Token refresh failed — please re-authorize." });
       }
