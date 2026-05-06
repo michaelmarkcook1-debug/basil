@@ -1,9 +1,15 @@
 /**
- * User management — persisted to users.json in the data store.
- * Falls back to the env-var defined admin account for backward compatibility.
- * Passwords are hashed with bcryptjs (cost factor 12).
+ * User management — persisted via lib/storage/secure-auth-store.ts.
+ *
+ * User records are AES-256-GCM encrypted at rest (Sprint 2D).
+ * Password hashes use bcryptjs (cost factor 12) — reversible encryption is
+ * never applied to passwords.
+ *
+ * Public API:
+ *   – All functions return full User objects internally for session validation.
+ *   – Use toSafeUser() before including a User in any API response.
  */
-import { readStore, writeStore } from "@/lib/storage/persistent";
+import { readUserRecords, writeUserRecords } from "@/lib/storage/secure-auth-store";
 import bcrypt from "bcryptjs";
 
 export interface UserProfile {
@@ -35,7 +41,18 @@ export interface User {
   sessionVersion?: number;
 }
 
-const USERS_FILE = "users.json";
+/**
+ * Safe user shape — password hash stripped.
+ * Always use this type when including user data in API responses or logs.
+ */
+export type SafeUser = Omit<User, "password">;
+
+/** Strip the password hash before sending a user record to a client. */
+export function toSafeUser(user: User): SafeUser {
+  const { password: _pw, ...safe } = user;
+  return safe;
+}
+
 const BCRYPT_ROUNDS = 12;
 
 /** Returns true if the string looks like a bcrypt hash. */
@@ -45,7 +62,7 @@ function isBcryptHash(s: string): boolean {
 
 /** Read all registered users, merging in any env-var admin account. */
 export async function getUsers(): Promise<User[]> {
-  const fileUsers = await readStore<User[]>(USERS_FILE, []);
+  const fileUsers = await readUserRecords();
 
   // Backward-compat: honour ADMIN_USERNAME + APP_PASSWORD if set and not
   // already in the file store.
@@ -121,13 +138,13 @@ export async function validateCredentials(
 /** Internal: persist a new bcrypt hash for a user (used during auto-upgrade). */
 async function upgradePasswordHash(username: string, hash: string): Promise<void> {
   try {
-    const fileUsers = await readStore<User[]>(USERS_FILE, []);
+    const fileUsers = await readUserRecords();
     const idx = fileUsers.findIndex(
       (u) => u.username.toLowerCase() === username.toLowerCase()
     );
     if (idx !== -1) {
       fileUsers[idx] = { ...fileUsers[idx], password: hash };
-      await writeStore(USERS_FILE, fileUsers, undefined, { durability: "strong" });
+      await writeUserRecords(fileUsers);
     }
   } catch {
     // Non-fatal — user can still log in; hash will be upgraded next time
@@ -138,7 +155,7 @@ async function upgradePasswordHash(username: string, hash: string): Promise<void
 export async function createUser(
   data: Omit<User, "id" | "createdAt">
 ): Promise<User> {
-  const fileUsers = await readStore<User[]>(USERS_FILE, []);
+  const fileUsers = await readUserRecords();
 
   // Hash the password before storing
   const hashedPassword = await bcrypt.hash(data.password, BCRYPT_ROUNDS);
@@ -150,7 +167,7 @@ export async function createUser(
     createdAt: new Date().toISOString(),
   };
 
-  await writeStore(USERS_FILE, [...fileUsers, newUser], undefined, { durability: "strong" });
+  await writeUserRecords([...fileUsers, newUser]);
   return newUser;
 }
 
@@ -159,7 +176,7 @@ export async function updateUser(
   username: string,
   patch: Partial<Omit<User, "id" | "username" | "createdAt">>
 ): Promise<void> {
-  const fileUsers = await readStore<User[]>(USERS_FILE, []);
+  const fileUsers = await readUserRecords();
   const idx = fileUsers.findIndex((u) => u.username === username);
   if (idx === -1) {
     // env-admin user not yet in file — create their record first
@@ -167,12 +184,12 @@ export async function updateUser(
     const user = allUsers.find((u) => u.username === username);
     if (user) {
       const updated = { ...user, ...patch };
-      await writeStore(USERS_FILE, [...fileUsers, updated], undefined, { durability: "strong" });
+      await writeUserRecords([...fileUsers, updated]);
     }
     return;
   }
   fileUsers[idx] = { ...fileUsers[idx], ...patch };
-  await writeStore(USERS_FILE, fileUsers, undefined, { durability: "strong" });
+  await writeUserRecords(fileUsers);
 }
 
 /** Change a user's password and invalidate all existing sessions by bumping sessionVersion. */
@@ -181,7 +198,7 @@ export async function changePassword(
   newPassword: string
 ): Promise<void> {
   const hashed = await bcrypt.hash(newPassword, BCRYPT_ROUNDS);
-  const fileUsers = await readStore<User[]>(USERS_FILE, []);
+  const fileUsers = await readUserRecords();
   const idx = fileUsers.findIndex((u) => u.username.toLowerCase() === username.toLowerCase());
   if (idx === -1) throw new Error("User not found");
   const current = fileUsers[idx];
@@ -190,34 +207,34 @@ export async function changePassword(
     password: hashed,
     sessionVersion: (current.sessionVersion ?? 1) + 1,
   };
-  await writeStore(USERS_FILE, fileUsers, undefined, { durability: "strong" });
+  await writeUserRecords(fileUsers);
 }
 
 /** Revoke all active sessions for a user by bumping their sessionVersion. */
 export async function revokeUserSessions(username: string): Promise<void> {
-  const fileUsers = await readStore<User[]>(USERS_FILE, []);
+  const fileUsers = await readUserRecords();
   const idx = fileUsers.findIndex((u) => u.username.toLowerCase() === username.toLowerCase());
   if (idx === -1) throw new Error("User not found");
   const current = fileUsers[idx];
   fileUsers[idx] = { ...current, sessionVersion: (current.sessionVersion ?? 1) + 1 };
-  await writeStore(USERS_FILE, fileUsers, undefined, { durability: "strong" });
+  await writeUserRecords(fileUsers);
 }
 
 /** Enable or disable a user account. */
 export async function setUserDisabled(username: string, disabled: boolean): Promise<void> {
-  const fileUsers = await readStore<User[]>(USERS_FILE, []);
+  const fileUsers = await readUserRecords();
   const idx = fileUsers.findIndex((u) => u.username.toLowerCase() === username.toLowerCase());
   if (idx === -1) throw new Error("User not found");
   fileUsers[idx] = { ...fileUsers[idx], disabled };
-  await writeStore(USERS_FILE, fileUsers, undefined, { durability: "strong" });
+  await writeUserRecords(fileUsers);
 }
 
 /** Delete a user account permanently. Cannot delete the env-admin. */
 export async function deleteUser(username: string): Promise<void> {
-  const fileUsers = await readStore<User[]>(USERS_FILE, []);
+  const fileUsers = await readUserRecords();
   const filtered = fileUsers.filter((u) => u.username.toLowerCase() !== username.toLowerCase());
   if (filtered.length === fileUsers.length) throw new Error("User not found in file store");
-  await writeStore(USERS_FILE, filtered, undefined, { durability: "strong" });
+  await writeUserRecords(filtered);
 }
 
 /** Check whether a user is an admin (the primary account). */

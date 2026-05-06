@@ -388,6 +388,86 @@ for (const { full, rel, isTest } of ALL_FILES) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Guard 6a — Auth secrets in API responses
+// ─────────────────────────────────────────────────────────────────────────────
+//
+// Route handlers must never return raw auth-sensitive fields in
+// NextResponse.json() calls.  Hard-fail on password/passwordHash fields;
+// hard-fail on resetToken fields.  Warn on console.log/error calls that
+// mention password or resetToken (potential log leakage).
+//
+// The `password: _pw` destructuring pattern (stripping the hash) is a false
+// positive — the regex `["']password["']\s*:\s*_` is excluded.
+
+const PASSWORD_RESPONSE_RE  = /["'`]password["'`]\s*:(?!\s*_)/;
+const RESET_TOKEN_RESPONSE_RE = /["'`](?:resetToken|tokenHash)["'`]\s*:(?!\s*_)/;
+const PASSWORD_LOG_RE = /console\.(?:log|error|warn|info)\s*\(.*(?:password|passwordHash|resetToken)/i;
+
+for (const { full, rel, isTest } of ALL_FILES) {
+  if (isTest) continue;
+
+  const ls = lines(full);
+  for (let i = 0; i < ls.length; i++) {
+    const line = ls[i];
+    if (isCommentLine(line)) continue;
+    if (isSuppressed(line)) continue;
+
+    // Hard failure: auth hash/token as response field in a route handler
+    if (rel.startsWith("app/api/")) {
+      if (PASSWORD_RESPONSE_RE.test(line)) {
+        const inResponse = /NextResponse\.json|JSON\.stringify|return\s+\{/.test(line);
+        if (inResponse) fail("auth-secret-in-response", rel, i + 1, line);
+      }
+      if (RESET_TOKEN_RESPONSE_RE.test(line)) {
+        const inResponse = /NextResponse\.json|JSON\.stringify|return\s+\{/.test(line);
+        if (inResponse) fail("auth-secret-in-response", rel, i + 1, line);
+      }
+    }
+
+    // Warning: password/reset token appearing in a log call (any file)
+    if (PASSWORD_LOG_RE.test(line)) {
+      warn("auth-secret-in-log", `${rel}:${i + 1} — ${line.trim()}`);
+    }
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Guard 6b — Direct auth store writes outside allowed modules
+// ─────────────────────────────────────────────────────────────────────────────
+//
+// users.json and password-reset-tokens.json must only be written through the
+// secure-auth-store (which encrypts them).  Direct writeStore calls to these
+// files from any other module are a hard failure.
+
+const AUTH_STORE_FILES = ["users.json", "password-reset-tokens.json"];
+// Modules that are explicitly allowed to write these files (migration only)
+const AUTH_STORE_ALLOWED = new Set([
+  "lib/storage/secure-auth-store.ts",
+  "lib/users.ts",                // legacy USERS_FILE constant still referenced in comments
+  "lib/auth/reset-tokens.ts",    // old file kept as reference during migration
+]);
+
+for (const { full, rel, isTest } of ALL_FILES) {
+  if (isTest) continue;
+  if (AUTH_STORE_ALLOWED.has(rel)) continue;
+
+  const ls = lines(full);
+  for (let i = 0; i < ls.length; i++) {
+    const line = ls[i];
+    if (isCommentLine(line)) continue;
+    if (isSuppressed(line)) continue;
+
+    const hasWrite = /writeStore\s*\(|writeUserStore\s*\(/.test(line);
+    if (!hasWrite) continue;
+
+    const hasAuthFile = AUTH_STORE_FILES.some((f) => line.includes(`"${f}"`) || line.includes(`'${f}'`));
+    if (hasAuthFile) {
+      fail("auth-store-direct-write", rel, i + 1, line);
+    }
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Guard 7 — Missing key routes
 // ─────────────────────────────────────────────────────────────────────────────
 //
@@ -419,6 +499,9 @@ const LABELS = {
   "tmp-durable":             "Potential durable /tmp or DATA_DIR usage", // ci-ok: label string, not a code reference
   "plaintext-token-storage": "Plaintext OAuth token storage (bypasses encryption)",
   "token-in-response":       "OAuth token field in API response",
+  "auth-secret-in-response": "Auth secret (password/resetToken) in API response",
+  "auth-secret-in-log":      "Auth secret mentioned in console.log/error",
+  "auth-store-direct-write": "Direct write to auth store file (bypasses encryption)",
   "missing-route":           "Missing key route",
 };
 
@@ -466,6 +549,23 @@ const HINTS = {
     "Return only connection status (connected: boolean, expiresAt, scopes) to clients.",
     "If the token field is needed server-side only, remove it from the JSON response object.",
     "Suppress with // ci-ok if the field name coincidentally appears in a safe context.",
+  ],
+  "auth-secret-in-response": [
+    "Never return password hashes or reset token values in API responses.",
+    "Use toSafeUser() from lib/users.ts to strip the password field before returning user data.",
+    "Reset tokens must not appear in response objects — return only { ok: true } after consumption.",
+    "Suppress with // ci-ok if the pattern is a false positive (e.g. a field named differently).",
+  ],
+  "auth-secret-in-log": [
+    "Never log password hashes, raw passwords, or reset tokens.",
+    "If you need to log auth events, log only the username and timestamp.",
+    "Suppress with // ci-ok if the pattern match is a false positive.",
+  ],
+  "auth-store-direct-write": [
+    "users.json and password-reset-tokens.json must only be written through secure-auth-store.ts.",
+    "All writes are encrypted at rest via AES-256-GCM before reaching blob storage.",
+    "Replace direct writeStore('users.json', ...) with writeUserRecords() from secure-auth-store.",
+    "Replace direct writeStore('password-reset-tokens.json', ...) with writeResetTokenRecords().",
   ],
 };
 

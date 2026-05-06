@@ -1,78 +1,73 @@
 /**
  * Password-reset token store.
  *
- * Tokens are short-lived (15 min), one-time-use, and stored per user.
- * The store is a simple JSON file — lightweight enough for the expected
- * reset frequency (rare, one user at a time).
+ * Sprint 2D hardening: raw token values are never stored.
+ * Only SHA-256(token) is persisted (via secure-auth-store which AES-encrypts
+ * the record set). The raw token is returned to the caller (who puts it in a
+ * reset URL), but is never written to storage.
+ *
+ * Tokens are short-lived (15 min), one-time-use.
  */
 
-import { readStore, writeStore } from "@/lib/storage/persistent";
+import {
+  readResetTokenRecords,
+  writeResetTokenRecords,
+  hashResetToken,
+} from "@/lib/storage/secure-auth-store";
 import { randomBytes } from "node:crypto";
 
-const TOKENS_FILE  = "password-reset-tokens.json";
-const TTL_MS       = 15 * 60 * 1000; // 15 minutes
-
-interface ResetToken {
-  token:     string;
-  username:  string;
-  email:     string;
-  expiresAt: string; // ISO
-  used:      boolean;
-}
-
-async function readTokens(): Promise<ResetToken[]> {
-  return readStore<ResetToken[]>(TOKENS_FILE, []);
-}
-
-async function writeTokens(tokens: ResetToken[]): Promise<void> {
-  await writeStore(TOKENS_FILE, tokens, undefined, { durability: "strong" });
-}
+const TTL_MS = 15 * 60 * 1000; // 15 minutes
 
 /** Purge expired or used tokens to keep the file small. */
 async function gc(): Promise<void> {
   const now = Date.now();
-  const tokens = await readTokens();
-  const clean = tokens.filter(
+  const records = await readResetTokenRecords();
+  const clean = records.filter(
     (t) => !t.used && new Date(t.expiresAt).getTime() > now
   );
-  if (clean.length !== tokens.length) await writeTokens(clean);
+  if (clean.length !== records.length) await writeResetTokenRecords(clean);
 }
 
 /**
  * Create a reset token for the given user.
  * Any previous tokens for this user are invalidated.
+ *
+ * Returns the raw (unhashed) token string for inclusion in a reset URL.
+ * The raw token is never persisted — only its SHA-256 hash is stored.
  */
 export async function createResetToken(username: string, email: string): Promise<string> {
   await gc();
-  const tokens = await readTokens();
+  const records = await readResetTokenRecords();
 
   // Invalidate any existing tokens for this user
-  const others = tokens.filter(
+  const others = records.filter(
     (t) => t.username.toLowerCase() !== username.toLowerCase()
   );
 
-  const token = randomBytes(32).toString("hex");
-  const entry: ResetToken = {
-    token,
+  const rawToken = randomBytes(32).toString("hex");
+  const entry = {
+    tokenHash: hashResetToken(rawToken),
     username,
     email,
     expiresAt: new Date(Date.now() + TTL_MS).toISOString(),
     used: false,
   };
 
-  await writeTokens([...others, entry]);
-  return token;
+  await writeResetTokenRecords([...others, entry]);
+  return rawToken; // raw token returned to caller; never stored
 }
 
 /**
  * Validate a reset token.
+ * Hashes the presented token and looks it up by hash.
  * Returns the username if valid, null if expired/used/not found.
  * Does NOT mark the token as used — call consumeResetToken() after
  * the password has been successfully changed.
  */
-export async function validateResetToken(token: string): Promise<string | null> {
-  const tokens = await readTokens();
-  const entry = tokens.find((t) => t.token === token);
+export async function validateResetToken(presentedToken: string): Promise<string | null> {
+  const tokenHash = hashResetToken(presentedToken);
+  const records = await readResetTokenRecords();
+  const entry = records.find((t) => t.tokenHash === tokenHash);
   if (!entry || entry.used) return null;
   if (new Date(entry.expiresAt).getTime() < Date.now()) return null;
   return entry.username;
@@ -80,12 +75,14 @@ export async function validateResetToken(token: string): Promise<string | null> 
 
 /**
  * Consume (mark as used) a reset token after a successful password change.
+ * Hashes the presented token to find the stored record.
  */
-export async function consumeResetToken(token: string): Promise<void> {
-  const tokens = await readTokens();
-  const idx = tokens.findIndex((t) => t.token === token);
+export async function consumeResetToken(presentedToken: string): Promise<void> {
+  const tokenHash = hashResetToken(presentedToken);
+  const records = await readResetTokenRecords();
+  const idx = records.findIndex((t) => t.tokenHash === tokenHash);
   if (idx !== -1) {
-    tokens[idx] = { ...tokens[idx], used: true };
-    await writeTokens(tokens);
+    records[idx] = { ...records[idx], used: true };
+    await writeResetTokenRecords(records);
   }
 }

@@ -48,7 +48,7 @@ export async function POST(req: Request) {
     await forceFlushSnapshot(); // persist updated sessionVersion so new password survives cold start
     return NextResponse.json({ ok: true });
   } catch (e) {
-    console.error("[reset-password] Failed:", e instanceof Error ? e.message : e);
+    console.error("[reset-password] Failed:", e instanceof Error ? e.message : e); // ci-ok: route prefix only — not logging a password value
     return NextResponse.json({ error: "Failed to update password. Please try again." }, { status: 500 });
   }
 }
