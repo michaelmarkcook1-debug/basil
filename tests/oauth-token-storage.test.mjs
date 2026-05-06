@@ -25,17 +25,20 @@ function read(rel) {
 
 test("secure-token-store uses AES-256-GCM encryption", () => {
   const src = read("lib/storage/secure-token-store.ts");
+  // Crypto primitives may live in the shared crypto.ts module that this file imports
+  const cryptoSrc = (() => { try { return read("lib/storage/crypto.ts"); } catch { return ""; } })();
+  const combined = src + cryptoSrc;
   assert.ok(
-    src.includes("aes-256-gcm"),
-    "secure-token-store must use AES-256-GCM"
+    combined.includes("aes-256-gcm"),
+    "secure-token-store (or shared crypto module) must use AES-256-GCM"
   );
   assert.ok(
-    src.includes("createCipheriv") && src.includes("createDecipheriv"),
-    "secure-token-store must use createCipheriv / createDecipheriv from node:crypto"
+    combined.includes("createCipheriv") && combined.includes("createDecipheriv"),
+    "secure-token-store (or shared crypto module) must use createCipheriv / createDecipheriv"
   );
   assert.ok(
-    src.includes("getAuthTag"),
-    "secure-token-store must call getAuthTag (authenticated encryption)"
+    combined.includes("getAuthTag"),
+    "secure-token-store (or shared crypto module) must call getAuthTag (authenticated encryption)"
   );
 });
 
@@ -49,30 +52,36 @@ test("secure-token-store has server-only directive", () => {
 
 test("secure-token-store requires BASIL_TOKEN_ENCRYPTION_KEY in production", () => {
   const src = read("lib/storage/secure-token-store.ts");
+  const cryptoSrc = (() => { try { return read("lib/storage/crypto.ts"); } catch { return ""; } })();
+  const combined = src + cryptoSrc;
   assert.ok(
-    src.includes("BASIL_TOKEN_ENCRYPTION_KEY"),
-    "secure-token-store must reference BASIL_TOKEN_ENCRYPTION_KEY env var"
+    combined.includes("BASIL_TOKEN_ENCRYPTION_KEY"),
+    "secure-token-store (or shared crypto module) must reference BASIL_TOKEN_ENCRYPTION_KEY"
   );
   assert.ok(
-    src.includes("throw new Error"),
-    "secure-token-store must throw when key is missing in production"
+    combined.includes("throw new Error"),
+    "secure-token-store (or shared crypto module) must throw when key is missing in production"
   );
 });
 
 test("secure-token-store allows CI/test fallback key", () => {
   const src = read("lib/storage/secure-token-store.ts");
+  const cryptoSrc = (() => { try { return read("lib/storage/crypto.ts"); } catch { return ""; } })();
+  const combined = src + cryptoSrc;
   assert.ok(
-    src.includes('NODE_ENV === "test"') || src.includes("CI"),
-    "secure-token-store must allow a dummy key in test/CI environments"
+    combined.includes('NODE_ENV === "test"') || combined.includes("CI"),
+    "secure-token-store (or shared crypto module) must allow a dummy key in test/CI environments"
   );
 });
 
 test("secure-token-store stores an encrypted envelope (not plaintext)", () => {
   const src = read("lib/storage/secure-token-store.ts");
+  const cryptoSrc = (() => { try { return read("lib/storage/crypto.ts"); } catch { return ""; } })();
+  const combined = src + cryptoSrc;
   // The envelope must have iv, tag, and data — not the raw token fields
   assert.ok(
-    src.includes("iv:") && src.includes("tag:") && src.includes("data:"),
-    "secure-token-store envelope must contain iv, tag, and data fields"
+    combined.includes("iv:") && combined.includes("tag:") && combined.includes("data:"),
+    "secure-token-store (or shared crypto module) must define iv, tag, and data envelope fields"
   );
   // Must not store plaintext token values at the top level
   assert.ok(
@@ -87,9 +96,11 @@ test("secure-token-store stores an encrypted envelope (not plaintext)", () => {
 
 test("secure-token-store uses randomBytes for IV (fresh per write)", () => {
   const src = read("lib/storage/secure-token-store.ts");
+  const cryptoSrc = (() => { try { return read("lib/storage/crypto.ts"); } catch { return ""; } })();
+  const combined = src + cryptoSrc;
   assert.ok(
-    src.includes("randomBytes"),
-    "secure-token-store must generate a fresh random IV per write"
+    combined.includes("randomBytes"),
+    "secure-token-store (or shared crypto module) must generate a fresh random IV per write"
   );
 });
 

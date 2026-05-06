@@ -4,7 +4,7 @@
  */
 import { NextResponse } from "next/server";
 import { getSessionUser } from "@/lib/auth";
-import { getUsers, isAdminUser } from "@/lib/users";
+import { getUsers, isAdminUser, toSafeUser } from "@/lib/users";
 
 export async function GET() {
   const username = await getSessionUser();
@@ -13,7 +13,5 @@ export async function GET() {
   }
 
   const users = await getUsers();
-  const safe = users.map(({ password: _pw, ...rest }) => rest);
-
-  return NextResponse.json({ users: safe });
+  return NextResponse.json({ users: users.map(toSafeUser) });
 }
