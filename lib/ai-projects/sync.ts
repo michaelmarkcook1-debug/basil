@@ -1,4 +1,5 @@
 import { getSettings } from "@/lib/settings/store";
+import { getSettingsSecret } from "@/lib/storage/secure-settings-store";
 import { readProjectsStore, writeProjectsStore } from "./store";
 import { fetchClaudeCodeProjects } from "./platforms/claude-code";
 import { fetchGithubProjects } from "./platforms/github";
@@ -35,10 +36,13 @@ function detectRelated(projects: AIProject[]): AIProject[] {
 }
 
 export async function syncProjects(username: string): Promise<AIProjectsData> {
-  const [settings, existing, linearConnected] = await Promise.all([
+  const [settings, existing, linearConnected, githubToken, openaiApiKey] = await Promise.all([
     getSettings(username),
     readProjectsStore(username),
     isLinearConnected(username).catch(() => false),
+    // Read secrets from encrypted store — never from plaintext settings
+    getSettingsSecret(username, "githubToken"),
+    getSettingsSecret(username, "openaiApiKey"),
   ]);
 
   const vercelToken = process.env.VERCEL_TOKEN;
@@ -47,10 +51,10 @@ export async function syncProjects(username: string): Promise<AIProjectsData> {
   const [claudeCodeProjects, githubProjects, vercelProjects, linearProjects, openaiProjects] =
     await Promise.all([
       fetchClaudeCodeProjects(),
-      settings.githubToken ? fetchGithubProjects(settings.githubToken) : Promise.resolve([]),
+      githubToken ? fetchGithubProjects(githubToken) : Promise.resolve([]),
       vercelToken ? fetchVercelProjects(vercelToken) : Promise.resolve([]),
       linearConnected ? fetchLinearProjects(username) : Promise.resolve([]),
-      settings.openaiApiKey ? fetchOpenAIProjects(settings.openaiApiKey) : Promise.resolve([]),
+      openaiApiKey ? fetchOpenAIProjects(openaiApiKey) : Promise.resolve([]),
     ]);
 
   const freshProjects = [
@@ -98,7 +102,7 @@ export async function syncProjects(username: string): Promise<AIProjectsData> {
   };
 
   // github
-  if (settings.githubToken) {
+  if (githubToken) {
     platforms["github"] = {
       ...platforms["github"],
       platform: "github",
@@ -135,7 +139,7 @@ export async function syncProjects(username: string): Promise<AIProjectsData> {
   }
 
   // openai / codex
-  if (settings.openaiApiKey) {
+  if (openaiApiKey) {
     platforms["codex"] = {
       ...platforms["codex"],
       platform: "codex",

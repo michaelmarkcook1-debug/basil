@@ -112,15 +112,19 @@ interface SnapshotDiagnostics {
   payloadBytes:      number | null;
 }
 
-// Mirrors UserSettings from lib/settings/store.ts
+// Mirrors the safe subset of UserSettings returned by GET /api/settings.
+// Note: githubToken and openaiApiKey are never returned — only their
+// boolean "configured" flags are present.
 interface UserSettings {
-  name:          string;
-  timezone:      string;
-  workStart:     string;
-  workEnd:       string;
-  videoTool:     string;
-  meetingUrl:    string;
-  useIpTimezone?: boolean;
+  name:                    string;
+  timezone:                string;
+  workStart:               string;
+  workEnd:                 string;
+  videoTool:               string;
+  meetingUrl:              string;
+  useIpTimezone?:          boolean;
+  githubTokenConfigured?:  boolean;
+  openaiApiKeyConfigured?: boolean;
 }
 
 // ── Timezone validation ───────────────────────────────────────────────────────
@@ -374,9 +378,9 @@ export default function SettingsPage() {
         fetch("/api/profile",  { cache: "no-store" }),
       ]);
       if (settingsRes.ok) {
-        const data = await settingsRes.json() as UserSettings & { githubToken?: string };
+        const data = await settingsRes.json() as UserSettings & { githubTokenConfigured?: boolean };
         setProfile(data);
-        setGithubConnected(!!data.githubToken);
+        setGithubConnected(!!data.githubTokenConfigured);
       }
       if (profileRes.ok)  setAccount(await profileRes.json());
     } catch (e) {
@@ -1401,9 +1405,10 @@ export default function SettingsPage() {
               body: JSON.stringify(patch),
             });
             if (!res.ok) return { ok: false, error: "Failed to save" };
-            // Reflect updated GitHub connection state
+            // Reflect updated GitHub connection state from server response
+            const json = await res.json() as { githubTokenConfigured?: boolean };
             if ("githubToken" in patch) {
-              setGithubConnected(!!patch.githubToken);
+              setGithubConnected(!!json.githubTokenConfigured);
             }
             return { ok: true };
           } catch {

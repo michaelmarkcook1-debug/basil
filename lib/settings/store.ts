@@ -6,9 +6,18 @@
  *
  * New users automatically get defaults derived from their username —
  * they are never addressed as another user's name.
+ *
+ * Sensitive settings (githubToken, openaiApiKey) are NOT stored here.
+ * They live in lib/storage/secure-settings-store.ts (encrypted at rest).
+ * Use getSettingsSecret() to read them on the server, never via getSettings().
  */
 
 import { readUserStore, writeUserStore } from "@/lib/storage/user-store";
+import {
+  migrateLegacySettingsSecrets,
+  SETTINGS_SECRET_KEYS,
+  type SettingsSecretKey,
+} from "@/lib/storage/secure-settings-store";
 
 const SETTINGS_FILE = "sage-settings.json";
 
@@ -32,10 +41,15 @@ export interface UserSettings {
    * Falls back to `timezone` if the IP lookup fails.
    */
   useIpTimezone?: boolean;
-  /** GitHub Personal Access Token for syncing repositories in AI Projects. */
-  githubToken?: string;
-  /** OpenAI API key for syncing Assistants threads in AI Projects. */
-  openaiApiKey?: string;
+}
+
+/**
+ * Fields returned by GET /api/settings in addition to UserSettings.
+ * These are safe booleans — they never contain actual secret values.
+ */
+export interface SettingsWithSecretFlags extends UserSettings {
+  githubTokenConfigured:  boolean;
+  openaiApiKeyConfigured: boolean;
 }
 
 /** Base defaults — used as fallback for any unset field. */
@@ -76,19 +90,41 @@ export function isValidIANATimezone(tz: string): boolean {
   }
 }
 
-/** Returns the stored settings for this user, merged over their defaults. */
+/**
+ * Read stored settings for this user, merged over their defaults.
+ * Secret fields (githubToken, openaiApiKey) are never included in the result.
+ * If the legacy settings file contains secret fields, they are migrated to
+ * secure-settings-store and removed from the plaintext file transparently.
+ */
 export async function getSettings(username: string): Promise<UserSettings> {
-  const stored = await readUserStore<Partial<UserSettings>>(username, SETTINGS_FILE, {});
-  return { ...defaultsForUser(username), ...stored };
+  const raw = await readUserStore<Record<string, unknown>>(username, SETTINGS_FILE, {});
+
+  // Lazy migration: if legacy sage-settings.json has plaintext secret fields,
+  // encrypt and move them to secure-settings-store, then clean the file.
+  const hasLegacySecrets = SETTINGS_SECRET_KEYS.some(
+    (k) => typeof raw[k] === "string" && (raw[k] as string).trim() !== ""
+  );
+  if (hasLegacySecrets) {
+    const { migrated, cleaned } = await migrateLegacySettingsSecrets(username, raw);
+    if (migrated) {
+      await writeUserStore(username, SETTINGS_FILE, cleaned);
+      return { ...defaultsForUser(username), ...(cleaned as Partial<UserSettings>) };
+    }
+  }
+
+  return { ...defaultsForUser(username), ...(raw as Partial<UserSettings>) };
 }
 
 /**
  * Writes a partial update for this user and returns the full resulting settings.
  * Unknown keys in `patch` are silently ignored.
+ *
+ * Secret fields (githubToken, openaiApiKey) in the patch are silently
+ * dropped here — the settings API route handles them via saveSettingsSecret().
  */
 export async function patchSettings(
   username: string,
-  patch: Partial<UserSettings>
+  patch: Partial<UserSettings & Record<SettingsSecretKey, string>>
 ): Promise<UserSettings> {
   const current = await getSettings(username);
 
@@ -108,12 +144,12 @@ export async function patchSettings(
   }
 
   const safe: Partial<UserSettings> = {};
+  // Non-secret keys only — secret fields are handled by the settings API route
   const keys: Array<keyof UserSettings> = [
-    "name", "timezone", "workStart", "workEnd", "videoTool", "meetingUrl", "useIpTimezone", "githubToken", "openaiApiKey",
+    "name", "timezone", "workStart", "workEnd", "videoTool", "meetingUrl", "useIpTimezone",
   ];
   for (const k of keys) {
     if (patch[k] !== undefined) {
-      // useIpTimezone is boolean; all other keys are strings
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       (safe as any)[k] = patch[k];
     }

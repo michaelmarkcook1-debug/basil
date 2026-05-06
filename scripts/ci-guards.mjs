@@ -388,6 +388,36 @@ for (const { full, rel, isTest } of ALL_FILES) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Guard 7a — Settings secret values in API responses
+// ─────────────────────────────────────────────────────────────────────────────
+//
+// Route handlers must never return raw settings secret values (githubToken,
+// openaiApiKey) in NextResponse.json() calls.  The settings API returns boolean
+// "configured" flags instead (githubTokenConfigured, openaiApiKeyConfigured).
+// Any raw field name in a JSON response object is a hard failure.
+
+const SETTINGS_SECRET_FIELD_RE = /["'`](?:githubToken|openaiApiKey)["'`]/;
+
+for (const { full, rel, isTest } of ALL_FILES) {
+  if (isTest) continue;
+  if (!rel.startsWith("app/api/")) continue; // only route handlers
+
+  const ls = lines(full);
+  for (let i = 0; i < ls.length; i++) {
+    const line = ls[i];
+    if (isCommentLine(line)) continue;
+    if (isSuppressed(line)) continue;
+    if (!SETTINGS_SECRET_FIELD_RE.test(line)) continue;
+
+    // Hard failure if it looks like the field is being returned in a JSON response
+    const inResponse = /NextResponse\.json|JSON\.stringify|return\s+\{/.test(line);
+    if (inResponse) {
+      fail("settings-secret-in-response", rel, i + 1, line);
+    }
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Guard 7 — Missing key routes
 // ─────────────────────────────────────────────────────────────────────────────
 //
@@ -419,6 +449,7 @@ const LABELS = {
   "tmp-durable":             "Potential durable /tmp or DATA_DIR usage", // ci-ok: label string, not a code reference
   "plaintext-token-storage": "Plaintext OAuth token storage (bypasses encryption)",
   "token-in-response":       "OAuth token field in API response",
+  "settings-secret-in-response": "Settings secret value in API response",
   "missing-route":           "Missing key route",
 };
 
@@ -466,6 +497,12 @@ const HINTS = {
     "Return only connection status (connected: boolean, expiresAt, scopes) to clients.",
     "If the token field is needed server-side only, remove it from the JSON response object.",
     "Suppress with // ci-ok if the field name coincidentally appears in a safe context.",
+  ],
+  "settings-secret-in-response": [
+    "Never return raw settings secrets (githubToken, openaiApiKey) in API responses.",
+    "Return boolean 'configured' flags instead:",
+    "  { githubTokenConfigured: boolean, openaiApiKeyConfigured: boolean }",
+    "Read and write secrets via lib/storage/secure-settings-store.ts on the server only.",
   ],
 };
 
