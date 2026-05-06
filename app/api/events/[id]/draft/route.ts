@@ -18,9 +18,12 @@ export async function POST(
   _req: Request,
   { params }: { params: Promise<{ id: string }> }
 ) {
+  const username = await getSessionUser();
+  if (!username) return NextResponse.json({ error: "Unauthorised" }, { status: 401 });
+
   const { id } = await params;
 
-  const event = await getEvent(id);
+  const event = await getEvent(username, id);
   if (!event) {
     return NextResponse.json({ error: "Event not found" }, { status: 404 });
   }
@@ -31,9 +34,6 @@ export async function POST(
     );
   }
 
-
-  const username = (await getSessionUser());
-  if (!username) return NextResponse.json({ error: "Unauthorised" }, { status: 401 });
   const result = await generateDraftForEvent(event, username);
 
   if (!result.body) {
@@ -47,7 +47,7 @@ export async function POST(
     );
   }
 
-  const updated = await updateEvent(id, {
+  const updated = await updateEvent(username, id, {
     draft: {
       ...event.draft,
       body: result.body,

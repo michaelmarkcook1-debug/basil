@@ -36,10 +36,11 @@ export async function POST(req: Request) {
     });
 
     await emitAuditEvent({
+      username,
       source: "calendar",
       headline: `Scheduled "${title}" on ${date} ${startTime} UK`,
       context: `Attendees: ${(attendees || []).join(", ")}\nDuration: ${duration || 30}m\nLink: ${result.htmlLink ?? "(pending)"}`,
-      rationale: "Michael approved the meeting on the Schedule page.",
+      rationale: "Approved the meeting on the Schedule page.",
       entityName: Array.isArray(attendees) ? attendees[0] : undefined,
       tags: ["calendar", "scheduled", "schedule-page"],
     });

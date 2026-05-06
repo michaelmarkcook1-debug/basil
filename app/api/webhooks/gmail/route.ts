@@ -102,7 +102,7 @@ export async function POST(req: Request) {
       try {
         // Skip if already ingested (e.g. poll-ingest ran first)
         const externalId = `gmail:${id}`;
-        if (await hasExternalId(externalId)) continue;
+        if (await hasExternalId(webhookUsername, externalId)) continue;
 
         const detail = await gmail.users.messages.get({
           userId: "me",
@@ -133,7 +133,7 @@ export async function POST(req: Request) {
           body: snippet,
           from: extractName(fromRaw),
         });
-        const event = await createEvent(shaped);
+        const event = await createEvent(webhookUsername, shaped);
         publish(event);
         processed++;
 

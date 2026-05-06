@@ -12,6 +12,6 @@ export async function GET(req: Request) {
   if (!username) return NextResponse.json({ error: "Unauthorised" }, { status: 401 });
   const { searchParams } = new URL(req.url);
   const wantAll = searchParams.get("all") === "1";
-  const events = wantAll ? await listEvents() : await listActiveEvents();
+  const events = wantAll ? await listEvents(username) : await listActiveEvents(username);
   return NextResponse.json({ events });
 }

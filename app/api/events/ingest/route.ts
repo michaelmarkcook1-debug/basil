@@ -31,7 +31,7 @@ export async function POST(req: Request) {
   }
 
   const shaped = eventFromIngest(payload);
-  const event = await createEvent(shaped);
+  const event = await createEvent(username, shaped);
   publish(event);
   return NextResponse.json({ event });
 }

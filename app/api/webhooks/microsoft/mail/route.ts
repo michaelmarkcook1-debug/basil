@@ -69,7 +69,7 @@ export async function POST(req: Request) {
 
     try {
       // Skip if already ingested (e.g. poll-ingest ran first)
-      if (await hasExternalId(externalId)) continue;
+      if (await hasExternalId(webhookUsername, externalId)) continue;
 
       const msg = await graphGet<GraphMailMessage>(
         webhookUsername,
@@ -86,7 +86,7 @@ export async function POST(req: Request) {
         from,
         date: msg.receivedDateTime,
       });
-      const event = await createEvent(shaped);
+      const event = await createEvent(webhookUsername, shaped);
       publish(event);
 
       void createJobRecord(webhookUsername, "ingest.microsoft.mail", externalId);

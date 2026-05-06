@@ -54,7 +54,7 @@ export async function POST(_req: Request) {
   }
 
   // ── Find events that have never been classified ──────────────────────────
-  const allEvents = await listEvents();
+  const allEvents = await listEvents(username);
 
   // Only reprocess events from the last 14 days — older than that is rarely
   // actionable and keeps the AI workload manageable.

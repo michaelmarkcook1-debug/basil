@@ -48,6 +48,9 @@ export async function PATCH(
   req: Request,
   ctx: { params: Promise<{ id: string }> }
 ) {
+  const username = await getSessionUser();
+  if (!username) return NextResponse.json({ error: "Unauthorised" }, { status: 401 });
+
   const { id } = await ctx.params;
 
   const body = (await req.json().catch(() => ({}))) as {
@@ -62,7 +65,7 @@ export async function PATCH(
   // ── Non-approval statuses ─────────────────────────────────────────────────
   // rejected / acknowledged just flip the status — nothing executes.
   if (body.status !== "approved") {
-    const event = await updateEventStatus(id, body.status);
+    const event = await updateEventStatus(username, id, body.status);
     if (!event) {
       console.error(`[events/${id}] PATCH status=${body.status}: event not found`);
       return NextResponse.json({ error: "not found" }, { status: 404 });
@@ -71,35 +74,29 @@ export async function PATCH(
     // When a notify alert is acknowledged, log a completed action as a receipt so
     // the user has a permanent record that they reviewed the alert.
     if (body.status === "acknowledged" && event.disposition === "notify") {
-      // username may be null here (status update path), resolve it best-effort
-      const ackUsername = await getSessionUser();
-      if (ackUsername) {
-        void createAction(ackUsername, {
-          text: `Reviewed: ${event.headline}`,
-          source: toActionSource(event.source),
-          eventId: event.id,
-          sourceRef: event.sourceRef ?? event.externalId,
-          status: "done",
-          confidence: 1.0,
-        });
-      }
+      void createAction(username, {
+        text: `Reviewed: ${event.headline}`,
+        source: toActionSource(event.source),
+        eventId: event.id,
+        sourceRef: event.sourceRef ?? event.externalId,
+        status: "done",
+        confidence: 1.0,
+      });
     }
 
     return NextResponse.json({ event });
   }
 
   // ── Approval: load → mark executing → run → persist result ───────────────
-  const event = await getEvent(id);
+  const event = await getEvent(username, id);
   if (!event) {
     console.error(`[events/${id}] PATCH approve: event not found`);
     return NextResponse.json({ error: "not found" }, { status: 404 });
   }
 
   // Immediately mark as executing so the UI can show a spinner.
-  await updateEvent(id, { status: "executing" });
+  await updateEvent(username, id, { status: "executing" });
 
-  const username = (await getSessionUser());
-  if (!username) return NextResponse.json({ error: "Unauthorised" }, { status: 401 });
   const executedAt = new Date().toISOString();
   const result = await executeEvent(event, username, body.draftBody);
 
@@ -109,7 +106,7 @@ export async function PATCH(
     );
   }
 
-  const updatedEvent = await updateEvent(id, {
+  const updatedEvent = await updateEvent(username, id, {
     status: result.ok ? "executed" : "failed",
     executedAt,
     executionResult: result.ok ? result.summary : undefined,
@@ -135,8 +132,11 @@ export async function DELETE(
   _req: Request,
   ctx: { params: Promise<{ id: string }> }
 ) {
+  const username = await getSessionUser();
+  if (!username) return NextResponse.json({ error: "Unauthorised" }, { status: 401 });
+
   const { id } = await ctx.params;
-  const ok = await deleteEvent(id);
+  const ok = await deleteEvent(username, id);
   if (!ok) {
     console.error(`[events/${id}] DELETE: event not found`);
     return NextResponse.json({ error: "not found" }, { status: 404 });

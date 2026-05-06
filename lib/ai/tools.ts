@@ -210,7 +210,7 @@ export function buildAssistantTools(username: string, firstName?: string, timezo
           return { error: "Gmail not connected. Cannot draft emails until Google is connected in Settings." };
         }
         const result = await createDraft(username, to, subject, body);
-        await emitAuditEvent({
+        await emitAuditEvent({ username,
           source: "email",
           headline: `Drafted email to ${to}`,
           context: `Subject: ${subject}\n\n${body}`,
@@ -410,7 +410,7 @@ export function buildAssistantTools(username: string, firstName?: string, timezo
         }
         try {
           const result = await createCalendarEvent(username, { title, attendees, date, startTime, duration });
-          await emitAuditEvent({
+          await emitAuditEvent({ username,
             source: "calendar",
             headline: `Scheduled "${title}" on ${date} ${startTime}`,
             context: `Attendees: ${attendees.join(", ")}\nDuration: ${duration}m\nLink: ${result.htmlLink ?? "(pending)"}`,
@@ -522,7 +522,7 @@ export function buildAssistantTools(username: string, firstName?: string, timezo
       execute: async ({ id }) => {
         const ok = await deleteMemory(username, id);
         if (ok) {
-          await emitAuditEvent({
+          await emitAuditEvent({ username,
             source: "manual",
             headline: `Forgot memory ${id.slice(0, 8)}`,
             context: `Memory id ${id} removed from the store.`,
@@ -600,7 +600,7 @@ export function buildAssistantTools(username: string, firstName?: string, timezo
           source: source ?? "chat",
           priority,
         });
-        await emitAuditEvent({
+        await emitAuditEvent({ username,
           source: "manual",
           headline: `Added action: ${action.text.slice(0, 60)}`,
           context: `Owner: ${action.owner}${action.dueDate ? `\nDue: ${action.dueDate}` : ""}`,
@@ -725,7 +725,7 @@ export function buildAssistantTools(username: string, firstName?: string, timezo
           alternatives,
           consequences,
         });
-        await emitAuditEvent({
+        await emitAuditEvent({ username,
           source: "manual",
           headline: `Logged decision: ${(decision.title ?? decision.text).slice(0, 60)}`,
           context: `Decided by ${decision.decidedBy} on ${decision.date}${decision.context ? `\n${decision.context}` : ""}${rationale ? `\nRationale: ${rationale}` : ""}`,
@@ -821,7 +821,7 @@ export function buildAssistantTools(username: string, firstName?: string, timezo
         }
         const result = await slackSend(username, channel, message);
         if (result.ok) {
-          await emitAuditEvent({
+          await emitAuditEvent({ username,
             source: "slack",
             headline: `Sent Slack message to ${channel}`,
             context: message,

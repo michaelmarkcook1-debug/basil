@@ -66,12 +66,12 @@ export async function POST(req: Request) {
       const payload = slackEventToIngest(inner);
       if (payload) {
         // Dedupe: webhook may redeliver on Slack's retry policy
-        if (payload.externalId && (await hasExternalId(payload.externalId))) {
+        if (payload.externalId && (await hasExternalId(webhookUsername, payload.externalId))) {
           return NextResponse.json({ ok: true });
         }
 
         const shaped = eventFromIngest(payload);
-        const event = await createEvent(shaped);
+        const event = await createEvent(webhookUsername, shaped);
         publish(event);
 
         // ── Slack intelligence: fire-and-forget for qualifying webhook events ──

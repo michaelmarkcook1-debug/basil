@@ -26,6 +26,7 @@ export async function PATCH(
     await updateCalendarEvent(username, eventId, { title, date, startTime, duration, attendees });
 
     await emitAuditEvent({
+      username,
       source: "calendar",
       headline: `Updated event ${eventId}${title ? ` — "${title}"` : ""}`,
       context: [
@@ -34,7 +35,7 @@ export async function PATCH(
         startTime  && `Start: ${startTime}`,
         duration   && `Duration: ${duration}m`,
       ].filter(Boolean).join("\n"),
-      rationale: "Michael edited the event directly on the Schedule page.",
+      rationale: "Updated the event directly on the Schedule page.",
       tags: ["calendar", "updated"],
     });
 
@@ -64,10 +65,11 @@ export async function DELETE(
     await deleteCalendarEvent(username, eventId);
 
     await emitAuditEvent({
+      username,
       source: "calendar",
       headline: `Deleted event ${eventId}`,
       context: "",
-      rationale: "Michael deleted the event on the Schedule page.",
+      rationale: "Deleted the event on the Schedule page.",
       tags: ["calendar", "deleted"],
     });
 

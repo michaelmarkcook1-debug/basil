@@ -269,9 +269,9 @@ export async function POST(req: Request) {
   }> = [];
 
   for (const p of payloads) {
-    if (p.externalId && (await hasExternalId(p.externalId))) continue;
+    if (p.externalId && (await hasExternalId(username, p.externalId))) continue;
     const shaped = eventFromIngest(p);
-    const event = await createEvent(shaped);
+    const event = await createEvent(username, shaped);
     publish(event);
     ingested++;
     if (event.disposition === "draft" && event.draft) {
@@ -505,7 +505,7 @@ export async function POST(req: Request) {
       draftEvents.map(async (event) => {
         try {
           const result = await generateDraftForEvent(event, username);
-          const updated = await updateEvent(event.id, {
+          const updated = await updateEvent(username, event.id, {
             draft: {
               ...event.draft!,
               body: result.body,
@@ -531,10 +531,10 @@ export async function POST(req: Request) {
   let zoomIngested = 0;
 
   for (const p of zoomPayloads) {
-    if (p.externalId && (await hasExternalId(p.externalId))) continue;
+    if (p.externalId && (await hasExternalId(username, p.externalId))) continue;
 
     const shaped = eventFromIngest(p);
-    const event = await createEvent(shaped);
+    const event = await createEvent(username, shaped);
     publish(event);
     zoomIngested++;
 
@@ -565,7 +565,7 @@ export async function POST(req: Request) {
   // Run event compaction after ingestion — keeps the events store small
   // so the BASIL_DATA snapshot stays within Vercel's env var size limit.
   // Fire-and-forget: compaction never fails the poll-ingest response.
-  const eventsCompacted = await compactEvents().catch((err) => {
+  const eventsCompacted = await compactEvents(username).catch((err) => {
     console.error("[poll-ingest] event compaction failed:", err);
     return 0;
   });
