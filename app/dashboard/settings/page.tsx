@@ -202,12 +202,12 @@ export default function SettingsPage() {
   }
 
   async function handleGithubDisconnect() {
-    await fetch("/api/settings", {
+    const res = await fetch("/api/settings", {
       method:  "PATCH",
       headers: { "Content-Type": "application/json" },
       body:    JSON.stringify({ githubToken: "" }),
     });
-    setGithubConnected(false);
+    if (res.ok) setGithubConnected(false);
   }
 
   async function handleLinearConnect() {
@@ -238,8 +238,8 @@ export default function SettingsPage() {
   }
 
   async function handleLinearDisconnect() {
-    await fetch("/api/auth/linear", { method: "DELETE" });
-    setStatuses((prev) => prev ? {
+    const res = await fetch("/api/auth/linear", { method: "DELETE" });
+    if (res.ok) setStatuses((prev) => prev ? {
       ...prev,
       linear: { id: "linear", state: "disconnected", lastCheckedAt: new Date().toISOString() },
     } : prev);

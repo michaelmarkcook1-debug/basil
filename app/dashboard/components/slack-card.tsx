@@ -60,6 +60,10 @@ export function SlackCard() {
   const fetchMessages = useCallback(async () => {
     try {
       const res = await fetch("/api/slack");
+      if (!res.ok) {
+        setData({ connected: false, messages: [], message: "Failed to load" });
+        return;
+      }
       const d = await res.json();
       setData(d);
     } catch {
