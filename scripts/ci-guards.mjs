@@ -498,6 +498,35 @@ for (const { full, rel, isTest } of ALL_FILES) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Guard 6d — Hardcoded personal email in runtime code
+// ─────────────────────────────────────────────────────────────────────────────
+//
+// Hardcoded personal email addresses (e.g. michael@talentgenius.io) must not
+// appear in runtime app/ or lib/ code.  Self-identity must be resolved from
+// the authenticated user's profile, not baked into source constants.
+//
+// Allowed exceptions (annotate with // ci-ok):
+//   - Tests that reference the address to assert it is absent from runtime code
+//   - Comments that document the historical context (pure comment lines)
+//
+// Fix: replace with getSelfIdentity(username) from lib/self-identity.ts.
+
+const PERSONAL_EMAIL_RE = /michael@talentgenius\.io/;
+
+for (const { full, rel, isTest } of ALL_FILES) {
+  if (isTest) continue; // test source analysis may legitimately reference the literal to check its absence
+  const ls = lines(full);
+  for (let i = 0; i < ls.length; i++) {
+    const line = ls[i];
+    if (isCommentLine(line)) continue;
+    if (isSuppressed(line)) continue;
+    if (PERSONAL_EMAIL_RE.test(line)) {
+      fail("hardcoded-personal-email", rel, i + 1, line);
+    }
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Guard 7 — Missing key routes
 // ─────────────────────────────────────────────────────────────────────────────
 //
@@ -533,6 +562,7 @@ const LABELS = {
   "auth-secret-in-log":      "Auth secret mentioned in console.log/error",
   "auth-store-direct-write":  "Direct write to auth store file (bypasses encryption)",
   "primary-owner-fallback":   "PRIMARY_OWNER_USERNAME used as default-user fallback",
+  "hardcoded-personal-email": "Hardcoded personal email address in runtime code",
   "missing-route":            "Missing key route",
 };
 
@@ -603,6 +633,14 @@ const HINTS = {
     "If username is missing: dead-letter the event, return early, or reject with 400/401.",
     "Make username a required parameter — remove any '= process.env.PRIMARY_OWNER_USERNAME ?? \"\"' defaults.",
     "The only permitted use is read-only AI system-prompt personalization, annotated with // ci-ok.",
+  ],
+  "hardcoded-personal-email": [
+    "Personal email addresses must not be hardcoded in runtime app/ or lib/ code.",
+    "Replace with user-scoped self-identity resolution:",
+    "  import { getSelfIdentity, isSelf, stripSelf } from '@/lib/self-identity';",
+    "  const identity = await getSelfIdentity(username);",
+    "  isSelf(name, identity)  /  stripSelf(list, identity)",
+    "Suppress only for genuinely safe read-only contexts with // ci-ok.",
   ],
 };
 

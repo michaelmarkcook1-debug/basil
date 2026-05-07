@@ -1,6 +1,6 @@
 import { google } from "googleapis";
 import { getAuthedClient } from "./auth";
-import { stripSelf } from "@/lib/self-identity";
+import { getSelfIdentity, stripSelf, type SelfIdentity } from "@/lib/self-identity";
 
 export interface CalendarEvent {
   id: string;
@@ -39,7 +39,11 @@ function extractVideoLink(e: any): string | undefined { // eslint-disable-line @
   return match?.[1];
 }
 
-function mapEvent(e: any, dateLabel: string): CalendarEvent { // eslint-disable-line @typescript-eslint/no-explicit-any
+function mapEvent(
+  e: any, // eslint-disable-line @typescript-eslint/no-explicit-any
+  dateLabel: string,
+  identity: SelfIdentity
+): CalendarEvent {
   const isAllDay = !e.start?.dateTime;
   const videoLink = extractVideoLink(e);
   // Strip plain HTML tags from description for clean display
@@ -51,6 +55,12 @@ function mapEvent(e: any, dateLabel: string): CalendarEvent { // eslint-disable-
     .replace(/&amp;/g, "&")
     .trim()
     .slice(0, 600) || undefined;
+
+  // Strip the user themselves — they are the owner, not an attendee of their own meetings.
+  const rawAttendees = (e.attendees || [])
+    .map((a: any) => a.displayName || a.email || "") // eslint-disable-line @typescript-eslint/no-explicit-any
+    .filter(Boolean);
+  const filteredAttendees = stripSelf(rawAttendees, identity);
 
   return {
     id: e.id || "",
@@ -64,17 +74,8 @@ function mapEvent(e: any, dateLabel: string): CalendarEvent { // eslint-disable-
       (e.description || "").toLowerCase().includes("zoom") ||
       (e.location || "").toLowerCase().includes("zoom")
     ),
-    // Strip Michael himself — he's the user, not an attendee of his own meetings.
-    attendeeCount: stripSelf(
-      (e.attendees || [])
-        .map((a: any) => a.displayName || a.email || "") // eslint-disable-line @typescript-eslint/no-explicit-any
-        .filter(Boolean)
-    ).length,
-    attendees: stripSelf(
-      (e.attendees || [])
-        .map((a: any) => a.displayName || a.email || "") // eslint-disable-line @typescript-eslint/no-explicit-any
-        .filter(Boolean)
-    ),
+    attendeeCount: filteredAttendees.length,
+    attendees: filteredAttendees,
     dateLabel,
     location: e.location || undefined,
     description,
@@ -147,7 +148,10 @@ export async function getEventsForMonth(
   month: number,
   timezone = "Europe/London",
 ): Promise<CalendarEvent[]> {
-  const auth = await getAuthedClient(username);
+  const [auth, identity] = await Promise.all([
+    getAuthedClient(username),
+    getSelfIdentity(username),
+  ]);
   if (!auth) return [];
 
   const calendar = google.calendar({ version: "v3", auth });
@@ -200,7 +204,7 @@ export async function getEventsForMonth(
         timeZone: timezone,
       });
     }
-    return mapEvent(e, dateLabel);
+    return mapEvent(e, dateLabel, identity);
   });
 }
 
@@ -242,7 +246,10 @@ export async function getEventsForDate(
   dateStr: string,
   timezone = "Europe/London",
 ): Promise<CalendarEvent[]> {
-  const auth = await getAuthedClient(username);
+  const [auth, identity] = await Promise.all([
+    getAuthedClient(username),
+    getSelfIdentity(username),
+  ]);
   if (!auth) return [];
 
   const calendar = google.calendar({ version: "v3", auth });
@@ -277,7 +284,7 @@ export async function getEventsForDate(
         weekday: "long", day: "numeric", month: "long", timeZone: timezone,
       });
     }
-    return mapEvent(e, dateLabel);
+    return mapEvent(e, dateLabel, identity);
   });
 }
 
@@ -291,7 +298,10 @@ export async function getEventsForDateRange(
   endDate:   string,
   timezone = "Europe/London",
 ): Promise<CalendarEvent[]> {
-  const auth = await getAuthedClient(username);
+  const [auth, identity] = await Promise.all([
+    getAuthedClient(username),
+    getSelfIdentity(username),
+  ]);
   if (!auth) return [];
 
   const calendar = google.calendar({ version: "v3", auth });
@@ -326,12 +336,15 @@ export async function getEventsForDateRange(
         weekday: "long", day: "numeric", month: "long", timeZone: timezone,
       });
     }
-    return mapEvent(e, dateLabel);
+    return mapEvent(e, dateLabel, identity);
   });
 }
 
 export async function getEventsForDays(username: string, days: number, timezone = "Europe/London"): Promise<CalendarEvent[]> {
-  const auth = await getAuthedClient(username);
+  const [auth, identity] = await Promise.all([
+    getAuthedClient(username),
+    getSelfIdentity(username),
+  ]);
   if (!auth) return [];
 
   const calendar = google.calendar({ version: "v3", auth });
@@ -371,7 +384,7 @@ export async function getEventsForDays(username: string, days: number, timezone 
         timeZone: timezone,
       });
     }
-    return mapEvent(e, dateLabel);
+    return mapEvent(e, dateLabel, identity);
   });
 }
 

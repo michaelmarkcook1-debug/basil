@@ -25,7 +25,7 @@ import { createActionTracked } from "@/lib/actions/store";
 import { createDecisionTracked, linkActionToDecision } from "@/lib/decisions/store";
 import { createMemoryTracked } from "@/lib/memory/store";
 import { updateEvent } from "@/lib/events/store";
-import { isSelf } from "@/lib/self-identity";
+import { getSelfIdentity, isSelf } from "@/lib/self-identity";
 import {
   zoomActionTier,
   zoomDecisionTier,
@@ -232,6 +232,9 @@ export async function processZoomEmail(opts: ProcessZoomEmailOpts): Promise<void
     return;
   }
 
+  // Resolve self-identity up-front so attendee filtering uses the actual user.
+  const selfIdentity = await getSelfIdentity(username);
+
   try {
     const fullEmail = await getEmailBody(username, gmailId);
     if (!fullEmail?.body) {
@@ -421,7 +424,7 @@ export async function processZoomEmail(opts: ProcessZoomEmailOpts): Promise<void
     if (extract.attendees.length > 0 && extract.confidence >= ZOOM_REVIEW_FLOOR) {
       const meetingDateStr = extract.meetingDate.slice(0, 10);
       const participants = extract.attendees
-        .filter((a) => a.trim() && !isSelf(a))
+        .filter((a) => a.trim() && !isSelf(a, selfIdentity))
         .slice(0, 8);
       for (const attendee of participants) {
         try {

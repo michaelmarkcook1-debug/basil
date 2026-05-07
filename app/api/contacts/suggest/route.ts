@@ -3,7 +3,7 @@ import { getRecentEmails } from "@/lib/google/gmail";
 import { getRecentSlackMessages } from "@/lib/slack/client";
 import { getSessionUser } from "@/lib/auth";
 import { contacts } from "@/lib/contacts-data";
-import { isSelf } from "@/lib/self-identity";
+import { getSelfIdentity, isSelf } from "@/lib/self-identity";
 import { findContactByName } from "@/lib/contacts-lookup";
 import type { ContactSuggestion } from "@/lib/types/contact";
 
@@ -68,9 +68,10 @@ export async function GET() {
   const username = (await getSessionUser());
   if (!username) return NextResponse.json({ error: "Unauthorised" }, { status: 401 });
 
-  const [emails, slacks] = await Promise.all([
+  const [emails, slacks, identity] = await Promise.all([
     getRecentEmails(username, 100).catch(() => []),
     getRecentSlackMessages(username, 100).catch(() => []),
+    getSelfIdentity(username),
   ]);
 
   // Keyed by a stable identity — email when we have it, else slugified name.
@@ -115,7 +116,7 @@ export async function GET() {
   // ── Email senders ──
   for (const e of emails) {
     const { name, email } = parseFromHeader(e.from);
-    if (!name || isSelf(name) || (email && isSelf(email))) continue;
+    if (!name || isSelf(name, identity) || (email && isSelf(email, identity))) continue;
     if (isBotIdentity(name) || (email && isBotIdentity(email))) continue;
 
     // Skip if already in contacts (by name or email match)
@@ -134,7 +135,7 @@ export async function GET() {
 
   // ── Slack authors ──
   for (const m of slacks) {
-    if (!m.author || isSelf(m.author)) continue;
+    if (!m.author || isSelf(m.author, identity)) continue;
     if (isBotIdentity(m.author)) continue;
     if (isBotIdentity(m.channel)) continue;
 

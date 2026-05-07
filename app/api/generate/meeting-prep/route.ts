@@ -31,7 +31,7 @@ import { getZoomSummaries, filterByAttendees } from "@/lib/google/zoom-summaries
 import { getTeamsMeetings, filterTeamsMeetingsByAttendees } from "@/lib/microsoft/teams";
 import { listDecisions } from "@/lib/decisions/store";
 import { listActions, isActionStalled } from "@/lib/actions/store";
-import { stripSelf } from "@/lib/self-identity";
+import { getSelfIdentity, stripSelf } from "@/lib/self-identity";
 import {
   parseExtraContext,
   formatExtraContextBlock,
@@ -107,13 +107,14 @@ export async function POST(req: Request) {
   // Fetch user contacts and AI-generated overrides from the server store so
   // meeting prep always reflects the latest profile data without the client
   // having to forward them through the request body.
-  const [userContacts, overrideMap] = await Promise.all([
+  const [userContacts, overrideMap, selfIdentity] = await Promise.all([
     listUserContacts(username).catch(() => [] as Contact[]),
     getAllOverridesFromStore(username).catch(() => ({} as Record<string, unknown>)),
+    getSelfIdentity(username),
   ]);
 
-  // Michael isn't an attendee of his own meeting — strip him everywhere.
-  const attendeeNames = stripSelf(attendees as string[]);
+  // The user isn't an attendee of their own meeting — strip them everywhere.
+  const attendeeNames = stripSelf(attendees as string[], selfIdentity);
   const attendeeNamesLower = attendeeNames.map((n: string) => n.toLowerCase());
 
   // ── Server-side cache check ────────────────────────────────────────────────

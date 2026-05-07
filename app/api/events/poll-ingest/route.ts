@@ -16,7 +16,7 @@ import { getMyOpenIssues, linearPriorityToBasil } from "@/lib/linear/client";
 import { isZoomConnected, getValidZoomAccessToken } from "@/lib/zoom/auth";
 import { getPastMeetings, getMeetingParticipants, getRecentRecordingsWithTranscripts } from "@/lib/zoom/client";
 import { processZoomMeeting } from "@/lib/zoom/process-meeting";
-import { isSelf } from "@/lib/self-identity";
+import { getSelfIdentity, isSelf } from "@/lib/self-identity";
 import { ZOOM_GMAIL_QUERY, detectZoomEmail } from "@/lib/google/zoom-email-detector";
 import { processRegularEmail, processZoomEmail } from "@/lib/email/process-gmail-message";
 import { getSessionUser } from "@/lib/auth";
@@ -85,13 +85,14 @@ export async function POST(req: Request) {
   // email loop and processed with full-body extraction.
   // Microsoft sources (Outlook + Teams) are fetched concurrently — they return
   // empty arrays silently when Microsoft is not connected, so they never block.
-  const [emails, slacks, calEvents, zoomEmails, outlookEmails, teamsMessages] = await Promise.all([
+  const [emails, slacks, calEvents, zoomEmails, outlookEmails, teamsMessages, selfIdentity] = await Promise.all([
     getRecentEmails(username, 20).catch(() => []),
     getRecentSlackMessages(username, 30).catch(() => []),
     getTodayEvents(username).catch(() => []),
     searchEmails(username, ZOOM_GMAIL_QUERY, 8).catch(() => []),
     getRecentOutlookMessages(username, 20, 2).catch(() => []),
     getRecentTeamsMessages(username, 30, 3).catch(() => []),
+    getSelfIdentity(username),
   ]);
 
   // Build a Set of Gmail message IDs confirmed as Zoom emails so the regular
@@ -108,7 +109,7 @@ export async function POST(req: Request) {
     // Skip emails sent BY the user — Basil watches incoming signal only.
     // Without this, emails Michael sends (e.g. about contracts, legal topics)
     // get ingested and incorrectly flagged as high-priority heads-ups.
-    if (isSelf(e.from)) continue;
+    if (isSelf(e.from, selfIdentity)) continue;
 
     // Secondary detection: catch Zoom emails that slipped past the query
     // (e.g. if the from field still contains "zoom" in the display name)
@@ -151,7 +152,7 @@ export async function POST(req: Request) {
   }>();
 
   for (const m of slacks) {
-    if (isSelf(m.author)) continue;
+    if (isSelf(m.author, selfIdentity)) continue;
     if (isBotChannel(m.channel)) continue;
     const isDM = m.channel.startsWith("DM:");
     const isGroupDM = m.channel.startsWith("Group DM");
@@ -200,7 +201,7 @@ export async function POST(req: Request) {
   }>();
 
   for (const m of teamsMessages) {
-    if (isSelf(m.author)) continue;
+    if (isSelf(m.author, selfIdentity)) continue;
     const externalId = `teams:${m.chatOrChannelId}:${m.id}`;
     payloads.push({
       source: "slack", // ActionItem.source has no "teams" — use "slack" as closest
