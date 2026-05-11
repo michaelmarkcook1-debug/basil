@@ -1,6 +1,6 @@
 export const maxDuration = 300;
 
-import { getTextModel, MAX_TOKENS } from "@/lib/ai/model-config";
+import { getTextModel, MAX_TOKENS, PROVIDER_MODE } from "@/lib/ai/model-config";
 import { getSystemPrompt } from "@/lib/ai/system-prompt";
 import { generateValidated, AIValidationError, aiValidationErrorResponse } from "@/lib/ai/generate-validated";
 import { ContactProfileSchema } from "@/lib/ai/schemas";
@@ -290,7 +290,9 @@ Return ONLY valid JSON, no markdown fences:
       system: await getSystemPrompt(username),
       prompt: promptText,
       tag: "contact-profile",
-      providerOptions: { gateway: { tags: ["feature:contact-profile", "env:production"] } },
+      ...(PROVIDER_MODE === "vercel_gateway" && {
+        providerOptions: { gateway: { tags: ["feature:contact-profile", "env:production"] } },
+      }),
     });
     return Response.json({
       ...parsed,

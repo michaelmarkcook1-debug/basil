@@ -221,6 +221,7 @@ interface SignalSummaryProps {
     openActions?:   number;
     activeDecisions?: number;
     recentMemories?: number;
+    projects?:       number;
   };
   className?: string;
 }
@@ -240,6 +241,7 @@ export function SignalSummary({ counts, className }: SignalSummaryProps) {
   if (counts.openActions)     parts.push(`${counts.openActions} action${counts.openActions !== 1 ? "s" : ""}`);
   if (counts.activeDecisions) parts.push(`${counts.activeDecisions} decision${counts.activeDecisions !== 1 ? "s" : ""}`);
   if (counts.recentMemories)  parts.push(`${counts.recentMemories} note${counts.recentMemories !== 1 ? "s" : ""}`);
+  if (counts.projects)        parts.push(`${counts.projects} project${counts.projects !== 1 ? "s" : ""}`);
 
   if (parts.length === 0) {
     return (

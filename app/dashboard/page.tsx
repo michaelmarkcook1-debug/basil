@@ -3,15 +3,18 @@
 import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { getGreeting } from "@/lib/utils";
+import { getNow } from "@/lib/datetime";
 import { NowPanel } from "./components/now-panel";
 import { PulseStrip } from "./components/pulse-strip";
 import { DayTimeline } from "./components/day-timeline";
 import { SignalsFeed } from "./components/signals-feed";
 import { RelationshipCard } from "./components/relationship-card";
 import { AIProjectsCard } from "./components/ai-projects-card";
+import { ProjectTruthCard } from "./components/project-truth-card";
 import { QuickActions } from "./components/quick-actions";
 import { BasilWatching } from "./components/basil-watching";
 import { Search } from "lucide-react";
+import { ReadinessCard } from "./components/readiness-card";
 
 export default function DashboardPage() {
   const greeting = getGreeting();
@@ -22,8 +25,14 @@ export default function DashboardPage() {
   // client always render the same initial HTML.
   const [today, setToday] = useState("");
   useEffect(() => {
+    // Use lib/datetime utility so the whole app uses one consistent timezone path
+    const now = getNow();
+    const userTz = typeof Intl !== "undefined"
+      ? Intl.DateTimeFormat().resolvedOptions().timeZone
+      : undefined;
     setToday(
-      new Date().toLocaleDateString("en-GB", {
+      now.toLocaleDateString("en-GB", {
+        timeZone: userTz,
         weekday: "long",
         day: "numeric",
         month: "long",
@@ -48,6 +57,8 @@ export default function DashboardPage() {
 
   return (
     <div className="p-4 sm:p-6 lg:p-10 space-y-8 max-w-[1400px] mx-auto">
+      <ReadinessCard />
+
       {/* ── Hero: compact greeting + "Now" focus card ── */}
       <div className="grid gap-6 lg:grid-cols-[1fr_420px]">
         <div className="space-y-5">
@@ -116,6 +127,15 @@ export default function DashboardPage() {
           <div className="h-px flex-1 ml-4 bg-gradient-to-r from-border to-transparent" />
         </div>
         <RelationshipCard />
+      </section>
+
+      {/* ── Project Truth Layer ── */}
+      <section className="space-y-4">
+        <div className="flex items-baseline justify-between">
+          <p className="basil-eyebrow">Projects</p>
+          <div className="h-px flex-1 ml-4 bg-gradient-to-r from-border to-transparent" />
+        </div>
+        <ProjectTruthCard />
       </section>
 
       {/* ── AI Projects ── */}

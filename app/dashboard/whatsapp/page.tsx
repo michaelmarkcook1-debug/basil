@@ -89,6 +89,10 @@ export default function WhatsAppPage() {
   const [importPreview, setImportPreview] = useState<{ added: number; updated?: number; unresolved?: number } | null>(null);
   const [profileProgress, setProfileProgress] = useState<{ done: number; total: number } | null>(null);
   const pollRef = useRef<number | null>(null);
+  // Track when Start import was clicked so we can show an error if status never
+  // leaves "idle" within 10 seconds (indicates the after() task crashed silently).
+  const importStartedAtRef = useRef<number | null>(null);
+  const [idleTimeoutError, setIdleTimeoutError] = useState(false);
   // Track when the current QR code was received so we can show an expiry countdown.
   // WhatsApp QR codes are valid for ~60 seconds; Baileys issues a new one each time.
   const qrSeenAtRef = useRef<number | null>(null);
@@ -185,7 +189,9 @@ export default function WhatsAppPage() {
   const startImport = useCallback(async () => {
     setImportPreview(null);
     setStickyQrUrl(null);
+    setIdleTimeoutError(false);
     lastQrUrlRef.current = null;
+    importStartedAtRef.current = Date.now();
 
     const res = await fetch("/api/whatsapp/dump", { method: "POST" });
     const initData = await res.json() as { status?: DumpStatus; jobId?: string };
@@ -198,6 +204,28 @@ export default function WhatsAppPage() {
     pollRef.current = window.setInterval(async () => {
       const s = await loadStatus();
       if (!s) return;
+
+      // If status is still "idle" 10 seconds after clicking Start, the after()
+      // task likely crashed silently — show a helpful error rather than a
+      // perpetual spinner with no feedback.
+      if (
+        s.state === "idle" &&
+        importStartedAtRef.current !== null &&
+        Date.now() - importStartedAtRef.current > 10_000
+      ) {
+        if (pollRef.current) window.clearInterval(pollRef.current);
+        pollRef.current = null;
+        jobIdRef.current = null;
+        importStartedAtRef.current = null;
+        setIdleTimeoutError(true);
+        return;
+      }
+
+      // Once we see a non-idle state, cancel the idle-timeout check.
+      if (s.state !== "idle") {
+        importStartedAtRef.current = null;
+      }
+
       if (s.state === "done" || s.state === "error") {
         if (pollRef.current) window.clearInterval(pollRef.current);
         pollRef.current = null;
@@ -213,6 +241,8 @@ export default function WhatsAppPage() {
       pollRef.current = null;
     }
     jobIdRef.current = null;
+    importStartedAtRef.current = null;
+    setIdleTimeoutError(false);
     setStickyQrUrl(null);
     lastQrUrlRef.current = null;
     await fetch("/api/whatsapp/reset", { method: "POST" });
@@ -471,7 +501,7 @@ export default function WhatsAppPage() {
           <p># Add these to .env.local first:</p>
           <p>WHATSAPP_UPLOAD_TOKEN=&lt;same as server env&gt;</p>
           <p>WHATSAPP_USERNAME=&lt;your Basil username&gt;</p>
-          <p>WHATSAPP_UPLOAD_URL=https://ag-contracts.vercel.app</p>
+          <p>WHATSAPP_UPLOAD_URL=$APP_URL  # e.g. https://basil-app.vercel.app</p>
           <p className="mt-2"># Then run:</p>
           <p>npm run whatsapp:import</p>
         </div>
@@ -599,8 +629,35 @@ export default function WhatsAppPage() {
         </Card>
       )}
 
+      {/* ── IDLE TIMEOUT ERROR ── shown when after() task crashes silently */}
+      {idleTimeoutError && (
+        <Card className="border-amber-400/40 bg-amber-500/5">
+          <CardContent className="p-5 flex gap-3 items-start">
+            <AlertTriangle className="h-4 w-4 text-amber-600 mt-0.5 shrink-0" />
+            <div className="flex-1">
+              <p className="font-semibold text-amber-700">Import failed to start</p>
+              <p className="text-sm text-muted-foreground mt-1">
+                The import job did not start within 10 seconds. This is likely a Vercel
+                environment limitation — the background task may not support long-running
+                WebSocket connections. Use the <strong>local CLI method</strong> shown
+                above for a reliable import.
+              </p>
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={cancelAndReset}
+                className="mt-3 gap-1.5 border-amber-400 text-amber-700 hover:bg-amber-50"
+              >
+                <RefreshCw className="h-3.5 w-3.5" />
+                Dismiss
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
       {/* ── INITIAL / EMPTY STATE ── */}
-      {!inProgress && !snapshot && !snapshotLoading && status?.state !== "error" && (
+      {!inProgress && !snapshot && !snapshotLoading && status?.state !== "error" && !idleTimeoutError && (
         <Card>
           <CardContent className="p-8 text-center space-y-3">
             <MessageCircle className="h-10 w-10 text-muted-foreground/30 mx-auto" />

@@ -49,10 +49,20 @@ const ENV_CHECKS = {
   // Core runtime
   AUTH_SECRET:              true,
   APP_URL:                  true,
+  // STIG_API_TOKEN is optional — only needed for Siri Shortcuts / external API callers.
+  // Labeled clearly in lib/readiness.ts so it never shows as a functional blocker.
+  STIG_API_TOKEN:           true,
   // Durable storage
   BLOB_READ_WRITE_TOKEN:    true,
+  BASIL_TOKEN_ENCRYPTION_KEY: true,
   // AI providers
+  // Note: Basil uses env var `openai_basilv2` as the OpenAI key (legacy naming).
+  // OPENAI_API_KEY is the documented standard name; both are checked here so
+  // the health panel shows the correct state regardless of which is set.
+  OPENAI_API_KEY:           true,
+  openai_basilv2:           true,
   ANTHROPIC_API_KEY:        true,
+  GEMINI_API_KEY:           true,
   // Integration: Google
   GOOGLE_CLIENT_ID:         true,
   GOOGLE_CLIENT_SECRET:     true,

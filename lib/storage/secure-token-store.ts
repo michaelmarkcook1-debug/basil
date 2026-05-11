@@ -25,7 +25,7 @@ import { readUserStore, writeUserStore } from "@/lib/storage/user-store";
 
 // ── Supported providers ───────────────────────────────────────────────────────
 
-export type SupportedProvider = "google" | "microsoft" | "slack" | "zoom" | "linear";
+export type SupportedProvider = "google" | "microsoft" | "slack" | "zoom" | "linear" | "github" | "openai" | "anthropic" | "gemini";
 
 // Mapping from provider → legacy plaintext filename (for migration)
 const LEGACY_FILES: Record<SupportedProvider, string> = {
@@ -34,6 +34,10 @@ const LEGACY_FILES: Record<SupportedProvider, string> = {
   slack:     "slack-config.json",
   zoom:      "zoom-tokens.json",
   linear:    "linear-config.json",
+  github:    "github-token.json",
+  openai:    "openai-token.json",
+  anthropic: "anthropic-token.json",
+  gemini:    "gemini-token.json",
 };
 
 function secureFile(provider: SupportedProvider): string {
@@ -170,7 +174,7 @@ export async function deleteIntegrationToken(
  * Uses lightweight checks — does not decrypt or validate token freshness.
  */
 export async function listConnectedProviders(username: string): Promise<SupportedProvider[]> {
-  const providers: SupportedProvider[] = ["google", "microsoft", "slack", "zoom", "linear"];
+  const providers: SupportedProvider[] = ["google", "microsoft", "slack", "zoom", "linear", "github", "openai", "anthropic", "gemini"];
   const checks = await Promise.all(
     providers.map(async (p) => {
       const token = await getIntegrationToken(username, p);

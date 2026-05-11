@@ -43,3 +43,7 @@ export interface IntegrationStatus {
     drive: boolean;
   };
 }
+
+// Re-export new unified status model
+export type { IntegrationStatus as IntegrationStatusNew, IntegrationStatusResult } from "./status";
+export { STATUS_LABELS, makeStatus } from "./status";

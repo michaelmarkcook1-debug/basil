@@ -24,6 +24,7 @@ import {
   ShieldQuestion,
   ThumbsUp,
   X,
+  RefreshCw,
 } from "lucide-react";
 import { findContactByName } from "@/lib/contacts-lookup";
 import { dashboardCache } from "@/lib/dashboard-cache";
@@ -330,6 +331,32 @@ function DecisionCard({
   );
 }
 
+/** Inline sync button — triggers poll-ingest so Basil re-checks recent Slack/Gmail for decisions. */
+function SyncButton({ onSynced }: { onSynced?: () => void }) {
+  const [syncing, setSyncing] = useState(false);
+  const [done, setDone] = useState(false);
+  return (
+    <button
+      disabled={syncing}
+      onClick={async () => {
+        setSyncing(true);
+        try { await fetch("/api/events/poll-ingest", { method: "POST" }); } catch { /* ignore */ }
+        setSyncing(false);
+        setDone(true);
+        onSynced?.();
+        // Background materialization runs server-side after poll-ingest returns.
+        // A second refresh ~12 s later catches decisions written by the after() blocks.
+        setTimeout(() => { onSynced?.(); }, 12_000);
+        setTimeout(() => setDone(false), 20_000);
+      }}
+      className="inline-flex items-center gap-2 text-sm text-[oklch(0.58_0.15_85)] hover:underline disabled:opacity-50"
+    >
+      <RefreshCw className={`h-3.5 w-3.5 ${syncing ? "animate-spin" : ""}`} />
+      {done ? "Syncing in background…" : syncing ? "Syncing…" : "Sync recent activity"}
+    </button>
+  );
+}
+
 export default function DecisionsPage() {
   const [decisions, setDecisions] = useState<Decision[]>([]);
   const [loading, setLoading] = useState(true);
@@ -370,19 +397,25 @@ export default function DecisionsPage() {
     const cached = dashboardCache.get<Decision[]>("decisions");
     if (cached) { setDecisions(cached); setLoading(false); }
     // Always revalidate from server
-    const res = await fetch("/api/decisions", { cache: "no-store" });
-    if (!res.ok) {
-      console.error("[basil-fetch]", res.status === 401 ? "auth_error" : "server_error", { route: "/api/decisions", status: res.status, component: "DecisionsPage" });
-      if (!cached) setFetchError(new Error(`HTTP ${res.status}`));
+    try {
+      const res = await fetch("/api/decisions", { cache: "no-store" });
+      if (!res.ok) {
+        console.error("[basil-fetch]", res.status === 401 ? "auth_error" : "server_error", { route: "/api/decisions", status: res.status, component: "DecisionsPage" });
+        if (!cached) setFetchError(new Error(`HTTP ${res.status}`));
+        setLoading(false);
+        return;
+      }
+      setFetchError(null);
+      const data = await res.json() as { decisions?: Decision[] };
+      const fresh: Decision[] = data.decisions || [];
+      dashboardCache.set("decisions", fresh);
+      setDecisions(fresh);
+    } catch (e) {
+      console.error("[basil-fetch] network_error", { route: "/api/decisions", component: "DecisionsPage", error: e instanceof Error ? e.message : String(e) });
+      if (!cached) setFetchError(e instanceof Error ? e : new Error("Network error"));
+    } finally {
       setLoading(false);
-      return;
     }
-    setFetchError(null);
-    const data = await res.json() as { decisions?: Decision[] };
-    const fresh: Decision[] = data.decisions || [];
-    dashboardCache.set("decisions", fresh);
-    setDecisions(fresh);
-    setLoading(false);
   }, []);
 
   const notify = useDomainSync("decisions", refresh);
@@ -650,11 +683,24 @@ export default function DecisionsPage() {
             </CardContent>
           </Card>
         ) : active.length === 0 && !search ? (
-          <Card>
-            <CardContent className="py-8 text-center text-muted-foreground">
-              No active decisions logged yet.
-            </CardContent>
-          </Card>
+          <div className="rounded-2xl basil-card p-12 text-center space-y-3">
+            <Scale className="h-12 w-12 mx-auto text-muted-foreground/30" />
+            <h2 className="text-xl font-semibold">No decisions found yet</h2>
+            <p className="text-sm text-muted-foreground max-w-md mx-auto">
+              Basil extracts decisions from Slack DMs, @-mentions and emails automatically.
+              Log one manually, or sync recent activity to let Basil look.
+            </p>
+            <div className="flex items-center justify-center gap-3 flex-wrap">
+              <button
+                onClick={() => setForm(f => ({ ...f, showForm: true }))}
+                className="inline-flex items-center gap-1.5 rounded-lg bg-[oklch(0.22_0.05_250)] text-white text-sm font-semibold px-4 py-2 hover:bg-[oklch(0.28_0.06_250)] transition"
+              >
+                <Plus className="h-4 w-4" />
+                Log decision
+              </button>
+              <SyncButton onSynced={refresh} />
+            </div>
+          </div>
         ) : null}
         {!loading && active.length === 0 && search && (
           <Card>

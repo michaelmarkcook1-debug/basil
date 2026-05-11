@@ -82,96 +82,38 @@ async function getFirstMessage(apiKey: string, threadId: string): Promise<string
 
 export async function fetchOpenAIProjects(apiKey: string): Promise<AIProject[]> {
   try {
-    // Fetch up to 20 most recently active assistants
     const assistants = await oaiFetch<OAIListResponse<OAIAssistant>>(
       apiKey,
       "/assistants?limit=20&order=desc"
     );
 
     const now = new Date().toISOString();
-    const projects: AIProject[] = [];
 
-    // For each assistant, fetch its most recent threads (up to 5 per assistant)
-    for (const assistant of assistants.data) {
-      let threads: OAIThread[] = [];
-      try {
-        // The threads endpoint is not filterable by assistant — fetch recent threads globally
-        // and use the assistant name/description as context for classification
-        const threadList = await oaiFetch<OAIListResponse<OAIThread>>(
-          apiKey,
-          `/threads?limit=5`
-        );
-        threads = threadList.data;
-      } catch {
-        // threads endpoint may not be available for all keys — skip silently
-      }
+    return assistants.data.map((assistant) => {
+      const name = assistant.name ?? `OpenAI assistant ${assistant.id.slice(-6)}`;
+      const description = assistant.description ?? "OpenAI Assistant / Codex-adjacent work surface";
+      const createdAt = new Date(assistant.created_at * 1000).toISOString();
+      const category = classifyCategory(name, description);
+      const importance = scoreImportance(createdAt, category);
 
-      const assistantName = assistant.name ?? `Assistant ${assistant.id.slice(-6)}`;
-      const assistantDesc = assistant.description ?? undefined;
-
-      // If no threads found, create one project entry from the assistant itself
-      if (threads.length === 0) {
-        const createdAt = new Date(assistant.created_at * 1000).toISOString();
-        const category = classifyCategory(assistantName, assistantDesc);
-        const importance = scoreImportance(createdAt, category);
-        projects.push({
-          id: `codex:${assistant.id}`,
-          platform: "codex",
-          externalId: assistant.id,
-          name: assistantName,
-          description: assistantDesc,
-          url: `https://platform.openai.com/assistants/${assistant.id}`,
-          createdAt,
-          lastActiveAt: createdAt,
-          category,
-          importance,
-          summary: generateSummary({ name: assistantName, platform: "codex", description: assistantDesc, category }),
-          hidden: false,
-          syncedAt: now,
-        });
-      }
-
-      // Add thread-level projects
-      for (const thread of threads) {
-        const lastActiveAt = new Date(thread.created_at * 1000).toISOString();
-        const firstMsg = await getFirstMessage(apiKey, thread.id);
-        const name = firstMsg
-          ? firstMsg.slice(0, 60) + (firstMsg.length > 60 ? "…" : "")
-          : `Thread with ${assistantName}`;
-        const description = firstMsg;
-        const category = classifyCategory(name, assistantDesc);
-        const importance = scoreImportance(lastActiveAt, category);
-
-        projects.push({
-          id: `codex:${thread.id}`,
-          platform: "codex",
-          externalId: thread.id,
-          name,
-          description,
-          url: `https://platform.openai.com/playground/assistants?thread=${thread.id}`,
-          createdAt: lastActiveAt,
-          lastActiveAt,
-          category,
-          importance,
-          summary: generateSummary({ name, platform: "codex", description, category }),
-          hidden: false,
-          syncedAt: now,
-        });
-      }
-
-      // Only process the first assistant if threads endpoint worked — avoids duplicate threads
-      if (threads.length > 0) break;
-    }
-
-    // Deduplicate by id
-    const seen = new Set<string>();
-    return projects.filter((p) => {
-      if (seen.has(p.id)) return false;
-      seen.add(p.id);
-      return true;
+      return {
+        id: `codex:${assistant.id}`,
+        platform: "codex" as const,
+        externalId: assistant.id,
+        name,
+        description,
+        url: `https://platform.openai.com/assistants/${assistant.id}`,
+        createdAt,
+        lastActiveAt: createdAt,
+        category,
+        importance,
+        summary: generateSummary({ name, platform: "codex", description, category }),
+        hidden: false,
+        syncedAt: now,
+      };
     });
   } catch (err) {
-    console.error("[openai] fetchOpenAIProjects error:", err);
+    console.error("[openai] fetchOpenAIProjects error:", err instanceof Error ? err.message : String(err));
     return [];
   }
 }

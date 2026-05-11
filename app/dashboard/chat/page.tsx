@@ -24,6 +24,9 @@ import {
   ShieldCheck,
   Trash2,
   Paperclip,
+  AlertTriangle,
+  BookMarked,
+  ListTodo,
 } from "lucide-react";
 
 // Per-session localStorage key — intentionally includes no username because
@@ -95,6 +98,8 @@ function humanSize(bytes: number): string {
 function ChatPageInner() {
   const [input, setInput] = useState("");
   const [stagedFiles, setStagedFiles] = useState<StagedFile[]>([]);
+  const [brainReady, setBrainReady] = useState<boolean | null>(null);
+  const [brainModel, setBrainModel] = useState<string | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const hydrated = useRef(false);
@@ -111,10 +116,21 @@ function ChatPageInner() {
   const searchParams = useSearchParams();
   const router = useRouter();
 
-  const { messages, sendMessage, setMessages, addToolApprovalResponse, status } =
+  const { messages, sendMessage, setMessages, addToolApprovalResponse, status, error } =
     useChat();
 
   const isActive = status === "streaming" || status === "submitted";
+
+  // Check brain status once on mount
+  useEffect(() => {
+    fetch("/api/ai/test-brain")
+      .then((r) => r.ok ? r.json() : null)
+      .then((d: { ok?: boolean; model?: string } | null) => {
+        if (d) { setBrainReady(d.ok ?? false); setBrainModel(d.model ?? null); }
+        else setBrainReady(false);
+      })
+      .catch(() => setBrainReady(false));
+  }, []);
 
   // When the AI stream completes, scan the last assistant message for tool
   // calls that mutate server state and broadcast domain changes so other
@@ -339,11 +355,34 @@ function ChatPageInner() {
     });
   }, []);
 
+  // Track per-message save state: null = idle, "saving" = in flight, "saved-action"|"saved-memory" = done
+  const [saveState, setSaveState] = useState<Record<string, string>>({});
+
+  const saveChatSnippet = useCallback(async (messageId: string, content: string, type: "action" | "memory") => {
+    setSaveState((prev) => ({ ...prev, [messageId + type]: "saving" }));
+    try {
+      const res = await fetch("/api/ledger/chat-save", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ type, content, messageId }),
+      });
+      if (res.ok) {
+        setSaveState((prev) => ({ ...prev, [messageId + type]: "saved" }));
+        // Notify the relevant domain so the tab refreshes
+        emitChange(type === "action" ? "actions" : "memory");
+      } else {
+        setSaveState((prev) => ({ ...prev, [messageId + type]: "error" }));
+      }
+    } catch {
+      setSaveState((prev) => ({ ...prev, [messageId + type]: "error" }));
+    }
+  }, []);
+
   return (
     <div className="flex h-full flex-col">
       <header className="border-b border-border px-4 sm:px-6 py-3 sm:py-4 flex items-start justify-between gap-3">
         <div>
-          <h1 className="text-lg font-semibold text-foreground">Chat with Basil</h1>
+          <h1 className="text-lg font-semibold text-foreground">Ask Basil</h1>
           <p className="text-sm text-muted-foreground hidden sm:block">
             Ask me anything about your day, meetings, emails, or Slack.
           </p>
@@ -363,6 +402,102 @@ function ChatPageInner() {
         )}
       </header>
 
+      {/* Brain loading spinner */}
+      {brainReady === null && (
+        <div className="flex flex-1 items-center justify-center">
+          <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+        </div>
+      )}
+
+      {/* Brain not configured — full blocking panel */}
+      {brainReady === false && (
+        <div className="flex flex-1 flex-col items-center justify-center px-6 py-16 text-center">
+          <div className="mb-4 flex h-14 w-14 items-center justify-center rounded-full border-2 border-red-300 bg-red-50">
+            <AlertTriangle className="h-7 w-7 text-red-500" />
+          </div>
+          <h2 className="text-xl font-semibold text-foreground">Brain not configured</h2>
+          <p className="mt-2 max-w-sm text-sm text-muted-foreground">
+            Basil needs an OpenAI API key to answer questions. Add the following environment variables to get started.
+          </p>
+          <div className="mt-4 rounded-lg border border-red-200 bg-red-50 px-5 py-4 text-left text-sm text-red-800 space-y-1 w-full max-w-sm">
+            <p><code className="font-mono font-semibold">OPENAI_API_KEY</code> — your OpenAI secret key</p>
+            <p><code className="font-mono font-semibold">OPENAI_MODEL</code> — e.g. <code className="font-mono">gpt-4o</code> <span className="text-red-500/70">(optional, has default)</span></p>
+          </div>
+          <div className="mt-5 flex gap-3">
+            <a
+              href="/dashboard/settings?tab=brain"
+              className="inline-flex items-center rounded-md bg-foreground px-4 py-2 text-sm font-medium text-background hover:opacity-90 transition-opacity"
+            >
+              Open Settings → Brain
+            </a>
+          </div>
+        </div>
+      )}
+
+      {brainReady === true && (
+        <>
+          {/* Brain ready status bar */}
+          {brainModel && (
+            <div className="mx-4 mt-2 flex items-center gap-2 rounded-lg border border-emerald-200 bg-emerald-50/50 px-3 py-1.5 text-xs text-emerald-700">
+              <div className="h-1.5 w-1.5 rounded-full bg-emerald-500 shrink-0" />
+              <span className="font-medium">OpenAI ready</span>
+              <span className="text-emerald-600/70">·</span>
+              <span className="font-mono">{brainModel}</span>
+            </div>
+          )}
+
+          {error && (() => {
+            // Try to parse narrowingOptions from the error if it came from the API
+            let userMessage: string = "Something went wrong. Please try again.";
+            let narrowingOptions: string[] | undefined;
+            try {
+              // AI SDK wraps server errors — the message may contain JSON or a safe string
+              const parsed = JSON.parse(error.message) as { error?: string; narrowingOptions?: string[] };
+              if (parsed.error) userMessage = parsed.error;
+              if (parsed.narrowingOptions) narrowingOptions = parsed.narrowingOptions;
+            } catch {
+              // Not JSON — use the message directly only if it looks safe (no raw provider text)
+              const msg = error.message ?? "";
+              const looksLikeProviderError =
+                /sk-|org-|openai|anthropic|rate_limit|tokens per minute|context_length/i.test(msg);
+              userMessage = looksLikeProviderError
+                ? "Basil encountered an error. Please try again."
+                : msg || "Something went wrong. Please try again.";
+            }
+            return (
+              <div className="mx-4 mt-2 rounded-lg border border-destructive/40 bg-destructive/5 px-4 py-3 text-sm text-destructive space-y-2">
+                <div className="flex items-start gap-2">
+                  <AlertTriangle className="h-4 w-4 shrink-0 mt-0.5" />
+                  <span>
+                    <strong>Chat unavailable:</strong> {userMessage}
+                    {" — "}
+                    <a href="/dashboard/settings" className="underline">
+                      Check Settings → Readiness
+                    </a>
+                  </span>
+                </div>
+                {narrowingOptions && narrowingOptions.length > 0 && (
+                  <div className="flex flex-wrap gap-1.5 pl-6">
+                    {narrowingOptions.map((opt) => (
+                      <Button
+                        key={opt}
+                        variant="outline"
+                        size="sm"
+                        className="text-xs border-destructive/30 text-destructive hover:bg-destructive/10 h-auto py-1"
+                        onClick={() => {
+                          hasSentMessage.current = true;
+                          sendMessage({ text: opt });
+                        }}
+                      >
+                        {opt}
+                      </Button>
+                    ))}
+                  </div>
+                )}
+              </div>
+            );
+          })()}
+
       <ScrollArea className="flex-1 p-3 sm:p-6" ref={scrollRef}>
         <div className="max-w-3xl mx-auto space-y-6">
           {messages.length === 0 && (
@@ -377,10 +512,14 @@ function ChatPageInner() {
               </p>
               <div className="flex flex-wrap gap-2 mt-6 justify-center">
                 {[
-                  "What's my day look like?",
-                  "Any important emails?",
-                  "What's happening in Slack?",
-                  "Prep me for my next meeting",
+                  "What needs my attention today?",
+                  "Who is blocked?",
+                  "What decisions are waiting on me?",
+                  "What projects am I working on?",
+                  "What did I promise?",
+                  "What meetings need prep?",
+                  "What AI work needs review?",
+                  "What can I ignore?",
                 ].map((suggestion) => (
                   <Button
                     key={suggestion}
@@ -416,12 +555,50 @@ function ChatPageInner() {
                 </p>
                 {message.parts.map((part, i) => {
                   if (part.type === "text") {
+                    const isAssistant = message.role === "assistant";
+                    const actionKey = message.id + "action";
+                    const memoryKey = message.id + "memory";
                     return (
-                      <div
-                        key={`${message.id}-${i}`}
-                        className="text-sm leading-relaxed whitespace-pre-wrap"
-                      >
-                        {part.text}
+                      <div key={`${message.id}-${i}`}>
+                        <div className="text-sm leading-relaxed whitespace-pre-wrap">
+                          {part.text}
+                        </div>
+                        {isAssistant && part.text.trim().length > 0 && (
+                          <div className="mt-2 flex gap-1.5">
+                            <button
+                              type="button"
+                              disabled={saveState[actionKey] === "saving" || saveState[actionKey] === "saved"}
+                              onClick={() => saveChatSnippet(message.id, part.text, "action")}
+                              className="inline-flex items-center gap-1 rounded px-2 py-0.5 text-xs text-muted-foreground hover:text-foreground hover:bg-muted transition-colors disabled:opacity-50"
+                              title="Save as action"
+                            >
+                              {saveState[actionKey] === "saving" ? (
+                                <Loader2 className="h-3 w-3 animate-spin" />
+                              ) : saveState[actionKey] === "saved" ? (
+                                <Check className="h-3 w-3 text-emerald-500" />
+                              ) : (
+                                <ListTodo className="h-3 w-3" />
+                              )}
+                              {saveState[actionKey] === "saved" ? "Saved" : "→ Action"}
+                            </button>
+                            <button
+                              type="button"
+                              disabled={saveState[memoryKey] === "saving" || saveState[memoryKey] === "saved"}
+                              onClick={() => saveChatSnippet(message.id, part.text, "memory")}
+                              className="inline-flex items-center gap-1 rounded px-2 py-0.5 text-xs text-muted-foreground hover:text-foreground hover:bg-muted transition-colors disabled:opacity-50"
+                              title="Save to memory"
+                            >
+                              {saveState[memoryKey] === "saving" ? (
+                                <Loader2 className="h-3 w-3 animate-spin" />
+                              ) : saveState[memoryKey] === "saved" ? (
+                                <Check className="h-3 w-3 text-emerald-500" />
+                              ) : (
+                                <BookMarked className="h-3 w-3" />
+                              )}
+                              {saveState[memoryKey] === "saved" ? "Saved" : "→ Memory"}
+                            </button>
+                          </div>
+                        )}
                       </div>
                     );
                   }
@@ -659,6 +836,8 @@ function ChatPageInner() {
           </div>
         </form>
       </div>
+        </>
+      )}
     </div>
   );
 }

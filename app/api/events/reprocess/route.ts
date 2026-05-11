@@ -5,7 +5,7 @@ import { listDecisions } from "@/lib/decisions/store";
 import { processRegularEmail, processZoomEmail } from "@/lib/email/process-gmail-message";
 import { getOutlookMessageBody } from "@/lib/microsoft/outlook-mail";
 import { fetchSlackThread, formatThreadTranscript } from "@/lib/slack/fetch-thread";
-import { classifySlack, shouldClassifySlack, shouldMaterializeSlack } from "@/lib/slack/classify-slack";
+import { classifySlack, shouldMaterializeSlack } from "@/lib/slack/classify-slack";
 import { materializeSlackIntelligence } from "@/lib/slack/materialize-slack";
 import { fetchTeamsThread, formatTeamsTranscript } from "@/lib/teams/fetch-thread";
 import { classifyTeams, shouldMaterializeSlack as shouldMaterializeTeams } from "@/lib/teams/classify-teams";

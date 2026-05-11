@@ -6,7 +6,7 @@ import {
   convertToModelMessages,
   stepCountIs,
 } from "ai";
-import { getTextModel, MAX_TOKENS } from "@/lib/ai/model-config";
+import { getTextModel, MAX_TOKENS, PROVIDER_MODE } from "@/lib/ai/model-config";
 import { getSystemPrompt } from "@/lib/ai/system-prompt";
 import { buildAssistantTools } from "@/lib/ai/tools";
 import { getSessionUser } from "@/lib/auth";
@@ -48,9 +48,11 @@ export async function POST(req: Request) {
     messages: modelMessages,
     tools: buildAssistantTools(username, firstName, timezone),
     stopWhen: stepCountIs(8),
-    providerOptions: {
-      gateway: { tags: ["feature:chat", "env:production"] },
-    },
+    ...(PROVIDER_MODE === "vercel_gateway" && {
+      providerOptions: {
+        gateway: { tags: ["feature:chat", "env:production"] },
+      },
+    }),
   });
 
   return result.toUIMessageStreamResponse();

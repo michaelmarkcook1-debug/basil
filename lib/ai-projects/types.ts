@@ -1,5 +1,5 @@
 export type Platform =
-  | "claude-code" | "claude-chat"
+  | "claude-code" | "claude-chat" | "claude-cowork"
   | "github" | "vercel" | "linear"
   | "chatgpt" | "gemini" | "perplexity" | "grok" | "codex";
 
@@ -47,6 +47,7 @@ export interface AIProjectsData {
 export const PLATFORM_LABELS: Record<Platform, string> = {
   "claude-code": "Claude Code",
   "claude-chat": "Claude.ai",
+  "claude-cowork": "Claude Cowork",
   "github": "GitHub",
   "vercel": "Vercel",
   "linear": "Linear",

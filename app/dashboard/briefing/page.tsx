@@ -16,6 +16,12 @@ import {
   ArrowUpRight,
   Users,
   Inbox,
+  FolderKanban,
+  CheckCircle2,
+  XCircle,
+  MinusCircle,
+  ChevronDown,
+  ChevronUp,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import {
@@ -23,12 +29,19 @@ import {
   buildExtraContextFormData,
 } from "@/components/extra-context-input";
 import { useDomainSync } from "@/lib/sync/use-domain-sync";
+import { getNow } from "@/lib/datetime";
 
 import type { Briefing } from "@/lib/types/briefing";
 import { SignalSummary } from "@/components/ui/trust-badge";
 
+// Use the browser's local timezone rather than a hardcoded one
+const USER_TZ = typeof Intl !== "undefined"
+  ? Intl.DateTimeFormat().resolvedOptions().timeZone
+  : "UTC";
+
 type SectionKey =
   | "criticalToday"
+  | "projectRadar"
   | "followUps"
   | "decisionsToWatch"
   | "meetingsNeedingPrep"
@@ -58,6 +71,15 @@ const sections: SectionDef[] = [
     accent: "bg-red-500",
     fg: "text-red-600",
     ring: "ring-red-500/25",
+  },
+  {
+    key: "projectRadar",
+    label: "Project Radar",
+    icon: FolderKanban,
+    bg: "bg-emerald-500/[0.04]",
+    accent: "bg-emerald-500",
+    fg: "text-emerald-600",
+    ring: "ring-emerald-500/25",
   },
   {
     key: "followUps",
@@ -204,10 +226,26 @@ function RichContent({ text }: { text: string }) {
   );
 }
 
+interface SourceReadiness {
+  brain: "ready" | "missing";
+  brainModel?: string;
+  slack: "connected" | "missing";
+  google: "connected" | "missing";
+  actions: number;
+  decisions: number;
+  projects: number;
+  memory: number;
+  aiWork: number;
+  meetings: number;
+}
+
 export default function BriefingPage() {
   const [briefing, setBriefing] = useState<Briefing | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+  const [sources, setSources] = useState<unknown[]>([]);
+  const [readiness, setReadiness] = useState<SourceReadiness | null>(null);
+  const [readinessExpanded, setReadinessExpanded] = useState(false);
   const [extraFiles, setExtraFiles] = useState<File[]>([]);
 
   // extraNotes and extraUrls are user input — persist across tab switches.
@@ -250,14 +288,39 @@ export default function BriefingPage() {
       const lsRaw = localStorage.getItem(cacheKey);
       if (lsRaw) {
         const lsParsed = JSON.parse(lsRaw);
-        const today = new Date().toLocaleDateString("en-CA", { timeZone: "Europe/London" });
+        const today = getNow().toLocaleDateString("en-CA", { timeZone: USER_TZ });
         const lsDate = lsParsed.generatedAt
-          ? new Date(lsParsed.generatedAt).toLocaleDateString("en-CA", { timeZone: "Europe/London" })
+          ? new Date(lsParsed.generatedAt).toLocaleDateString("en-CA", { timeZone: USER_TZ })
           : "";
         if (lsDate === today) setBriefing(lsParsed);
         else localStorage.removeItem(cacheKey);
       }
     } catch { /* ignore */ }
+
+    // Load source readiness in parallel
+    Promise.all([
+      fetch("/api/ai/test-brain", { cache: "no-store" }).then((r) => r.ok ? r.json() : null).catch((e: unknown) => { console.warn("[briefing] brain status:", e); return null; }), // ci-ok: readiness check, null handled below
+      fetch("/api/readiness", { cache: "no-store" }).then((r) => r.ok ? r.json() : null).catch((e: unknown) => { console.warn("[briefing] readiness:", e); return null; }), // ci-ok: readiness check, null handled below
+      fetch("/api/actions", { cache: "no-store" }).then((r) => r.ok ? r.json() : null).catch((e: unknown) => { console.warn("[briefing] actions:", e); return null; }), // ci-ok: source count, null handled below
+      fetch("/api/decisions", { cache: "no-store" }).then((r) => r.ok ? r.json() : null).catch((e: unknown) => { console.warn("[briefing] decisions:", e); return null; }), // ci-ok: source count, null handled below
+      fetch("/api/memory", { cache: "no-store" }).then((r) => r.ok ? r.json() : null).catch((e: unknown) => { console.warn("[briefing] memory:", e); return null; }), // ci-ok: source count, null handled below
+      fetch("/api/projects", { cache: "no-store" }).then((r) => r.ok ? r.json() : null).catch((e: unknown) => { console.warn("[briefing] projects:", e); return null; }), // ci-ok: source count, null handled below
+    ]).then(([brain, ready, actData, decData, memData, projData]) => {
+      const slackCheck = (ready?.checks as Array<{id:string;ok:boolean}>|undefined)?.find((c) => c.id === "slack");
+      const googleCheck = (ready?.checks as Array<{id:string;ok:boolean}>|undefined)?.find((c) => c.id === "google");
+      setReadiness({
+        brain: brain?.ok ? "ready" : "missing",
+        brainModel: brain?.model ?? undefined,
+        slack: slackCheck?.ok ? "connected" : "missing",
+        google: googleCheck?.ok ? "connected" : "missing",
+        actions: (actData?.actions as unknown[])?.filter((a: unknown) => (a as {status:string}).status !== "done").length ?? 0,
+        decisions: (decData?.decisions as unknown[])?.filter((d: unknown) => (d as {status:string}).status !== "superseded").length ?? 0,
+        projects: (projData?.projects as unknown[])?.length ?? 0,
+        memory: (memData?.memories as unknown[])?.length ?? 0,
+        aiWork: 0,
+        meetings: 0,
+      });
+    }).catch((e: unknown) => { console.warn("[briefing] readiness load failed:", e); }); // ci-ok: readiness panel is decorative, null state handled in JSX
 
     // Authoritative load from server — this is the source of truth
     fetch("/api/generate/briefing", { cache: "no-store" })
@@ -278,6 +341,8 @@ export default function BriefingPage() {
     setLoading(true);
     setError("");
     setIsStale(false); // clear stale flag on every regenerate
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 60_000);
     try {
       const hasExtras =
         extraNotes.trim().length > 0 ||
@@ -292,22 +357,45 @@ export default function BriefingPage() {
               undefined,
               extraUrls
             ),
+            signal: controller.signal,
           })
-        : await fetch("/api/generate/briefing", { method: "POST" });
-      if (!res.ok) throw new Error("Generation failed");
-      const data = await res.json();
+        : await fetch("/api/generate/briefing", {
+            method: "POST",
+            signal: controller.signal,
+          });
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({})) as { error?: string };
+        if (res.status === 503) {
+          setError(
+            body.error ??
+              "AI brain not configured. Add openai_basilv2 or OPENAI_API_KEY in Vercel settings."
+          );
+        } else {
+          setError(body.error ?? "Generation failed");
+        }
+        return;
+      }
+      const data = await res.json() as Briefing & { sources?: unknown[] };
       setBriefing(data);
+      setSources(data.sources ?? []);
       clearExtraDraft();
       try { localStorage.setItem(scopedKey("briefing-v2"), JSON.stringify(data)); } catch { /* ignore */ }
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Something went wrong");
+      if (e instanceof Error && e.name === "AbortError") {
+        setError(
+          "Briefing generation timed out after 60 seconds. The AI is still processing — try again."
+        );
+      } else {
+        setError(e instanceof Error ? e.message : "Something went wrong");
+      }
     } finally {
+      clearTimeout(timeoutId);
       setLoading(false);
     }
   }
 
-  const today = new Date().toLocaleDateString("en-GB", {
-    timeZone: "Europe/London",
+  const today = getNow().toLocaleDateString("en-GB", {
+    timeZone: USER_TZ,
     weekday: "long",
     day: "numeric",
     month: "long",
@@ -350,6 +438,79 @@ export default function BriefingPage() {
         </Button>
       </header>
 
+      {/* Source readiness panel */}
+      {readiness && (
+        <div className={cn(
+          "rounded-xl border px-5 py-4 space-y-3",
+          readiness.brain === "missing"
+            ? "border-red-200 bg-red-50/60"
+            : "border-border/50 bg-muted/30"
+        )}>
+          <button
+            onClick={() => setReadinessExpanded((v) => !v)}
+            className="w-full flex items-center justify-between gap-2 text-sm font-medium"
+          >
+            <span className="flex items-center gap-2">
+              {readiness.brain === "missing" ? (
+                <XCircle className="h-4 w-4 text-red-500" />
+              ) : (
+                <CheckCircle2 className="h-4 w-4 text-emerald-500" />
+              )}
+              <span className={readiness.brain === "missing" ? "text-red-700" : "text-foreground"}>
+                {readiness.brain === "missing"
+                  ? "Brain missing — briefing will fail"
+                  : `Brain ready · ${readiness.brainModel ?? "OpenAI"}`}
+              </span>
+            </span>
+            <span className="flex items-center gap-1.5 text-muted-foreground">
+              <span className="text-xs">Sources</span>
+              {readinessExpanded ? <ChevronUp className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}
+            </span>
+          </button>
+
+          {readinessExpanded && (
+            <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 pt-1">
+              {[
+                {
+                  label: "Slack",
+                  value: readiness.slack === "connected" ? "connected" : "not connected",
+                  state: readiness.slack === "connected" ? "ok" : "disconnected",
+                },
+                {
+                  label: "Google",
+                  value: readiness.google === "connected" ? "connected" : "not connected",
+                  state: readiness.google === "connected" ? "ok" : "disconnected",
+                },
+                { label: "Actions",   value: String(readiness.actions),   state: "ok" },
+                { label: "Decisions", value: String(readiness.decisions),  state: "ok" },
+                { label: "Projects",  value: String(readiness.projects),   state: "ok" },
+                { label: "Memory",    value: String(readiness.memory),     state: "ok" },
+              ].map(({ label, value, state }) => (
+                <div key={label} className="flex items-center gap-2 text-xs">
+                  {state === "ok" ? (
+                    <CheckCircle2 className="h-3.5 w-3.5 text-emerald-400 shrink-0" />
+                  ) : (
+                    <MinusCircle className="h-3.5 w-3.5 text-amber-400 shrink-0" />
+                  )}
+                  <span className="text-muted-foreground">{label}:</span>
+                  <span className={cn(
+                    "font-medium",
+                    state === "disconnected" ? "text-amber-600" : "text-foreground"
+                  )}>{value}</span>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {readiness.brain === "missing" && (
+            <p className="text-xs text-red-600 pt-1">
+              Missing: <code className="font-mono">OPENAI_API_KEY</code> and/or <code className="font-mono">OPENAI_MODEL</code>.
+              {" "}<a href="/dashboard/settings?tab=brain" className="underline font-medium hover:text-red-800">Configure brain →</a>
+            </p>
+          )}
+        </div>
+      )}
+
       <ExtraContextInput
         label="Want Basil to weigh in on something specific?"
         placeholder="e.g. 'Focus on the AG launch timeline', 'Here's my investor update draft — pull anything relevant', 'Attached notes from yesterday's 1:1'…"
@@ -382,8 +543,17 @@ export default function BriefingPage() {
       )}
 
       {error && (
-        <div className="rounded-xl border border-destructive/40 bg-destructive/5 px-5 py-4 text-sm text-destructive">
-          {error}
+        <div className="rounded-xl border border-destructive/40 bg-destructive/5 px-5 py-4 space-y-2">
+          <div className="flex items-start gap-2">
+            <AlertTriangle className="h-4 w-4 text-destructive shrink-0 mt-0.5" />
+            <p className="text-sm text-destructive leading-relaxed">{error}</p>
+          </div>
+          <button
+            onClick={generate}
+            className="text-xs font-semibold underline underline-offset-2 text-destructive hover:text-destructive/80 transition-colors ml-6"
+          >
+            Try again
+          </button>
         </div>
       )}
 
@@ -455,11 +625,11 @@ export default function BriefingPage() {
 
           <div className="pt-2">
             <div className="basil-hairline" />
-            <div className="pt-4 flex flex-col items-center gap-1.5 text-center">
+            <div className="pt-4 flex flex-col items-center gap-2 text-center">
               <p className="text-sm text-muted-foreground font-mono tracking-wider uppercase">
                 Prepared by Basil ·{" "}
                 {new Date(briefing.generatedAt).toLocaleString("en-GB", {
-                  timeZone: "Europe/London",
+                  timeZone: USER_TZ,
                   weekday: "short",
                   day: "numeric",
                   month: "short",
@@ -469,6 +639,39 @@ export default function BriefingPage() {
               </p>
               {briefing.dataSources && (
                 <SignalSummary counts={briefing.dataSources} />
+              )}
+              {briefing.sourceAttribution && (
+                <div className="flex flex-col items-center gap-1.5 pt-1 text-xs text-muted-foreground max-w-xl">
+                  {briefing.sourceAttribution.connected.length > 0 && (
+                    <p>
+                      <span className="font-medium text-foreground/70">Sources: </span>
+                      {briefing.sourceAttribution.connected.join(" · ")}
+                    </p>
+                  )}
+                  {briefing.sourceAttribution.unavailable.length > 0 && (
+                    <p className="text-amber-600/80">
+                      <span className="font-medium">Not available: </span>
+                      {briefing.sourceAttribution.unavailable.join(" · ")}
+                    </p>
+                  )}
+                </div>
+              )}
+              {sources.length > 0 && (
+                <div className="flex flex-wrap justify-center gap-1.5 pt-1">
+                  {(sources as Array<{ id?: string; name?: string; status?: string }>).map((s, i) => (
+                    <span
+                      key={s.id ?? i}
+                      className={cn(
+                        "inline-flex items-center rounded-full px-2 py-0.5 text-[11px] font-medium ring-1",
+                        s.status === "error" || s.status === "missing"
+                          ? "bg-amber-50 text-amber-700 ring-amber-300/60"
+                          : "bg-muted text-muted-foreground ring-border/40"
+                      )}
+                    >
+                      {s.name ?? s.id ?? `source-${i}`}
+                    </span>
+                  ))}
+                </div>
               )}
             </div>
           </div>

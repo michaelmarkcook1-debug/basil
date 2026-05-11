@@ -10,6 +10,7 @@
 
 import { readStore } from "@/lib/storage/persistent";
 import { readGenerateCache } from "@/lib/generate-cache/store";
+import { validateModelConfig } from "@/lib/ai/model-config";
 import { readUserStore } from "@/lib/storage/user-store";
 import { getGoogleConnectionStatus } from "@/lib/google/auth";
 import { getMicrosoftConnectionStatus } from "@/lib/microsoft/auth";
@@ -273,6 +274,18 @@ export async function gatherSystemHealth(username: string): Promise<SystemHealth
 
   const blobConfigured = !!process.env.BLOB_READ_WRITE_TOKEN;
 
+  // Check AI model config — failure is a tile, not a gate
+  let modelConfigOk = false;
+  let modelConfigDetail = "Not configured";
+  try {
+    validateModelConfig();
+    modelConfigOk = true;
+    const hasOpenAI = !!(process.env.openai_basilv2 ?? process.env.OPENAI_API_KEY);
+    modelConfigDetail = hasOpenAI ? `OpenAI direct (model: ${process.env.OPENAI_MODEL ?? "gpt-4o"})` : "Vercel AI Gateway";
+  } catch (e) {
+    modelConfigDetail = e instanceof Error ? e.message : "Config invalid";
+  }
+
   const storageTiles: HealthTile[] = [
     {
       id:            "blob",
@@ -283,6 +296,16 @@ export async function gatherSystemHealth(username: string): Promise<SystemHealth
       nextAction:    blobConfigured
         ? undefined
         : "Set BLOB_READ_WRITE_TOKEN in Vercel project settings → Environment Variables",
+    },
+    {
+      id:            "ai-brain",
+      label:         "AI brain",
+      color:         modelConfigOk ? "green" : "red",
+      statusText:    modelConfigOk ? modelConfigDetail : `Not configured — ${modelConfigDetail}`,
+      lastCheckedAt: now,
+      nextAction:    modelConfigOk
+        ? undefined
+        : "Set openai_basilv2 (your OpenAI API key) in Vercel env vars, or run: vercel env pull .env.local",
     },
   ];
 

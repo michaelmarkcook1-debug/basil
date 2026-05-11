@@ -69,13 +69,16 @@ function getRedirectUri(appBaseUrl?: string): string {
   if (process.env.MICROSOFT_REDIRECT_URI) {
     return process.env.MICROSOFT_REDIRECT_URI;
   }
-  // Base URL passed from the incoming request (most reliable on Vercel)
-  if (appBaseUrl) {
-    return `${appBaseUrl}/api/auth/microsoft/callback`;
-  }
-  // Fallback: NEXT_PUBLIC_APP_URL (set in Vercel env vars)
-  const base = process.env.NEXT_PUBLIC_APP_URL || "";
-  return `${base}/api/auth/microsoft/callback`;
+  // Use a stable, predictable base URL so the redirect_uri we send to Azure
+  // always matches what is registered in the Azure app registration.
+  // Prefer the server-side APP_URL (not public), then NEXT_PUBLIC_APP_URL.
+  // Only fall back to the incoming request origin as a last resort (local dev).
+  const stableBase =
+    process.env.APP_URL ||
+    process.env.NEXT_PUBLIC_APP_URL ||
+    appBaseUrl ||
+    "";
+  return `${stableBase}/api/auth/microsoft/callback`;
 }
 
 function getTokenEndpoint(): string {

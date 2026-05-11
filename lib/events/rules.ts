@@ -17,11 +17,27 @@ const HIRING_KEYWORDS = /\b(hire|hiring|fired|firing|offer|termination|resign|no
 const DECISION_KEYWORDS = /\b(decision|decided|approve|approval|ship|go\/no-go|sign off|green light)/i;
 const ACTION_KEYWORDS = /\b(todo|to do|action|follow up|follow-up|action item|next step|owner:|due:)/i;
 
-const KEY_PEOPLE = ["malcolm", "ed baum", " ed ", "isaac", "olivia", "sam jordan"];
+/** Fallback hardcoded list used when no dynamic contact set is available. */
+const KEY_PEOPLE_FALLBACK = ["malcolm", "ed baum", " ed ", "isaac", "olivia", "sam jordan"];
 
-export function isAboutKeyPerson(text: string): boolean {
+/**
+ * Returns true when `text` matches a known contact.
+ *
+ * When `dynamicNames` is provided (loaded from the contact store at runtime)
+ * it takes precedence — every contact becomes a key person.  The hardcoded
+ * fallback list is only used when the dynamic set is unavailable (e.g. unit
+ * tests, legacy call sites).
+ */
+export function isAboutKeyPerson(text: string, dynamicNames?: Set<string>): boolean {
   const t = text.toLowerCase();
-  return KEY_PEOPLE.some((p) => t.includes(p));
+  if (dynamicNames && dynamicNames.size > 0) {
+    // Check each token in the name set against the text
+    for (const name of dynamicNames) {
+      if (name && t.includes(name)) return true;
+    }
+    return false;
+  }
+  return KEY_PEOPLE_FALLBACK.some((p) => t.includes(p));
 }
 
 function detectTags(text: string): string[] {
@@ -47,6 +63,9 @@ interface Classification {
 export function classify(payload: IngestPayload): Classification {
   const combined = `${payload.title} ${payload.body}`;
   const tags = detectTags(combined);
+  const isInvestor = !!payload.hints?.isFromInvestor;
+  // Investor contacts (Ed, Malcolm) always get "investor" tag added
+  if (isInvestor && !tags.includes("investor")) tags.push("investor");
   const aboutKeyPerson =
     payload.hints?.isFromKeyPerson || isAboutKeyPerson(combined);
 
@@ -95,9 +114,9 @@ export function classify(payload: IngestPayload): Classification {
     const recipient = payload.fromEmail || payload.from || payload.channel || "recipient";
     return {
       disposition: "draft",
-      priority: aboutKeyPerson ? "high" : "normal",
+      priority: isInvestor ? "high" : aboutKeyPerson ? "high" : "normal",
       confidence: hasExplicitHint ? 1.0 : 0.8,
-      rationale: `Drafting a reply — ${payload.hints?.isDM ? "direct message" : payload.hints?.isMention ? "you were @-mentioned" : "key person involved"}. Waiting for your sign-off before sending.`,
+      rationale: `Drafting a reply — ${payload.hints?.isDM ? "direct message" : payload.hints?.isMention ? "you were @-mentioned" : isInvestor ? "investor — Ed or Malcolm" : "key person involved"}. Waiting for your sign-off before sending.`,
       tags,
       draft: {
         channel: payload.source === "email" ? "email" : "slack",
@@ -111,15 +130,23 @@ export function classify(payload: IngestPayload): Classification {
 
   // 3) AUTO — everything else: decisions/actions extracted, relationship updated, memory written
   // Catch-all → lower confidence
+  // Investor messages (Ed / Malcolm) are never sunk to "low" even if not replyable
+  const autoPriority: EventPriority = isInvestor
+    ? "high"
+    : tags.includes("decision") || tags.includes("action")
+      ? "normal"
+      : "low";
   return {
     disposition: "auto",
-    priority: tags.includes("decision") || tags.includes("action") ? "normal" : "low",
+    priority: autoPriority,
     confidence: 0.7,
-    rationale: tags.includes("decision")
-      ? "Decision signal detected — analysing and filing automatically."
-      : tags.includes("action")
-        ? "Action signal detected — analysing and filing automatically."
-        : "Monitoring for context — no immediate action needed.",
+    rationale: isInvestor
+      ? "Investor message — filing automatically at high priority."
+      : tags.includes("decision")
+        ? "Decision signal detected — analysing and filing automatically."
+        : tags.includes("action")
+          ? "Action signal detected — analysing and filing automatically."
+          : "Monitoring for context — no immediate action needed.",
     tags,
   };
 }

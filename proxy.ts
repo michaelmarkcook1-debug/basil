@@ -5,7 +5,7 @@ import { jwtVerify } from "jose";
 const COOKIE_NAME = "execauto_session";
 
 // Routes that don't require a session
-const PUBLIC_PATHS = new Set(["/login", "/register"]);
+const PUBLIC_PATHS = new Set(["/login", "/register", "/privacy", "/terms", "/reset-password"]);
 // API prefixes that don't require a session (OAuth callbacks must work unauthenticated)
 const PUBLIC_API_PREFIXES = [
   "/api/auth",           // login, logout
@@ -36,6 +36,11 @@ async function isAuthenticated(request: NextRequest): Promise<boolean> {
 
 export async function proxy(request: NextRequest) {
   const { pathname } = request.nextUrl;
+
+  // Dev bypass — SKIP_AUTH=true lets all requests through without a session.
+  if (process.env.SKIP_AUTH === "true") {
+    return NextResponse.next();
+  }
 
   // Always pass static assets and Next.js internals through — never auth-gate them.
   // The proxyConfig matcher should already exclude these, but we guard here too

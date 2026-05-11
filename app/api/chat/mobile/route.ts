@@ -12,7 +12,7 @@
 export const maxDuration = 300;
 
 import { generateText, stepCountIs, type ModelMessage } from "ai";
-import { getTextModel, MAX_TOKENS } from "@/lib/ai/model-config";
+import { getTextModel, MAX_TOKENS, PROVIDER_MODE } from "@/lib/ai/model-config";
 import { getSystemPrompt } from "@/lib/ai/system-prompt";
 import { buildAssistantTools } from "@/lib/ai/tools";
 import { getSessionUser } from "@/lib/auth";
@@ -69,9 +69,11 @@ export async function POST(req: Request) {
       messages,
       tools: buildAssistantTools(username, firstName, timezone),
       stopWhen: stepCountIs(5),
-      providerOptions: {
-        gateway: { tags: ["feature:chat", "env:production", "platform:mobile"] },
-      },
+      ...(PROVIDER_MODE === "vercel_gateway" && {
+        providerOptions: {
+          gateway: { tags: ["feature:chat", "env:production", "platform:mobile"] },
+        },
+      }),
     });
 
     return Response.json({ text: result.text });

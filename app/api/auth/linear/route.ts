@@ -7,6 +7,17 @@ import { NextResponse } from "next/server";
 import { getSessionUser } from "@/lib/auth";
 import { saveLinearConfig, deleteLinearConfig, validateApiKey } from "@/lib/linear/client";
 import { forceFlushSnapshot } from "@/lib/storage/persistent";
+function safeLinearError(err: unknown): { message: string; status: number } {
+  const msg = err instanceof Error ? err.message : String(err);
+  if (msg.includes("BASIL_TOKEN_ENCRYPTION_KEY")) {
+    return {
+      message: "BASIL_TOKEN_ENCRYPTION_KEY is missing or invalid. Set it before saving integration tokens.",
+      status: 500,
+    };
+  }
+  return { message: msg, status: 400 };
+}
+
 
 export async function POST(req: Request) {
   const username = await getSessionUser();
@@ -31,10 +42,8 @@ export async function POST(req: Request) {
     await forceFlushSnapshot();
     return NextResponse.json({ ok: true, name });
   } catch (err) {
-    return NextResponse.json(
-      { error: `Invalid API key: ${err instanceof Error ? err.message : "unknown error"}` },
-      { status: 400 }
-    );
+    const { message, status } = safeLinearError(err);
+    return NextResponse.json({ error: message }, { status });
   }
 }
 

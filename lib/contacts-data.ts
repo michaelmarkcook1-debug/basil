@@ -24,7 +24,7 @@ export interface Contact {
   // Profile tab
   relationship: string;
   companyContext: string;
-  // Personality tab (derived from real Slack/Email/Zoom interactions)
+  // Personality tab
   personality: string;
   whatMakesThemTick: string;
   watchOut: string;
@@ -43,9 +43,25 @@ export interface Contact {
   generatedAt?: string;
   /** Short signal-density line from the AI generator (audit/debug only). */
   profileSummary?: string;
+  /**
+   * True for contacts defined in this file (seed/sample data).
+   * Used by the UI to render a "SAMPLE" badge so the user knows these are
+   * pre-loaded examples, not contacts imported from live integrations.
+   */
+  _isSeedData?: true;
 }
 
-// Personality profiles built from real Slack messages, email threads, and meeting patterns
+/**
+ * Pre-loaded sample contacts.
+ *
+ * These records were hand-authored at app-build time as starting-point
+ * examples.  They are NOT live-fetched from Slack, Gmail, or Zoom —
+ * the inline "// Derived from:" comments describe the REAL interactions
+ * that informed the writing, but the data itself is static.
+ *
+ * Use `SEED_CONTACT_IDS` to identify these records at runtime, e.g. to
+ * render a "SAMPLE" badge or to skip them in import flows.
+ */
 export const contacts: Contact[] = [
   {
     id: "malcolm-frank",
@@ -69,6 +85,7 @@ export const contacts: Contact[] = [
     recentActivity: "Accepted AG Product Review (Apr 8). Forwarded Tech Conf 2026 AI Signals report to core team. Reviewed Isaac's TalentGenius.io site changes — approved direction but flagged nuanced changes needed. Shared board member insights on F500 expectations for AI analysis modules. Approved video content: 'I like the B roll. I'd publish this as is.'",
     activitySource: "Slack, Email, Calendar",
     lastInteraction: "2026-04-08",
+    _isSeedData: true,
   },
   {
     id: "ed-baum",
@@ -92,6 +109,7 @@ export const contacts: Contact[] = [
     recentActivity: "Announced TalentGenius as the overall brand name (replacing AgentPowered). Shared Trey's Week 2 Anthropic GTM actions list. Sent reminders for Anthropic training completion. Invited team to TG/AP naming session. Updated TG Leadership recurring meeting. Reviewed and approved Isaac's AP platform transformation plan.",
     activitySource: "Slack, Email, Calendar",
     lastInteraction: "2026-04-12",
+    _isSeedData: true,
   },
   {
     id: "isaac-frank",
@@ -114,6 +132,7 @@ export const contacts: Contact[] = [
     recentActivity: "Staged TalentGenius.io site changes — 90/10 buyer-focused homepage with role-based landing pages. Shared full AP platform transformation plan (marketplace to agency model). Posted site navigation architecture for Ed/Malcolm review. API endpoint updates for AG analyst dashboard.",
     activitySource: "Slack, Calendar",
     lastInteraction: "2026-04-10",
+    _isSeedData: true,
   },
   {
     id: "olivia-bond-keith",
@@ -135,6 +154,7 @@ export const contacts: Contact[] = [
     recentActivity: "Shared first draft ICP and 200-lead list for Anthropic GTM initiative. Active on AP launch channel before meetings.",
     activitySource: "Slack",
     lastInteraction: "2026-04-01",
+    _isSeedData: true,
   },
   {
     id: "crystal-parra",
@@ -157,6 +177,7 @@ export const contacts: Contact[] = [
     recentActivity: "Shared BR paid social performance update (1.5% CTR vs 0.5% benchmark, but no conversions). Posted AG sample ads and video content from Claude. Outlined SEO and content strategy across BR and AG. Suggested lead capture form for website. Included in TG/AP naming meeting invite.",
     activitySource: "Slack, Email",
     lastInteraction: "2026-04-02",
+    _isSeedData: true,
   },
   {
     id: "trey-carlson",
@@ -178,6 +199,7 @@ export const contacts: Contact[] = [
     recentActivity: "Completed Anthropic certification (both Ed and Olivia confirmed). Posted Week 2 Anthropic GTM actions list. Sent advance update for missed AP call. Working with Isaac on TalentGenius.io site changes.",
     activitySource: "Slack",
     lastInteraction: "2026-04-06",
+    _isSeedData: true,
   },
   {
     id: "christopher-walton",
@@ -199,6 +221,7 @@ export const contacts: Contact[] = [
     recentActivity: "Included on Malcolm's AI Signals forward to core team. Invited to TG Leadership meetings and TG/AP naming session. Infrastructure support across platforms.",
     activitySource: "Email, Calendar",
     lastInteraction: "2026-04-09",
+    _isSeedData: true,
   },
   {
     id: "matt-paquette",
@@ -219,6 +242,7 @@ export const contacts: Contact[] = [
     recentActivity: "Deployment pipeline fix is live. CI/CD stabilised.",
     activitySource: "Slack",
     lastInteraction: "2026-04-05",
+    _isSeedData: true,
   },
   {
     id: "djuan-g",
@@ -239,6 +263,7 @@ export const contacts: Contact[] = [
     recentActivity: "Active on AG engineering sprint tasks.",
     activitySource: "Slack",
     lastInteraction: "2026-03-28",
+    _isSeedData: true,
   },
   {
     id: "logan-carlson",
@@ -259,6 +284,7 @@ export const contacts: Contact[] = [
     recentActivity: "Sprint work on AG V1.0 features.",
     activitySource: "Slack",
     lastInteraction: "2026-03-25",
+    _isSeedData: true,
   },
   {
     id: "mike-trujillo",
@@ -282,5 +308,15 @@ export const contacts: Contact[] = [
     recentActivity: "Posted #dev status update (Apr 14) coordinating Adrian on home/discover/solutions page changes — 'Dirce has a new design — mike will PR'. Tracking QA/Prod parity across TalentGenius site. Attending AP GTM standup (Apr 15) with Malcolm/Ed/Trey/Crystal/Olivia/Isaac.",
     activitySource: "Slack #dev, Calendar",
     lastInteraction: "2026-04-14",
+    _isSeedData: true,
   },
 ];
+
+/**
+ * Set of contact IDs that are pre-loaded sample data (not imported from live
+ * integrations).  Use this to render "SAMPLE" badges or skip these records in
+ * export / dedup flows.
+ */
+export const SEED_CONTACT_IDS: ReadonlySet<string> = new Set(
+  contacts.filter((c) => c._isSeedData).map((c) => c.id)
+);

@@ -3,7 +3,7 @@ import { createEvent, hasExternalId, updateEvent, compactEvents } from "@/lib/ev
 import { forceFlushSnapshot } from "@/lib/storage/persistent";
 import { writeUserStore, readUserStore } from "@/lib/storage/user-store";
 import { HEALTH_META_FILE, type HealthMeta } from "@/lib/system/health";
-import { eventFromIngest, isAboutKeyPerson } from "@/lib/events/rules";
+import { eventFromIngest } from "@/lib/events/rules";
 import { publish } from "@/lib/events/bus";
 import { generateDraftForEvent } from "@/lib/events/drafter";
 import type { IngestPayload, BasilEvent } from "@/lib/events/types";
@@ -33,6 +33,8 @@ import { materializeTeamsIntelligence } from "@/lib/teams/materialize-teams";
 import { hashContent } from "@/lib/ingest/content-hash";
 import { isHashUnchanged, recordIngest } from "@/lib/ingest/index";
 import { appendAuditEntries, auditSkipped } from "@/lib/ingest/audit-log";
+import { listUserContacts, updateUserContactInStore } from "@/lib/contacts/user-store";
+import { contacts as seedContacts } from "@/lib/contacts-data";
 
 /**
  * POST /api/events/poll-ingest
@@ -79,6 +81,75 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "Unauthorised" }, { status: 401 });
     }
   }
+
+  // ── Contact name sets (dynamic key-person classification) ────────────────────
+  // Every contact is treated as a key person for Slack classification.
+  // Investor-tagged contacts (Ed Baum, Malcolm Frank) get extra priority escalation.
+  //
+  // We load user-added contacts and merge with seed contacts so new contacts
+  // added via the UI are immediately picked up on the next poll.
+  const [userContacts] = await Promise.all([
+    listUserContacts(username).catch(() => []),
+  ]);
+  const allContacts = [...seedContacts, ...userContacts];
+
+  /** Lowercase name tokens for every contact — first name and full name. */
+  const contactNameSet = new Set<string>();
+  /** Lowercase name tokens for investor-tagged contacts only. */
+  const investorNameSet = new Set<string>();
+
+  for (const c of allContacts) {
+    const full = c.name.trim().toLowerCase();
+    const first = full.split(" ")[0];
+    if (full) contactNameSet.add(full);
+    if (first && first.length > 2) contactNameSet.add(first);
+
+    if (c.tags.includes("investor")) {
+      if (full) investorNameSet.add(full);
+      if (first && first.length > 2) investorNameSet.add(first);
+    }
+  }
+
+  /** Returns true if `text` contains the name of any contact. */
+  const isKnownContact = (text: string): boolean => {
+    const t = text.toLowerCase();
+    for (const name of contactNameSet) {
+      if (t.includes(name)) return true;
+    }
+    return false;
+  };
+
+  /** Returns true if `text` contains the name of an investor contact. */
+  const isInvestorContact = (text: string): boolean => {
+    const t = text.toLowerCase();
+    for (const name of investorNameSet) {
+      if (t.includes(name)) return true;
+    }
+    return false;
+  };
+
+  /**
+   * Updates `lastInteraction` on a user-added contact that matches the given
+   * display name. Non-fatal — failures are swallowed silently.
+   * Only updates if the new date is newer than the stored value.
+   */
+  const touchContactLastInteraction = async (displayName: string, isoDate: string): Promise<void> => {
+    if (!displayName?.trim()) return;
+    const nameLower = displayName.toLowerCase();
+    // Find the best matching user-added contact (seed contacts are read-only)
+    const match = userContacts.find((c) => {
+      const full = c.name.trim().toLowerCase();
+      const first = full.split(" ")[0];
+      return nameLower.includes(full) || full.includes(nameLower) || (first && first.length > 2 && nameLower.includes(first));
+    });
+    if (!match) return;
+    // Only update if newer (string comparison is fine for ISO dates)
+    if (match.lastInteraction && match.lastInteraction >= isoDate) return;
+    await updateUserContactInStore(username, match.id, {
+      lastInteraction: isoDate,
+      activitySource: "slack",
+    }).catch(() => {/* non-fatal */});
+  };
 
   // ── Parallel source fetch ────────────────────────────────────────────────────
   // Zoom emails are fetched separately so they can be excluded from the regular
@@ -166,7 +237,15 @@ export async function POST(req: Request) {
       channel: m.channel,
       // m.date is already ISO (see lib/slack/client.ts line ~201)
       date: m.date,
-      hints: { isDM, isGroupDM, isMention: m.isMention },
+      hints: {
+        isDM,
+        isGroupDM,
+        isMention: m.isMention,
+        // Every contact is a key person — drives shouldClassifySlack gate
+        isFromKeyPerson: isKnownContact(m.author),
+        // Investor contacts (Ed Baum, Malcolm Frank) get high-priority escalation
+        isFromInvestor: isInvestorContact(m.author),
+      },
     });
     // Only track if we have a real channelId — needed for thread fetching
     if (m.channelId) {
@@ -291,7 +370,8 @@ export async function POST(req: Request) {
         isDM: !!p.hints?.isDM,
         isGroupDM: !!p.hints?.isGroupDM,
         isMention: !!p.hints?.isMention,
-        isFromKeyPerson: isAboutKeyPerson(p.from || ""),
+        // Use the dynamic contact-set check — every contact is a key person
+        isFromKeyPerson: !!p.hints?.isFromKeyPerson || isKnownContact(p.from || ""),
         tags: event.tags,
       })) {
         slacksToClassify.push({
@@ -309,7 +389,8 @@ export async function POST(req: Request) {
         isDM: !!p.hints?.isDM,
         isGroupDM: false,
         isMention: !!p.hints?.isMention,
-        isFromKeyPerson: isAboutKeyPerson(p.from || ""),
+        // Use the dynamic contact-set check — every contact is a key person
+        isFromKeyPerson: !!p.hints?.isFromKeyPerson || isKnownContact(p.from || ""),
         tags: event.tags,
       })) {
         teamsToClassify.push({
@@ -357,6 +438,10 @@ export async function POST(req: Request) {
             ? () => getOutlookMessageBody(username, msgId)
             : undefined,
         });
+        // Update contact lastInteraction after email processing
+        if (payload.from && payload.date) {
+          await touchContactLastInteraction(payload.from, payload.date).catch(() => { /* basil-ci-allow-silent-catch: contact recency update is non-fatal */ });
+        }
       }
       // Flush snapshot after all mutations so BASIL_DATA is updated before
       // Vercel recycles this function instance.
@@ -417,14 +502,32 @@ export async function POST(req: Request) {
             username,
           });
 
+          const slackActionIds = result.auditEntries.filter((e) => e.itemType === "action" && e.itemId).map((e) => e.itemId!);
+          const slackDecisionIds = result.auditEntries.filter((e) => e.itemType === "decision" && e.itemId).map((e) => e.itemId!);
+          const slackMemoryIds = result.auditEntries.filter((e) => e.itemType === "memory" && e.itemId).map((e) => e.itemId!);
           void recordIngest(username, {
             sourceRef: slackSourceRef,
             hash: slackContentHash,
-            actionIds: result.auditEntries.filter((e) => e.itemType === "action" && e.itemId).map((e) => e.itemId!),
-            decisionIds: result.auditEntries.filter((e) => e.itemType === "decision" && e.itemId).map((e) => e.itemId!),
-            memoryIds: result.auditEntries.filter((e) => e.itemType === "memory" && e.itemId).map((e) => e.itemId!),
+            actionIds: slackActionIds,
+            decisionIds: slackDecisionIds,
+            memoryIds: slackMemoryIds,
           });
           void appendAuditEntries(username, result.auditEntries);
+
+          // Write back-links on the originating BasilEvent so the Events feed
+          // can show how many items were spawned from this Slack message.
+          if (slackActionIds.length > 0 || slackDecisionIds.length > 0 || slackMemoryIds.length > 0) {
+            const slackBackLink: Record<string, string> = {};
+            if (slackActionIds[0]) slackBackLink.actionId = slackActionIds[0];
+            if (slackDecisionIds[0]) slackBackLink.decisionId = slackDecisionIds[0];
+            if (slackMemoryIds[0]) slackBackLink.memoryId = slackMemoryIds[0];
+            void updateEvent(username, eventId, slackBackLink).catch(() => {/* non-fatal */});
+          }
+
+          // Update contact lastInteraction so the Contacts tab stays current
+          if (payload.from && payload.date) {
+            await touchContactLastInteraction(payload.from, payload.date).catch(() => { /* basil-ci-allow-silent-catch: contact recency update is non-fatal */ });
+          }
 
         } catch (err) {
           console.error(
@@ -483,15 +586,27 @@ export async function POST(req: Request) {
             username,
           });
 
+          const teamsActionIds = result.auditEntries?.filter((e) => e.itemType === "action" && e.itemId).map((e) => e.itemId!) ?? [];
+          const teamsDecisionIds = result.auditEntries?.filter((e) => e.itemType === "decision" && e.itemId).map((e) => e.itemId!) ?? [];
+          const teamsMemoryIds = result.auditEntries?.filter((e) => e.itemType === "memory" && e.itemId).map((e) => e.itemId!) ?? [];
           void recordIngest(username, {
             sourceRef: teamsSourceRef,
             hash: teamsContentHash,
-            actionIds: result.auditEntries?.filter((e) => e.itemType === "action" && e.itemId).map((e) => e.itemId!) ?? [],
-            decisionIds: result.auditEntries?.filter((e) => e.itemType === "decision" && e.itemId).map((e) => e.itemId!) ?? [],
-            memoryIds: result.auditEntries?.filter((e) => e.itemType === "memory" && e.itemId).map((e) => e.itemId!) ?? [],
+            actionIds: teamsActionIds,
+            decisionIds: teamsDecisionIds,
+            memoryIds: teamsMemoryIds,
           });
           if (result.auditEntries?.length) {
             void appendAuditEntries(username, result.auditEntries);
+          }
+
+          // Back-links on the originating BasilEvent
+          if (teamsActionIds.length > 0 || teamsDecisionIds.length > 0 || teamsMemoryIds.length > 0) {
+            const teamsBackLink: Record<string, string> = {};
+            if (teamsActionIds[0]) teamsBackLink.actionId = teamsActionIds[0];
+            if (teamsDecisionIds[0]) teamsBackLink.decisionId = teamsDecisionIds[0];
+            if (teamsMemoryIds[0]) teamsBackLink.memoryId = teamsMemoryIds[0];
+            void updateEvent(username, eventId, teamsBackLink).catch(() => {/* non-fatal */});
           }
 
         } catch (err) {

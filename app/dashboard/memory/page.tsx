@@ -23,6 +23,7 @@ import {
   Check,
   AlertTriangle,
   ShieldCheck,
+  RefreshCw,
 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
@@ -66,6 +67,31 @@ const KIND_STYLE: Record<
     hint: "Durable, verifiable detail",
   },
 };
+
+function MemorySyncButton({ onSynced }: { onSynced?: () => void }) {
+  const [syncing, setSyncing] = useState(false);
+  const [done, setDone] = useState(false);
+  return (
+    <button
+      disabled={syncing}
+      onClick={async () => {
+        setSyncing(true);
+        try { await fetch("/api/events/poll-ingest", { method: "POST" }); } catch { /* ignore */ }
+        setSyncing(false);
+        setDone(true);
+        onSynced?.();
+        // Background materialization runs server-side after poll-ingest returns.
+        // A second refresh ~12 s later catches memories written by the after() blocks.
+        setTimeout(() => { onSynced?.(); }, 12_000);
+        setTimeout(() => setDone(false), 20_000);
+      }}
+      className="inline-flex items-center gap-2 text-sm text-[oklch(0.58_0.15_85)] hover:underline disabled:opacity-50"
+    >
+      <RefreshCw className={`h-3.5 w-3.5 ${syncing ? "animate-spin" : ""}`} />
+      {done ? "Syncing in background…" : syncing ? "Syncing…" : "Sync recent activity"}
+    </button>
+  );
+}
 
 export default function MemoryPage() {
   const [memories, setMemories] = useState<Memory[] | null>(null);
@@ -625,14 +651,38 @@ export default function MemoryPage() {
           ))}
         </div>
       ) : filtered.length === 0 ? (
-        <div className="text-center py-16">
-          <Sparkles className="h-8 w-8 text-[oklch(0.72_0.15_85)]/50 mx-auto mb-3" />
-          <p className="text-sm text-muted-foreground">
-            {search || filter !== "all"
-              ? "No memories match that filter."
-              : "Basil doesn't remember anything yet. Tell him something."}
-          </p>
-        </div>
+        search || filter !== "all" ? (
+          <div className="text-center py-16">
+            <Sparkles className="h-8 w-8 text-[oklch(0.72_0.15_85)]/50 mx-auto mb-3" />
+            <p className="text-sm text-muted-foreground">No memories match that filter.</p>
+          </div>
+        ) : (
+          <div className="rounded-2xl basil-card p-12 text-center space-y-3">
+            <Brain className="h-12 w-12 mx-auto text-muted-foreground/30" />
+            <h2 className="text-xl font-semibold">No memory yet</h2>
+            <p className="text-sm text-muted-foreground max-w-md mx-auto">
+              Basil builds memory from context found in emails and conversations.
+              Add preferences manually, import facts, or sync recent activity.
+            </p>
+            <div className="flex items-center justify-center gap-3 flex-wrap">
+              <button
+                onClick={() => setShowForm(true)}
+                className="inline-flex items-center gap-1.5 rounded-lg bg-[oklch(0.72_0.15_85)] text-[oklch(0.18_0.04_250)] text-sm font-semibold px-4 py-2 hover:brightness-105 transition"
+              >
+                <Plus className="h-4 w-4" />
+                Add memory
+              </button>
+              <button
+                onClick={() => setShowImport(true)}
+                className="inline-flex items-center gap-1.5 rounded-lg border border-border bg-background text-sm font-medium px-4 py-2 hover:bg-muted transition text-muted-foreground"
+              >
+                <Upload className="h-4 w-4" />
+                Import facts
+              </button>
+              <MemorySyncButton onSynced={load} />
+            </div>
+          </div>
+        )
       ) : (
         <div className="space-y-2">
           {filtered.map((m) => (

@@ -87,7 +87,14 @@ function ContactList({
             </AvatarFallback>
           </Avatar>
           <div className="flex-1 min-w-0">
-            <p className="text-sm font-medium truncate">{c.name}</p>
+            <div className="flex items-center gap-1.5 min-w-0">
+              <p className="text-sm font-medium truncate">{c.name}</p>
+              {c._isSeedData && (
+                <span className="shrink-0 rounded px-1 py-0.5 text-[10px] font-semibold uppercase tracking-wide bg-muted text-muted-foreground border border-border/60">
+                  SAMPLE
+                </span>
+              )}
+            </div>
             <p className="text-xs text-muted-foreground truncate">{c.title}</p>
           </div>
           <Badge
@@ -384,8 +391,13 @@ function ContactDetail({
                   </button>
                 </div>
               ) : (
-                <div className="flex items-center gap-1.5 group">
+                <div className="flex items-center gap-2 group">
                   <h2 className="text-xl font-semibold">{contact.name}</h2>
+                  {contact._isSeedData && (
+                    <span className="rounded px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide bg-muted text-muted-foreground border border-border/60">
+                      SAMPLE
+                    </span>
+                  )}
                   {isUserContact && (
                     <button
                       onClick={() => { setNameInput(contact.name); setEditingName(true); }}
@@ -824,6 +836,7 @@ export default function ContactsPage() {
   const [liveActivity, setLiveActivity] = useState<ContactActivityItem[]>([]);
   const [activityLoading, setActivityLoading] = useState(false);
   const [isLive, setIsLive] = useState(false);
+  const [activityFetchedAt, setActivityFetchedAt] = useState<string | null>(null);
   const [suggestions, setSuggestions] = useState<ContactSuggestion[]>([]);
   const [suggestLoading, setSuggestLoading] = useState(false);
   const [dismissedIds, setDismissedIds] = useState<string[]>([]);
@@ -854,45 +867,6 @@ export default function ContactsPage() {
     [contacts]
   );
 
-  // Load cached activity + user contacts + dismissed suggestions on mount.
-  // User contacts and overrides have a two-phase load:
-  //   1. Immediate: sync read from localStorage cache (fast first render)
-  //   2. Authoritative: async fetch from server store (corrects any stale cache)
-  //
-  // sage-contact-activity / sage-contact-suggestions
-  // CLASSIFICATION: disposable UX convenience — inferred from live Gmail/Slack
-  // signals; refreshed on each page mount.  Not assistant truth.  Clearing
-  // these keys means the next mount re-fetches from source rather than using
-  // a stale cache.
-  useEffect(() => {
-    const cached = localStorage.getItem(scopedKey("contact-activity"));
-    if (cached) {
-      try {
-        const parsed = JSON.parse(cached);
-        setLiveActivity(parsed.activity || []);
-        setIsLive(true);
-      } catch { /* ignore */ }
-    }
-
-    // Phase 1 — instant render from local cache
-    setUserContacts(getUserContacts());
-    setDismissedIds(getDismissedSuggestionIds());
-    setOverrides(getAllOverrides());
-
-    // Phase 2 — authoritative server data (runs migration on first visit)
-    loadUserContactsFromServer().then(setUserContacts);
-    loadOverridesFromServer().then(setOverrides);
-
-    // Also auto-load a cached suggestion set so the strip doesn't come up empty.
-    const cachedSugg = localStorage.getItem(scopedKey("contact-suggestions"));
-    if (cachedSugg) {
-      try {
-        const parsed = JSON.parse(cachedSugg);
-        setSuggestions(parsed.suggestions || []);
-      } catch { /* ignore */ }
-    }
-  }, []);
-
   const refreshSuggestions = useCallback(async () => {
     setSuggestLoading(true);
     try {
@@ -916,6 +890,7 @@ export default function ContactsPage() {
       const data = await res.json();
       setLiveActivity(data.activity || []);
       setIsLive(true);
+      setActivityFetchedAt(data.fetchedAt ?? new Date().toISOString());
       localStorage.setItem(scopedKey("contact-activity"), JSON.stringify(data));
     } catch (e) {
       console.error("Activity refresh failed:", e);
@@ -923,6 +898,67 @@ export default function ContactsPage() {
       setActivityLoading(false);
     }
   }, []);
+
+  // Load cached activity + user contacts + dismissed suggestions on mount.
+  // User contacts and overrides have a two-phase load:
+  //   1. Immediate: sync read from localStorage cache (fast first render)
+  //   2. Authoritative: async fetch from server store (corrects any stale cache)
+  //
+  // sage-contact-activity / sage-contact-suggestions
+  // CLASSIFICATION: disposable UX convenience — inferred from live Gmail/Slack
+  // signals; refreshed on each page mount.  Not assistant truth.  Clearing
+  // these keys means the next mount re-fetches from source rather than using
+  // a stale cache.
+  useEffect(() => {
+    const AUTO_REFRESH_MS = 30 * 60 * 1000; // 30 minutes
+
+    const cached = localStorage.getItem(scopedKey("contact-activity"));
+    let needsRefresh = true;
+    if (cached) {
+      try {
+        const parsed = JSON.parse(cached);
+        setLiveActivity(parsed.activity || []);
+        setIsLive(true);
+        if (parsed.fetchedAt) {
+          setActivityFetchedAt(parsed.fetchedAt);
+          const age = Date.now() - new Date(parsed.fetchedAt).getTime();
+          needsRefresh = age > AUTO_REFRESH_MS;
+        }
+      } catch { /* ignore */ }
+    }
+
+    // Refresh on mount if no cache or cache is stale (>30 min old)
+    if (needsRefresh) {
+      refreshActivity();
+    }
+
+    // Auto-refresh every 30 minutes
+    const autoRefreshInterval = window.setInterval(() => {
+      refreshActivity();
+    }, AUTO_REFRESH_MS);
+
+    // Phase 1 — instant render from local cache
+    setUserContacts(getUserContacts());
+    setDismissedIds(getDismissedSuggestionIds());
+    setOverrides(getAllOverrides());
+
+    // Phase 2 — authoritative server data (runs migration on first visit)
+    loadUserContactsFromServer().then(setUserContacts);
+    loadOverridesFromServer().then(setOverrides);
+
+    // Also auto-load a cached suggestion set so the strip doesn't come up empty.
+    const cachedSugg = localStorage.getItem(scopedKey("contact-suggestions"));
+    if (cachedSugg) {
+      try {
+        const parsed = JSON.parse(cachedSugg);
+        setSuggestions(parsed.suggestions || []);
+      } catch { /* ignore */ }
+    }
+
+    return () => {
+      window.clearInterval(autoRefreshInterval);
+    };
+  }, [refreshActivity]);
 
   // Subscribe to the contacts domain so changes from other surfaces (or other
   // tabs) trigger an activity refresh here. Also re-load user contacts when
@@ -1125,6 +1161,32 @@ export default function ContactsPage() {
         </div>
 
         <div className="p-4 space-y-3 border-b border-border shrink-0">
+          {/* Refresh row — always visible, not buried in health panel */}
+          <div className="flex items-center justify-between">
+            <span className="text-[11px] text-muted-foreground">
+              {activityFetchedAt
+                ? (() => {
+                    const mins = Math.floor((Date.now() - new Date(activityFetchedAt).getTime()) / 60000);
+                    if (mins < 1) return "Updated just now";
+                    if (mins === 1) return "Updated 1 min ago";
+                    return `Updated ${mins} min ago`;
+                  })()
+                : "Activity not yet loaded"}
+            </span>
+            <button
+              onClick={refreshActivity}
+              disabled={activityLoading}
+              className="flex items-center gap-1 text-[11px] text-muted-foreground hover:text-[oklch(0.72_0.15_85)] transition-colors disabled:opacity-50"
+              title="Refresh from Calendar, Gmail & Slack"
+            >
+              {activityLoading ? (
+                <Loader2 className="h-3 w-3 animate-spin" />
+              ) : (
+                <RefreshCw className="h-3 w-3" />
+              )}
+              Refresh
+            </button>
+          </div>
           <div className="relative">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
             <Input

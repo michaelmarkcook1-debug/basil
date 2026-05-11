@@ -30,16 +30,31 @@ export async function GET(req: Request) {
   const errorDest   = from === "onboarding" ? "/onboarding?error=microsoft_auth" : "/dashboard/settings?error=microsoft_auth";
 
   try {
-    const username = (await getSessionUser());
-  if (!username) return NextResponse.json({ error: "Unauthorised" }, { status: 401 });
+    const username = await getSessionUser();
+    if (!username) {
+      // Session expired mid-OAuth — redirect to login, never return raw JSON in a browser redirect chain
+      console.warn("[microsoft-callback] No session during OAuth callback — redirecting to login");
+      return NextResponse.redirect(new URL("/login?error=session_expired&next=/dashboard/settings", req.url));
+    }
     await exchangeCode(code, username, origin);
     await forceFlushSnapshot();
     const res = NextResponse.redirect(new URL(successDest, req.url));
     res.cookies.set("basil_auth_from", "", { path: "/", maxAge: 0 });
     return res;
   } catch (e) {
-    console.error("[microsoft-callback] OAuth error:", e instanceof Error ? e.message : e);
-    const res = NextResponse.redirect(new URL(errorDest, req.url));
+    const msg = e instanceof Error ? e.message : String(e);
+    console.error("[microsoft-callback] OAuth error:", msg);
+
+    // Parse specific Microsoft error codes from the exception message so the
+    // settings page can show an actionable hint rather than a generic failure.
+    let specificDest = errorDest;
+    if (msg.includes("redirect_uri_mismatch")) {
+      specificDest = errorDest.replace("microsoft_auth", "microsoft_redirect_mismatch");
+    } else if (msg.includes("invalid_client")) {
+      specificDest = errorDest.replace("microsoft_auth", "microsoft_credentials");
+    }
+
+    const res = NextResponse.redirect(new URL(specificDest, req.url));
     res.cookies.set("basil_auth_from", "", { path: "/", maxAge: 0 });
     return res;
   }

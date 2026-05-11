@@ -28,6 +28,8 @@ import {
   ClipboardList,
   User,
   GitBranch,
+  CheckSquare,
+  RefreshCw,
 } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { findContactByName } from "@/lib/contacts-lookup";
@@ -399,6 +401,31 @@ function sortByPriority(a: ActionItem, b: ActionItem): number {
   return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
 }
 
+function ActionsSyncButton({ onSynced }: { onSynced?: () => void }) {
+  const [syncing, setSyncing] = useState(false);
+  const [done, setDone] = useState(false);
+  return (
+    <button
+      disabled={syncing}
+      onClick={async () => {
+        setSyncing(true);
+        try { await fetch("/api/events/poll-ingest", { method: "POST" }); } catch { /* ignore */ }
+        setSyncing(false);
+        setDone(true);
+        onSynced?.();
+        // Background materialization runs server-side after poll-ingest returns.
+        // A second refresh ~12 s later catches actions written by the after() blocks.
+        setTimeout(() => { onSynced?.(); }, 12_000);
+        setTimeout(() => setDone(false), 20_000);
+      }}
+      className="inline-flex items-center gap-2 text-sm text-[oklch(0.58_0.15_85)] hover:underline disabled:opacity-50"
+    >
+      <RefreshCw className={`h-3.5 w-3.5 ${syncing ? "animate-spin" : ""}`} />
+      {done ? "Syncing in background…" : syncing ? "Syncing…" : "Sync recent activity"}
+    </button>
+  );
+}
+
 // ── Page ───────────────────────────────────────────────────────────────────────
 
 export default function ActionsPage() {
@@ -746,11 +773,24 @@ export default function ActionsPage() {
           </CardContent>
         </Card>
       ) : filtered.length === 0 ? (
-        <Card>
-          <CardContent className="py-8 text-center text-muted-foreground">
-            No actions found. Add one above or ask Basil.
-          </CardContent>
-        </Card>
+        <div className="rounded-2xl basil-card p-12 text-center space-y-3">
+          <CheckSquare className="h-12 w-12 mx-auto text-muted-foreground/30" />
+          <h2 className="text-xl font-semibold">No actions found yet</h2>
+          <p className="text-sm text-muted-foreground max-w-md mx-auto">
+            Basil extracts commitments from Slack DMs, @-mentions and emails automatically.
+            Add one manually, or sync recent activity to let Basil look.
+          </p>
+          <div className="flex items-center justify-center gap-3 flex-wrap">
+            <button
+              onClick={() => setForm(f => ({ ...f, showForm: true }))}
+              className="inline-flex items-center gap-1.5 rounded-lg bg-[oklch(0.72_0.15_85)] text-[oklch(0.18_0.04_250)] text-sm font-semibold px-4 py-2 hover:brightness-105 transition"
+            >
+              <Plus className="h-4 w-4" />
+              Add action
+            </button>
+            <ActionsSyncButton onSynced={refresh} />
+          </div>
+        </div>
 
       ) : viewMode === "category" ? (
         /* ── Category view ──────────────────────────────────────────────── */

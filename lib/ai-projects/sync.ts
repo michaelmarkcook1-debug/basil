@@ -1,4 +1,3 @@
-import { getSettings } from "@/lib/settings/store";
 import { readProjectsStore, writeProjectsStore } from "./store";
 import { fetchClaudeCodeProjects } from "./platforms/claude-code";
 import { fetchGithubProjects } from "./platforms/github";
@@ -7,6 +6,7 @@ import { fetchLinearProjects } from "./platforms/linear";
 import { fetchOpenAIProjects } from "./platforms/openai";
 import type { AIProject, AIProjectsData, Platform } from "./types";
 import { isLinearConnected } from "@/lib/linear/client";
+import { getAIPlatformKey } from "@/lib/ai-platforms/credentials";
 
 /** Find words ≥6 chars that are shared between two project names */
 function sharedWords(a: string, b: string): string[] {
@@ -35,10 +35,20 @@ function detectRelated(projects: AIProject[]): AIProject[] {
 }
 
 export async function syncProjects(username: string): Promise<AIProjectsData> {
-  const [settings, existing, linearConnected] = await Promise.all([
-    getSettings(username),
+  const [existing, linearConnected, githubToken, openaiApiKey] = await Promise.all([
     readProjectsStore(username),
-    isLinearConnected(username).catch(() => false),
+    isLinearConnected(username).catch((err) => {
+      console.error("[ai-projects] Linear status check failed:", err instanceof Error ? err.message : String(err));
+      return false;
+    }),
+    getAIPlatformKey(username, "github").catch((err) => {
+      console.error("[ai-projects] GitHub key read failed:", err instanceof Error ? err.message : String(err));
+      return null;
+    }),
+    getAIPlatformKey(username, "openai").catch((err) => {
+      console.error("[ai-projects] OpenAI key read failed:", err instanceof Error ? err.message : String(err));
+      return null;
+    }),
   ]);
 
   const vercelToken = process.env.VERCEL_TOKEN;
@@ -47,10 +57,10 @@ export async function syncProjects(username: string): Promise<AIProjectsData> {
   const [claudeCodeProjects, githubProjects, vercelProjects, linearProjects, openaiProjects] =
     await Promise.all([
       fetchClaudeCodeProjects(),
-      settings.githubToken ? fetchGithubProjects(settings.githubToken) : Promise.resolve([]),
+      githubToken ? fetchGithubProjects(githubToken) : Promise.resolve([]),
       vercelToken ? fetchVercelProjects(vercelToken) : Promise.resolve([]),
       linearConnected ? fetchLinearProjects(username) : Promise.resolve([]),
-      settings.openaiApiKey ? fetchOpenAIProjects(settings.openaiApiKey) : Promise.resolve([]),
+      openaiApiKey ? fetchOpenAIProjects(openaiApiKey) : Promise.resolve([]),
     ]);
 
   const freshProjects = [
@@ -98,7 +108,7 @@ export async function syncProjects(username: string): Promise<AIProjectsData> {
   };
 
   // github
-  if (settings.githubToken) {
+  if (githubToken) {
     platforms["github"] = {
       ...platforms["github"],
       platform: "github",
@@ -135,7 +145,7 @@ export async function syncProjects(username: string): Promise<AIProjectsData> {
   }
 
   // openai / codex
-  if (settings.openaiApiKey) {
+  if (openaiApiKey) {
     platforms["codex"] = {
       ...platforms["codex"],
       platform: "codex",
@@ -148,7 +158,7 @@ export async function syncProjects(username: string): Promise<AIProjectsData> {
   }
 
   // Platforms that require manual import — mark with setupUrl
-  const manualPlatforms: Platform[] = ["claude-chat", "chatgpt", "gemini", "perplexity", "grok"];
+  const manualPlatforms: Platform[] = ["claude-chat", "claude-cowork", "chatgpt", "gemini", "perplexity", "grok"];
   for (const p of manualPlatforms) {
     if (!platforms[p]?.connected) {
       platforms[p] = {

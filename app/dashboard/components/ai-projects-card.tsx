@@ -33,16 +33,17 @@ function platformBadgeStyle(platform: Platform): string {
 
 function platformLabel(platform: Platform): string {
   const labels: Record<Platform, string> = {
-    "claude-code": "Claude Code",
-    "claude-chat": "Claude.ai",
-    "github":      "GitHub",
-    "vercel":      "Vercel",
-    "linear":      "Linear",
-    "chatgpt":     "ChatGPT",
-    "gemini":      "Gemini",
-    "perplexity":  "Perplexity",
-    "grok":        "Grok",
-    "codex":       "Codex",
+    "claude-code":   "Claude Code",
+    "claude-chat":   "Claude.ai",
+    "claude-cowork": "Claude Cowork",
+    "github":        "GitHub",
+    "vercel":        "Vercel",
+    "linear":        "Linear",
+    "chatgpt":       "ChatGPT",
+    "gemini":        "Gemini",
+    "perplexity":    "Perplexity",
+    "grok":          "Grok",
+    "codex":         "Codex",
   };
   return labels[platform] ?? platform;
 }

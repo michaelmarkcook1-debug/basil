@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect, useCallback } from "react";
+import { getTodayISO } from "@/lib/timezone";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -135,7 +136,7 @@ export default function SchedulePage() {
 
   // Drop proposals whose date has already passed on first render.
   useEffect(() => {
-    const today = new Date().toISOString().slice(0, 10);
+    const today = getTodayISO(); // uses Europe/London default — correct for Michael
     setScheduleDraft((d) => {
       const fresh = d.proposed.filter((p) => p.date >= today);
       if (fresh.length === d.proposed.length) return d; // no change
@@ -187,8 +188,11 @@ export default function SchedulePage() {
 
   const daysInMonth = getDaysInMonth(year, month);
   const firstDay = getFirstDayOfWeek(year, month);
+  // Use timezone-aware today to correctly highlight the current day
+  const todayISO = getTodayISO();
+  const [todayYear, todayMonth0, todayDate] = todayISO.split("-").map(Number) as [number, number, number];
   const todayDay =
-    now.getFullYear() === year && now.getMonth() === month ? now.getDate() : -1;
+    todayYear === year && (todayMonth0 - 1) === month ? todayDate : -1;
 
   const selectedEvents = selectedDay ? eventsByDay[selectedDay] || [] : [];
   const selectedDateStr = selectedDay

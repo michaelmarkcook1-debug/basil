@@ -178,6 +178,16 @@ export async function processRegularEmail(opts: ProcessEmailOpts): Promise<void>
     void recordIngest(username, { sourceRef, hash: contentHash, actionIds, decisionIds, memoryIds });
     void appendAuditEntries(username, result.auditEntries);
 
+    // ── Write back-links on the originating BasilEvent ────────────────────────
+    // This lets the Events feed show "spawned 2 actions, 1 decision" per event.
+    if (actionIds.length > 0 || decisionIds.length > 0 || memoryIds.length > 0) {
+      const backLink: Record<string, string> = {};
+      if (actionIds[0]) backLink.actionId = actionIds[0];
+      if (decisionIds[0]) backLink.decisionId = decisionIds[0];
+      if (memoryIds[0]) backLink.memoryId = memoryIds[0];
+      void updateEvent(username, eventId, backLink).catch(() => { /* basil-ci-allow-silent-catch: back-link is UI-only, durable records already written */ });
+    }
+
     if (result.actionsCreated + result.decisionsCreated + result.memoriesCreated > 0) {
       console.log(
         `[email-process] materialized ${externalId}: ` +
@@ -447,9 +457,9 @@ export async function processZoomEmail(opts: ProcessZoomEmailOpts): Promise<void
       }
     }
 
-    // ── Update event context with extraction summary ───────────────────────────
-    // Appends a human-readable extraction summary to the event's context field
-    // so the "Basil is watching" UI can surface item counts per event.
+    // ── Update event context + back-links ────────────────────────────────────
+    // Context: human-readable extraction summary for the Events feed.
+    // Back-links: typed IDs so the event record knows what it spawned.
     try {
       const extractionSummary = [
         `Extraction: ${extract.actionItems.length} action(s), ${extract.decisions.length} decision(s), ${extract.attendees.length} attendee(s).`,
@@ -457,7 +467,15 @@ export async function processZoomEmail(opts: ProcessZoomEmailOpts): Promise<void
       ]
         .filter(Boolean)
         .join("\n");
-      await updateEvent(username, eventId, { context: extractionSummary });
+      const firstActionId = zoomAuditEntries.find((e) => e.itemType === "action" && e.itemId)?.itemId;
+      const firstDecisionId = zoomAuditEntries.find((e) => e.itemType === "decision" && e.itemId)?.itemId;
+      const firstMemoryId = zoomAuditEntries.find((e) => e.itemType === "memory" && e.itemId)?.itemId;
+      await updateEvent(username, eventId, {
+        context: extractionSummary,
+        ...(firstActionId ? { actionId: firstActionId } : {}),
+        ...(firstDecisionId ? { decisionId: firstDecisionId } : {}),
+        ...(firstMemoryId ? { memoryId: firstMemoryId } : {}),
+      });
     } catch {
       /* non-fatal — UI context update failing does not affect durable records */
     }

@@ -9,6 +9,17 @@
 import { NextResponse } from "next/server";
 import { verifySession, getSessionUser } from "@/lib/auth";
 import { saveLinearConfig, deleteLinearConfig, validateApiKey } from "@/lib/linear/client";
+function safeLinearError(err: unknown): { message: string; status: number } {
+  const msg = err instanceof Error ? err.message : String(err);
+  if (msg.includes("BASIL_TOKEN_ENCRYPTION_KEY")) {
+    return {
+      message: "BASIL_TOKEN_ENCRYPTION_KEY is missing or invalid. Set it before saving integration tokens.",
+      status: 500,
+    };
+  }
+  return { message: msg, status: 400 };
+}
+
 
 export async function POST(req: Request) {
   if (!(await verifySession())) {
@@ -38,9 +49,9 @@ export async function POST(req: Request) {
     console.log(`[linear/connect] ${username} connected Linear (${displayName})`);
     return NextResponse.json({ ok: true, displayName });
   } catch (e) {
-    const msg = e instanceof Error ? e.message : "Invalid API key";
-    console.warn(`[linear/connect] ${username} key validation failed: ${msg}`);
-    return NextResponse.json({ error: msg }, { status: 400 });
+    const { message, status } = safeLinearError(e);
+    console.warn(`[linear/connect] ${username} connection failed: ${message}`);
+    return NextResponse.json({ error: message }, { status });
   }
 }
 

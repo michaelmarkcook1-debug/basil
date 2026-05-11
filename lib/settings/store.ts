@@ -34,8 +34,12 @@ export interface UserSettings {
   useIpTimezone?: boolean;
   /** GitHub Personal Access Token for syncing repositories in AI Projects. */
   githubToken?: string;
-  /** OpenAI API key for syncing Assistants threads in AI Projects. */
+  /** OpenAI API key for syncing AI projects. Legacy storage — new saves use secure-token-store. */
   openaiApiKey?: string;
+  /** Anthropic API key. Legacy storage — new saves use secure-token-store. */
+  anthropicApiKey?: string;
+  /** Gemini API key. Legacy storage — new saves use secure-token-store. */
+  geminiApiKey?: string;
 }
 
 /** Base defaults — used as fallback for any unset field. */
@@ -109,7 +113,7 @@ export async function patchSettings(
 
   const safe: Partial<UserSettings> = {};
   const keys: Array<keyof UserSettings> = [
-    "name", "timezone", "workStart", "workEnd", "videoTool", "meetingUrl", "useIpTimezone", "githubToken", "openaiApiKey",
+    "name", "timezone", "workStart", "workEnd", "videoTool", "meetingUrl", "useIpTimezone", "githubToken", "openaiApiKey", "anthropicApiKey", "geminiApiKey",
   ];
   for (const k of keys) {
     if (patch[k] !== undefined) {

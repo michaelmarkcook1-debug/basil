@@ -14,7 +14,6 @@
 import { NextResponse } from "next/server";
 import { getSessionUser } from "@/lib/auth";
 import { gatherSystemHealth } from "@/lib/system/health";
-import { validateModelConfig } from "@/lib/ai/model-config";
 
 export const dynamic = "force-dynamic";
 
@@ -24,17 +23,10 @@ export async function GET() {
     return NextResponse.json({ error: "Unauthorised" }, { status: 401 });
   }
 
-  // Validate AI model config eagerly — misconfiguration (missing OIDC token,
-  // wrong provider mode) surfaces as a clear 500 here rather than a cryptic
-  // failure mid-generation.
-  try {
-    validateModelConfig();
-  } catch (configErr) {
-    return NextResponse.json(
-      { error: "AI model config invalid", detail: configErr instanceof Error ? configErr.message : String(configErr) },
-      { status: 500 }
-    );
-  }
+  // NOTE: we intentionally do NOT gate on validateModelConfig() here.
+  // A misconfigured AI provider is one tile in the health report — it must not
+  // prevent all other tiles (storage, integrations, data freshness) from rendering.
+  // The model config state is surfaced as a check inside gatherSystemHealth itself.
 
   try {
     const report = await gatherSystemHealth(username);

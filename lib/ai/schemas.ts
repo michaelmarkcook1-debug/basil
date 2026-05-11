@@ -199,6 +199,7 @@ export type ContactProfileOutput = z.infer<typeof ContactProfileSchema>;
 /** AI-generated fields only — server adds generatedAt / extraContextSummary */
 export const BriefingOutputSchema = z.object({
   criticalToday:       z.string().nullable().default(null),
+  projectRadar:        z.string().nullable().default(null),
   followUps:           z.string().nullable().default(null),
   decisionsToWatch:    z.string().nullable().default(null),
   meetingsNeedingPrep: z.string().nullable().default(null),

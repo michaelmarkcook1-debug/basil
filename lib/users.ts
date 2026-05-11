@@ -82,6 +82,7 @@ export async function getUsers(): Promise<User[]> {
       username: adminUsername,
       password: adminPassword, // plaintext — only used until migrated
       createdAt: new Date(0).toISOString(),
+      onboardingCompleted: true,
     };
     return [envAdmin, ...fileUsers];
   }

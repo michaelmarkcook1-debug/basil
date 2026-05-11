@@ -22,11 +22,16 @@ export interface SlackConfig {
 }
 
 export async function getSlackConfig(username: string): Promise<SlackConfig> {
-  // Strictly user-scoped — no env var fallback to prevent data bleed across users.
   const stored = await getIntegrationToken<SlackConfig>(username, "slack");
+
+  // Fall back to env-var tokens when no stored OAuth config exists.
+  // This lets SLACK_BOT_TOKEN / SLACK_USER_TOKEN work without a full OAuth flow.
+  const botToken   = stored?.botToken   ?? process.env.SLACK_BOT_TOKEN;
+  const userToken  = stored?.userToken  ?? process.env.SLACK_USER_TOKEN;
+
   return {
-    botToken:     stored?.botToken,
-    userToken:    stored?.userToken,
+    botToken,
+    userToken,
     teamId:       stored?.teamId,
     teamName:     stored?.teamName,
     enterpriseId: stored?.enterpriseId,

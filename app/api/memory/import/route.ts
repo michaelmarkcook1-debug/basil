@@ -14,7 +14,7 @@ export const maxDuration = 300;
 
 import { NextResponse } from "next/server";
 import { generateText } from "ai";
-import { getTextModel, MAX_TOKENS } from "@/lib/ai/model-config";
+import { getTextModel, MAX_TOKENS, PROVIDER_MODE } from "@/lib/ai/model-config";
 import { parseAndValidate } from "@/lib/ai/parse-json";
 import { MemoryImportArraySchema } from "@/lib/ai/schemas";
 import { getSessionUser } from "@/lib/auth";
@@ -175,9 +175,11 @@ async function extractChunk(chunk: string, chunkIndex: number, totalChunks: numb
       model: getTextModel(),
       maxOutputTokens: MAX_TOKENS.default,
       messages: [{ role: "user", content: buildPrompt(chunk, chunkIndex, totalChunks) }],
-      providerOptions: {
-        gateway: { tags: ["feature:memory-import"] },
-      },
+      ...(PROVIDER_MODE === "vercel_gateway" && {
+        providerOptions: {
+          gateway: { tags: ["feature:memory-import"] },
+        },
+      }),
     });
 
     const parseResult = parseAndValidate(result.text, MemoryImportArraySchema, "[memory/import]");

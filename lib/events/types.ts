@@ -143,5 +143,7 @@ export interface IngestPayload {
     isGroupDM?: boolean;
     isMention?: boolean;
     isFromKeyPerson?: boolean;
+    /** True when the sender is tagged "investor" in the contact list — escalates priority. */
+    isFromInvestor?: boolean;
   };
 }

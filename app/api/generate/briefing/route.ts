@@ -48,6 +48,7 @@ import {
   BRIEFING_TTL_MS,
 } from "@/lib/generate-cache/store";
 import type { Briefing } from "@/lib/types/briefing";
+import { buildProjectTruth, formatProjectRadar } from "@/lib/projects/truth";
 
 // ── GET — return today's cached briefing ────────────────────────────────────
 export async function GET() {
@@ -188,6 +189,7 @@ export async function POST(req: Request) {
     decisionsResult,
     zoomResult,
     memoriesResult,
+    projectTruthResult,
   ] = await Promise.all([
     getTodayEvents(username).catch((err) => {
       console.error("Calendar fetch failed:", err);
@@ -219,6 +221,10 @@ export async function POST(req: Request) {
     listMemories(username).catch((err) => {
       console.error("Memories fetch failed:", err);
       return [] as Memory[];
+    }),
+    buildProjectTruth(username).catch((err) => {
+      console.error("Project truth fetch failed:", err);
+      return null;
     }),
   ]);
 
@@ -402,6 +408,10 @@ export async function POST(req: Request) {
           .join("\n")
       : "";
 
+  const projectRadarBlock = projectTruthResult
+    ? formatProjectRadar(projectTruthResult.projects)
+    : "Project Truth Layer unavailable.";
+
   const extraBlock = formatExtraContextBlock(extra);
 
   // ── Signal density (for LOW SIGNAL discipline) ─────────────────────────
@@ -411,9 +421,136 @@ export async function POST(req: Request) {
     slackMessages.length +
     zoomResult.length;
 
+  // ── Source readiness — explicit connection/availability for AI context ──
+  const googleConnected = calendarResult !== null || emailResult !== null;
+  const slackConnected  = slackResult !== null;
+
+  const sourceReadiness = {
+    calendar: {
+      connected:  calendarResult !== null,
+      eventCount: calendarResult?.length ?? 0,
+      status:     calendarResult === null ? "not_connected" : calendarResult.length === 0 ? "empty" : "ok",
+    },
+    gmail: {
+      connected:  emailResult !== null,
+      emailCount: emails.length,
+      status:     emailResult === null ? "not_connected" : emails.length === 0 ? "empty" : "ok",
+    },
+    slack: {
+      connected:    slackResult !== null,
+      messageCount: slackMessages.length,
+      status:       slackResult === null ? "not_connected" : slackMessages.length === 0 ? "empty" : "ok",
+    },
+    zoom: {
+      connected:    emailResult !== null, // Zoom summaries come from Gmail
+      summaryCount: zoomResult.length,
+      status:       emailResult === null ? "not_connected" : zoomResult.length === 0 ? "empty" : "ok",
+    },
+    actions: {
+      connected: true,
+      count:     openActions.length,
+      status:    "ok" as const,
+    },
+    decisions: {
+      connected: true,
+      count:     activeDecisions.length,
+      status:    "ok" as const,
+    },
+    memory: {
+      connected: true,
+      count:     recentMemories.length,
+      status:    "ok" as const,
+    },
+    projects: {
+      connected: true,
+      count:     projectTruthResult?.projects.length ?? 0,
+      status:    projectTruthResult ? "ok" : "error",
+    },
+  };
+
+  // ── Source attribution — human-readable for the briefing footer ─────────
+  const connectedSources: string[] = [];
+  const unavailableSources: string[] = [];
+
+  if (sourceReadiness.calendar.status === "ok")
+    connectedSources.push(`Calendar (${sourceReadiness.calendar.eventCount} event${sourceReadiness.calendar.eventCount !== 1 ? "s" : ""})`);
+  else if (sourceReadiness.calendar.status === "empty")
+    connectedSources.push("Calendar (no events today)");
+  else
+    unavailableSources.push("Google Calendar (not connected)");
+
+  if (sourceReadiness.gmail.status === "ok")
+    connectedSources.push(`Gmail (${sourceReadiness.gmail.emailCount} email${sourceReadiness.gmail.emailCount !== 1 ? "s" : ""})`);
+  else if (sourceReadiness.gmail.status === "empty")
+    connectedSources.push("Gmail (inbox quiet)");
+  else
+    unavailableSources.push("Gmail (not connected)");
+
+  if (sourceReadiness.slack.status === "ok")
+    connectedSources.push(`Slack (${sourceReadiness.slack.messageCount} message${sourceReadiness.slack.messageCount !== 1 ? "s" : ""})`);
+  else if (sourceReadiness.slack.status === "empty")
+    connectedSources.push("Slack (no recent activity)");
+  else
+    unavailableSources.push("Slack (not connected)");
+
+  if (sourceReadiness.zoom.status === "ok" && zoomResult.length > 0)
+    connectedSources.push(`Zoom summaries (${zoomResult.length})`);
+
+  if (openActions.length > 0)
+    connectedSources.push(`Actions (${openActions.length} open)`);
+  if (activeDecisions.length > 0)
+    connectedSources.push(`Decisions (${activeDecisions.length} active)`);
+  if (recentMemories.length > 0)
+    connectedSources.push(`Memory (${recentMemories.length} notes)`);
+  if ((projectTruthResult?.projects.length ?? 0) > 0)
+    connectedSources.push(`Projects (${projectTruthResult!.projects.length})`);
+
+  // ── Manual-only mode — all external sources disconnected ───────────────
+  const allExternalMissing = !googleConnected && !slackConnected;
+  const hasManualData =
+    openActions.length > 0 ||
+    activeDecisions.length > 0 ||
+    recentMemories.length > 0 ||
+    (projectTruthResult?.projects.length ?? 0) > 0;
+
   // ── Build prompt ──────────────────────────────────────────────────────────
+  // ── Zero-integration shortcut — no AI needed if no data exists at all ──
+  if (allExternalMissing && !hasManualData) {
+    const emptyBriefing: import("@/lib/types/briefing").Briefing = {
+      criticalToday:       "No external integrations connected and no manual data found. Connect Google (Calendar + Gmail) and/or Slack via Settings → Integrations, then add actions, decisions, or memory to give Basil something to work with.",
+      projectRadar:        null,
+      followUps:           null,
+      decisionsToWatch:    null,
+      meetingsNeedingPrep: null,
+      peopleAndAccounts:   null,
+      inboxSlack:          null,
+      generatedAt:         new Date().toISOString(),
+      extraContextSummary: extra.summary,
+      dataSources: {
+        todayEvents: 0, emails: 0, slackMessages: 0, zoomSummaries: 0,
+        openActions: 0, activeDecisions: 0, recentMemories: 0, projects: 0,
+        googleConnected: false, slackConnected: false,
+      },
+      sourceAttribution: { connected: [], unavailable: unavailableSources },
+    };
+    return Response.json(emptyBriefing);
+  }
+
+  const sourceStatusBlock = [
+    "## SOURCE STATUS (authoritative — do not speculate beyond this)",
+    `Connected: ${connectedSources.length > 0 ? connectedSources.join(", ") : "none"}`,
+    unavailableSources.length > 0 ? `Not available: ${unavailableSources.join(", ")}` : "",
+    allExternalMissing
+      ? "MODE: Manual-only — no external integrations connected. State clearly: 'No external integrations connected. Showing manual data only.' Do not fabricate email, Slack, or calendar content."
+      : "",
+  ].filter(Boolean).join("\n");
+
   const promptText = `Generate Michael's daily briefing for ${today}.
 Goal: 3-minute executive read. Not a log — intelligence. Tell Michael what to do today, who to respond to, what to watch, and what to prepare for.
+
+---
+
+${sourceStatusBlock}
 
 ---
 
@@ -421,6 +558,9 @@ Goal: 3-minute executive read. Not a log — intelligence. Tell Michael what to 
 
 ### TODAY'S CALENDAR
 ${calendarBlock}
+
+### PROJECT RADAR — canonical active projects from Slack, Linear, actions, decisions, memory, and AI work
+${projectRadarBlock}
 
 ### URGENT ACTIONS — overdue or due today (from Action Tracker — real commitments)
 ${urgentActionsBlock}
@@ -453,6 +593,8 @@ Write the way a great chief of staff would: opinionated, specific, cross-referen
 
 **criticalToday** — 3-5 items that genuinely need attention today. Cross-source: if an overdue action also appears in an email thread, that is ONE item not two. If an attendee also sent a DM, that is ONE item. Rank by real urgency — not by which source listed it first. If there is nothing critical today, say so honestly ("Routine day — nothing critical.").
 
+**projectRadar** — active projects that need executive attention today. Prioritise blocked projects, projects with multi-source signal, AI work needing review, and projects with open decisions/actions. This is the “what am I actually working on?” section.
+
 **followUps** — things requiring Michael's active response: email replies he hasn't sent, stalled actions that need a nudge, decision consequences that haven't been confirmed yet. For each: one line on what it is, one line on why it matters now. Name the person specifically.
 
 **decisionsToWatch** — recent decisions from the Decision Log that have pending follow-up consequences listed. Flag if a consequence appears not yet actioned (don't claim it hasn't been — just flag it as worth checking). Also surface any genuinely new decisions implied by today's calendar or inbox (not fabricated — only if clearly implied by live data). Do NOT re-list already-made decisions as open items.
@@ -474,6 +616,7 @@ Every name, company, email subject, Slack quote, action text, decision, and comm
 - Zoom summaries contain what was ACTUALLY SAID on prior calls — cross-reference their attendees with today's calendar for meetingsNeedingPrep.
 - DECISION LOG entries are already-made decisions. Only surface them as "this decision has pending follow-ups" — never as "this still needs to be decided".
 - Relationship memory notes are accumulated facts about people — use them to enrich peopleAndAccounts and meetingsNeedingPrep. Never invent claims beyond what the memory says.
+- PROJECT RADAR is a source-attributed heuristic. Use it to explain active projects, but do not claim a project is blocked unless a listed risk/blocker says so.
 - Signal density today: ${totalSignal} live source item(s)${recentMemories.length > 0 ? ` + ${recentMemories.length} memory note(s)` : ""}. If signal is low, produce a shorter briefing — an honest 2-item brief beats a padded fabrication.
 - Items marked [UNCONFIRMED] or "UNCONFIRMED — awaiting review" are candidates Basil identified from signals but Michael has not yet verified. Present these as tentative ("may have been decided", "worth checking", "appears to") — never as confirmed facts or firm commitments.
 ${extraBlock ? "- Extra context Michael provided is FIRST-CLASS signal — weave into the relevant sections, reference by filename where applicable.\n" : ""}
@@ -484,6 +627,7 @@ ${extraBlock ? "- Extra context Michael provided is FIRST-CLASS signal — weave
 Return ONLY valid JSON, no markdown code fences:
 {
   "criticalToday": "3-5 urgent items cross-referenced across sources. Bullets, most urgent first. Null if nothing genuinely urgent.",
+  "projectRadar": "Active projects needing attention across all sources. Bullets. Null if no active project signal.",
   "followUps": "Email replies needed, stalled actions, outstanding decision consequences. Bullets. Null if nothing.",
   "decisionsToWatch": "Recent decisions with pending follow-ups + any new decisions implied by today's data. Null if nothing.",
   "meetingsNeedingPrep": "Today's meetings with prep context. Null if no meetings with meaningful attendees.",
@@ -536,6 +680,15 @@ Return ONLY valid JSON, no markdown code fences:
     openActions:     openActions.length,
     activeDecisions: activeDecisions.length,
     recentMemories:  recentMemories.length,
+    projects:        projectTruthResult?.projects.length ?? 0,
+    googleConnected,
+    slackConnected,
+  };
+
+  // Computed source attribution (not AI-generated — built from real connection data)
+  const sourceAttributionData: NonNullable<Briefing["sourceAttribution"]> = {
+    connected:   connectedSources,
+    unavailable: unavailableSources,
   };
 
   let briefingData: Briefing;
@@ -546,11 +699,13 @@ Return ONLY valid JSON, no markdown code fences:
       generatedAt: new Date().toISOString(),
       extraContextSummary: extra.summary,
       dataSources: dataSourceCounts,
+      sourceAttribution: sourceAttributionData,
     };
   } else {
     // Parse failure — return raw text in criticalToday so the UI shows something
     briefingData = {
       criticalToday: result.text,
+      projectRadar: null,
       followUps: null,
       decisionsToWatch: null,
       meetingsNeedingPrep: null,
@@ -559,6 +714,7 @@ Return ONLY valid JSON, no markdown code fences:
       generatedAt: new Date().toISOString(),
       extraContextSummary: extra.summary,
       dataSources: dataSourceCounts,
+      sourceAttribution: sourceAttributionData,
     };
   }
 

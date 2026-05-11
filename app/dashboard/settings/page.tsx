@@ -1,106 +1,48 @@
 "use client";
 
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import { AIPlatformsSection } from "./components/ai-platforms-section";
 import { HealthPanel } from "./components/health-panel";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
-import {
-  Settings,
-  CheckCircle2,
-  XCircle,
-  AlertTriangle,
-  Loader2,
-  Calendar,
-  Mail,
-  FileText,
-  Hash,
-  Bot,
-  RefreshCw,
-  Pencil,
-  Check,
-  X,
-  Database,
-  Building2,
-  Video,
-  MessageSquare,
-  ChevronDown,
-  ChevronRight,
-  ExternalLink,
-  Copy,
-  ClipboardCheck,
-  Lock,
-  Eye,
-  EyeOff,
-} from "lucide-react";
 import { Input } from "@/components/ui/input";
 import type { IntegrationStatus, IntegrationState } from "@/lib/integrations/types";
 import { clearSessionUsername } from "@/lib/session-user";
+import type { ReadinessReport } from "@/lib/readiness";
+import {
+  AlertTriangle,
+  Apple,
+  Bot,
+  Calendar,
+  CheckCircle2,
+  ClipboardCheck,
+  Copy,
+  Database,
+  ExternalLink,
+  FileText,
+  Globe2,
+  Hash,
+  Info,
+  KeyRound,
+  Loader2,
+  Lock,
+  Mail,
+  MessageCircle,
+  RefreshCw,
+  Settings,
+  ShieldCheck,
+  Trash2,
+  Video,
+  XCircle,
+} from "lucide-react";
 
-// ── Status badge ─────────────────────────────────────────────────────────────
-
-function StateBadge({ state }: { state: IntegrationState | "loading" }) {
-  if (state === "loading") {
-    return (
-      <Badge variant="secondary" className="gap-1 text-xs text-muted-foreground">
-        <Loader2 className="h-3 w-3 animate-spin" />
-        Checking
-      </Badge>
-    );
-  }
-  if (state === "connected") {
-    return (
-      <Badge className="bg-emerald-100 text-emerald-700 border-emerald-200 gap-1 text-xs">
-        <CheckCircle2 className="h-3 w-3" />
-        Connected
-      </Badge>
-    );
-  }
-  if (state === "permission_missing") {
-    return (
-      <Badge className="bg-amber-100 text-amber-700 border-amber-200 gap-1 text-xs">
-        <AlertTriangle className="h-3 w-3" />
-        Permission missing
-      </Badge>
-    );
-  }
-  if (state === "token_expired") {
-    return (
-      <Badge className="bg-amber-100 text-amber-700 border-amber-200 gap-1 text-xs">
-        <AlertTriangle className="h-3 w-3" />
-        Token expired
-      </Badge>
-    );
-  }
-  if (state === "error") {
-    return (
-      <Badge className="bg-red-100 text-red-700 border-red-200 gap-1 text-xs">
-        <XCircle className="h-3 w-3" />
-        Error
-      </Badge>
-    );
-  }
-  // disconnected (default)
-  return (
-    <Badge variant="secondary" className="gap-1 text-xs text-muted-foreground">
-      <XCircle className="h-3 w-3" />
-      Not connected
-    </Badge>
-  );
-}
-
-// ── Types ─────────────────────────────────────────────────────────────────────
-
-interface AllStatuses {
-  google:     IntegrationStatus;
-  slack:      IntegrationStatus;
-  microsoft?: IntegrationStatus & { microsoft?: { mail: boolean; calendar: boolean; drive: boolean; teams: boolean } };
-  linear?:    IntegrationStatus;
-  claude:     IntegrationStatus;
-  zoom?:      IntegrationStatus;
-  snapshot?:  SnapshotDiagnostics;
+interface ReadinessBannerData {
+  readiness: { score: number; checks: boolean[] };
+  model?: { openaiReady: boolean; gatewayReady: boolean };
+  appSources?: Record<string, { state?: string }>;
 }
 
 interface SnapshotDiagnostics {
@@ -112,231 +54,781 @@ interface SnapshotDiagnostics {
   payloadBytes:      number | null;
 }
 
-// Mirrors UserSettings from lib/settings/store.ts
+interface AllStatuses {
+  google: IntegrationStatus & { google?: { calendar: boolean; gmail: boolean; drive: boolean } };
+  slack: IntegrationStatus;
+  microsoft?: IntegrationStatus & { microsoft?: { mail: boolean; calendar: boolean; drive: boolean; teams: boolean } };
+  linear?: IntegrationStatus;
+  claude: IntegrationStatus;
+  zoom?: IntegrationStatus;
+  snapshot?: SnapshotDiagnostics;
+}
+
+interface HealthResponse {
+  checks?: {
+    storage?: string;
+    env?: Record<string, boolean>;
+  };
+  environment?: string;
+}
+
+interface StigStatusResponse {
+  ok: boolean;
+  embedded: boolean;
+  name: string;
+  generatedAt: string;
+  model?: {
+    providerMode: string;
+    fast: string;
+    default: string;
+    long: string;
+    openaiReady: boolean;
+    gatewayReady: boolean;
+  };
+  auth?: {
+    session: boolean;
+    tokenAuthConfigured: boolean;
+  };
+  endpoints?: Record<string, string>;
+  appSources?: Record<string, { state?: string; id?: string }>;
+  aiSources?: Record<string, { state?: string; id?: string; label?: string }>;
+  projectTruth?: {
+    projects: number;
+    blocked: number;
+    aiWork: number;
+    sourceCounts?: Record<string, number>;
+  } | null;
+  authMode?: "session" | "token";
+}
+
 interface UserSettings {
-  name:          string;
-  timezone:      string;
-  workStart:     string;
-  workEnd:       string;
-  videoTool:     string;
-  meetingUrl:    string;
+  username?: string;
+  email?: string;
+  name: string;
+  timezone: string;
+  workStart: string;
+  workEnd: string;
+  videoTool: string;
+  meetingUrl: string;
   useIpTimezone?: boolean;
+  profile?: {
+    firstName?: string;
+    surname?: string;
+    email?: string;
+    country?: string;
+  };
 }
 
-// ── Timezone validation ───────────────────────────────────────────────────────
-// Uses the same Intl.DateTimeFormat approach as the server-side validator.
-// Available in all modern browsers (Chrome 24+, Firefox 29+, Safari 10+).
-function isValidTimezone(tz: string): boolean {
-  if (!tz || !tz.trim()) return false;
-  try {
-    Intl.DateTimeFormat(undefined, { timeZone: tz });
-    return true;
-  } catch {
-    return false;
+type AppKey = "slack" | "google" | "linear" | "zoom" | "notion" | "apple" | "whatsapp" | "microsoft";
+
+interface AppDef {
+  key: AppKey;
+  name: string;
+  role: string;
+  priority: "primary" | "core" | "optional" | "manual";
+  icon: React.ElementType;
+  status?: IntegrationStatus | null;
+  mode: "oauth" | "api-key" | "manual" | "planned";
+  connectUrl?: string;
+  disconnect?: () => Promise<void>;
+  scopes?: string[];
+  setup?: string[];
+}
+
+function StateBadge({ state, mode }: { state?: IntegrationState | "loading"; mode?: "manual" | "planned" }) {
+  if (mode === "manual") return <Badge className="bg-slate-100 text-slate-600 border-slate-200 text-xs">Manual</Badge>;
+  if (mode === "planned") return <Badge className="bg-slate-100 text-slate-500 border-slate-200 text-xs">Planned</Badge>;
+  if (!state || state === "loading") {
+    return <Badge variant="secondary" className="gap-1 text-xs"><Loader2 className="h-3 w-3 animate-spin" />Checking</Badge>;
   }
+  if (state === "connected") {
+    return <Badge className="bg-emerald-100 text-emerald-800 border-emerald-300 gap-1 text-xs font-semibold"><CheckCircle2 className="h-3 w-3" />Connected</Badge>;
+  }
+  if (state === "permission_missing" || state === "token_expired") {
+    return <Badge className="bg-amber-100 text-amber-800 border-amber-400 gap-1 text-xs font-semibold"><AlertTriangle className="h-3 w-3" />Needs re-auth</Badge>;
+  }
+  if (state === "error") {
+    return <Badge className="bg-red-100 text-red-800 border-red-400 gap-1 text-xs font-semibold"><XCircle className="h-3 w-3" />Error</Badge>;
+  }
+  return <Badge className="bg-slate-100 text-slate-600 border-slate-300 gap-1 text-xs"><XCircle className="h-3 w-3" />Not connected</Badge>;
 }
 
-// ── Helpers ────────────────────────────────────────────────────────────────────
-function formatBytes(n: number): string {
-  if (n < 1024) return `${n} B`;
-  return `${(n / 1024).toFixed(1)} KB`;
+function isConnected(status?: IntegrationStatus | null) {
+  return status?.state === "connected" || status?.state === "permission_missing";
 }
 
-function formatRelativeTime(iso: string): string {
-  const diff = Date.now() - new Date(iso).getTime();
-  const mins = Math.floor(diff / 60_000);
-  if (mins < 1) return "just now";
-  if (mins < 60) return `${mins}m ago`;
-  const hrs = Math.floor(mins / 60);
-  if (hrs < 24) return `${hrs}h ago`;
-  return `${Math.floor(hrs / 24)}d ago`;
+function missingEnv(env: Record<string, boolean> | undefined, keys: string[]) {
+  return keys.filter((k) => !env?.[k]);
 }
 
-// ── Page ──────────────────────────────────────────────────────────────────────
+function copyText(value: string, setter: (value: string | null) => void) {
+  void navigator.clipboard.writeText(value).then(() => {
+    setter(value);
+    setTimeout(() => setter(null), 1400);
+  }).catch((err) => {
+    console.error("[settings] clipboard copy failed:", err instanceof Error ? err.message : String(err));
+  });
+}
 
-export default function SettingsPage() {
-  const [statuses, setStatuses]   = useState<AllStatuses | null>(null);
-  const [loadError, setLoadError] = useState<string | null>(null);
-  const [refreshing, setRefreshing] = useState(false);
-  const [reprocessing, setReprocessing] = useState(false);
-  const [reprocessResult, setReprocessResult] = useState<string | null>(null);
-  const [urlNotice, setUrlNotice] = useState<{ type: "success" | "error"; message: string } | null>(null);
-  const [showAzureGuide, setShowAzureGuide] = useState(false);
-  const [copiedEnvVar, setCopiedEnvVar] = useState<string | null>(null);
+function EnvPill({ value, copied, setCopied }: { value: string; copied: boolean; setCopied: (value: string | null) => void }) {
+  return (
+    <button
+      type="button"
+      onClick={() => copyText(value, setCopied)}
+      className="inline-flex items-center gap-1 rounded-md bg-muted px-2 py-1 font-mono text-[11px] hover:bg-muted/80"
+      title="Click to copy"
+    >
+      {value}
+      {copied ? <ClipboardCheck className="h-3 w-3 text-emerald-600" /> : <Copy className="h-3 w-3 text-muted-foreground" />}
+    </button>
+  );
+}
 
-  // ── Account info (read-only) ─────────────────────────────────────────────
-  const [account, setAccount] = useState<{ username: string; email: string } | null>(null);
+// ── Readiness Tab ─────────────────────────────────────────────────────────────
 
-  // ── Linear API key state ─────────────────────────────────────────────────
-  const [linearKey, setLinearKey]       = useState("");
-  const [linearSaving, setLinearSaving] = useState(false);
-  const [linearError, setLinearError]   = useState<string | null>(null);
+function ReadinessTab() {
+  const [report, setReport] = useState<ReadinessReport | null>(null);
+  const [loading, setLoading] = useState(true);
 
-  // ── GitHub PAT state ─────────────────────────────────────────────────────
-  const [githubKey, setGithubKey]       = useState("");
-  const [githubSaving, setGithubSaving] = useState(false);
-  const [githubError, setGithubError]   = useState<string | null>(null);
-  const [githubConnected, setGithubConnected] = useState(false);
+  useEffect(() => {
+    fetch("/api/readiness")
+      .then((r) => r.ok ? r.json() : null)
+      .then((data) => { if (data) setReport(data as ReadinessReport); })
+      .catch((e: unknown) => { console.error("[settings] readiness fetch failed:", e instanceof Error ? e.message : String(e)); })
+      .finally(() => setLoading(false));
+  }, []);
 
-  async function handleGithubConnect() {
-    if (!githubKey.trim()) return;
-    setGithubSaving(true);
-    setGithubError(null);
+  if (loading) {
+    return (
+      <div className="space-y-3">
+        {[0, 1, 2].map((i) => (
+          <div key={i} className="h-16 rounded-lg bg-muted/40 animate-pulse" />
+        ))}
+      </div>
+    );
+  }
+
+  if (!report) {
+    return (
+      <div className="rounded-xl border border-destructive/40 bg-destructive/5 px-4 py-3 text-sm text-destructive">
+        Could not load readiness data. Check server logs.
+      </div>
+    );
+  }
+
+  const encryptionCheck = report.checks.find((c) => c.id === "encryption_key");
+  const modelCheck = report.checks.find((c) => c.id === "model_config");
+
+  return (
+    <div className="space-y-4">
+      {/* Score banner */}
+      <div className={`rounded-xl border-2 px-5 py-4 flex items-center justify-between gap-4 ${report.score === 100 ? "border-emerald-300 bg-emerald-50" : report.blockers.length > 0 ? "border-red-300 bg-red-50" : "border-amber-300 bg-amber-50"}`}>
+        <div className="space-y-0.5">
+          <p className={`text-sm font-bold ${report.score === 100 ? "text-emerald-800" : report.blockers.length > 0 ? "text-red-800" : "text-amber-800"}`}>
+            {report.score === 100 ? "Basil is fully configured" : report.blockers.length > 0 ? "Action required — blockers detected" : "Almost there — warnings to review"}
+          </p>
+          <p className={`text-xs font-medium ${report.score === 100 ? "text-emerald-700" : report.blockers.length > 0 ? "text-red-700" : "text-amber-700"}`}>
+            {report.checks.filter((c) => c.ok).length} of {report.checks.length} checks passing
+          </p>
+        </div>
+        <div className={`text-3xl font-black tabular-nums ${report.score === 100 ? "text-emerald-600" : report.blockers.length > 0 ? "text-red-600" : "text-amber-600"}`}>
+          {report.score}%
+        </div>
+      </div>
+
+      {/* Blocker banners */}
+      {encryptionCheck && !encryptionCheck.ok && (
+        <div className="rounded-xl border-2 border-red-400 bg-red-50 px-5 py-4 flex items-start gap-3">
+          <AlertTriangle className="h-5 w-5 text-red-600 shrink-0 mt-0.5" />
+          <div>
+            <p className="text-sm font-bold text-red-800">Token encryption key missing — credentials cannot be saved securely.</p>
+            <p className="text-xs text-red-700 mt-1 font-medium">Set <code className="bg-red-100 border border-red-200 rounded px-1">BASIL_TOKEN_ENCRYPTION_KEY</code> in Vercel env vars.</p>
+          </div>
+        </div>
+      )}
+
+      {modelCheck && !modelCheck.ok && (
+        <div className="rounded-xl border-2 border-red-400 bg-red-50 px-5 py-4 flex items-start gap-3">
+          <AlertTriangle className="h-5 w-5 text-red-600 shrink-0 mt-0.5" />
+          <div>
+            <p className="text-sm font-bold text-red-800">AI brain not configured — Chat and briefings will not work.</p>
+            <p className="text-xs text-red-700 mt-1 font-medium">
+              Add <code className="bg-red-100 border border-red-200 rounded px-1">openai_basilv2</code> (value: your OpenAI API key) in Vercel env vars, or run{" "}
+              <code className="bg-red-100 border border-red-200 rounded px-1">vercel env pull .env.local</code> for Vercel AI Gateway.
+            </p>
+          </div>
+        </div>
+      )}
+
+      {/* All checks as rows */}
+      <div className="divide-y divide-border/60 rounded-xl border overflow-hidden">
+        {report.checks.map((check) => (
+          <div
+            key={check.id}
+            className={`flex items-start gap-3 px-4 py-3 border-l-[3px] ${
+              check.ok
+                ? "border-l-emerald-400 bg-card"
+                : check.severity === "blocker"
+                ? "border-l-red-500 bg-red-50/60"
+                : check.severity === "warning"
+                ? "border-l-amber-400 bg-amber-50/40"
+                : "border-l-slate-300 bg-card"
+            }`}
+          >
+            <div className="shrink-0 mt-0.5">
+              {check.ok ? (
+                <CheckCircle2 className="h-4 w-4 text-emerald-600" />
+              ) : check.severity === "blocker" ? (
+                <AlertTriangle className="h-4 w-4 text-red-600" />
+              ) : check.severity === "warning" ? (
+                <AlertTriangle className="h-4 w-4 text-amber-500" />
+              ) : (
+                <Info className="h-4 w-4 text-muted-foreground" />
+              )}
+            </div>
+            <div className="flex-1 min-w-0">
+              <div className="flex flex-wrap items-center gap-2">
+                <p className="text-sm font-semibold">{check.label}</p>
+                {!check.ok && (
+                  <Badge
+                    className={
+                      check.severity === "blocker"
+                        ? "bg-red-100 text-red-700 border-red-300 text-[11px] font-semibold"
+                        : check.severity === "warning"
+                        ? "bg-amber-100 text-amber-800 border-amber-300 text-[11px] font-semibold"
+                        : "bg-muted text-muted-foreground text-[11px]"
+                    }
+                  >
+                    {check.severity}
+                  </Badge>
+                )}
+              </div>
+              <p className="text-xs text-muted-foreground mt-0.5">{check.detail}</p>
+              {!check.ok && check.action && (
+                <p className={`text-xs mt-1 font-medium ${check.severity === "blocker" ? "text-red-700" : check.severity === "warning" ? "text-amber-700" : "text-muted-foreground"}`}>
+                  Fix: {check.action}
+                </p>
+              )}
+            </div>
+            <div className="shrink-0">
+              {check.ok ? (
+                <span className="text-xs font-bold text-emerald-600">Pass</span>
+              ) : check.severity === "blocker" ? (
+                <span className="text-xs font-bold text-red-600">Blocker</span>
+              ) : check.severity === "warning" ? (
+                <span className="text-xs font-bold text-amber-600">Warn</span>
+              ) : (
+                <span className="text-xs font-medium text-muted-foreground">Info</span>
+              )}
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+// ── Stig API Tab ──────────────────────────────────────────────────────────────
+
+function StigApiTab({
+  status,
+  env,
+  copied,
+  setCopied,
+}: {
+  status: StigStatusResponse | null;
+  env: Record<string, boolean> | undefined;
+  copied: string | null;
+  setCopied: (value: string | null) => void;
+}) {
+  const endpoints = status?.endpoints ?? {
+    status: "/api/stig/status",
+    ask: "/api/stig/ask",
+    siri: "/api/stig/siri",
+    briefing: "/api/stig/briefing",
+  };
+  const tokenReady = !!status?.auth?.tokenAuthConfigured;
+  const openaiReady = !!status?.model?.openaiReady;
+  const gatewayReady = !!status?.model?.gatewayReady;
+  const modelReady = openaiReady || gatewayReady;
+  const providerMode = status?.model?.providerMode ?? "openai_direct";
+  const sourceStates = Object.entries(status?.appSources ?? {});
+  const aiStates = Object.entries(status?.aiSources ?? {});
+
+  const [testResult, setTestResult] = React.useState<{ ok: boolean; text?: string; durationMs?: number; error?: { message: string } } | null>(null);
+  const [testing, setTesting] = React.useState(false);
+
+  async function testBrain() {
+    setTesting(true);
+    setTestResult(null);
     try {
-      const res = await fetch("/api/settings", {
-        method:  "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body:    JSON.stringify({ githubToken: githubKey.trim() }),
-      });
-      if (!res.ok) {
-        setGithubError("Failed to save token");
-        return;
-      }
-      setGithubKey("");
-      setGithubConnected(true);
+      const res = await fetch("/api/ai/test-brain");
+      const data = await res.json() as { ok: boolean; text?: string; durationMs?: number; error?: { message: string } };
+      setTestResult(data);
     } catch {
-      setGithubError("Network error — please try again");
+      setTestResult({ ok: false, error: { message: "Network error contacting test endpoint" } });
     } finally {
-      setGithubSaving(false);
+      setTesting(false);
     }
   }
 
-  async function handleGithubDisconnect() {
-    const res = await fetch("/api/settings", {
-      method:  "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body:    JSON.stringify({ githubToken: "" }),
-    });
-    if (res.ok) setGithubConnected(false);
+  return (
+    <div className="space-y-4">
+      <Card className="border-[oklch(0.72_0.15_85)]/30 bg-[oklch(0.72_0.15_85)]/[0.04] shadow-sm">
+        <CardHeader className="pb-3">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+            <div>
+              <CardTitle className="text-base font-semibold flex items-center gap-2">
+                <Bot className="h-4 w-4 text-[oklch(0.58_0.15_85)]" />
+                The Stig API
+              </CardTitle>
+              <p className="mt-1 text-xs text-muted-foreground">
+                Embedded inside Basil. Use it from the dashboard, mobile app, Siri shortcut, or future Slack command.
+              </p>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              <Badge className={status?.embedded ? "bg-emerald-100 text-emerald-700 border-emerald-200" : "bg-amber-100 text-amber-700 border-amber-200"}>
+                {status?.embedded ? "Embedded" : "Checking"}
+              </Badge>
+              <Badge className={modelReady ? "bg-emerald-100 text-emerald-800 border-emerald-300 font-semibold" : "bg-red-100 text-red-800 border-red-400 font-semibold"}>
+                {modelReady
+                  ? (openaiReady ? "OpenAI ready" : "Gateway ready")
+                  : "AI brain missing"}
+              </Badge>
+              <Badge className={tokenReady ? "bg-emerald-100 text-emerald-700 border-emerald-200" : "bg-muted text-muted-foreground"}>
+                {tokenReady ? "Phone token ready" : "Phone token off"}
+              </Badge>
+            </div>
+          </div>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          {!modelReady && (
+            <div className="rounded-lg border-2 border-red-300 bg-red-50 p-3 text-xs text-red-800 flex items-start gap-2">
+              <AlertTriangle className="h-4 w-4 shrink-0 text-red-600 mt-0.5" />
+              <div>
+                <strong className="font-bold">AI brain not configured.</strong>{" "}Set{" "}
+                <EnvPill value="openai_basilv2" copied={copied === "openai_basilv2"} setCopied={setCopied} />{" "}
+                (value: your OpenAI API key) in Vercel env vars. Or run <code className="bg-red-100 border border-red-200 rounded px-1">vercel env pull .env.local</code> for Vercel AI Gateway.
+              </div>
+            </div>
+          )}
+          {modelReady && (
+            <div className="rounded-lg border border-emerald-200 bg-emerald-50 p-3 text-xs text-emerald-800 flex items-center justify-between gap-3 flex-wrap">
+              <div>
+                <strong>{openaiReady ? "OpenAI direct" : "Vercel AI Gateway"}</strong> is ready.
+                {providerMode === "openai_direct" && status?.model?.default && (
+                  <span className="ml-1">Model: <code className="bg-emerald-100 rounded px-1">{status.model.default}</code></span>
+                )}
+              </div>
+              <button
+                type="button"
+                onClick={() => void testBrain()}
+                disabled={testing}
+                className="shrink-0 rounded-md border border-emerald-300 bg-white/60 px-2.5 py-1 text-[11px] font-medium text-emerald-800 hover:bg-white disabled:opacity-50"
+              >
+                {testing ? "Testing…" : "Test brain →"}
+              </button>
+            </div>
+          )}
+          {testResult && (
+            <div className={`rounded-lg border p-3 text-xs ${testResult.ok ? "border-emerald-200 bg-emerald-50 text-emerald-800" : "border-red-200 bg-red-50 text-red-800"}`}>
+              {testResult.ok
+                ? <>✓ OpenAI responded in {testResult.durationMs}ms: <em>&ldquo;{testResult.text}&rdquo;</em></>
+                : <>✗ Test failed: {testResult.error?.message}</>}
+            </div>
+          )}
+
+          {!tokenReady && (
+            <div className="rounded-lg border border-muted bg-background/60 p-3 text-xs text-muted-foreground">
+              For Siri/phone access without a browser session, set{" "}
+              <EnvPill value="STIG_API_TOKEN" copied={copied === "STIG_API_TOKEN"} setCopied={setCopied} /> and{" "}
+              <EnvPill value="STIG_API_USERNAME" copied={copied === "STIG_API_USERNAME"} setCopied={setCopied} />.
+              Browser calls still work with the normal Basil login session.
+            </div>
+          )}
+
+          <div className="grid gap-3 md:grid-cols-2">
+            <div className="rounded-xl border bg-card p-3">
+              <p className="text-[11px] uppercase tracking-[0.18em] text-muted-foreground">Endpoints</p>
+              <div className="mt-2 flex flex-wrap gap-2">
+                {Object.values(endpoints).map((endpoint) => (
+                  <button
+                    key={endpoint}
+                    type="button"
+                    onClick={() => copyText(endpoint, setCopied)}
+                    className="rounded-md bg-muted px-2 py-1 font-mono text-[11px] hover:bg-muted/80"
+                  >
+                    {endpoint} {copied === endpoint ? "✓" : ""}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <div className="rounded-xl border bg-card p-3">
+              <p className="text-[11px] uppercase tracking-[0.18em] text-muted-foreground">Model</p>
+              <p className="mt-2 text-sm font-medium">{status?.model?.default ?? "checking"}</p>
+              <p className="text-xs text-muted-foreground">Mode: {status?.model?.providerMode ?? "unknown"}</p>
+            </div>
+          </div>
+
+          <div className="grid gap-3 md:grid-cols-3">
+            <div className="rounded-xl border bg-card p-3">
+              <p className="text-[11px] uppercase tracking-[0.18em] text-muted-foreground">Project truth</p>
+              <p className="mt-2 text-2xl font-semibold">{status?.projectTruth?.projects ?? 0}</p>
+              <p className="text-xs text-muted-foreground">{status?.projectTruth?.blocked ?? 0} blocked · {status?.projectTruth?.aiWork ?? 0} AI work</p>
+            </div>
+            <div className="rounded-xl border bg-card p-3 md:col-span-2">
+              <p className="text-[11px] uppercase tracking-[0.18em] text-muted-foreground">Source state</p>
+              <div className="mt-2 flex flex-wrap gap-1.5">
+                {sourceStates.map(([key, value]) => (
+                  <Badge key={key} variant={value.state === "connected" ? "default" : "secondary"} className="text-xs">
+                    {key}: {value.state ?? "unknown"}
+                  </Badge>
+                ))}
+                {aiStates.map(([key, value]) => (
+                  <Badge key={`ai-${key}`} variant={value.state === "connected" ? "default" : "secondary"} className="text-xs">
+                    {key}: {value.state ?? "unknown"}
+                  </Badge>
+                ))}
+                {sourceStates.length === 0 && aiStates.length === 0 && <span className="text-xs text-muted-foreground">Checking sources…</span>}
+              </div>
+            </div>
+          </div>
+
+          {env && !env.STIG_API_TOKEN && (
+            <p className="text-[11px] text-muted-foreground">
+              STIG_API_TOKEN is optional but recommended before exposing Siri or external API access. Sensible. Unfashionably secure.
+            </p>
+          )}
+        </CardContent>
+      </Card>
+    </div>
+  );
+}
+
+// ── Connection Card (Core Apps tab) ──────────────────────────────────────────
+
+function ConnectionCard({
+  app,
+  linearKey,
+  setLinearKey,
+  linearSaving,
+  linearError,
+  onLinearConnect,
+}: {
+  app: AppDef;
+  linearKey: string;
+  setLinearKey: (value: string) => void;
+  linearSaving: boolean;
+  linearError: string | null;
+  onLinearConnect: () => Promise<void>;
+}) {
+  const Icon = app.icon;
+  const connected = isConnected(app.status);
+
+  return (
+    <Card className={`shadow-sm overflow-hidden ${app.priority === "primary" ? "border-l-4 border-l-emerald-500" : app.priority === "core" ? "border-l-4 border-l-blue-400" : "border-l-4 border-l-slate-200"}`}>
+      <CardHeader className="pb-3">
+        <div className="flex items-start justify-between gap-3">
+          <div className="flex items-start gap-3">
+            <div className={`rounded-lg p-2 ${isConnected(app.status) ? "bg-emerald-100 text-emerald-700" : "bg-muted text-muted-foreground"}`}>
+              <Icon className="h-4 w-4" />
+            </div>
+            <div>
+              <CardTitle className="text-sm font-semibold flex flex-wrap items-center gap-2">
+                {app.name}
+                {app.priority === "primary" && <Badge className="bg-emerald-700 text-white border-0 text-[11px]">Primary</Badge>}
+              </CardTitle>
+              <p className="mt-1 text-xs text-muted-foreground leading-snug">{app.role}</p>
+            </div>
+          </div>
+          <StateBadge state={app.status?.state} mode={app.mode === "manual" || app.mode === "planned" ? app.mode : undefined} />
+        </div>
+      </CardHeader>
+      <CardContent className="space-y-3">
+        {app.status?.error && (
+          <p className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-800 font-medium">{app.status.error}</p>
+        )}
+
+        {app.setup && app.setup.length > 0 && (
+          <div className="space-y-0.5">
+            {app.setup.map((line) => <p key={line} className="text-xs text-muted-foreground">· {line}</p>)}
+          </div>
+        )}
+
+        {app.key === "linear" && !connected ? (
+          <div className="space-y-2">
+            <div className="flex gap-2">
+              <Input
+                type="password"
+                placeholder="lin_api_…"
+                value={linearKey}
+                onChange={(e) => setLinearKey(e.target.value)}
+                onKeyDown={(e) => { if (e.key === "Enter") void onLinearConnect(); }}
+                className="h-9 font-mono text-xs"
+              />
+              <Button size="sm" className="h-9 gap-1.5" onClick={onLinearConnect} disabled={linearSaving || !linearKey.trim()}>
+                {linearSaving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <KeyRound className="h-3.5 w-3.5" />}
+                Connect
+              </Button>
+            </div>
+            {linearError && <p className="text-xs text-red-600">{linearError}</p>}
+            <a className="inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground underline" href="https://linear.app/settings/api" target="_blank" rel="noreferrer">
+              Get Linear API key <ExternalLink className="h-3 w-3" />
+            </a>
+          </div>
+        ) : app.mode === "oauth" ? (
+          <div className="flex flex-wrap gap-2">
+            {connected ? (
+              <Button variant="ghost" size="sm" className="h-8 text-xs text-muted-foreground hover:text-destructive" onClick={() => void app.disconnect?.()}>
+                Disconnect
+              </Button>
+            ) : (
+              <Button
+                size="sm"
+                className="h-8 text-xs"
+                disabled={!app.connectUrl}
+                title={!app.connectUrl ? "Missing required environment variables — see setup notes above" : undefined}
+                onClick={() => { if (app.connectUrl) window.location.href = app.connectUrl; }}
+              >
+                Connect
+              </Button>
+            )}
+            {(app.status?.state === "permission_missing" || app.status?.state === "token_expired") && app.connectUrl && (
+              <Button variant="outline" size="sm" className="h-8 text-xs" onClick={() => { window.location.href = app.connectUrl!; }}>
+                Re-authorize
+              </Button>
+            )}
+          </div>
+        ) : app.key === "linear" && connected ? (
+          <Button variant="ghost" size="sm" className="h-8 text-xs text-muted-foreground hover:text-destructive" onClick={() => void app.disconnect?.()}>
+            Disconnect
+          </Button>
+        ) : app.key === "whatsapp" ? (
+          <Button variant="outline" size="sm" className="h-8 text-xs" onClick={() => { window.location.href = "/dashboard/whatsapp"; }}>
+            Open WhatsApp import
+          </Button>
+        ) : app.mode === "manual" ? (
+          <Badge className="bg-amber-100 text-amber-700 border-amber-200">Manual / import only</Badge>
+        ) : (
+          <Badge variant="secondary">Planned</Badge>
+        )}
+
+        {app.scopes && app.scopes.length > 0 && (
+          <p className="text-[11px] text-muted-foreground">Scopes: {app.scopes.slice(0, 5).join(", ")}{app.scopes.length > 5 ? "…" : ""}</p>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
+export default function SettingsPage() {
+  const [statuses, setStatuses] = useState<AllStatuses | null>(null);
+  const [health, setHealth] = useState<HealthResponse | null>(null);
+  const [stigStatus, setStigStatus] = useState<StigStatusResponse | null>(null);
+  const [readiness, setReadiness] = useState<ReadinessBannerData | null>(null);
+  const [profile, setProfile] = useState<UserSettings | null>(null);
+  const [draft, setDraft] = useState<UserSettings | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [notice, setNotice] = useState<{ type: "success" | "error"; message: string } | null>(null);
+  const [copied, setCopied] = useState<string | null>(null);
+
+  const [linearKey, setLinearKey] = useState("");
+  const [linearSaving, setLinearSaving] = useState(false);
+  const [linearError, setLinearError] = useState<string | null>(null);
+
+  const [savingProfile, setSavingProfile] = useState(false);
+  const [profileError, setProfileError] = useState<string | null>(null);
+
+  const [pw, setPw] = useState({ current: "", next: "", confirm: "" });
+  const [pwSaving, setPwSaving] = useState(false);
+  const [pwMessage, setPwMessage] = useState<string | null>(null);
+
+  const [reprocessing, setReprocessing] = useState(false);
+  const [reprocessResult, setReprocessResult] = useState<string | null>(null);
+
+  const [deleteText, setDeleteText] = useState("");
+  const [deleting, setDeleting] = useState(false);
+
+  // Read ?tab= from URL to support deep links (e.g. ?tab=apps)
+  // Map legacy tab names to new names for backwards compat
+  const TAB_ALIASES: Record<string, string> = {
+    readiness: "setup",
+    "core-apps": "apps",
+    "ai-platforms": "apps",
+    "stig-api": "brain",
+  };
+  const [activeTab, setActiveTab] = useState<string>("setup");
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const tab = params.get("tab");
+    if (tab) setActiveTab(TAB_ALIASES[tab] ?? tab);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  async function loadAll() {
+    setLoading(true);
+    try {
+      const [statusRes, healthRes, settingsRes, stigRes, readinessRes] = await Promise.all([
+        fetch("/api/integrations/status"),
+        fetch("/api/health"),
+        fetch("/api/settings"),
+        fetch("/api/stig/status"),
+        fetch("/api/settings/readiness"),
+      ]);
+
+      if (statusRes.ok) {
+        setStatuses(await statusRes.json() as AllStatuses);
+      } else {
+        const detail = await statusRes.text();
+        setNotice({ type: "error", message: `Integration status failed: ${detail.slice(0, 200)}` });
+      }
+
+      if (healthRes.ok) setHealth(await healthRes.json() as HealthResponse);
+
+      if (settingsRes.ok) {
+        const data = await settingsRes.json() as UserSettings;
+        setProfile(data);
+        setDraft(data);
+      }
+
+      if (stigRes.ok) {
+        setStigStatus(await stigRes.json() as StigStatusResponse);
+      } else {
+        setStigStatus(null);
+      }
+
+      if (readinessRes.ok) {
+        setReadiness(await readinessRes.json() as ReadinessBannerData);
+      }
+    } catch (err) {
+      console.error("[settings] load failed:", err instanceof Error ? err.message : String(err));
+      setNotice({ type: "error", message: "Could not load settings. Check server logs." });
+    } finally {
+      setLoading(false);
+    }
   }
 
-  async function handleLinearConnect() {
-    if (!linearKey.trim()) return;
+  useEffect(() => {
+    void loadAll();
+
+    const params = new URLSearchParams(window.location.search);
+    const connected = params.get("connected");
+    const error = params.get("error");
+
+    if (connected) setNotice({ type: "success", message: `${connected} connected.` });
+    if (error) {
+      let errorMessage: string;
+      if (error === "microsoft_redirect_mismatch") {
+        const appUrl = window.location.origin;
+        errorMessage = `Microsoft redirect URI mismatch — add ${appUrl}/api/auth/microsoft/callback to your Azure app's redirect URIs`;
+      } else if (error === "microsoft_credentials") {
+        errorMessage = "Microsoft client credentials rejected — check MICROSOFT_CLIENT_ID and MICROSOFT_CLIENT_SECRET";
+      } else if (error === "microsoft_auth") {
+        errorMessage = "Microsoft connection failed — check your Azure app configuration";
+      } else {
+        errorMessage = `Connection failed: ${error}`;
+      }
+      setNotice({ type: "error", message: errorMessage });
+    }
+    if (connected || error) window.history.replaceState({}, "", window.location.pathname);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  async function disconnect(path: string, optimisticKey?: keyof AllStatuses) {
+    try {
+      const res = await fetch(path, { method: "DELETE" });
+      if (!res.ok) {
+        setNotice({ type: "error", message: `Disconnect failed (${res.status}).` });
+        return;
+      }
+      if (optimisticKey) {
+        setStatuses((prev) => prev ? ({
+          ...prev,
+          [optimisticKey]: {
+            ...(prev[optimisticKey] as IntegrationStatus | undefined),
+            id: optimisticKey,
+            state: "disconnected",
+            lastCheckedAt: new Date().toISOString(),
+          },
+        } as AllStatuses) : prev);
+      }
+      setTimeout(() => void loadAll(), 800);
+    } catch (err) {
+      console.error("[settings] disconnect failed:", err instanceof Error ? err.message : String(err));
+      setNotice({ type: "error", message: "Network error during disconnect." });
+    }
+  }
+
+  async function connectLinear() {
     setLinearSaving(true);
     setLinearError(null);
     try {
       const res = await fetch("/api/auth/linear", {
-        method:  "POST",
+        method: "POST",
         headers: { "Content-Type": "application/json" },
-        body:    JSON.stringify({ apiKey: linearKey.trim() }),
+        body: JSON.stringify({ apiKey: linearKey.trim() }),
       });
-      const json = await res.json();
+      const data = await res.json() as { error?: string; displayName?: string; name?: string };
       if (!res.ok) {
-        setLinearError(json.error ?? "Connection failed");
+        setLinearError(data.error ?? "Linear connection failed.");
         return;
       }
       setLinearKey("");
-      setStatuses((prev) => prev ? {
-        ...prev,
-        linear: { id: "linear", state: "connected", lastCheckedAt: new Date().toISOString() },
-      } : prev);
-    } catch {
-      setLinearError("Network error — please try again");
+      const workspaceName = data.displayName ?? data.name;
+      setNotice({ type: "success", message: workspaceName ? `Linear connected as ${workspaceName}.` : "Linear connected." });
+      await loadAll();
+    } catch (err) {
+      console.error("[settings] Linear connect failed:", err instanceof Error ? err.message : String(err));
+      setLinearError("Network error.");
     } finally {
       setLinearSaving(false);
     }
   }
 
-  async function handleLinearDisconnect() {
-    const res = await fetch("/api/auth/linear", { method: "DELETE" });
-    if (res.ok) setStatuses((prev) => prev ? {
-      ...prev,
-      linear: { id: "linear", state: "disconnected", lastCheckedAt: new Date().toISOString() },
-    } : prev);
-  }
-
-  // ── Profile/settings state ────────────────────────────────────────────────
-  const [profile, setProfile]         = useState<UserSettings | null>(null);
-  const [editing, setEditing]         = useState(false);
-  const [draft, setDraft]             = useState<UserSettings | null>(null);
-  const [saving, setSaving]           = useState(false);
-  const [saveError, setSaveError]     = useState<string | null>(null);
-
-  async function handleGoogleDisconnect() {
-    await fetch("/api/auth/google", { method: "DELETE" });
-    // Optimistically update — avoids snapshot propagation race on serverless
-    setStatuses((prev) => prev ? {
-      ...prev,
-      google: { ...(prev.google ?? {}), id: "google", state: "disconnected", lastCheckedAt: new Date().toISOString() },
-    } : prev);
-    setTimeout(() => void loadStatuses(), 1500);
-  }
-
-  async function handleMicrosoftDisconnect() {
-    await fetch("/api/auth/microsoft", { method: "DELETE" });
-    setStatuses((prev) => prev ? {
-      ...prev,
-      microsoft: { ...(prev.microsoft ?? {}), id: "microsoft", state: "disconnected", lastCheckedAt: new Date().toISOString() },
-    } : prev);
-    setTimeout(() => void loadStatuses(), 1500);
-  }
-
-  async function handleSlackDisconnect() {
-    await fetch("/api/auth/slack", { method: "DELETE" });
-    setStatuses((prev) => prev ? {
-      ...prev,
-      slack: { id: "slack", state: "disconnected", lastCheckedAt: new Date().toISOString() },
-    } : prev);
-    setTimeout(() => void loadStatuses(), 1500);
-  }
-
-  async function handleZoomDisconnect() {
-    await fetch("/api/auth/zoom", { method: "DELETE" });
-    setStatuses((prev) => prev ? {
-      ...prev,
-      zoom: { id: "zoom", state: "disconnected", lastCheckedAt: new Date().toISOString() },
-    } : prev);
-    setTimeout(() => void loadStatuses(), 1500);
-  }
-
-  // ── Password change state ─────────────────────────────────────────────────
-  const [pwForm, setPwForm] = useState({ current: "", next: "", confirm: "" });
-  const [pwSaving, setPwSaving] = useState(false);
-  const [pwError, setPwError] = useState<string | null>(null);
-  const [pwSuccess, setPwSuccess] = useState(false);
-  const [showPw, setShowPw] = useState(false);
-
-  // Delete account
-  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
-  const [deleteConfirmText, setDeleteConfirmText] = useState("");
-  const [deleting, setDeleting] = useState(false);
-  const [deleteError, setDeleteError] = useState<string | null>(null);
-
-  async function handleDeleteAccount() {
-    if (deleteConfirmText.toLowerCase() !== "delete my account") return;
-    setDeleting(true);
-    setDeleteError(null);
+  async function saveProfile() {
+    if (!draft) return;
+    setSavingProfile(true);
+    setProfileError(null);
     try {
-      const res = await fetch("/api/profile", { method: "DELETE" });
-      if (res.ok) {
-        clearSessionUsername();
-        window.location.href = "/login";
-      } else {
-        let errorMsg = "Failed to delete account";
-        try {
-          const data = await res.json() as { error?: string };
-          if (data.error) errorMsg = data.error;
-        } catch (e) {
-          console.error("[basil-fetch] json_parse_error", { route: "/api/profile", status: res.status, component: "SettingsPage", error: e instanceof Error ? e.message : String(e) });
-        }
-        setDeleteError(errorMsg);
-        setDeleting(false);
+      const res = await fetch("/api/settings", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          name: draft.name,
+          timezone: draft.timezone,
+          workStart: draft.workStart,
+          workEnd: draft.workEnd,
+          videoTool: draft.videoTool,
+          meetingUrl: draft.meetingUrl,
+          useIpTimezone: draft.useIpTimezone,
+        }),
+      });
+      const data = await res.json() as UserSettings & { error?: string };
+      if (!res.ok) {
+        setProfileError(data.error ?? "Save failed.");
+        return;
       }
-    } catch {
-      setDeleteError("Network error — please try again");
-      setDeleting(false);
+      setProfile(data);
+      setDraft(data);
+      setNotice({ type: "success", message: "Profile saved." });
+    } catch (err) {
+      console.error("[settings] profile save failed:", err instanceof Error ? err.message : String(err));
+      setProfileError("Network error.");
+    } finally {
+      setSavingProfile(false);
     }
   }
 
-  async function handlePasswordChange(e: React.FormEvent) {
+  async function changePassword(e: React.FormEvent) {
     e.preventDefault();
-    setPwError(null);
-    if (pwForm.next.length < 8) {
-      setPwError("New password must be at least 8 characters.");
+    setPwMessage(null);
+    if (pw.next.length < 8) {
+      setPwMessage("New password must be at least 8 characters.");
       return;
     }
-    if (pwForm.next !== pwForm.confirm) {
-      setPwError("New passwords don't match.");
+    if (pw.next !== pw.confirm) {
+      setPwMessage("New passwords do not match.");
       return;
     }
     setPwSaving(true);
@@ -344,99 +836,26 @@ export default function SettingsPage() {
       const res = await fetch("/api/profile/password", {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ currentPassword: pwForm.current, newPassword: pwForm.next }),
+        body: JSON.stringify({ currentPassword: pw.current, newPassword: pw.next }),
       });
-      const data = await res.json();
+      const data = await res.json() as { error?: string; requiresRelogin?: boolean };
       if (!res.ok) {
-        setPwError(data.error ?? "Password change failed.");
+        setPwMessage(data.error ?? "Password update failed.");
         return;
       }
-      setPwSuccess(true);
-      setPwForm({ current: "", next: "", confirm: "" });
-      // All sessions revoked — clear username scope and redirect to login
-      clearSessionUsername();
-      setTimeout(() => { window.location.href = "/login"; }, 2000);
-    } catch {
-      setPwError("Network error. Please try again.");
+      setPw({ current: "", next: "", confirm: "" });
+      // All existing sessions are invalidated server-side on password change.
+      // Redirect to login immediately so the user re-authenticates with the new password.
+      setPwMessage("Password updated. Redirecting to login…");
+      setTimeout(() => {
+        clearSessionUsername();
+        window.location.href = "/login";
+      }, 1500);
+    } catch (err) {
+      console.error("[settings] password update failed:", err instanceof Error ? err.message : String(err));
+      setPwMessage("Network error.");
     } finally {
       setPwSaving(false);
-    }
-  }
-
-  // Timezone validation is checked inline as the user types
-  const timezoneInvalid =
-    editing && draft?.timezone !== undefined && !isValidTimezone(draft.timezone);
-
-  async function loadSettings() {
-    try {
-      const [settingsRes, profileRes] = await Promise.all([
-        fetch("/api/settings", { cache: "no-store" }),
-        fetch("/api/profile",  { cache: "no-store" }),
-      ]);
-      if (settingsRes.ok) {
-        const data = await settingsRes.json() as UserSettings & { githubToken?: string };
-        setProfile(data);
-        setGithubConnected(!!data.githubToken);
-      }
-      if (profileRes.ok)  setAccount(await profileRes.json());
-    } catch (e) {
-      // Non-fatal — page still works, profile just shows nothing
-      console.error("[basil-fetch] network_error", { route: "/api/settings", component: "SettingsPage", error: e instanceof Error ? e.message : String(e) });
-    }
-  }
-
-  function startEdit() {
-    if (!profile) return;
-    setDraft({ ...profile });
-    setSaveError(null);
-    setEditing(true);
-  }
-
-  function cancelEdit() {
-    setEditing(false);
-    setDraft(null);
-    setSaveError(null);
-  }
-
-  async function saveEdit() {
-    if (!draft) return;
-    // Block save if the timezone field is currently invalid
-    if (timezoneInvalid) {
-      setSaveError(`"${draft.timezone}" is not a valid IANA timezone. Use a format like "Europe/London" or "America/New_York".`);
-      return;
-    }
-    setSaving(true);
-    setSaveError(null);
-    try {
-      const res = await fetch("/api/settings", {
-        method:  "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body:    JSON.stringify(draft),
-      });
-      const data = await res.json() as UserSettings & { error?: string };
-      if (!res.ok) throw new Error(data.error ?? `HTTP ${res.status}`);
-      setProfile(data);
-      setEditing(false);
-      setDraft(null);
-    } catch (e) {
-      setSaveError(e instanceof Error ? e.message : "Save failed");
-    } finally {
-      setSaving(false);
-    }
-  }
-
-  async function loadStatuses() {
-    setRefreshing(true);
-    setLoadError(null);
-    try {
-      const res = await fetch("/api/integrations/status", { cache: "no-store" });
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      const data = await res.json() as AllStatuses;
-      setStatuses(data);
-    } catch (e) {
-      setLoadError(e instanceof Error ? e.message : "Failed to load integration status");
-    } finally {
-      setRefreshing(false);
     }
   }
 
@@ -445,1147 +864,435 @@ export default function SettingsPage() {
     setReprocessResult(null);
     try {
       const res = await fetch("/api/events/reprocess", { method: "POST" });
-      const data = await res.json() as { queued?: number; message?: string; error?: string };
-      setReprocessResult(data.message ?? (res.ok ? "Done" : "Failed"));
-    } catch {
-      setReprocessResult("Request failed — check network.");
+      if (!res.ok) {
+        setReprocessResult(`Backfill failed (${res.status}).`);
+        return;
+      }
+      setReprocessResult("Backfill queued. Basil will re-classify recent signals.");
+    } catch (err) {
+      console.error("[settings] backfill failed:", err instanceof Error ? err.message : String(err));
+      setReprocessResult("Network error.");
     } finally {
       setReprocessing(false);
     }
   }
 
-  useEffect(() => {
-    void loadStatuses();
-    void loadSettings();
-
-    // Parse OAuth callback params from URL and show a banner, then clean the URL
-    const params = new URLSearchParams(window.location.search);
-    const error     = params.get("error");
-    const connected = params.get("connected");
-
-    if (connected === "slack") {
-      setUrlNotice({ type: "success", message: "Slack connected successfully." });
-      // Optimistically mark Slack as connected immediately — avoids serverless
-      // cold-start race where the status check runs before the snapshot propagates.
-      setStatuses((prev) => prev ? {
-        ...prev,
-        slack: { id: "slack", state: "connected", lastCheckedAt: new Date().toISOString() },
-      } : prev);
-      // Then refresh for real after a short delay
-      setTimeout(() => void loadStatuses(), 1500);
-    } else if (connected === "microsoft") {
-      setUrlNotice({ type: "success", message: "Microsoft 365 connected successfully." });
-      setStatuses((prev) => prev ? {
-        ...prev,
-        microsoft: { ...(prev.microsoft ?? {}), id: "microsoft", state: "connected", lastCheckedAt: new Date().toISOString() },
-      } : prev);
-      setTimeout(() => void loadStatuses(), 1500);
-    } else if (connected === "google") {
-      setUrlNotice({ type: "success", message: "Google connected successfully." });
-      setStatuses((prev) => prev ? {
-        ...prev,
-        google: { ...(prev.google ?? {}), id: "google", state: "connected", lastCheckedAt: new Date().toISOString() },
-      } : prev);
-      setTimeout(() => void loadStatuses(), 1500);
-    } else if (error === "slack_auth") {
-      const slackErr = params.get("slack_error");
-      setUrlNotice({ type: "error", message: `Slack authorization failed${slackErr ? ` (${slackErr})` : ""} — please try connecting again.` });
-    } else if (error === "slack_not_configured") {
-      setUrlNotice({
-        type: "error",
-        message: "Slack OAuth is not configured. Add SLACK_CLIENT_ID and SLACK_CLIENT_SECRET to your Vercel environment variables.",
-      });
-    } else if (error === "microsoft_not_configured") {
-      setUrlNotice({
-        type: "error",
-        message:
-          "Microsoft 365 is not configured yet. Register an Azure AD app and add MICROSOFT_CLIENT_ID + MICROSOFT_CLIENT_SECRET to your Vercel environment variables, then redeploy.",
-      });
-    } else if (error === "microsoft_admin_consent") {
-      setUrlNotice({
-        type: "error",
-        message:
-          "Microsoft blocked the connection — your Azure AD app needs admin consent. In the Azure portal go to App registrations → API permissions → Grant admin consent for your tenant, then try connecting again.",
-      });
-    } else if (error === "microsoft_auth") {
-      setUrlNotice({ type: "error", message: "Microsoft 365 authorization failed — please try connecting again." });
-    } else if (error === "no_code") {
-      setUrlNotice({ type: "error", message: "Authorization was cancelled or no code was returned." });
+  async function deleteAccount() {
+    if (deleteText.toLowerCase() !== "delete my account") return;
+    setDeleting(true);
+    try {
+      const res = await fetch("/api/profile", { method: "DELETE" });
+      if (res.ok) {
+        clearSessionUsername();
+        window.location.href = "/login";
+        return;
+      }
+      setNotice({ type: "error", message: "Delete failed." });
+    } catch (err) {
+      console.error("[settings] delete failed:", err instanceof Error ? err.message : String(err));
+      setNotice({ type: "error", message: "Network error during delete." });
+    } finally {
+      setDeleting(false);
     }
+  }
 
-    // Remove query params from the URL bar without reloading
-    if (error || connected) {
-      window.history.replaceState({}, "", window.location.pathname);
-    }
-  }, []);
+  const env = health?.checks?.env;
+  const slackMissing = missingEnv(env, ["SLACK_CLIENT_ID", "SLACK_CLIENT_SECRET", "SLACK_SIGNING_SECRET"]);
+  const googleMissing = missingEnv(env, ["GOOGLE_CLIENT_ID", "GOOGLE_CLIENT_SECRET", "GOOGLE_REDIRECT_URI"]);
+  const zoomMissing = missingEnv(env, ["ZOOM_CLIENT_ID", "ZOOM_CLIENT_SECRET", "ZOOM_REDIRECT_URI"]);
+  const microsoftMissing = missingEnv(env, ["MICROSOFT_CLIENT_ID", "MICROSOFT_CLIENT_SECRET"]);
 
-  const g  = statuses?.google;
-  const ms = statuses?.microsoft;
-  const googleConnected    = g?.state  === "connected" || g?.state  === "permission_missing";
-  const microsoftConnected = ms?.state === "connected" || ms?.state === "permission_missing";
+  const apps: AppDef[] = useMemo(() => [
+    {
+      key: "slack",
+      name: "Slack",
+      role: "Primary operating layer: communication, team blockers, promises, tasks and urgency.",
+      priority: "primary",
+      icon: Hash,
+      status: statuses?.slack,
+      mode: "oauth",
+      connectUrl: slackMissing.length ? undefined : "/api/auth/slack/oauth?from=settings",
+      disconnect: () => disconnect("/api/auth/slack", "slack"),
+      setup: (() => {
+        const slackConnected = statuses?.slack?.state === "connected";
+        if (slackConnected && slackMissing.length) {
+          return slackMissing.map(v => `Connected, but ${v} is missing — Slack webhook commands won't work without it. Add it in Vercel env vars.`);
+        }
+        if (!slackConnected && slackMissing.length) {
+          return [`Missing env vars: ${slackMissing.join(", ")}`];
+        }
+        return ["Connect first. This drives daily briefing urgency."];
+      })(),
+    },
+    {
+      key: "google",
+      name: "Google Workspace",
+      role: "Calendar, Gmail, Drive, Docs and meeting source material.",
+      priority: "core",
+      icon: Globe2,
+      status: statuses?.google,
+      mode: "oauth",
+      connectUrl: googleMissing.length ? undefined : "/api/auth/google?from=settings",
+      disconnect: () => disconnect("/api/auth/google", "google"),
+      scopes: statuses?.google?.scopes,
+      setup: googleMissing.length ? [`Missing env vars: ${googleMissing.join(", ")}`] : [
+        `Calendar: ${statuses?.google?.google?.calendar ? "on" : "off"}`,
+        `Gmail: ${statuses?.google?.google?.gmail ? "on" : "off"}`,
+        `Drive: ${statuses?.google?.google?.drive ? "on" : "off"}`,
+      ],
+    },
+    {
+      key: "linear",
+      name: "Linear",
+      role: "Product, engineering issues, delivery blockers and roadmap reality.",
+      priority: "core",
+      icon: Database,
+      status: statuses?.linear,
+      mode: "api-key",
+      disconnect: () => disconnect("/api/integrations/linear", "linear"),
+      setup: ["Use a Linear Personal API Key. Basil validates before saving."],
+    },
+    {
+      key: "zoom",
+      name: "Zoom",
+      role: "Meeting metadata, recordings/transcript routes, participant context.",
+      priority: "core",
+      icon: Video,
+      status: statuses?.zoom,
+      mode: "oauth",
+      connectUrl: zoomMissing.length ? undefined : "/api/auth/zoom?from=%2Fdashboard%2Fsettings%3Fconnected%3Dzoom",
+      disconnect: () => disconnect("/api/auth/zoom", "zoom"),
+      setup: zoomMissing.length ? [`Missing env vars: ${zoomMissing.join(", ")}`] : ["Connect for meeting intelligence. Google/Zoom email summaries still work via Gmail signals."],
+    },
+    {
+      key: "whatsapp",
+      name: "WhatsApp",
+      role: "Manual capture only — no API available. WhatsApp does not provide a third-party inbox API.",
+      priority: "manual",
+      icon: MessageCircle,
+      status: { id: "whatsapp", state: "disconnected", lastCheckedAt: new Date().toISOString() },
+      mode: "manual",
+      setup: ["Export a chat from WhatsApp and import it via the WhatsApp page. No live sync is possible."],
+    },
+    {
+      key: "notion",
+      name: "Notion",
+      role: "Company memory and structured docs. Connector not yet implemented in this repo.",
+      priority: "optional",
+      icon: FileText,
+      mode: "planned",
+      setup: ["Next build: OAuth + selected pages/databases + project ledger matching."],
+    },
+    {
+      key: "apple",
+      name: "Apple / iCloud",
+      role: "Personal calendar/reminders. Best handled through calendar sync or native helper later.",
+      priority: "optional",
+      icon: Apple,
+      mode: "planned",
+      setup: ["Phase 1: sync Apple Calendar into Google. Phase 2: native Mac/iOS helper."],
+    },
+    {
+      key: "microsoft",
+      name: "Microsoft 365",
+      role: "Optional fallback for Outlook/Teams/OneDrive if needed.",
+      priority: "optional",
+      icon: Mail,
+      status: statuses?.microsoft,
+      mode: "oauth",
+      connectUrl: microsoftMissing.length ? undefined : "/api/auth/microsoft?from=settings",
+      disconnect: () => disconnect("/api/auth/microsoft", "microsoft"),
+      scopes: statuses?.microsoft?.scopes,
+      setup: microsoftMissing.length ? [`Missing env vars: ${microsoftMissing.join(", ")}`] : ["Optional in your stack, but kept available."],
+    },
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  ], [statuses, slackMissing.join(","), googleMissing.join(","), zoomMissing.join(","), microsoftMissing.join(",")]);
 
-  const integrations: {
-    key:         string;
-    name:        string;
-    icon:        typeof Calendar;
-    description: string;
-    color:       string;
-    status:      IntegrationStatus | null;
-    note?:       string | null;
-    group:       "google" | "microsoft" | "other";
-  }[] = [
-    // ── Google Workspace ─────────────────────────────────────────────────────
-    {
-      key:         "calendar",
-      name:        "Google Calendar",
-      icon:        Calendar,
-      description: "View and manage calendar events",
-      color:       "text-[oklch(0.72_0.15_85)]",
-      group:       "google",
-      status:      g
-        ? { ...g, state: g.google?.calendar ? "connected" : googleConnected ? "permission_missing" : g.state }
-        : null,
-    },
-    {
-      key:         "gmail",
-      name:        "Gmail",
-      icon:        Mail,
-      description: "Read and draft emails",
-      color:       "text-pink-500",
-      group:       "google",
-      status:      g
-        ? { ...g, state: g.google?.gmail ? "connected" : googleConnected ? "permission_missing" : g.state }
-        : null,
-    },
-    {
-      key:         "drive",
-      name:        "Google Drive",
-      icon:        FileText,
-      description: "Search and read documents",
-      color:       "text-amber-500",
-      group:       "google",
-      status:      g
-        ? { ...g, state: g.google?.drive ? "connected" : googleConnected ? "permission_missing" : g.state }
-        : null,
-    },
-    // ── Microsoft 365 ────────────────────────────────────────────────────────
-    {
-      key:         "outlook_mail",
-      name:        "Outlook Mail",
-      icon:        Mail,
-      description: "Read and send Outlook emails",
-      color:       "text-blue-500",
-      group:       "microsoft",
-      status:      ms
-        ? { ...ms, state: ms.microsoft?.mail ? "connected" : microsoftConnected ? "permission_missing" : ms.state }
-        : null,
-    },
-    {
-      key:         "outlook_calendar",
-      name:        "Outlook Calendar",
-      icon:        Calendar,
-      description: "View and manage Outlook calendar events",
-      color:       "text-sky-500",
-      group:       "microsoft",
-      status:      ms
-        ? { ...ms, state: ms.microsoft?.calendar ? "connected" : microsoftConnected ? "permission_missing" : ms.state }
-        : null,
-    },
-    {
-      key:         "onedrive",
-      name:        "OneDrive",
-      icon:        FileText,
-      description: "Search and read OneDrive files",
-      color:       "text-indigo-500",
-      group:       "microsoft",
-      status:      ms
-        ? { ...ms, state: ms.microsoft?.drive ? "connected" : microsoftConnected ? "permission_missing" : ms.state }
-        : null,
-    },
-    {
-      key:         "teams",
-      name:        "Microsoft Teams",
-      icon:        MessageSquare,
-      description: "Read and send Teams messages",
-      color:       "text-violet-500",
-      group:       "microsoft",
-      status:      ms
-        ? { ...ms, state: ms.microsoft?.teams ? "connected" : microsoftConnected ? "permission_missing" : ms.state }
-        : null,
-    },
-    // ── Other integrations ───────────────────────────────────────────────────
-    {
-      key:         "linear",
-      name:        "Linear",
-      icon:        Database,
-      description: "Sync open Linear issues assigned to you as actions",
-      color:       "text-violet-500",
-      group:       "other",
-      status:      statuses?.linear ?? null,
-      note:        null,
-    },
-    {
-      key:         "github",
-      name:        "GitHub",
-      icon:        Bot,
-      description: "Sync your recent GitHub repositories in AI Projects",
-      color:       "text-zinc-600",
-      group:       "other",
-      status:      null,
-      note:        null,
-    },
-    {
-      key:         "slack",
-      name:        "Slack",
-      icon:        Hash,
-      description: "Read and send Slack messages",
-      color:       "text-emerald-500",
-      group:       "other",
-      status:      statuses?.slack ?? null,
-      note:        null,
-    },
-    {
-      key:         "zoom",
-      name:        "Zoom",
-      icon:        Video,
-      description: "Direct Zoom API connection — meetings, recordings & participants",
-      color:       "text-blue-400",
-      group:       "other",
-      status:      statuses?.zoom ?? null,
-      note:        null,
-    },
-    {
-      key:         "claude",
-      name:        "AI Assistant (Claude)",
-      icon:        Bot,
-      description: "AI chat powered by Anthropic Claude",
-      color:       "text-[oklch(0.58_0.15_85)]",
-      group:       "other",
-      status:      statuses?.claude ?? null,
-      note:        "Configured via ANTHROPIC_API_KEY environment variable.",
-    },
-  ];
-
-  const snap = statuses?.snapshot;
+  const connectedApps = apps.filter((a) => isConnected(a.status)).length;
+  const needsAttention = apps.filter((a) => a.status?.state === "error" || a.status?.state === "permission_missing" || a.status?.state === "token_expired").length;
 
   return (
-    <div className="p-6 lg:p-8 space-y-6 max-w-2xl pb-8">
-      <header className="flex items-center justify-between gap-4">
+    <div className="mx-auto max-w-6xl space-y-6 p-4 pb-10 sm:p-6 lg:p-8">
+      <header className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
         <div>
-          <h1 className="text-2xl font-semibold tracking-tight flex items-center gap-2">
+          <div className="flex items-center gap-2">
             <Settings className="h-6 w-6 text-[oklch(0.72_0.15_85)]" />
-            Settings
-          </h1>
-          <p className="text-sm text-muted-foreground mt-1">
-            Manage integrations and preferences.
+            <h1 className="text-2xl font-semibold tracking-tight">Settings & integrations</h1>
+          </div>
+          <p className="mt-1 max-w-2xl text-sm text-muted-foreground">
+            Basil&apos;s control room. Connect the sources that feed the daily briefing, project truth layer and AI command centre.
           </p>
         </div>
-        <Button
-          variant="ghost"
-          size="sm"
-          onClick={loadStatuses}
-          disabled={refreshing}
-          className="gap-1.5 text-xs text-muted-foreground shrink-0"
-        >
-          <RefreshCw className={`h-3.5 w-3.5 ${refreshing ? "animate-spin" : ""}`} />
-          Refresh
-        </Button>
+        <div className="flex flex-wrap gap-2">
+          <Badge variant="secondary" className="h-9 px-3 text-sm font-medium">
+            <CheckCircle2 className="mr-1.5 h-3.5 w-3.5 text-emerald-600" />{connectedApps} connected
+          </Badge>
+          {needsAttention > 0 && (
+            <Badge className="h-9 bg-amber-100 px-3 text-amber-900 border-amber-400 font-semibold text-sm">
+              <AlertTriangle className="mr-1.5 h-3.5 w-3.5" />{needsAttention} need attention
+            </Badge>
+          )}
+          <Button variant="outline" size="sm" className="h-9 gap-1.5" onClick={loadAll} disabled={loading}>
+            <RefreshCw className={`h-3.5 w-3.5 ${loading ? "animate-spin" : ""}`} />
+            Refresh
+          </Button>
+        </div>
       </header>
 
-      {/* Load error banner */}
-      {loadError && (
-        <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
-          Could not load integration status: {loadError}
+      {notice && (
+        <div className={`flex items-start gap-2.5 rounded-xl border px-4 py-3 text-sm font-medium ${notice.type === "success" ? "border-emerald-300 bg-emerald-50 text-emerald-800" : "border-red-300 bg-red-50 text-red-800"}`}>
+          {notice.type === "success"
+            ? <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-emerald-600" />
+            : <XCircle className="mt-0.5 h-4 w-4 shrink-0 text-red-500" />}
+          {notice.message}
+          <button type="button" onClick={() => setNotice(null)} className="ml-auto shrink-0 opacity-60 hover:opacity-100">✕</button>
         </div>
       )}
 
-      {/* OAuth callback notice (success / error from ?connected= or ?error= params) */}
-      {urlNotice && (
-        <div
-          className={`rounded-lg border px-4 py-3 text-sm ${
-            urlNotice.type === "success"
-              ? "border-emerald-200 bg-emerald-50 text-emerald-700"
-              : "border-amber-200 bg-amber-50 text-amber-800"
-          }`}
-        >
-          {urlNotice.message}
-        </div>
-      )}
-
-
-
-      {/* ── System health ────────────────────────────────────────────────── */}
-      <HealthPanel />
-
-      {/* ── Integrations grouped by provider ─────────────────────────────── */}
-      {(["google", "microsoft", "other"] as const).map((group) => {
-        const items = integrations.filter((i) => i.group === group);
-
-        // Group-level connection state
-        const googleState   = g?.state ?? "disconnected";
-        const microsoftState = ms?.state ?? "disconnected";
-        const groupConnected =
-          group === "google"    ? (googleState === "connected" || googleState === "permission_missing") :
-          group === "microsoft" ? (microsoftState === "connected" || microsoftState === "permission_missing") :
-          true;
-        const groupNeedsReauth =
-          group === "google"    ? (googleState === "token_expired" || googleState === "permission_missing") :
-          group === "microsoft" ? (microsoftState === "token_expired" || microsoftState === "permission_missing") :
-          false;
-
-        const groupLabel =
-          group === "google"    ? "Google Workspace" :
-          group === "microsoft" ? "Microsoft 365" :
-                                  "Other integrations";
-        const groupIcon =
-          group === "microsoft" ? Building2 : null;
-        const GroupIcon = groupIcon;
-
+      {/* ── System Readiness Banner ───────────────────────────────────────── */}
+      {readiness && (() => {
+        const score = readiness.readiness.score;
+        const brainReady = readiness.model?.openaiReady || readiness.model?.gatewayReady;
+        const isGreen = score === 100;
+        const isRed = !brainReady;
+        const colorClass = isGreen
+          ? "border-emerald-300 bg-emerald-50"
+          : isRed
+          ? "border-red-300 bg-red-50"
+          : "border-amber-300 bg-amber-50";
+        const textClass = isGreen ? "text-emerald-800" : isRed ? "text-red-800" : "text-amber-800";
+        const subTextClass = isGreen ? "text-emerald-700" : isRed ? "text-red-700" : "text-amber-700";
+        const scoreClass = isGreen ? "text-emerald-600" : isRed ? "text-red-600" : "text-amber-600";
+        const headline = isGreen
+          ? "All core systems ready"
+          : isRed
+          ? "Brain not configured — Chat and briefings offline"
+          : "Partial setup — some integrations missing";
+        const subline = isGreen
+          ? "Brain, Slack and Google are connected."
+          : isRed
+          ? "Set openai_basilv2 (value: OpenAI API key) in Vercel env vars to enable AI."
+          : "Brain is ready but one or more integrations are not connected.";
+        const Icon = isGreen ? CheckCircle2 : AlertTriangle;
         return (
-          <Card key={group} className="shadow-sm">
-            <CardHeader className="pb-3 flex flex-row items-center justify-between gap-2">
-              <CardTitle className="text-sm font-medium flex items-center gap-2">
-                {GroupIcon && <GroupIcon className="h-4 w-4 text-muted-foreground" />}
-                {groupLabel}
-              </CardTitle>
-
-              {/* Group-level connect / disconnect / re-authorize */}
-              {group === "google" && (
-                groupConnected ? (
-                  <div className="flex items-center gap-2">
-                    {groupNeedsReauth && (
-                      <Button size="sm" variant="outline"
-                        className="h-7 px-2.5 text-xs text-amber-600 border-amber-300 hover:bg-amber-50"
-                        onClick={() => { window.location.href = "/api/auth/google?from=settings"; }}>
-                        Re-authorize
-                      </Button>
-                    )}
-                    <Button size="sm" variant="ghost"
-                      className="h-7 px-2.5 text-xs text-muted-foreground hover:text-red-600"
-                      onClick={handleGoogleDisconnect}>
-                      Disconnect
-                    </Button>
-                  </div>
-                ) : (
-                  <Button size="sm" variant="outline"
-                    className="h-7 px-2.5 text-xs text-[oklch(0.58_0.15_85)] border-[oklch(0.72_0.15_85)]/40 hover:bg-[oklch(0.72_0.15_85)]/8"
-                    onClick={() => { window.location.href = "/api/auth/google?from=settings"; }}>
-                    Connect →
-                  </Button>
-                )
-              )}
-
-              {group === "microsoft" && (
-                groupConnected ? (
-                  <div className="flex items-center gap-2">
-                    {groupNeedsReauth && (
-                      <Button size="sm" variant="outline"
-                        className="h-7 px-2.5 text-xs text-amber-600 border-amber-300 hover:bg-amber-50"
-                        onClick={() => { window.location.href = "/api/auth/microsoft?from=settings"; }}>
-                        Re-authorize
-                      </Button>
-                    )}
-                    <Button size="sm" variant="ghost"
-                      className="h-7 px-2.5 text-xs text-muted-foreground hover:text-red-600"
-                      onClick={handleMicrosoftDisconnect}>
-                      Disconnect
-                    </Button>
-                  </div>
-                ) : (
-                  <div className="flex items-center gap-2">
-                    <Button size="sm" variant="outline"
-                      className="h-7 px-2.5 text-xs text-blue-600 border-blue-200 hover:bg-blue-50"
-                      onClick={() => { window.location.href = "/api/auth/microsoft?from=settings"; }}>
-                      Connect →
-                    </Button>
-                    <button
-                      onClick={() => setShowAzureGuide(v => !v)}
-                      className="text-xs text-muted-foreground hover:text-foreground underline"
-                    >
-                      Setup guide
-                    </button>
-                  </div>
-                )
-              )}
-            </CardHeader>
-
-            {/* Azure AD setup guide — shown below header when toggled */}
-            {group === "microsoft" && showAzureGuide && !groupConnected && (
-              <div className="mx-4 mb-4 rounded-lg border border-blue-200 bg-blue-50/60 p-4 text-xs text-blue-900/80 space-y-3">
-                <p className="font-semibold text-blue-800">One-time Azure AD setup (~5 min):</p>
-                <ol className="space-y-2 list-none">
-                  <AzureStep n={1}>
-                    Go to <a href="https://portal.azure.com" target="_blank" rel="noreferrer" className="underline inline-flex items-center gap-0.5">portal.azure.com <ExternalLink className="h-3 w-3" /></a> → <strong>App registrations</strong> → <strong>New registration</strong>
-                  </AzureStep>
-                  <AzureStep n={2}>
-                    Supported account types: <strong>&quot;Accounts in any organizational directory … and personal Microsoft accounts&quot;</strong>
-                  </AzureStep>
-                  <AzureStep n={3}>
-                    Redirect URI → <strong>Web</strong> → <CopyableCode value="https://basil-app.vercel.app/api/auth/microsoft/callback" copiedEnvVar={copiedEnvVar} setCopiedEnvVar={setCopiedEnvVar} />
-                  </AzureStep>
-                  <AzureStep n={4}>Copy <span className="font-mono bg-blue-100 px-1 rounded">Application (client) ID</span> → <strong>MICROSOFT_CLIENT_ID</strong></AzureStep>
-                  <AzureStep n={5}><strong>Certificates &amp; secrets</strong> → New client secret → copy Value → <strong>MICROSOFT_CLIENT_SECRET</strong></AzureStep>
-                  <AzureStep n={6}>
-                    <strong>API permissions</strong> → Microsoft Graph → Delegated → add:{" "}
-                    <span className="font-mono bg-blue-100 px-1 rounded text-[11px]">Mail.Read Mail.ReadWrite Mail.Send Calendars.ReadWrite Files.Read.All Chat.Read User.Read offline_access</span>
-                  </AzureStep>
-                  <AzureStep n={7}>Add both env vars in <a href="https://vercel.com/dashboard" target="_blank" rel="noreferrer" className="underline inline-flex items-center gap-0.5">Vercel dashboard <ExternalLink className="h-3 w-3" /></a> and redeploy, then click Connect.</AzureStep>
-                </ol>
+          <div className={`flex items-center justify-between gap-4 rounded-xl border-2 px-5 py-3 ${colorClass}`}>
+            <div className="flex items-start gap-3">
+              <Icon className={`h-5 w-5 shrink-0 mt-0.5 ${isGreen ? "text-emerald-600" : isRed ? "text-red-600" : "text-amber-600"}`} />
+              <div>
+                <p className={`text-sm font-bold ${textClass}`}>{headline}</p>
+                <p className={`text-xs ${subTextClass}`}>{subline}</p>
               </div>
-            )}
+            </div>
+            <div className={`text-2xl font-black tabular-nums shrink-0 ${scoreClass}`}>{score}%</div>
+          </div>
+        );
+      })()}
 
+      <Tabs value={activeTab} onValueChange={setActiveTab}>
+        <TabsList className="flex flex-wrap h-auto gap-1 bg-muted/60 p-1">
+          <TabsTrigger value="setup" className="text-xs font-medium">Setup</TabsTrigger>
+          <TabsTrigger value="brain" className="text-xs font-medium">Brain</TabsTrigger>
+          <TabsTrigger value="apps" className="text-xs font-medium">Apps</TabsTrigger>
+          <TabsTrigger value="profile" className="text-xs">Profile</TabsTrigger>
+          <TabsTrigger value="security" className="text-xs">Security</TabsTrigger>
+          <TabsTrigger value="advanced" className="text-xs">Advanced</TabsTrigger>
+          {/* Legacy deep-link aliases — kept for backwards compat */}
+          <TabsTrigger value="readiness" className="hidden" />
+          <TabsTrigger value="core-apps" className="hidden" />
+          <TabsTrigger value="stig-api" className="hidden" />
+          <TabsTrigger value="ai-platforms" className="hidden" />
+        </TabsList>
+
+        {/* ── Setup (was Readiness) ────────────────────────────────────────── */}
+        <TabsContent value="setup" className="mt-6">
+          <ReadinessTab />
+        </TabsContent>
+        {/* Legacy alias */}
+        <TabsContent value="readiness" className="mt-6">
+          <ReadinessTab />
+        </TabsContent>
+
+        {/* ── Brain (was Stig API) ─────────────────────────────────────────── */}
+        <TabsContent value="brain" className="mt-6">
+          <StigApiTab status={stigStatus} env={env} copied={copied} setCopied={setCopied} />
+        </TabsContent>
+        {/* Legacy alias */}
+        <TabsContent value="stig-api" className="mt-6">
+          <StigApiTab status={stigStatus} env={env} copied={copied} setCopied={setCopied} />
+        </TabsContent>
+
+        {/* ── Apps (was Core Apps + AI Platforms) ─────────────────────────── */}
+        <TabsContent value="apps" className="mt-6 space-y-6">
+          <div>
+            <h2 className="text-lg font-semibold">App connections</h2>
+            <p className="text-sm text-muted-foreground">
+              Slack is the operating core. Google, Linear and Zoom enrich the briefing. The rest are honest about current limits.
+            </p>
+          </div>
+          <div className="grid gap-4 lg:grid-cols-2">
+            {apps.map((app) => (
+              <ConnectionCard
+                key={app.key}
+                app={app}
+                linearKey={linearKey}
+                setLinearKey={setLinearKey}
+                linearSaving={linearSaving}
+                linearError={linearError}
+                onLinearConnect={connectLinear}
+              />
+            ))}
+          </div>
+          <div>
+            <h2 className="text-lg font-semibold">AI platforms</h2>
+            <p className="text-sm text-muted-foreground mb-4">
+              Track AI tools used in your work. Basil is the source of truth; AI tools are workers.
+            </p>
+            <AIPlatformsSection />
+          </div>
+        </TabsContent>
+        {/* Legacy aliases */}
+        <TabsContent value="core-apps" className="mt-6 space-y-4">
+          <div className="grid gap-4 lg:grid-cols-2">
+            {apps.map((app) => (
+              <ConnectionCard
+                key={app.key}
+                app={app}
+                linearKey={linearKey}
+                setLinearKey={setLinearKey}
+                linearSaving={linearSaving}
+                linearError={linearError}
+                onLinearConnect={connectLinear}
+              />
+            ))}
+          </div>
+        </TabsContent>
+        <TabsContent value="ai-platforms" className="mt-6">
+          <AIPlatformsSection />
+        </TabsContent>
+
+        {/* ── Profile ───────────────────────────────────────────────────────── */}
+        <TabsContent value="profile" className="mt-6">
+          <Card className="shadow-sm">
+            <CardHeader className="pb-3">
+              <CardTitle className="text-base font-semibold">Profile & working pattern</CardTitle>
+              <p className="text-xs text-muted-foreground">Used in prompts, daily briefing time boundaries and scheduling logic.</p>
+            </CardHeader>
             <CardContent className="space-y-4">
-              {items.map((integration, i) => {
-                const isConnected = integration.status?.state === "connected";
-                const isStatic = integration.key === "claude";
-                return (
-                <div key={integration.key}>
-                  <div className="flex items-start gap-3">
-                    <integration.icon className={`h-5 w-5 mt-0.5 shrink-0 ${integration.color}`} />
-                    <div className="flex-1 min-w-0">
-                      <p className="text-sm font-medium">{integration.name}</p>
-                      <p className="text-xs text-muted-foreground">{integration.description}</p>
-                      {integration.note && (
-                        <p className="text-xs text-muted-foreground/70 mt-0.5 italic">{integration.note}</p>
-                      )}
-                      {integration.status?.error && (
-                        <p className="text-xs text-red-600 mt-0.5 truncate">{integration.status.error}</p>
-                      )}
-                    </div>
-
-                    {/* Per-row action */}
-                    {isStatic ? (
-                      /* Zoom / Claude: status badge only — no auth needed */
-                      <StateBadge state={integration.status ? integration.status.state : "loading"} />
-                    ) : integration.key === "linear" ? (
-                      /* Linear: Personal API Key */
-                      isConnected ? (
-                        <div className="flex items-center gap-2 shrink-0">
-                          <StateBadge state="connected" />
-                          <Button size="sm" variant="ghost"
-                            className="h-7 px-2 text-xs text-muted-foreground hover:text-red-600"
-                            onClick={handleLinearDisconnect}>
-                            Disconnect
-                          </Button>
-                        </div>
-                      ) : (
-                        <div className="flex items-center gap-1.5 shrink-0">
-                          <Input
-                            type="password"
-                            placeholder="lin_api_…"
-                            value={linearKey}
-                            onChange={(e) => { setLinearKey(e.target.value); setLinearError(null); }}
-                            onKeyDown={(e) => { if (e.key === "Enter") void handleLinearConnect(); }}
-                            className="h-7 w-40 text-xs"
-                            disabled={linearSaving}
-                          />
-                          <Button size="sm" variant="outline"
-                            className="h-7 px-2.5 text-xs text-violet-600 border-violet-200 hover:bg-violet-50"
-                            onClick={handleLinearConnect}
-                            disabled={linearSaving || !linearKey.trim()}
-                          >
-                            {linearSaving ? <Loader2 className="h-3 w-3 animate-spin" /> : "Connect"}
-                          </Button>
-                        </div>
-                      )
-                    ) : integration.key === "github" ? (
-                      /* GitHub: Personal Access Token */
-                      githubConnected ? (
-                        <div className="flex items-center gap-2 shrink-0">
-                          <StateBadge state="connected" />
-                          <Button size="sm" variant="ghost"
-                            className="h-7 px-2 text-xs text-muted-foreground hover:text-red-600"
-                            onClick={handleGithubDisconnect}>
-                            Disconnect
-                          </Button>
-                        </div>
-                      ) : (
-                        <div className="flex items-center gap-1.5 shrink-0">
-                          <Input
-                            type="password"
-                            placeholder="ghp_…"
-                            value={githubKey}
-                            onChange={(e) => { setGithubKey(e.target.value); setGithubError(null); }}
-                            onKeyDown={(e) => { if (e.key === "Enter") void handleGithubConnect(); }}
-                            className="h-7 w-40 text-xs"
-                            disabled={githubSaving}
-                          />
-                          <Button size="sm" variant="outline"
-                            className="h-7 px-2.5 text-xs text-zinc-700 border-zinc-300 hover:bg-zinc-50"
-                            onClick={handleGithubConnect}
-                            disabled={githubSaving || !githubKey.trim()}
-                          >
-                            {githubSaving ? <Loader2 className="h-3 w-3 animate-spin" /> : "Connect"}
-                          </Button>
-                        </div>
-                      )
-                    ) : integration.key === "slack" ? (
-                      /* Slack: standalone OAuth */
-                      isConnected ? (
-                        <div className="flex items-center gap-2 shrink-0">
-                          <StateBadge state="connected" />
-                          <Button size="sm" variant="ghost"
-                            className="h-7 px-2 text-xs text-muted-foreground hover:text-red-600"
-                            onClick={handleSlackDisconnect}>
-                            Disconnect
-                          </Button>
-                        </div>
-                      ) : (
-                        <Button size="sm" variant="outline"
-                          className="shrink-0 text-xs h-9 sm:h-7 px-3 sm:px-2.5 text-emerald-600 border-emerald-200 hover:bg-emerald-50 hover:border-emerald-400 gap-1.5"
-                          onClick={() => { window.location.href = "/api/auth/slack/oauth?from=settings"; }}>
-                          <svg viewBox="0 0 24 24" className="h-3.5 w-3.5 fill-current" aria-hidden="true">
-                            <path d="M5.04 15.17a2.52 2.52 0 0 1-2.52 2.52A2.52 2.52 0 0 1 0 15.17a2.52 2.52 0 0 1 2.52-2.52h2.52v2.52zm1.26 0a2.52 2.52 0 0 1 2.52-2.52 2.52 2.52 0 0 1 2.52 2.52v6.31A2.52 2.52 0 0 1 8.82 24a2.52 2.52 0 0 1-2.52-2.52v-6.31zM8.82 5.04a2.52 2.52 0 0 1-2.52-2.52A2.52 2.52 0 0 1 8.82 0a2.52 2.52 0 0 1 2.52 2.52v2.52H8.82zm0 1.26a2.52 2.52 0 0 1 2.52 2.52 2.52 2.52 0 0 1-2.52 2.52H2.52A2.52 2.52 0 0 1 0 8.82a2.52 2.52 0 0 1 2.52-2.52h6.3zm10.13 2.52a2.52 2.52 0 0 1 2.52-2.52A2.52 2.52 0 0 1 24 8.82a2.52 2.52 0 0 1-2.52 2.52h-2.52V8.82zm-1.26 0a2.52 2.52 0 0 1-2.52 2.52 2.52 2.52 0 0 1-2.52-2.52V2.52A2.52 2.52 0 0 1 15.17 0a2.52 2.52 0 0 1 2.52 2.52v6.3zm-2.52 10.13a2.52 2.52 0 0 1 2.52 2.52A2.52 2.52 0 0 1 15.17 24a2.52 2.52 0 0 1-2.52-2.52v-2.52h2.52zm0-1.26a2.52 2.52 0 0 1-2.52-2.52 2.52 2.52 0 0 1 2.52-2.52h6.31A2.52 2.52 0 0 1 24 15.17a2.52 2.52 0 0 1-2.52 2.52h-6.31z"/>
-                          </svg>
-                          Connect with Slack
-                        </Button>
-                      )
-                    ) : integration.group === "google" ? (
-                      /* Google sub-services: each row has its own connect/disconnect.
-                         All Google services share one OAuth token so any row action
-                         connects/disconnects the whole Google account. */
-                      <div className="flex items-center gap-2 shrink-0">
-                        <StateBadge state={
-                          statuses === null ? "loading"
-                          : integration.status ? integration.status.state
-                          : "disconnected"
-                        } />
-                        {googleConnected ? (
-                          <Button size="sm" variant="ghost"
-                            className="h-7 px-2 text-xs text-muted-foreground hover:text-red-600"
-                            onClick={handleGoogleDisconnect}>
-                            Disconnect
-                          </Button>
-                        ) : (
-                          <Button size="sm" variant="outline"
-                            className="h-7 px-2.5 text-xs text-[oklch(0.58_0.15_85)] border-[oklch(0.72_0.15_85)]/40 hover:bg-[oklch(0.72_0.15_85)]/8"
-                            onClick={() => { window.location.href = "/api/auth/google?from=settings"; }}>
-                            Connect →
-                          </Button>
-                        )}
-                      </div>
-                    ) : integration.group === "microsoft" ? (
-                      /* Microsoft sub-services: same pattern — shared OAuth token. */
-                      <div className="flex items-center gap-2 shrink-0">
-                        <StateBadge state={
-                          statuses === null ? "loading"
-                          : integration.status ? integration.status.state
-                          : "disconnected"
-                        } />
-                        {microsoftConnected ? (
-                          integration.status?.state === "permission_missing" ? (
-                            /* Tile-level permission missing — re-auth to pick up missing scope */
-                            <Button size="sm" variant="outline"
-                              className="h-7 px-2.5 text-xs text-amber-600 border-amber-300 hover:bg-amber-50"
-                              onClick={() => { window.location.href = "/api/auth/microsoft?from=settings"; }}>
-                              Reconnect
-                            </Button>
-                          ) : (
-                            <Button size="sm" variant="ghost"
-                              className="h-7 px-2 text-xs text-muted-foreground hover:text-red-600"
-                              onClick={handleMicrosoftDisconnect}>
-                              Disconnect
-                            </Button>
-                          )
-                        ) : (
-                          <Button size="sm" variant="outline"
-                            className="h-7 px-2.5 text-xs text-blue-600 border-blue-200 hover:bg-blue-50"
-                            onClick={() => { window.location.href = "/api/auth/microsoft?from=settings"; }}>
-                            Connect →
-                          </Button>
-                        )}
-                      </div>
-                    ) : integration.key === "zoom" ? (
-                      /* Zoom: standalone OAuth */
-                      isConnected ? (
-                        <div className="flex items-center gap-2 shrink-0">
-                          <StateBadge state="connected" />
-                          <Button size="sm" variant="ghost"
-                            className="h-7 px-2 text-xs text-muted-foreground hover:text-red-600"
-                            onClick={handleZoomDisconnect}>
-                            Disconnect
-                          </Button>
-                        </div>
-                      ) : (
-                        <Button size="sm" variant="outline"
-                          className="shrink-0 h-7 px-2.5 text-xs text-blue-600 border-blue-200 hover:bg-blue-50"
-                          onClick={() => { window.location.href = "/api/auth/zoom?from=%2Fdashboard%2Fsettings%3Fconnected%3Dzoom"; }}>
-                          Connect →
-                        </Button>
-                      )
-                    ) : (
-                      <StateBadge state={integration.status ? integration.status.state : "loading"} />
-                    )}
-                  </div>
-
-                  {/* Linear API key error */}
-                  {integration.key === "linear" && linearError && (
-                    <p className="mt-1.5 text-xs text-red-600">{linearError}</p>
-                  )}
-                  {/* Linear API key hint when not connected */}
-                  {integration.key === "linear" && !isConnected && !linearError && (
-                    <p className="mt-1.5 text-xs text-muted-foreground/70">
-                      Get your key at{" "}
-                      <a href="https://linear.app/settings/api" target="_blank" rel="noreferrer"
-                        className="underline hover:text-foreground">
-                        linear.app/settings/api
-                      </a>
-                    </p>
-                  )}
-
-                  {/* GitHub PAT error */}
-                  {integration.key === "github" && githubError && (
-                    <p className="mt-1.5 text-xs text-red-600">{githubError}</p>
-                  )}
-                  {/* GitHub PAT hint */}
-                  {integration.key === "github" && !githubConnected && !githubError && (
-                    <p className="mt-1.5 text-xs text-muted-foreground/70">
-                      Create a token at{" "}
-                      <a href="https://github.com/settings/tokens" target="_blank" rel="noreferrer"
-                        className="underline hover:text-foreground">
-                        github.com/settings/tokens
-                      </a>{" "}
-                      with <code className="font-mono bg-muted px-1 rounded">repo</code> scope.
-                    </p>
-                  )}
-
-                  {i < items.length - 1 && <Separator className="mt-4" />}
-                </div>
-                );
-              })}
+              {profileError && <p className="rounded-md bg-red-50 px-3 py-2 text-xs text-red-700">{profileError}</p>}
+              <div className="grid gap-3 md:grid-cols-2">
+                <label className="space-y-1.5 text-xs font-medium text-muted-foreground">
+                  Name
+                  <Input value={draft?.name ?? ""} onChange={(e) => setDraft((d) => d ? { ...d, name: e.target.value } : d)} />
+                </label>
+                <label className="space-y-1.5 text-xs font-medium text-muted-foreground">
+                  Timezone
+                  <Input value={draft?.timezone ?? ""} onChange={(e) => setDraft((d) => d ? { ...d, timezone: e.target.value } : d)} placeholder="Europe/London" />
+                </label>
+                <label className="space-y-1.5 text-xs font-medium text-muted-foreground">
+                  Work start
+                  <Input value={draft?.workStart ?? ""} onChange={(e) => setDraft((d) => d ? { ...d, workStart: e.target.value } : d)} placeholder="09:00" />
+                </label>
+                <label className="space-y-1.5 text-xs font-medium text-muted-foreground">
+                  Work end
+                  <Input value={draft?.workEnd ?? ""} onChange={(e) => setDraft((d) => d ? { ...d, workEnd: e.target.value } : d)} placeholder="18:00" />
+                </label>
+                <label className="space-y-1.5 text-xs font-medium text-muted-foreground">
+                  Video tool
+                  <Input value={draft?.videoTool ?? ""} onChange={(e) => setDraft((d) => d ? { ...d, videoTool: e.target.value } : d)} placeholder="Zoom" />
+                </label>
+                <label className="space-y-1.5 text-xs font-medium text-muted-foreground">
+                  Meeting URL
+                  <Input value={draft?.meetingUrl ?? ""} onChange={(e) => setDraft((d) => d ? { ...d, meetingUrl: e.target.value } : d)} placeholder="https://zoom.us/j/…" />
+                </label>
+              </div>
+              <div className="flex flex-wrap justify-between gap-3">
+                <label className="flex items-center gap-2 text-sm text-muted-foreground">
+                  <input
+                    type="checkbox"
+                    checked={!!draft?.useIpTimezone}
+                    onChange={(e) => setDraft((d) => d ? { ...d, useIpTimezone: e.target.checked } : d)}
+                  />
+                  Detect timezone from IP when available
+                </label>
+                <Button size="sm" onClick={saveProfile} disabled={savingProfile || !draft}>
+                  {savingProfile ? <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" /> : null}
+                  Save profile
+                </Button>
+              </div>
             </CardContent>
           </Card>
-        );
-      })}
+        </TabsContent>
 
-      {/* Profile card — values are stored server-side in sage-settings.json
-          and read by the system prompt at every AI call so changes take effect
-          immediately on the next conversation turn. */}
-      <Card className="shadow-sm">
-        <CardHeader className="flex flex-row items-center justify-between pb-2">
-          <CardTitle className="text-sm font-medium">Profile</CardTitle>
-          {!editing ? (
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={startEdit}
-              disabled={!profile}
-              className="gap-1.5 text-xs text-muted-foreground h-9 sm:h-7 px-3 sm:px-2"
-            >
-              <Pencil className="h-3 w-3" />
-              Edit
-            </Button>
-          ) : (
-            <div className="flex items-center gap-1">
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={cancelEdit}
-                disabled={saving}
-                className="gap-1 text-xs text-muted-foreground h-9 sm:h-7 px-3 sm:px-2"
-              >
-                <X className="h-3 w-3" />
-                Cancel
-              </Button>
-              <Button
-                size="sm"
-                onClick={saveEdit}
-                disabled={saving || timezoneInvalid}
-                className="gap-1 text-xs h-9 sm:h-7 px-3 sm:px-2 bg-[oklch(0.72_0.15_85)] text-[oklch(0.18_0.04_250)] hover:bg-[oklch(0.78_0.12_85)]"
-              >
-                {saving
-                  ? <Loader2 className="h-3 w-3 animate-spin" />
-                  : <Check className="h-3 w-3" />
-                }
-                Save
-              </Button>
-            </div>
-          )}
-        </CardHeader>
-        <CardContent className="space-y-3 text-sm">
-          {saveError && (
-            <p className="text-xs text-red-600 rounded bg-red-50 px-2 py-1">{saveError}</p>
-          )}
+        {/* ── Security ──────────────────────────────────────────────────────── */}
+        <TabsContent value="security" className="mt-6">
+          <Card className="shadow-sm">
+            <CardHeader className="pb-3">
+              <CardTitle className="text-base font-semibold flex items-center gap-2">
+                <Lock className="h-4 w-4" />
+                Security
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              <form onSubmit={changePassword} className="space-y-3">
+                {pwMessage && <p className="rounded-md bg-muted px-3 py-2 text-xs text-muted-foreground">{pwMessage}</p>}
+                <Input type="password" placeholder="Current password" value={pw.current} onChange={(e) => setPw((p) => ({ ...p, current: e.target.value }))} />
+                <Input type="password" placeholder="New password" value={pw.next} onChange={(e) => setPw((p) => ({ ...p, next: e.target.value }))} />
+                <Input type="password" placeholder="Confirm new password" value={pw.confirm} onChange={(e) => setPw((p) => ({ ...p, confirm: e.target.value }))} />
+                <Button size="sm" type="submit" disabled={pwSaving || !pw.current || !pw.next || !pw.confirm}>
+                  {pwSaving ? <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" /> : null}
+                  Update password
+                </Button>
+              </form>
+            </CardContent>
+          </Card>
+        </TabsContent>
 
-          {/* Username */}
-          <div className="flex items-center justify-between gap-4 min-h-[44px] sm:min-h-[28px]">
-            <span className="text-muted-foreground shrink-0">Username</span>
-            <span className="font-medium font-mono text-sm">{account?.username ?? "—"}</span>
-          </div>
-          <Separator />
+        {/* ── Advanced ──────────────────────────────────────────────────────── */}
+        <TabsContent value="advanced" className="mt-6 space-y-4">
+          <HealthPanel />
 
-          {/* Email */}
-          <div className="flex items-center justify-between gap-4 min-h-[44px] sm:min-h-[28px]">
-            <span className="text-muted-foreground shrink-0">Email</span>
-            <span className="font-medium text-sm">{account?.email || "—"}</span>
-          </div>
-          <Separator />
+          <div className="grid gap-4 lg:grid-cols-2">
+            <Card className="shadow-sm">
+              <CardHeader className="pb-3">
+                <CardTitle className="text-base font-semibold flex items-center gap-2">
+                  <RefreshCw className="h-4 w-4" />
+                  Intelligence backfill
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-3">
+                <p className="text-sm text-muted-foreground">
+                  Re-run classification across recent Slack, email, Zoom, calendar and imported signals. Safe to run; Basil should not duplicate existing actions.
+                </p>
+                {reprocessResult && <p className="rounded-md bg-muted px-3 py-2 text-xs text-muted-foreground">{reprocessResult}</p>}
+                <Button variant="outline" size="sm" className="gap-1.5" onClick={triggerReprocess} disabled={reprocessing}>
+                  <RefreshCw className={`h-3.5 w-3.5 ${reprocessing ? "animate-spin" : ""}`} />
+                  Re-process recent events
+                </Button>
+              </CardContent>
+            </Card>
 
-          {/* Name */}
-          <div className="flex items-center justify-between gap-4 min-h-[44px] sm:min-h-[28px]">
-            <span className="text-muted-foreground shrink-0">Name</span>
-            {editing && draft ? (
-              <Input
-                value={draft.name}
-                onChange={(e) => setDraft({ ...draft, name: e.target.value })}
-                className="h-9 sm:h-7 text-[16px] sm:text-sm text-right max-w-[220px] sm:max-w-[220px] w-full"
-              />
-            ) : (
-              <span className="font-medium">{profile?.name ?? "—"}</span>
-            )}
-          </div>
-          <Separator />
-
-          {/* Timezone */}
-          <div className="flex items-start justify-between gap-4 min-h-[44px] sm:min-h-[28px]">
-            <span className="text-muted-foreground shrink-0 mt-1">Timezone</span>
-            {editing && draft ? (
-              <div className="flex flex-col items-end gap-1">
-                <Input
-                  value={draft.timezone}
-                  onChange={(e) => setDraft({ ...draft, timezone: e.target.value })}
-                  placeholder="Europe/London"
-                  className={`h-9 sm:h-7 text-[16px] sm:text-sm text-right w-full max-w-[220px] ${
-                    timezoneInvalid ? "border-red-400 focus-visible:ring-red-400" : ""
-                  }`}
-                />
-                {timezoneInvalid && (
-                  <p className="text-xs text-red-500">
-                    Not a valid IANA timezone (e.g. &quot;Europe/London&quot;)
-                  </p>
-                )}
-              </div>
-            ) : (
-              <span className="font-medium">{profile?.timezone ?? "—"}</span>
-            )}
-          </div>
-          <Separator />
-
-          {/* Use IP timezone */}
-          <div className="flex items-center justify-between gap-4 min-h-[44px] sm:min-h-[28px]">
-            <div className="flex flex-col gap-0.5">
-              <span className="text-muted-foreground shrink-0">Detect timezone from location</span>
-              <span className="text-xs text-muted-foreground/60">Auto-detects your timezone on each request using your IP address</span>
-            </div>
-            <button
-              type="button"
-              role="switch"
-              aria-checked={!!(editing && draft ? draft.useIpTimezone : profile?.useIpTimezone)}
-              onClick={async () => {
-                const next = !(editing && draft ? draft.useIpTimezone : profile?.useIpTimezone);
-                if (editing && draft) {
-                  setDraft({ ...draft, useIpTimezone: next });
-                } else {
-                  // Toggle without entering edit mode — instant save
-                  await fetch("/api/settings", {
-                    method: "PATCH",
-                    headers: { "Content-Type": "application/json" },
-                    body: JSON.stringify({ useIpTimezone: next }),
-                  });
-                  setProfile((p) => p ? { ...p, useIpTimezone: next } : p);
-                }
-              }}
-              className={`relative inline-flex h-6 w-11 shrink-0 rounded-full border-2 border-transparent transition-colors duration-200 focus:outline-none focus-visible:ring-2 focus-visible:ring-ring ${(editing && draft ? draft.useIpTimezone : profile?.useIpTimezone) ? "bg-primary" : "bg-input"}`}
-            >
-              <span
-                className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow-lg ring-0 transition duration-200 ${(editing && draft ? draft.useIpTimezone : profile?.useIpTimezone) ? "translate-x-5" : "translate-x-0"}`}
-              />
-            </button>
-          </div>
-          <Separator />
-
-          {/* Work hours */}
-          <div className="flex items-center justify-between gap-4 min-h-[44px] sm:min-h-[28px]">
-            <span className="text-muted-foreground shrink-0">Work hours</span>
-            {editing && draft ? (
-              <div className="flex items-center gap-1.5">
-                <Input
-                  value={draft.workStart}
-                  onChange={(e) => setDraft({ ...draft, workStart: e.target.value })}
-                  placeholder="12:00"
-                  className="h-9 sm:h-7 text-[16px] sm:text-sm text-right w-[72px]"
-                />
-                <span className="text-muted-foreground text-xs">–</span>
-                <Input
-                  value={draft.workEnd}
-                  onChange={(e) => setDraft({ ...draft, workEnd: e.target.value })}
-                  placeholder="20:00"
-                  className="h-9 sm:h-7 text-[16px] sm:text-sm text-right w-[72px]"
-                />
-              </div>
-            ) : (
-              <span className="font-medium">
-                {profile
-                  ? `${profile.workStart} – ${profile.workEnd}`
-                  : "—"}
-              </span>
-            )}
-          </div>
-          <Separator />
-
-          {/* Video tool */}
-          <div className="flex items-center justify-between gap-4 min-h-[44px] sm:min-h-[28px]">
-            <span className="text-muted-foreground shrink-0">Video calls</span>
-            {editing && draft ? (
-              <Input
-                value={draft.videoTool}
-                onChange={(e) => setDraft({ ...draft, videoTool: e.target.value })}
-                placeholder="Zoom"
-                className="h-9 sm:h-7 text-[16px] sm:text-sm text-right max-w-[220px] sm:max-w-[220px] w-full"
-              />
-            ) : (
-              <span className="font-medium">
-                {profile ? `${profile.videoTool} only` : "—"}
-              </span>
-            )}
-          </div>
-
-          {/* Meeting URL — only shown when editing, too long for display row */}
-          {editing && draft && (
-            <>
-              <Separator />
-              <div className="space-y-1.5">
-                <span className="text-muted-foreground text-xs">Meeting room URL</span>
-                <Input
-                  value={draft.meetingUrl}
-                  onChange={(e) => setDraft({ ...draft, meetingUrl: e.target.value })}
-                  placeholder="https://zoom.us/j/..."
-                  className="h-9 sm:h-7 text-[16px] sm:text-xs"
-                />
-              </div>
-            </>
-          )}
-        </CardContent>
-      </Card>
-
-      {/* ── Security — password change ───────────────────────────────────── */}
-      <Card className="shadow-sm">
-        <CardHeader className="pb-2">
-          <CardTitle className="text-sm font-medium flex items-center gap-2">
-            <Lock className="h-4 w-4 text-muted-foreground" />
-            Security
-          </CardTitle>
-        </CardHeader>
-        <CardContent className="text-sm">
-          <p className="text-xs text-muted-foreground mb-4">
-            Change your password. After saving, all active sessions will be signed out
-            and you&apos;ll need to log in again with your new password.
-          </p>
-
-          {pwSuccess ? (
-            <div className="flex items-center gap-2 rounded-lg bg-green-50 border border-green-200 text-green-700 px-4 py-3 text-sm dark:bg-green-950/30 dark:border-green-800 dark:text-green-400">
-              <CheckCircle2 className="h-4 w-4 shrink-0" />
-              Password updated. Redirecting to login&hellip;
-            </div>
-          ) : (
-            <form onSubmit={handlePasswordChange} className="space-y-3">
-              {pwError && (
-                <p className="text-xs text-destructive rounded bg-destructive/10 px-3 py-2">{pwError}</p>
-              )}
-
-              {/* Current password */}
-              <div className="flex items-center justify-between gap-4 min-h-[44px] sm:min-h-[28px]">
-                <label className="text-muted-foreground shrink-0 text-sm">Current password</label>
-                <div className="relative">
-                  <Input
-                    type={showPw ? "text" : "password"}
-                    value={pwForm.current}
-                    onChange={(e) => setPwForm(f => ({ ...f, current: e.target.value }))}
-                    placeholder="••••••••"
-                    required
-                    className="h-9 sm:h-7 text-[16px] sm:text-sm pr-8 w-full max-w-[220px]"
-                  />
-                  <button
-                    type="button"
-                    onClick={() => setShowPw(v => !v)}
-                    className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
-                    tabIndex={-1}
-                    aria-label={showPw ? "Hide password" : "Show password"}
-                  >
-                    {showPw ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
-                  </button>
+            <Card className="border-red-200 shadow-sm">
+              <CardHeader className="pb-3">
+                <CardTitle className="text-base font-semibold text-red-600 flex items-center gap-2">
+                  <Trash2 className="h-4 w-4" />
+                  Danger zone
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-3">
+                <p className="text-sm text-muted-foreground">Delete your account and all associated user-scoped data. This cannot be undone.</p>
+                <Separator />
+                <div className="flex flex-col gap-2 sm:flex-row">
+                  <Input placeholder="type: delete my account" value={deleteText} onChange={(e) => setDeleteText(e.target.value)} />
+                  <Button variant="destructive" onClick={deleteAccount} disabled={deleting || deleteText.toLowerCase() !== "delete my account"}>
+                    {deleting ? <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" /> : null}
+                    Delete
+                  </Button>
                 </div>
-              </div>
-              <Separator />
-
-              {/* New password */}
-              <div className="flex items-center justify-between gap-4 min-h-[44px] sm:min-h-[28px]">
-                <label className="text-muted-foreground shrink-0 text-sm">New password</label>
-                <Input
-                  type={showPw ? "text" : "password"}
-                  value={pwForm.next}
-                  onChange={(e) => setPwForm(f => ({ ...f, next: e.target.value }))}
-                  placeholder="Min. 8 characters"
-                  required
-                  minLength={8}
-                  className="h-9 sm:h-7 text-[16px] sm:text-sm text-right w-full max-w-[220px]"
-                />
-              </div>
-              <Separator />
-
-              {/* Confirm new password */}
-              <div className="flex items-center justify-between gap-4 min-h-[44px] sm:min-h-[28px]">
-                <label className="text-muted-foreground shrink-0 text-sm">Confirm new</label>
-                <Input
-                  type={showPw ? "text" : "password"}
-                  value={pwForm.confirm}
-                  onChange={(e) => setPwForm(f => ({ ...f, confirm: e.target.value }))}
-                  placeholder="Repeat new password"
-                  required
-                  className="h-9 sm:h-7 text-[16px] sm:text-sm text-right w-full max-w-[220px]"
-                />
-              </div>
-
-              <div className="pt-1">
-                <Button
-                  type="submit"
-                  size="sm"
-                  disabled={pwSaving || !pwForm.current || !pwForm.next || !pwForm.confirm}
-                  className="gap-1.5 bg-[oklch(0.72_0.15_85)] text-[oklch(0.18_0.04_250)] hover:bg-[oklch(0.78_0.12_85)]"
-                >
-                  {pwSaving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Lock className="h-3.5 w-3.5" />}
-                  {pwSaving ? "Saving…" : "Update password"}
-                </Button>
-              </div>
-            </form>
-          )}
-        </CardContent>
-      </Card>
-
-      {/* Persistence diagnostics — only shown when status has loaded and
-          we're on Vercel (snap.isConfigured or there's a failure reason). */}
-      {/* ── Intelligence backfill ─────────────────────────────────────────── */}
-      {/* Re-runs AI classification on email events that were ingested but never
-          produced actions/decisions — useful after upgrading or for first-run. */}
-      <Card className="shadow-sm">
-        <CardHeader className="pb-2">
-          <CardTitle className="text-sm font-medium flex items-center gap-2">
-            <RefreshCw className="h-4 w-4 text-muted-foreground" />
-            Intelligence backfill
-          </CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-3 text-sm">
-          <p className="text-xs text-muted-foreground">
-            Re-classifies recent events across all sources — email (Gmail &amp; Outlook),
-            Zoom meeting summaries, Slack, and Teams — that haven&apos;t yet produced
-            actions or decisions. Safe to run at any time — existing records are never duplicated.
-          </p>
-          {reprocessResult && (
-            <p className="text-xs text-emerald-700 bg-emerald-50 rounded px-2 py-1.5">
-              {reprocessResult}
-            </p>
-          )}
-          <Button
-            variant="outline"
-            size="sm"
-            className="w-full text-xs gap-1.5"
-            onClick={triggerReprocess}
-            disabled={reprocessing}
-          >
-            <RefreshCw className={`h-3.5 w-3.5 ${reprocessing ? "animate-spin" : ""}`} />
-            {reprocessing ? "Queuing…" : "Re-process recent events"}
-          </Button>
-        </CardContent>
-      </Card>
-
-      {/* ── AI Platforms ─────────────────────────────────────────────────── */}
-      <AIPlatformsSection
-        githubConnected={githubConnected}
-        linearConnected={statuses?.linear?.state === "connected"}
-        vercelConnected={false}
-        onSettingsPatch={async (patch) => {
-          try {
-            const res = await fetch("/api/settings", {
-              method: "PATCH",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify(patch),
-            });
-            if (!res.ok) return { ok: false, error: "Failed to save" };
-            // Reflect updated GitHub connection state
-            if ("githubToken" in patch) {
-              setGithubConnected(!!patch.githubToken);
-            }
-            return { ok: true };
-          } catch {
-            return { ok: false, error: "Network error" };
-          }
-        }}
-      />
-
-      {/* ── Danger zone — delete account ─────────────────────────────────── */}
-      <Card className="shadow-sm border-red-200 dark:border-red-900/50">
-        <CardHeader className="pb-2">
-          <CardTitle className="text-sm font-medium flex items-center gap-2 text-red-600 dark:text-red-400">
-            <XCircle className="h-4 w-4" />
-            Danger zone
-          </CardTitle>
-        </CardHeader>
-        <CardContent className="text-sm space-y-3">
-          <p className="text-xs text-muted-foreground">
-            Permanently delete your account and all associated data (tokens, settings, events).
-            This action cannot be undone.
-          </p>
-          {!showDeleteConfirm ? (
-            <Button
-              variant="outline"
-              size="sm"
-              className="text-xs border-red-300 text-red-600 hover:bg-red-50 hover:border-red-400 dark:border-red-800 dark:text-red-400 dark:hover:bg-red-950/30"
-              onClick={() => setShowDeleteConfirm(true)}
-            >
-              Delete my account
-            </Button>
-          ) : (
-            <div className="space-y-3 rounded-lg border border-red-200 dark:border-red-900 bg-red-50/50 dark:bg-red-950/20 p-4">
-              <p className="text-xs text-red-700 dark:text-red-400 font-medium">
-                Type <strong>delete my account</strong> to confirm:
-              </p>
-              <input
-                type="text"
-                value={deleteConfirmText}
-                onChange={(e) => { setDeleteConfirmText(e.target.value); setDeleteError(null); }}
-                placeholder="delete my account"
-                className="w-full rounded-lg border border-red-200 dark:border-red-800 bg-white dark:bg-red-950/20 px-3 py-2 text-sm text-red-700 dark:text-red-300 placeholder:text-red-300 dark:placeholder:text-red-700 outline-none focus:border-red-400 focus:ring-1 focus:ring-red-400/30"
-              />
-              {deleteError && (
-                <p className="text-xs text-red-600 dark:text-red-400">{deleteError}</p>
-              )}
-              <div className="flex gap-2">
-                <Button
-                  variant="outline"
-                  size="sm"
-                  className="text-xs"
-                  onClick={() => { setShowDeleteConfirm(false); setDeleteConfirmText(""); setDeleteError(null); }}
-                  disabled={deleting}
-                >
-                  Cancel
-                </Button>
-                <Button
-                  size="sm"
-                  className="text-xs bg-red-600 hover:bg-red-700 text-white"
-                  onClick={handleDeleteAccount}
-                  disabled={deleting || deleteConfirmText.toLowerCase() !== "delete my account"}
-                >
-                  {deleting ? <><Loader2 className="h-3.5 w-3.5 animate-spin mr-1" />Deleting…</> : "Confirm delete"}
-                </Button>
-              </div>
-            </div>
-          )}
-        </CardContent>
-      </Card>
-
-      {snap && (
-        <Card className="shadow-sm">
-          <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium flex items-center gap-2">
-              <Database className="h-4 w-4 text-muted-foreground" />
-              Persistence
-            </CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-2 text-xs text-muted-foreground">
-            {/* Overall health indicator */}
-            <div className="flex items-center justify-between">
-              <span>Snapshot storage</span>
-              {snap.isConfigured ? (
-                snap.lastFailureAt && (!snap.lastSuccessAt || snap.lastFailureAt > snap.lastSuccessAt) ? (
-                  <Badge className="bg-red-100 text-red-700 border-red-200 gap-1 text-xs">
-                    <XCircle className="h-3 w-3" />
-                    Failing
-                  </Badge>
-                ) : snap.lastSuccessAt ? (
-                  <Badge className="bg-emerald-100 text-emerald-700 border-emerald-200 gap-1 text-xs">
-                    <CheckCircle2 className="h-3 w-3" />
-                    OK
-                  </Badge>
-                ) : (
-                  <Badge variant="secondary" className="gap-1 text-xs">
-                    No writes yet
-                  </Badge>
-                )
-              ) : (
-                <Badge className="bg-amber-100 text-amber-700 border-amber-200 gap-1 text-xs">
-                  <AlertTriangle className="h-3 w-3" />
-                  Not configured
-                </Badge>
-              )}
-            </div>
-
-            {snap.lastSuccessAt && (
-              <div className="flex items-center justify-between">
-                <span>Last success</span>
-                <span className="font-mono">{formatRelativeTime(snap.lastSuccessAt)}</span>
-              </div>
-            )}
-
-            {snap.lastFailureAt && (
-              <div className="flex items-start justify-between gap-4">
-                <span className="shrink-0">Last failure</span>
-                <span className="text-red-600 text-right truncate max-w-[280px]" title={snap.lastFailureReason ?? ""}>
-                  {snap.lastFailureReason
-                    ? snap.lastFailureReason.slice(0, 80) + (snap.lastFailureReason.length > 80 ? "…" : "")
-                    : formatRelativeTime(snap.lastFailureAt)}
-                </span>
-              </div>
-            )}
-
-            {snap.payloadBytes !== null && (
-              <div className="flex items-center justify-between">
-                <span>Snapshot size</span>
-                <span className={`font-mono ${snap.payloadBytes > 48_000 ? "text-amber-600" : ""}`}>
-                  {formatBytes(snap.payloadBytes)}
-                  {snap.payloadBytes > 48_000 && " ⚠ near limit"}
-                </span>
-              </div>
-            )}
-
-            {!snap.isConfigured && (
-              <p className="text-amber-600 pt-1">
-                VERCEL_TOKEN and/or VERCEL_PROJECT_ID not set — store data will not survive cold starts.
-              </p>
-            )}
-          </CardContent>
-        </Card>
-      )}
+              </CardContent>
+            </Card>
+          </div>
+        </TabsContent>
+      </Tabs>
     </div>
-  );
-}
-
-// ── Azure AD guide helpers ────────────────────────────────────────────────────
-
-function AzureStep({ n, children }: { n: number; children: React.ReactNode }) {
-  return (
-    <li className="flex gap-2.5">
-      <span className="flex-shrink-0 h-5 w-5 rounded-full bg-blue-600 text-white flex items-center justify-center font-bold text-[10px]">
-        {n}
-      </span>
-      <span className="pt-0.5 leading-relaxed">{children}</span>
-    </li>
-  );
-}
-
-function CopyableCode({
-  value,
-  copiedEnvVar,
-  setCopiedEnvVar,
-}: {
-  value: string;
-  copiedEnvVar: string | null;
-  setCopiedEnvVar: (v: string | null) => void;
-}) {
-  const copied = copiedEnvVar === value;
-  return (
-    <span
-      className="inline-flex items-center gap-1 font-mono bg-blue-100 px-1.5 py-0.5 rounded cursor-pointer hover:bg-blue-200 transition-colors"
-      onClick={async () => {
-        await navigator.clipboard.writeText(value);
-        setCopiedEnvVar(value);
-        setTimeout(() => setCopiedEnvVar(null), 2000);
-      }}
-      title="Click to copy"
-    >
-      {value}
-      {copied
-        ? <ClipboardCheck className="h-3 w-3 text-emerald-600" />
-        : <Copy className="h-3 w-3 text-blue-500" />}
-    </span>
   );
 }

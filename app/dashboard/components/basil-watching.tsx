@@ -186,12 +186,17 @@ export function BasilWatching() {
           <div className="space-y-1">
             <CardTitle className="text-sm font-medium flex items-center gap-2">
               <Eye className="h-4 w-4 text-[oklch(0.72_0.15_85)]" />
-              Basil is watching
+              {events === null
+                ? "Basil is watching…"
+                : total === 0
+                ? "Nothing active"
+                : `Basil noticed ${total} item${total === 1 ? "" : "s"}`}
             </CardTitle>
             <p className="text-sm text-muted-foreground leading-relaxed max-w-xl">
-              Things Basil noticed across your inbox, Slack, calendar and drive.
-              Drafts wait for your sign-off. Heads-ups are unread. Handled items
-              are filed without asking.
+              Events Basil has noticed. Connect integrations in Settings to
+              monitor inbox, Slack, calendar and drive. Drafts wait for your
+              sign-off. Heads-ups are unread. Handled items are filed without
+              asking.
             </p>
           </div>
           <div className="flex items-center gap-2 shrink-0">
@@ -227,6 +232,15 @@ export function BasilWatching() {
               <Sparkles className="h-6 w-6 text-muted-foreground/40 mb-2" />
               <p className="text-sm text-muted-foreground">
                 Quiet for now. Nothing for Basil to watch.
+              </p>
+              <p className="text-sm text-muted-foreground mt-2">
+                <Link
+                  href="/dashboard/settings"
+                  className="text-[oklch(0.72_0.15_85)] hover:underline"
+                >
+                  Connect integrations in Settings
+                </Link>{" "}
+                to start monitoring.
               </p>
             </div>
           ) : (

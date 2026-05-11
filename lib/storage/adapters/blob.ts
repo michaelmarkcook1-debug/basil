@@ -60,7 +60,10 @@ export async function blobReadJson<T>(
     const url = await resolveUrl(pathname);
     if (!url) return fallback;
 
-    const res = await fetch(url, { cache: "no-store" });
+    // Append a timestamp to bust Vercel's CDN edge cache so cross-instance
+    // reads always see the latest write (last-writer-wins, no stale reads).
+    const bustUrl = `${url}?v=${Date.now()}`;
+    const res = await fetch(bustUrl, { cache: "no-store" });
     if (!res.ok) return fallback;
 
     const data = await res.json();

@@ -37,6 +37,13 @@ export async function createSession(username: string, sessionVersion = 1) {
   });
 }
 
+// ── Dev bypass ───────────────────────────────────────────────────────────────
+// Set SKIP_AUTH=true in .env.local to bypass login (local dev only).
+// Never set this in production — the production guard above will reject it if
+// AUTH_SECRET is missing, but SKIP_AUTH itself is not blocked at runtime.
+export const SKIP_AUTH = process.env.SKIP_AUTH === "true";
+const SKIP_AUTH_USER = process.env.SKIP_AUTH_USER || process.env.ADMIN_USERNAME;
+
 /**
  * Verify the current session.
  * Checks JWT signature, expiry, and that the user is not disabled and
@@ -44,6 +51,7 @@ export async function createSession(username: string, sessionVersion = 1) {
  * Returns true only if all checks pass.
  */
 export async function verifySession(): Promise<boolean> {
+  if (SKIP_AUTH) return true;
   const cookieStore = await cookies();
   const token = cookieStore.get(COOKIE_NAME)?.value;
   if (!token) return false;
@@ -73,6 +81,7 @@ export async function verifySession(): Promise<boolean> {
  * Same validation as verifySession.
  */
 export async function getSessionUser(): Promise<string | null> {
+  if (SKIP_AUTH) return SKIP_AUTH_USER || null;
   const cookieStore = await cookies();
   const token = cookieStore.get(COOKIE_NAME)?.value;
   if (!token) return null;

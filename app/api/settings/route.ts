@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { getSettings, patchSettings } from "@/lib/settings/store";
-import { getSessionUser } from "@/lib/auth";
+import { getSessionUser, SKIP_AUTH } from "@/lib/auth";
 import { findByUsername } from "@/lib/users";
 import type { UserSettings } from "@/lib/settings/store";
 
@@ -13,7 +13,7 @@ export async function GET() {
   return NextResponse.json({
     ...settings,
     username,
-    onboardingCompleted: user?.onboardingCompleted ?? false,
+    onboardingCompleted: SKIP_AUTH ? true : (user?.onboardingCompleted ?? false),
     profile: user?.profile ?? {},
   });
 }

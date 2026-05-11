@@ -20,6 +20,8 @@ import {
   ChevronDown,
   ChevronRight,
   Activity,
+  Hash,
+  Mail,
 } from "lucide-react";
 import type { HealthColor, HealthTile, SystemHealthReport } from "@/lib/system/health";
 
@@ -269,6 +271,110 @@ function Section({
   );
 }
 
+// ── Manual sync strip ─────────────────────────────────────────────────────────
+
+type SyncJob = "slack" | "ingest";
+type SyncState = "idle" | "running" | "done" | "error";
+
+function SyncButton({
+  icon: Icon,
+  label,
+  job,
+  onComplete,
+}: {
+  icon: typeof Hash;
+  label: string;
+  job: SyncJob;
+  onComplete: () => void;
+}) {
+  const [state, setState] = useState<SyncState>("idle");
+  const [msg, setMsg] = useState("");
+
+  async function trigger() {
+    setState("running");
+    setMsg("");
+    try {
+      const res = await fetch("/api/settings/sync-now", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ jobs: [job] }),
+      });
+      const body = await res.json() as { ok?: boolean; results?: Record<string, { ok?: boolean; messageCount?: number; status?: string; reason?: string; error?: string }> };
+      if (!res.ok || !body.ok) throw new Error("Sync failed");
+      const r = body.results?.[job];
+      if (r?.ok === false) {
+        if (r.reason === "not_connected") {
+          setMsg("Not connected");
+        } else {
+          setMsg(r.error ?? "Failed");
+        }
+        setState("error");
+      } else {
+        if (job === "slack" && typeof r?.messageCount === "number") {
+          setMsg(`${r.messageCount} messages`);
+        } else if (job === "ingest") {
+          setMsg("Running in background");
+        }
+        setState("done");
+        setTimeout(() => { setState("idle"); setMsg(""); }, 8_000);
+        onComplete();
+      }
+    } catch (e) {
+      setMsg(e instanceof Error ? e.message : "Error");
+      setState("error");
+      setTimeout(() => { setState("idle"); setMsg(""); }, 5_000);
+    }
+  }
+
+  return (
+    <div className="flex items-center gap-2">
+      <Button
+        variant="outline"
+        size="sm"
+        onClick={() => void trigger()}
+        disabled={state === "running"}
+        className={`gap-1.5 h-7 text-[12px] ${
+          state === "done" ? "border-emerald-300 text-emerald-700" :
+          state === "error" ? "border-red-300 text-red-600" : ""
+        }`}
+      >
+        {state === "running" ? (
+          <RefreshCw className="h-3 w-3 animate-spin" />
+        ) : state === "done" ? (
+          <CheckCircle2 className="h-3 w-3 text-emerald-500" />
+        ) : state === "error" ? (
+          <XCircle className="h-3 w-3 text-red-500" />
+        ) : (
+          <Icon className="h-3 w-3" />
+        )}
+        {state === "running" ? "Syncing…" : label}
+      </Button>
+      {msg && (
+        <span className={`text-[11px] ${state === "error" ? "text-red-500" : "text-muted-foreground"}`}>
+          {msg}
+        </span>
+      )}
+    </div>
+  );
+}
+
+function SyncNowStrip({ onSynced }: { onSynced: () => void }) {
+  return (
+    <div className="rounded-lg border border-dashed border-border bg-muted/30 px-3 py-3 space-y-2">
+      <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+        Sync now
+      </p>
+      <div className="flex flex-wrap gap-2">
+        <SyncButton icon={Hash} label="Sync Slack" job="slack" onComplete={onSynced} />
+        <SyncButton icon={Mail} label="Run ingest" job="ingest" onComplete={onSynced} />
+      </div>
+      <p className="text-[11px] text-muted-foreground">
+        Slack syncs hourly · Ingest runs every 6 hours · or trigger manually here
+      </p>
+    </div>
+  );
+}
+
 // ── Main panel component ──────────────────────────────────────────────────────
 
 export function HealthPanel() {
@@ -348,6 +454,9 @@ export function HealthPanel() {
             ))}
           </div>
         )}
+
+        {/* Manual sync strip — always visible so user can trigger without waiting for cron */}
+        <SyncNowStrip onSynced={fetchHealth} />
 
         {/* Sections */}
         {report && (

@@ -10,7 +10,11 @@ import {
   CheckCircle2,
   XCircle,
   ChevronDown,
+  Plus,
+  X,
 } from "lucide-react";
+import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -35,6 +39,7 @@ const IMPORTANCE_ORDER: Record<string, number> = {
 const PLATFORM_BADGE_STYLES: Partial<Record<Platform, string>> = {
   "claude-code": "bg-violet-500/10 text-violet-600",
   "claude-chat": "bg-violet-500/10 text-violet-500",
+  "claude-cowork": "bg-violet-500/10 text-violet-600",
   "github":      "bg-zinc-500/10 text-zinc-600",
   "vercel":      "bg-zinc-900/10 text-zinc-800 dark:bg-zinc-100/10 dark:text-zinc-200",
   "linear":      "bg-violet-500/10 text-violet-600",
@@ -321,10 +326,29 @@ function ProjectColumn({
 
 // ── Page ──────────────────────────────────────────────────────────────────────
 
+interface LogWorkForm {
+  platform: string;
+  name: string;
+  summary: string;
+  importance: string;
+  category: string;
+}
+
 export default function AIProjectsPage() {
   const [data, setData] = useState<AIProjectsData | null>(null);
   const [loading, setLoading] = useState(true);
   const [syncing, setSyncing] = useState(false);
+
+  const [showLogForm, setShowLogForm] = useState(false);
+  const [logForm, setLogForm] = useState<LogWorkForm>({
+    platform: "claude-code",
+    name: "",
+    summary: "",
+    importance: "medium",
+    category: "work",
+  });
+  const [logging, setLogging] = useState(false);
+  const [logError, setLogError] = useState("");
 
   const load = useCallback(async () => {
     try {
@@ -336,6 +360,41 @@ export default function AIProjectsPage() {
       setLoading(false);
     }
   }, []);
+
+  async function handleLogWork() {
+    if (!logForm.name.trim()) return;
+    setLogging(true);
+    setLogError("");
+    try {
+      const res = await fetch("/api/ai-projects/import", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          platform: logForm.platform,
+          projects: [{
+            name: logForm.name.trim(),
+            summary: logForm.summary.trim() || undefined,
+            importance: logForm.importance,
+            category: logForm.category,
+            externalId: `manual-${Date.now()}`,
+            lastActiveAt: new Date().toISOString(),
+          }],
+        }),
+      });
+      if (!res.ok) {
+        const body = await res.json() as { error?: string };
+        setLogError(body.error ?? "Failed to log work");
+        return;
+      }
+      setShowLogForm(false);
+      setLogForm({ platform: "claude-code", name: "", summary: "", importance: "medium", category: "work" });
+      await load();
+    } catch (e) {
+      setLogError(e instanceof Error ? e.message : "Network error");
+    } finally {
+      setLogging(false);
+    }
+  }
 
   useEffect(() => { void load(); }, [load]);
 
@@ -416,16 +475,131 @@ export default function AIProjectsPage() {
             Track recent work across AI and dev platforms.
           </p>
         </div>
-        <Button
-          onClick={handleSync}
-          disabled={syncing}
-          size="sm"
-          className="gap-1.5 bg-[oklch(0.72_0.15_85)] text-[oklch(0.18_0.04_250)] hover:bg-[oklch(0.78_0.12_85)]"
-        >
-          {syncing ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RefreshCw className="h-3.5 w-3.5" />}
-          Sync all
-        </Button>
+        <div className="flex gap-2">
+          <Button
+            variant="outline"
+            size="sm"
+            className="gap-1.5"
+            onClick={() => setShowLogForm((v) => !v)}
+          >
+            <Plus className="h-3.5 w-3.5" />
+            Log AI work
+          </Button>
+          <Button
+            onClick={handleSync}
+            disabled={syncing}
+            size="sm"
+            className="gap-1.5 bg-[oklch(0.72_0.15_85)] text-[oklch(0.18_0.04_250)] hover:bg-[oklch(0.78_0.12_85)]"
+          >
+            {syncing ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RefreshCw className="h-3.5 w-3.5" />}
+            Sync all
+          </Button>
+        </div>
       </div>
+
+      {/* Log AI work form */}
+      {showLogForm && (
+        <div className="rounded-2xl border border-border bg-card p-5 space-y-4">
+          <div className="flex items-center justify-between">
+            <h3 className="text-sm font-semibold">Log AI work manually</h3>
+            <button
+              onClick={() => { setShowLogForm(false); setLogError(""); }}
+              className="text-muted-foreground hover:text-foreground"
+              aria-label="Close"
+            >
+              <X className="h-4 w-4" />
+            </button>
+          </div>
+
+          {logError && <p className="rounded-md bg-red-50 px-3 py-2 text-xs text-red-700">{logError}</p>}
+
+          <div className="grid gap-3 sm:grid-cols-2">
+            <label className="block space-y-1.5 text-xs font-medium text-muted-foreground">
+              Platform
+              <select
+                value={logForm.platform}
+                onChange={(e) => setLogForm((f) => ({ ...f, platform: e.target.value }))}
+                className="mt-1 block w-full rounded-md border border-input bg-background px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-[oklch(0.72_0.15_85)]"
+              >
+                <option value="claude-code">Claude Code</option>
+                <option value="claude-chat">Claude Chat</option>
+                <option value="claude-cowork">Claude Cowork</option>
+                <option value="github">GitHub</option>
+                <option value="vercel">Vercel</option>
+                <option value="linear">Linear</option>
+                <option value="chatgpt">ChatGPT</option>
+                <option value="gemini">Gemini</option>
+                <option value="codex">Codex</option>
+              </select>
+            </label>
+
+            <label className="block space-y-1.5 text-xs font-medium text-muted-foreground">
+              Project / task name <span className="text-red-500">*</span>
+              <Input
+                value={logForm.name}
+                onChange={(e) => setLogForm((f) => ({ ...f, name: e.target.value }))}
+                placeholder="What were you working on?"
+              />
+            </label>
+
+            <label className="block space-y-1.5 text-xs font-medium text-muted-foreground sm:col-span-2">
+              Summary
+              <Textarea
+                value={logForm.summary}
+                onChange={(e) => setLogForm((f) => ({ ...f, summary: e.target.value }))}
+                placeholder="What did you do / are you doing?"
+                rows={2}
+              />
+            </label>
+
+            <label className="block space-y-1.5 text-xs font-medium text-muted-foreground">
+              Importance
+              <select
+                value={logForm.importance}
+                onChange={(e) => setLogForm((f) => ({ ...f, importance: e.target.value }))}
+                className="mt-1 block w-full rounded-md border border-input bg-background px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-[oklch(0.72_0.15_85)]"
+              >
+                <option value="critical">Critical</option>
+                <option value="high">High</option>
+                <option value="medium">Medium</option>
+                <option value="low">Low</option>
+              </select>
+            </label>
+
+            <label className="block space-y-1.5 text-xs font-medium text-muted-foreground">
+              Category
+              <select
+                value={logForm.category}
+                onChange={(e) => setLogForm((f) => ({ ...f, category: e.target.value }))}
+                className="mt-1 block w-full rounded-md border border-input bg-background px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-[oklch(0.72_0.15_85)]"
+              >
+                <option value="work">Work</option>
+                <option value="personal">Personal</option>
+                <option value="learning">Learning</option>
+              </select>
+            </label>
+          </div>
+
+          <div className="flex gap-2">
+            <Button
+              size="sm"
+              onClick={handleLogWork}
+              disabled={logging || !logForm.name.trim()}
+              className="gap-1.5"
+            >
+              {logging ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Plus className="h-3.5 w-3.5" />}
+              Log work
+            </Button>
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => { setShowLogForm(false); setLogError(""); }}
+            >
+              Cancel
+            </Button>
+          </div>
+        </div>
+      )}
 
       {/* Summary stats */}
       {!loading && data && (
@@ -509,13 +683,9 @@ export default function AIProjectsPage() {
           {workProjects.length === 0 && personalProjects.length === 0 && unknownProjects.length === 0 && (
             <div className="flex flex-col items-center justify-center py-20 text-center">
               <BrainCircuit className="h-12 w-12 text-muted-foreground/30 mb-4" />
-              <h2 className="text-lg font-medium">No projects tracked yet</h2>
+              <h2 className="text-lg font-medium">No AI projects tracked yet</h2>
               <p className="text-sm text-muted-foreground mt-1 max-w-sm">
-                Connect platforms in{" "}
-                <a href="/dashboard/settings" className="underline hover:text-foreground">
-                  Settings
-                </a>{" "}
-                or click Sync to pull in your recent work.
+                No AI projects tracked yet — sync a platform above or log work manually.
               </p>
             </div>
           )}

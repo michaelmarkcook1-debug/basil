@@ -17,6 +17,7 @@
   },
   "dependencies": {
     "@ai-sdk/anthropic": "^3.0.69",
+    "@ai-sdk/openai": "^3.0.63",
     "@ai-sdk/react": "^3.0.160",
     "@slack/web-api": "^7.15.0",
     "@types/bcryptjs": "^2.4.6",

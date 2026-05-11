@@ -89,6 +89,17 @@ export async function exchangeCode(code: string, username: string): Promise<Goog
 export async function getStoredTokens(username: string): Promise<GoogleTokens | null> {
   const tokens = await getIntegrationToken<GoogleTokens>(username, "google");
   if (tokens?.refresh_token) return tokens;
+
+  // Fall back to GOOGLE_TOKENS env var (JSON-encoded token object).
+  // Allows pre-configured tokens to work without a full OAuth flow.
+  const envRaw = process.env.GOOGLE_TOKENS;
+  if (envRaw) {
+    try {
+      const parsed = JSON.parse(envRaw) as GoogleTokens;
+      if (parsed?.refresh_token) return parsed;
+    } catch { /* malformed — ignore */ }
+  }
+
   return null;
 }
 

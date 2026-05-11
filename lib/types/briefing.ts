@@ -20,6 +20,8 @@
 export interface Briefing {
   /** Top 3-5 urgent items synthesized across all sources for today. */
   criticalToday:       string | null;
+  /** Project-level view of active work across Slack, Linear, actions, decisions, memory, and AI tools. */
+  projectRadar:        string | null;
   /** Email replies needed, stalled actions requiring a nudge, outstanding decision follow-ups. */
   followUps:           string | null;
   /** Recent decisions with open consequences; new decisions implied by today's data. */
@@ -41,6 +43,22 @@ export interface Briefing {
     openActions:      number;
     activeDecisions:  number;
     recentMemories:   number;
+    projects?:        number;
+    /** Whether Google (Calendar + Gmail) was connected at generation time. */
+    googleConnected?: boolean;
+    /** Whether Slack was connected at generation time. */
+    slackConnected?:  boolean;
+  };
+  /**
+   * Human-readable attribution line built from real data at generation time.
+   * e.g. "Slack (25 messages), Calendar (3 events), Actions (8 open)"
+   * Listed disconnected sources separately so the UI can show what was missing.
+   */
+  sourceAttribution?: {
+    /** Sources that contributed data, e.g. ["Slack (25 messages)", "Calendar (3 events)"] */
+    connected: string[];
+    /** Sources that were missing/disconnected, e.g. ["Gmail (not connected)"] */
+    unavailable: string[];
   };
 }
 

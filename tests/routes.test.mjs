@@ -90,6 +90,40 @@ test("app/api/whatsapp/import-contacts/route.ts exists", () => {
   );
 });
 
+// ── Ledger routes ─────────────────────────────────────────────────────────────
+
+test("app/api/ledger/route.ts exists", () => {
+  assert.ok(
+    routeExists("api/ledger"),
+    "Missing /api/ledger route — create app/api/ledger/route.ts"
+  );
+});
+
+test("app/api/ledger/convert/route.ts exists", () => {
+  assert.ok(
+    routeExists("api/ledger/convert"),
+    "Missing /api/ledger/convert route — create app/api/ledger/convert/route.ts"
+  );
+});
+
+// ── Settings readiness route ──────────────────────────────────────────────────
+
+test("app/api/settings/readiness/route.ts exists", () => {
+  assert.ok(
+    routeExists("api/settings/readiness"),
+    "Missing /api/settings/readiness route — create app/api/settings/readiness/route.ts"
+  );
+});
+
+// ── Stig slack-command route ──────────────────────────────────────────────────
+
+test("app/api/stig/slack-command/route.ts exists", () => {
+  assert.ok(
+    routeExists("api/stig/slack-command"),
+    "Missing /api/stig/slack-command route — create app/api/stig/slack-command/route.ts"
+  );
+});
+
 // ── Linear integration routing ────────────────────────────────────────────────
 //
 // At least one of the canonical paths must exist. If the UI specifically
@@ -141,6 +175,10 @@ const CRITICAL_ROUTES = [
   "api/whatsapp/status",
   "api/whatsapp/import-contacts",
   "api/integrations/linear",
+  "api/ledger",
+  "api/ledger/convert",
+  "api/settings/readiness",
+  "api/stig/slack-command",
 ];
 
 for (const apiPath of CRITICAL_ROUTES) {

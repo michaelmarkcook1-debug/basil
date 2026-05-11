@@ -23,7 +23,7 @@ function defaultPlatformStatus(platform: Platform): PlatformStatus {
 function defaultProjectsData(): AIProjectsData {
   const platforms = {} as Record<Platform, PlatformStatus>;
   const allPlatforms: Platform[] = [
-    "claude-code", "claude-chat", "github", "vercel", "linear",
+    "claude-code", "claude-chat", "claude-cowork", "github", "vercel", "linear",
     "chatgpt", "gemini", "perplexity", "grok", "codex",
   ];
   for (const p of allPlatforms) {
