@@ -153,13 +153,12 @@ let blobChain: Promise<void> = Promise.resolve();
 function enqueueBlobWrite<T>(scope: string, key: string, data: T): void {
   blobChain = blobChain
     .catch(() => undefined) // don't let a prior failure stall the queue
-    .then(() => blobWriteJson(scope, key, data))
-    .catch((err) => {
-      console.error(
-        `[storage] Blob write failed for ${scope ? scope + "/" : ""}${key}:`,
-        err instanceof Error ? err.message : err
-      );
-    });
+    .then(() => blobWriteJson(scope, key, data));
+  // NOTE: we deliberately do NOT catch() the write itself here.
+  // For "eventual" durability callers, the error stays on blobChain but doesn't
+  // propagate (the caller never awaits it). For "strong" durability callers,
+  // the await below will surface the error so the API route returns a 500 instead
+  // of silently losing data.
 }
 
 // ── Public API ───────────────────────────────────────────────────────────────
@@ -240,7 +239,9 @@ export async function writeStore<T>(
   if (durability === "strong") {
     // Await all pending Blob writes (including the one just enqueued).
     // This guarantees the write has landed before the caller continues.
-    await blobChain.catch(() => undefined);
+    // Errors are intentionally NOT swallowed here — they propagate to the
+    // caller so the API route can return a 500 instead of silently losing data.
+    await blobChain;
   } else {
     console.info(
       `[storage] eventual write queued: ${scope ? scope + "/" : ""}${filename}`
@@ -298,9 +299,16 @@ export async function listStore(subdir?: string): Promise<string[]> {
  *
  * In local dev (no Blob), this is a no-op.
  */
-export async function forceFlushSnapshot(): Promise<void> {
-  if (!isBlobEnabled()) return;
-  await blobChain.catch(() => undefined);
+export async function forceFlushSnapshot(): Promise<{ ok: boolean; errors: string[] }> {
+  if (!isBlobEnabled()) return { ok: true, errors: [] };
+  try {
+    await blobChain;
+    return { ok: true, errors: [] };
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    console.error("[storage] forceFlushSnapshot: Blob write failed:", msg);
+    return { ok: false, errors: [msg] };
+  }
 }
 
 // ── Legacy / compatibility exports ──────────────────────────────────────────

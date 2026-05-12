@@ -63,8 +63,8 @@ export default function DashboardPage() {
       <div className="grid gap-6 lg:grid-cols-[1fr_420px]">
         <div className="space-y-5">
           <div className="space-y-2">
-            <p className="basil-eyebrow">{today}</p>
-            <h1 className="basil-display text-3xl sm:text-4xl lg:text-[44px] leading-[1.05] text-foreground">
+            <p className="basil-eyebrow" suppressHydrationWarning>{today}</p>
+            <h1 className="basil-display text-3xl sm:text-4xl lg:text-[44px] leading-[1.05] text-foreground" suppressHydrationWarning>
               {greeting},{" "}
               <span className="italic text-[oklch(0.72_0.15_85)]">{firstName || "there"}</span>
               <span className="text-[oklch(0.72_0.15_85)]">.</span>

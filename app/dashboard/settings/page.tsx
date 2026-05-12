@@ -1024,9 +1024,11 @@ export default function SettingsPage() {
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
-          <Badge variant="secondary" className="h-9 px-3 text-sm font-medium">
-            <CheckCircle2 className="mr-1.5 h-3.5 w-3.5 text-emerald-600" />{connectedApps} connected
-          </Badge>
+          {statuses !== null && (
+            <Badge variant="secondary" className="h-9 px-3 text-sm font-medium">
+              <CheckCircle2 className="mr-1.5 h-3.5 w-3.5 text-emerald-600" />{connectedApps} connected
+            </Badge>
+          )}
           {needsAttention > 0 && (
             <Badge className="h-9 bg-amber-100 px-3 text-amber-900 border-amber-400 font-semibold text-sm">
               <AlertTriangle className="mr-1.5 h-3.5 w-3.5" />{needsAttention} need attention

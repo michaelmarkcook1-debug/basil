@@ -16,6 +16,7 @@
 
 import { readFileSync } from "node:fs";
 import path from "node:path";
+import { put, del } from "@vercel/blob";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic"; // never cache — always reflects live env
@@ -94,21 +95,59 @@ function buildEnvPresence(): Record<EnvKey, boolean> {
 
 // ── Storage mode ──────────────────────────────────────────────────────────────
 
-type StorageStatus = "blob" | "local-fs" | "unknown";
+type StorageStatus = "blob-ok" | "blob-error" | "local-fs" | "unknown";
 
-function getStorageStatus(): StorageStatus {
+/**
+ * Perform a real Vercel Blob write + read + delete round-trip to confirm
+ * durable storage is actually working, not just configured.
+ */
+async function getBlobStorageStatus(): Promise<StorageStatus> {
   const token = process.env.BLOB_READ_WRITE_TOKEN;
-  if (typeof token === "string" && token.trim().length > 0) return "blob";
-  // No Blob token — storage layer falls back to /tmp filesystem (ephemeral on Vercel)
-  if (process.env.NODE_ENV) return "local-fs";
-  return "unknown";
+  if (!token || token.trim().length === 0) {
+    // No Blob token — storage layer falls back to /tmp filesystem (ephemeral on Vercel)
+    return process.env.NODE_ENV ? "local-fs" : "unknown";
+  }
+
+  try {
+    const testPathname = "basil/_health-check";
+    const testPayload = JSON.stringify({ ts: Date.now() });
+
+    // Write
+    const result = await put(testPathname, testPayload, {
+      access: "public",
+      addRandomSuffix: false,
+      contentType: "application/json",
+    });
+
+    // Read back (bust CDN cache)
+    const readRes = await fetch(`${result.url}?v=${Date.now()}`, {
+      cache: "no-store",
+    });
+    if (!readRes.ok) {
+      console.error("[health] Blob read-back failed:", readRes.status);
+      return "blob-error";
+    }
+
+    // Delete (best-effort cleanup)
+    await del(result.url).catch((e: unknown) => {
+      console.warn("[health] Blob cleanup failed (non-fatal):", e);
+    });
+
+    return "blob-ok";
+  } catch (err) {
+    console.error(
+      "[health] Blob round-trip failed:",
+      err instanceof Error ? err.message : err
+    );
+    return "blob-error";
+  }
 }
 
 // ── Route handler ─────────────────────────────────────────────────────────────
 
 export async function GET() {
   const env = buildEnvPresence();
-  const storage = getStorageStatus();
+  const storage = await getBlobStorageStatus();
   const version = getVersion();
 
   // ok = true as long as the handler runs. Core secret presence is surfaced in

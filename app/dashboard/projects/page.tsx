@@ -22,6 +22,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { relativeTime } from "@/lib/utils";
 import type { CanonicalProject, ProjectPriority, ProjectStatus, ProjectTruthData } from "@/lib/projects/types";
+import { renderSlackText } from "@/lib/slack/render";
 
 const PRIORITY_STYLES: Record<ProjectPriority, string> = {
   critical: "bg-red-500/10 text-red-600 ring-1 ring-red-500/30",
@@ -163,13 +164,13 @@ function ProjectCard({ project }: { project: CanonicalProject }) {
           {project.signals.slice(0, 5).map((signal) => (
             <div key={signal.id} className="p-3 bg-card/40">
               <div className="flex items-center justify-between gap-3">
-                <p className="text-sm font-medium truncate">{signal.title}</p>
+                <p className="text-sm font-medium truncate">{renderSlackText(signal.title)}</p>
                 <Badge variant="outline" className="text-[11px] shrink-0">
                   {signal.source}
                 </Badge>
               </div>
               <p className="text-xs text-muted-foreground mt-1 leading-relaxed line-clamp-2">
-                {signal.summary}
+                {renderSlackText(signal.summary)}
               </p>
             </div>
           ))}
