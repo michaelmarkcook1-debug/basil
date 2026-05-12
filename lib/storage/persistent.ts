@@ -259,10 +259,16 @@ export async function writeStore<T>(
   }
 
   if (isEnvEnabled()) {
-    // Vercel Env adapter: synchronous in-memory write + async API persistence
+    // Vercel Env adapter: synchronous in-memory write + async API persistence.
+    // envFlush() never throws — persistence failures are logged, not propagated.
     envWriteJson(scope, filename, data);
     if (durability === "strong") {
-      await envFlush();
+      const { error } = await envFlush();
+      if (error) {
+        // Log but do not throw: data is in memory, cold-start recovery may be
+        // impaired but the current request should succeed.
+        console.warn(`[storage] env-snapshot persist warning: ${error}`);
+      }
     }
     return;
   }
@@ -349,8 +355,8 @@ export async function listStore(subdir?: string): Promise<string[]> {
 export async function forceFlushSnapshot(): Promise<{ ok: boolean; errors: string[] }> {
   try {
     if (isEnvEnabled()) {
-      await envFlush();
-      return { ok: true, errors: [] };
+      const { ok, error } = await envFlush();
+      return { ok, errors: error ? [error] : [] };
     }
     if (isBlobEnabled()) {
       await blobChain;

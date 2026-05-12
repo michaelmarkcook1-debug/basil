@@ -101,76 +101,103 @@ async function fetchEnvId(): Promise<string | null> {
   }
 }
 
-/** Persist the current in-memory snapshot back to the Vercel env var. */
+// ── Persist error tracking ────────────────────────────────────────────────────
+// Exposed for the health endpoint to surface without crashing callers.
+
+export let lastPersistError: string | null = null;
+export let lastPersistOk: string | null = null;
+let consecutiveFailures = 0;
+
+/** Persist the current in-memory snapshot back to the Vercel env var.
+ *
+ * NEVER throws — errors are logged and tracked in lastPersistError.
+ * The in-memory snapshot is always correct; this only affects cold-start
+ * recovery. Callers should never be blocked by a persistence failure.
+ */
 async function persistSnapshot(): Promise<void> {
   const token = process.env.VERCEL_TOKEN;
   const projectId = process.env.VERCEL_PROJECT_ID;
   const teamId = process.env.VERCEL_TEAM_ID;
 
   if (!token || !projectId || !teamId) {
-    throw new Error(
-      "[vercel-env] Missing VERCEL_TOKEN / VERCEL_PROJECT_ID / VERCEL_TEAM_ID"
+    lastPersistError = "Missing VERCEL_TOKEN / VERCEL_PROJECT_ID / VERCEL_TEAM_ID";
+    consecutiveFailures++;
+    console.error("[vercel-env]", lastPersistError);
+    return; // Non-throwing
+  }
+
+  try {
+    const envId = await fetchEnvId();
+
+    // Encode snapshot
+    const encoded = Buffer.from(JSON.stringify(snapshot)).toString("base64");
+    const encodedKB = Math.round(encoded.length / 1024 * 10) / 10;
+
+    if (envId) {
+      // PATCH existing env var
+      const url = `https://api.vercel.com/v10/projects/${projectId}/env/${envId}?teamId=${teamId}`;
+      const res = await fetch(url, {
+        method: "PATCH",
+        headers: {
+          Authorization: `Bearer ${token}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          value: encoded,
+          type: "encrypted",
+          target: ["production", "preview", "development"],
+        }),
+      });
+
+      if (!res.ok) {
+        const body = await res.text().catch(() => "");
+        lastPersistError = `PATCH BASIL_DATA → HTTP ${res.status}: ${body.slice(0, 200)}`;
+        consecutiveFailures++;
+        console.error(`[vercel-env] ${lastPersistError} (consecutive failures: ${consecutiveFailures})`);
+        return; // Non-throwing
+      }
+    } else {
+      // envId is null — try POST to create (may fail with 409 if it already exists)
+      const url = `https://api.vercel.com/v10/projects/${projectId}/env?teamId=${teamId}`;
+      const res = await fetch(url, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${token}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          key: "BASIL_DATA",
+          value: encoded,
+          type: "encrypted",
+          target: ["production", "preview", "development"],
+        }),
+      });
+
+      if (!res.ok) {
+        const body = await res.text().catch(() => "");
+        lastPersistError = `POST BASIL_DATA → HTTP ${res.status}: ${body.slice(0, 200)}`;
+        consecutiveFailures++;
+        console.error(`[vercel-env] ${lastPersistError} (consecutive failures: ${consecutiveFailures})`);
+        return; // Non-throwing
+      }
+
+      // Invalidate cache so next call re-fetches the new ID
+      cachedEnvId = undefined;
+    }
+
+    // Success
+    consecutiveFailures = 0;
+    lastPersistError = null;
+    lastPersistOk = new Date().toISOString();
+    console.info(
+      `[vercel-env] Snapshot persisted: ${Object.keys(snapshot).length} key(s), ${encodedKB}KB`
     );
+  } catch (err) {
+    lastPersistError = err instanceof Error ? err.message : String(err);
+    consecutiveFailures++;
+    console.error(`[vercel-env] Unexpected persist error (${consecutiveFailures} consecutive): ${lastPersistError}`);
+    // Non-throwing — caller is never affected by persistence failures
   }
-
-  const envId = await fetchEnvId();
-
-  // Encode snapshot
-  const encoded = Buffer.from(JSON.stringify(snapshot)).toString("base64");
-
-  if (envId) {
-    // PATCH existing env var
-    const url = `https://api.vercel.com/v10/projects/${projectId}/env/${envId}?teamId=${teamId}`;
-    const res = await fetch(url, {
-      method: "PATCH",
-      headers: {
-        Authorization: `Bearer ${token}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        value: encoded,
-        type: "encrypted",
-        target: ["production", "preview", "development"],
-      }),
-    });
-
-    if (!res.ok) {
-      const body = await res.text().catch(() => "");
-      throw new Error(
-        `[vercel-env] PATCH BASIL_DATA failed: ${res.status} ${body}`
-      );
-    }
-  } else {
-    // POST to create env var (first time)
-    const url = `https://api.vercel.com/v10/projects/${projectId}/env?teamId=${teamId}`;
-    const res = await fetch(url, {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${token}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        key: "BASIL_DATA",
-        value: encoded,
-        type: "encrypted",
-        target: ["production", "preview", "development"],
-      }),
-    });
-
-    if (!res.ok) {
-      const body = await res.text().catch(() => "");
-      throw new Error(
-        `[vercel-env] POST BASIL_DATA failed: ${res.status} ${body}`
-      );
-    }
-
-    // Invalidate cache so next call re-fetches the new ID
-    cachedEnvId = undefined;
-  }
-
-  console.info(
-    `[vercel-env] Snapshot persisted: ${Object.keys(snapshot).length} file(s), ${encoded.length} bytes`
-  );
 }
 
 // ── Pending write queue ───────────────────────────────────────────────────────
@@ -219,9 +246,19 @@ export function envListJson(scope: string): string[] {
     .filter((rel) => rel && !rel.includes("/")); // direct children only
 }
 
-/** Await all in-flight env-var writes. */
-export async function envFlush(): Promise<void> {
-  await writeChain;
+/**
+ * Await all in-flight env-var writes.
+ *
+ * Never throws — persistence errors are logged and tracked in
+ * lastPersistError. Returns whether the last persist succeeded.
+ */
+export async function envFlush(): Promise<{ ok: boolean; error: string | null }> {
+  try {
+    await writeChain;
+  } catch {
+    // persistSnapshot() is already non-throwing, so this is a safety net only
+  }
+  return { ok: lastPersistError === null, error: lastPersistError };
 }
 
 /** True when this adapter can operate (has Vercel API credentials). */

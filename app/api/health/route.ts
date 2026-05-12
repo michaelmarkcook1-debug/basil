@@ -17,7 +17,7 @@
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import { put, del } from "@vercel/blob";
-import { isVercelEnvAdapterAvailable } from "@/lib/storage/adapters/vercel-env";
+import { isVercelEnvAdapterAvailable, lastPersistError, lastPersistOk } from "@/lib/storage/adapters/vercel-env";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic"; // never cache — always reflects live env
@@ -96,7 +96,7 @@ function buildEnvPresence(): Record<EnvKey, boolean> {
 
 // ── Storage mode ──────────────────────────────────────────────────────────────
 
-type StorageStatus = "blob-ok" | "blob-error" | "env-snapshot" | "local-fs" | "unknown";
+type StorageStatus = "blob-ok" | "blob-error" | "env-snapshot" | "env-snapshot-error" | "local-fs" | "unknown";
 
 /**
  * Determine storage backend status.
@@ -145,7 +145,8 @@ async function getStorageStatus(): Promise<StorageStatus> {
 
   // No blob token — check if Vercel Env adapter is available
   if (isVercelEnvAdapterAvailable()) {
-    return "env-snapshot";
+    // Return env-snapshot-error if we know persists are failing
+    return lastPersistError ? "env-snapshot-error" : "env-snapshot";
   }
 
   // Fallback: local filesystem (ephemeral on Vercel)
@@ -163,6 +164,13 @@ export async function GET() {
   // checks.env so callers can distinguish "alive but misconfigured" from "down".
   const ok = true;
 
+  const storageDetail = storage === "env-snapshot" || storage === "env-snapshot-error"
+    ? {
+        lastPersistOk:    lastPersistOk ?? null,
+        lastPersistError: lastPersistError ?? null,
+      }
+    : undefined;
+
   const body = {
     ok,
     app:         "Basil",
@@ -172,6 +180,7 @@ export async function GET() {
     checks: {
       node:    true,
       storage,
+      ...(storageDetail ? { storageDetail } : {}),
       env,
     },
   };
