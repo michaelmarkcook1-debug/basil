@@ -637,7 +637,15 @@ export default function MemoryPage() {
 
       {showForm && (
         <NewMemoryForm
-          onCreated={load}
+          onCreated={(memory) => {
+            if (memory.id) {
+              // Optimistic prepend — avoids cross-instance GET staleness
+              setMemories((prev) => (prev ? [memory, ...prev] : [memory]));
+            } else {
+              // Fallback: full re-fetch
+              load();
+            }
+          }}
           onSaved={notify}
           onClose={() => setShowForm(false)}
         />
@@ -960,7 +968,7 @@ function NewMemoryForm({
   onSaved,
   onClose,
 }: {
-  onCreated: () => void;
+  onCreated: (memory: Memory) => void;
   onSaved?: () => void;
   onClose: () => void;
 }) {
@@ -974,7 +982,7 @@ function NewMemoryForm({
     if (!content.trim()) return;
     setSaving(true);
     try {
-      await fetch("/api/memory", {
+      const res = await fetch("/api/memory", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -987,7 +995,16 @@ function NewMemoryForm({
       setContent("");
       setEntity("");
       onSaved?.();
-      onCreated();
+      if (res.ok) {
+        const data = await res.json() as { memory: Memory };
+        // Optimistic insert — prepend immediately so the UI is always
+        // consistent regardless of which server instance handles the
+        // subsequent GET (cross-instance snapshot staleness).
+        onCreated(data.memory);
+      } else {
+        // Fallback: trigger a full re-fetch on error
+        onCreated({} as Memory);
+      }
       onClose();
     } finally {
       setSaving(false);

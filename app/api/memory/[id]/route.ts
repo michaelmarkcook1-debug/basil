@@ -1,8 +1,21 @@
 import { NextResponse } from "next/server";
-import { deleteMemory, updateMemory } from "@/lib/memory/store";
+import { deleteMemory, updateMemory, listMemories } from "@/lib/memory/store";
 import { forceFlushSnapshot } from "@/lib/storage/persistent";
 import { getSessionUser } from "@/lib/auth";
 import type { MemoryKind } from "@/lib/memory/types";
+
+export async function GET(
+  _req: Request,
+  ctx: { params: Promise<{ id: string }> }
+) {
+  const username = await getSessionUser();
+  if (!username) return NextResponse.json({ error: "Unauthorised" }, { status: 401 });
+  const { id } = await ctx.params;
+  const all = await listMemories(username);
+  const memory = all.find((m) => m.id === id);
+  if (!memory) return NextResponse.json({ error: "not found" }, { status: 404 });
+  return NextResponse.json({ memory });
+}
 
 export async function DELETE(
   _req: Request,
