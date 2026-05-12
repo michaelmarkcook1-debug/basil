@@ -32,6 +32,8 @@ import { listActions, isActionStalled } from "@/lib/actions/store";
 import { listDecisions } from "@/lib/decisions/store";
 import { getZoomSummariesFromGmail } from "@/lib/google/zoom-summaries";
 import type { ZoomSummary } from "@/lib/google/zoom-summaries";
+import { getReadSummariesFromGmail } from "@/lib/google/read-summaries";
+import type { ReadSummary } from "@/lib/google/read-summaries";
 import { listMemories } from "@/lib/memory/store";
 import type { Memory } from "@/lib/memory/types";
 import {
@@ -143,6 +145,21 @@ function formatZoomBlock(summaries: ZoomSummary[], tz = "Europe/London"): string
     .join("\n");
 }
 
+function formatReadBlock(summaries: ReadSummary[], tz = "Europe/London"): string {
+  if (summaries.length === 0) return "";
+  return summaries
+    .map((s) => {
+      const date = new Date(s.date).toLocaleDateString("en-GB", {
+        day: "numeric",
+        month: "short",
+        timeZone: tz,
+      });
+      const body = s.body.length > 350 ? s.body.slice(0, 350) + "…" : s.body;
+      return `- [${date}] ${s.title}\n  ${body}`;
+    })
+    .join("\n");
+}
+
 // ── Route ──────────────────────────────────────────────────────────────────────
 
 export async function POST(req: Request) {
@@ -188,6 +205,7 @@ export async function POST(req: Request) {
     actionsResult,
     decisionsResult,
     zoomResult,
+    readResult,
     memoriesResult,
     projectTruthResult,
   ] = await Promise.all([
@@ -217,6 +235,11 @@ export async function POST(req: Request) {
     getZoomSummariesFromGmail(username, 7, 8).catch((err) => {
       console.error("Zoom summaries fetch failed:", err);
       return [];
+    }),
+    // 6 Read.ai meeting recaps from the last 7 days
+    getReadSummariesFromGmail(username, 7, 6).catch((err) => {
+      console.error("Read.ai summaries fetch failed:", err);
+      return [] as ReadSummary[];
     }),
     listMemories(username).catch((err) => {
       console.error("Memories fetch failed:", err);
@@ -282,6 +305,9 @@ export async function POST(req: Request) {
 
   // ── Zoom summaries ────────────────────────────────────────────────────────
   const zoomBlock = zoomResult.length > 0 ? formatZoomBlock(zoomResult, tz) : "";
+
+  // ── Read.ai summaries ─────────────────────────────────────────────────────
+  const readBlock = readResult.length > 0 ? formatReadBlock(readResult, tz) : "";
 
   // ── Actions — three buckets by urgency ───────────────────────────────────
   const openActions = actionsResult.filter((a) => a.status !== "done");
@@ -419,7 +445,8 @@ export async function POST(req: Request) {
     (calendarResult?.length ?? 0) +
     emails.length +
     slackMessages.length +
-    zoomResult.length;
+    zoomResult.length +
+    readResult.length;
 
   // ── Source readiness — explicit connection/availability for AI context ──
   const googleConnected = calendarResult !== null || emailResult !== null;
@@ -445,6 +472,11 @@ export async function POST(req: Request) {
       connected:    emailResult !== null, // Zoom summaries come from Gmail
       summaryCount: zoomResult.length,
       status:       emailResult === null ? "not_connected" : zoomResult.length === 0 ? "empty" : "ok",
+    },
+    read: {
+      connected:    emailResult !== null, // Read.ai summaries come from Gmail
+      summaryCount: readResult.length,
+      status:       emailResult === null ? "not_connected" : readResult.length === 0 ? "empty" : "ok",
     },
     actions: {
       connected: true,
@@ -496,6 +528,9 @@ export async function POST(req: Request) {
   if (sourceReadiness.zoom.status === "ok" && zoomResult.length > 0)
     connectedSources.push(`Zoom summaries (${zoomResult.length})`);
 
+  if (sourceReadiness.read.status === "ok" && readResult.length > 0)
+    connectedSources.push(`Read.ai summaries (${readResult.length})`);
+
   if (openActions.length > 0)
     connectedSources.push(`Actions (${openActions.length} open)`);
   if (activeDecisions.length > 0)
@@ -527,7 +562,7 @@ export async function POST(req: Request) {
       generatedAt:         new Date().toISOString(),
       extraContextSummary: extra.summary,
       dataSources: {
-        todayEvents: 0, emails: 0, slackMessages: 0, zoomSummaries: 0,
+        todayEvents: 0, emails: 0, slackMessages: 0, zoomSummaries: 0, readSummaries: 0,
         openActions: 0, activeDecisions: 0, recentMemories: 0, projects: 0,
         googleConnected: false, slackConnected: false,
       },
@@ -582,6 +617,9 @@ ${slackBlock}
 ${zoomBlock ? `
 ### ZOOM MEETING SUMMARIES — last 7 days (AI Companion recaps — what was actually said on prior calls)
 ${zoomBlock}
+` : ""}${readBlock ? `
+### READ.AI MEETING SUMMARIES — last 7 days (Read Assistant recaps — action items, key topics, and what was said)
+${readBlock}
 ` : ""}${memoryBlock ? `
 ### RELATIONSHIP MEMORY — person/context notes accumulated over prior interactions
 ${memoryBlock}
@@ -599,7 +637,7 @@ Write the way a great chief of staff would: opinionated, specific, cross-referen
 
 **decisionsToWatch** — recent decisions from the Decision Log that have pending follow-up consequences listed. Flag if a consequence appears not yet actioned (don't claim it hasn't been — just flag it as worth checking). Also surface any genuinely new decisions implied by today's calendar or inbox (not fabricated — only if clearly implied by live data). Do NOT re-list already-made decisions as open items.
 
-**meetingsNeedingPrep** — today's video/multi-attendee calendar meetings worth preparing for. For each: name + time, what the current context is (from email/Slack/Zoom summaries mentioning those attendees), what Michael should aim to land. If signal is thin, flag it ("No recent signal on this one — go in open"). Skip solo blocks and trivial quick syncs unless context makes them significant.
+**meetingsNeedingPrep** — today's video/multi-attendee calendar meetings worth preparing for. For each: name + time, what the current context is (from email/Slack/Zoom summaries/Read.ai recaps mentioning those attendees), what Michael should aim to land. If signal is thin, flag it ("No recent signal on this one — go in open"). Skip solo blocks and trivial quick syncs unless context makes them significant.
 
 **peopleAndAccounts** — people or accounts appearing across multiple sources today (e.g. "Ed in 3pm meeting + unread email + Slack DM — three touchpoints suggesting something's live"), or where relationship memory or a recent Zoom note suggests a check-in is overdue. Specific and grounded. Null if no genuine cross-source signals.
 
@@ -613,7 +651,7 @@ Every name, company, email subject, Slack quote, action text, decision, and comm
 - Do NOT fabricate names, deal stages, company names, dollar figures, or product outcomes not present in the data.
 - If a source is disconnected, say "Not connected" and move on.
 - If connected but empty, say so briefly ("Inbox quiet", "No Slack signal") in the relevant section.
-- Zoom summaries contain what was ACTUALLY SAID on prior calls — cross-reference their attendees with today's calendar for meetingsNeedingPrep.
+- Zoom summaries and Read.ai recaps contain what was ACTUALLY SAID on prior calls — cross-reference their attendees with today's calendar for meetingsNeedingPrep.
 - DECISION LOG entries are already-made decisions. Only surface them as "this decision has pending follow-ups" — never as "this still needs to be decided".
 - Relationship memory notes are accumulated facts about people — use them to enrich peopleAndAccounts and meetingsNeedingPrep. Never invent claims beyond what the memory says.
 - PROJECT RADAR is a source-attributed heuristic. Use it to explain active projects, but do not claim a project is blocked unless a listed risk/blocker says so.
@@ -677,6 +715,7 @@ Return ONLY valid JSON, no markdown code fences:
     emails:          emails.length,
     slackMessages:   slackMessages.length,
     zoomSummaries:   zoomResult.length,
+    readSummaries:   readResult.length,
     openActions:     openActions.length,
     activeDecisions: activeDecisions.length,
     recentMemories:  recentMemories.length,

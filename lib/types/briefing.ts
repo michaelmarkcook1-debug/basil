@@ -40,6 +40,8 @@ export interface Briefing {
     emails:           number;
     slackMessages:    number;
     zoomSummaries:    number;
+    /** Number of Read.ai meeting summaries included. */
+    readSummaries?:   number;
     openActions:      number;
     activeDecisions:  number;
     recentMemories:   number;
@@ -97,6 +99,8 @@ export interface Digest {
     emails:             number;
     slackMessages:      number;
     zoomSummaries:      number;
+    /** Number of Read.ai meeting summaries included. */
+    readSummaries?:     number;
     completedActions:   number;
     openActions:        number;
     recentDecisions:    number;

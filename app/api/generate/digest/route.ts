@@ -10,6 +10,7 @@ import { getEventsForMonth } from "@/lib/google/calendar";
 import { getRecentEmails } from "@/lib/google/gmail";
 import { getRecentSlackMessages } from "@/lib/slack/client";
 import { getZoomSummariesFromGmail } from "@/lib/google/zoom-summaries";
+import { getReadSummariesFromGmail } from "@/lib/google/read-summaries";
 import { getTeamsMeetings, type TeamsMeeting } from "@/lib/microsoft/teams";
 import { listActions, isActionStalled } from "@/lib/actions/store";
 import { listDecisions } from "@/lib/decisions/store";
@@ -19,6 +20,7 @@ import type { CalendarEvent } from "@/lib/google/calendar";
 import type { GmailMessage } from "@/lib/google/gmail";
 import type { SlackMessage } from "@/lib/slack/client";
 import type { ZoomSummary } from "@/lib/google/zoom-summaries";
+import type { ReadSummary } from "@/lib/google/read-summaries";
 import type { Memory } from "@/lib/memory/types";
 import {
   readGenerateCache,
@@ -113,6 +115,18 @@ function formatZoomBlock(summaries: ZoomSummary[], tz = "Europe/London"): string
   return `=== ZOOM MEETING SUMMARIES (last 14 days, ${summaries.length} found) ===\n${lines.join("\n")}\n`;
 }
 
+function formatReadBlock(summaries: ReadSummary[], tz = "Europe/London"): string {
+  if (summaries.length === 0) return "";
+  const lines = summaries.map((s) => {
+    const date = new Date(s.date).toLocaleDateString("en-GB", {
+      day: "numeric", month: "short", timeZone: tz,
+    });
+    const body = s.body.length > 600 ? s.body.slice(0, 600) + "…" : s.body;
+    return `- [${date}] ${s.title}\n  ${body}`;
+  });
+  return `=== READ.AI MEETING SUMMARIES (last 14 days, ${summaries.length} found) ===\n${lines.join("\n")}\n`;
+}
+
 function formatSlackBlock(messages: SlackMessage[], tz = "Europe/London"): string {
   if (messages.length === 0)
     return "=== RECENT SLACK MESSAGES ===\n(No messages found)\n";
@@ -169,6 +183,7 @@ export async function POST() {
     emails,
     slackMessages,
     zoomSummaries,
+    readSummaries,
     teamsMeetings,
     actionsResult,
     decisionsResult,
@@ -228,6 +243,15 @@ export async function POST() {
         return await getZoomSummariesFromGmail(username, 14, 8);
       } catch (e) {
         console.error("Failed to fetch Zoom summaries:", e);
+        return [];
+      }
+    })(),
+
+    (async (): Promise<ReadSummary[]> => {
+      try {
+        return await getReadSummariesFromGmail(username, 14, 6);
+      } catch (e) {
+        console.error("Failed to fetch Read.ai summaries:", e);
         return [];
       }
     })(),
@@ -410,6 +434,7 @@ export async function POST() {
     emails.length +
     slackMessages.length +
     zoomSummaries.length +
+    readSummaries.length +
     teamsMeetings.length +
     completedThisWeek.length +
     allOpenActions.length +
@@ -431,6 +456,7 @@ export async function POST() {
     formatEmailBlock(emails, "RECENT EMAILS (last 7 days)"),
     formatSlackBlock(slackMessages),
     zoomSummaries.length > 0 ? formatZoomBlock(zoomSummaries) : "",
+    readSummaries.length > 0 ? formatReadBlock(readSummaries) : "",
     teamsMeetings.length > 0
       ? `=== MICROSOFT TEAMS MEETINGS (last 14 days, ${teamsMeetings.length} found) ===\n` +
         teamsMeetings.map((m) => `- [${m.date}] ${m.title}\n  ${m.body}`).join("\n") + "\n"
@@ -478,9 +504,9 @@ This is a chief-of-staff end-of-week note, not a data dump. Michael reads this o
 JSON. Each field is free-form text (paragraphs, bullets, numbered lists) or null.
 
 {
-  "majorMeetings": "Key meetings, 1:1s, and calls from the past 7 days. Who was there, what came out of it, what the signal means. Draw from PAST 7 DAYS CALENDAR and Zoom summaries. Cross-reference Slack/email threads involving the same people. Null if no meetings in the data.",
-  "whatChanged": "What moved this week. Actions completed. Momentum made or lost. Work shipped or advanced. Draw from COMPLETED THIS WEEK and OPENED THIS WEEK actions, calendar, and Zoom recaps. Name specific items. Null if nothing evident.",
-  "decisionsLog": "Decisions logged or clearly implied in the past 7-14 days. Each decision traceable to a line in the live data. Include rationale and follow-on consequences where present. Draw from RECENT DECISIONS block and Zoom summaries. Null if none.",
+  "majorMeetings": "Key meetings, 1:1s, and calls from the past 7 days. Who was there, what came out of it, what the signal means. Draw from PAST 7 DAYS CALENDAR and Zoom/Read.ai summaries. Cross-reference Slack/email threads involving the same people. Null if no meetings in the data.",
+  "whatChanged": "What moved this week. Actions completed. Momentum made or lost. Work shipped or advanced. Draw from COMPLETED THIS WEEK and OPENED THIS WEEK actions, calendar, and Zoom/Read.ai recaps. Name specific items. Null if nothing evident.",
+  "decisionsLog": "Decisions logged or clearly implied in the past 7-14 days. Each decision traceable to a line in the live data. Include rationale and follow-on consequences where present. Draw from RECENT DECISIONS block and Zoom/Read.ai summaries. Null if none.",
   "blockers": "What's stuck. Overdue actions. Stalled threads. Risks raised but unresolved. Items that need a nudge or decision to unblock. Draw from OVERDUE, STALLED, and blocker-language in emails/Slack/memory. Be specific — name the item, the owner, and why it matters. Null if nothing is genuinely blocked.",
   "relationshipSignals": "Cross-source signals about people and accounts. Who appeared in multiple channels this week? Any relationship that's warming, cooling, or needs attention? Any account activity worth noting? Draw from calendar attendees, email senders, Slack participants, and memory notes. Null if no cross-source signal.",
   "nextWeekNeeds": "What next week requires. Meetings that need prep. Open threads to close. Decisions that are ripening. Items from DUE NEXT 7 DAYS and NEXT 7 DAYS CALENDAR. Basil's one or two priorities for Michael's attention. Null if nothing notable upcoming."
@@ -518,6 +544,7 @@ Return ONLY valid JSON, no markdown code fences.`;
         emails: emails.length,
         slackMessages: slackMessages.length,
         zoomSummaries: zoomSummaries.length,
+        readSummaries: readSummaries.length,
         completedActions: completedThisWeek.length,
         openActions: allOpenActions.length,
         recentDecisions: recentDecisions.length,
