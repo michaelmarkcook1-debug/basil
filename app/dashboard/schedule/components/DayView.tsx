@@ -844,20 +844,22 @@ export function DayView({
 
 // ─── CurrentTimeIndicator ─────────────────────────────────────────────────────
 function CurrentTimeIndicator() {
-  const [min, setMin] = useState(() => {
-    const n = new Date();
-    return n.getHours() * 60 + n.getMinutes();
-  });
+  // Start null to avoid SSR/client hydration mismatch (React #418):
+  // new Date() on server produces a different minute than on the client.
+  const [min, setMin] = useState<number | null>(null);
 
   useEffect(() => {
-    const id = setInterval(() => {
+    // Set immediately on mount (client-only), then update every minute
+    const update = () => {
       const n = new Date();
       setMin(n.getHours() * 60 + n.getMinutes());
-    }, 60_000);
+    };
+    update();
+    const id = setInterval(update, 60_000);
     return () => clearInterval(id);
   }, []);
 
-  if (min < GRID_START_H * 60 || min > GRID_END_H * 60) return null;
+  if (min === null || min < GRID_START_H * 60 || min > GRID_END_H * 60) return null;
   const top = (min - GRID_START_H * 60) * PX_PER_MIN;
 
   return (
