@@ -134,7 +134,11 @@ async function persistSnapshot(): Promise<void> {
     const encodedKB = Math.round(encoded.length / 1024 * 10) / 10;
 
     if (envId) {
-      // PATCH existing env var
+      // PATCH existing env var — only update the value.
+      // Do NOT include "type" in the PATCH body: Vercel rejects any attempt to
+      // change the type of a sensitive env var (400 BAD_REQUEST).
+      // Do NOT include "target" either — preserves the var's existing environment
+      // scope (Production + Preview) without unintended expansion.
       const url = `https://api.vercel.com/v10/projects/${projectId}/env/${envId}?teamId=${teamId}`;
       const res = await fetch(url, {
         method: "PATCH",
@@ -142,11 +146,7 @@ async function persistSnapshot(): Promise<void> {
           Authorization: `Bearer ${token}`,
           "Content-Type": "application/json",
         },
-        body: JSON.stringify({
-          value: encoded,
-          type: "encrypted",
-          target: ["production", "preview", "development"],
-        }),
+        body: JSON.stringify({ value: encoded }),
       });
 
       if (!res.ok) {
@@ -168,8 +168,8 @@ async function persistSnapshot(): Promise<void> {
         body: JSON.stringify({
           key: "BASIL_DATA",
           value: encoded,
-          type: "encrypted",
-          target: ["production", "preview", "development"],
+          type: "sensitive",
+          target: ["production", "preview"],
         }),
       });
 
