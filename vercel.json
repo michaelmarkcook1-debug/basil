@@ -8,7 +8,7 @@
     },
     {
       "path": "/api/cron/slack-sync",
-      "schedule": "0 */2 * * *"
+      "schedule": "30 5 * * *"
     },
     {
       "path": "/api/events/poll-ingest",
