@@ -13,7 +13,7 @@ export async function GET() {
 
     // Compute overall readiness score
     const checks = [
-      status.model.openaiReady || status.model.gatewayReady,
+      status.model.gatewayReady,
       status.appSources.slack.state === "connected",
       status.appSources.google.state === "connected",
     ];

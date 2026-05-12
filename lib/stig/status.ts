@@ -7,7 +7,7 @@ import { isLinearConnected } from "@/lib/linear/client";
 import { isZoomConnected } from "@/lib/zoom/auth";
 import { getAIPlatformStatus } from "@/lib/ai-platforms/credentials";
 import { buildProjectTruth } from "@/lib/projects/truth";
-import { GATEWAY_MODEL_IDS, PROVIDER_MODE, openaiModelId } from "@/lib/ai/model-config";
+import { GATEWAY_MODEL_IDS, PROVIDER_MODE } from "@/lib/ai/model-config";
 
 async function settled<T>(promise: Promise<T>, fallback: T): Promise<T> {
   try {
@@ -51,21 +51,10 @@ export async function buildStigStatus(username: string) {
     generatedAt: now,
     model: {
       providerMode: PROVIDER_MODE,
-      ...(PROVIDER_MODE === "openai_direct"
-        ? {
-            fast: openaiModelId("fast"),
-            default: openaiModelId("default"),
-            long: openaiModelId("long"),
-            openaiReady: Boolean(process.env.openai_basilv2 ?? process.env.OPENAI_API_KEY),
-            gatewayReady: false,
-          }
-        : {
-            fast: GATEWAY_MODEL_IDS.fast,
-            default: GATEWAY_MODEL_IDS.default,
-            long: GATEWAY_MODEL_IDS.long,
-            openaiReady: Boolean(process.env.openai_basilv2 ?? process.env.OPENAI_API_KEY),
-            gatewayReady: Boolean(process.env.VERCEL_OIDC_TOKEN),
-          }),
+      fast:         GATEWAY_MODEL_IDS.fast,
+      default:      GATEWAY_MODEL_IDS.default,
+      long:         GATEWAY_MODEL_IDS.long,
+      gatewayReady: Boolean(process.env.VERCEL_OIDC_TOKEN || process.env.AI_GATEWAY_API_KEY),
     },
     auth: {
       session: true,
