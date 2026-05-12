@@ -132,7 +132,7 @@ function ProjectCard({ project }: { project: CanonicalProject }) {
                 <ul className="mt-2 space-y-1.5">
                   {project.riskNotes.slice(0, 3).map((risk, idx) => (
                     <li key={idx} className="text-sm text-foreground/90 leading-relaxed">
-                      {risk}
+                      {renderSlackText(risk)}
                     </li>
                   ))}
                 </ul>

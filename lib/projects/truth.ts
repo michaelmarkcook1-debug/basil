@@ -386,7 +386,11 @@ export async function buildProjectTruth(username: string): Promise<ProjectTruthD
   }
 
   for (const msg of slackMessages) {
-    const candidates = projectNamesFromText(`${msg.channel} ${msg.text}`);
+    // For DMs (channelId starts with "D"), the channel name is the bot/person's
+    // display name (e.g. "Google Calendar"), not a project name — only extract
+    // project names from the message text itself in those cases.
+    const isDm = msg.channelId?.startsWith("D") ?? false;
+    const candidates = projectNamesFromText(isDm ? msg.text : `${msg.channel} ${msg.text}`);
     for (const name of candidates) {
       const blocked = looksBlocked(msg.text);
       addSignal(map, name, categoryFor(name, msg.text), {
