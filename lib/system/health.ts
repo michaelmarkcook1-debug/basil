@@ -273,6 +273,34 @@ export async function gatherSystemHealth(username: string): Promise<SystemHealth
   // ── Section 1: Storage ────────────────────────────────────────────────────
 
   const blobConfigured = !!process.env.BLOB_READ_WRITE_TOKEN;
+  const envAdapterAvailable = !blobConfigured && !!(
+    process.env.VERCEL_TOKEN &&
+    process.env.VERCEL_PROJECT_ID &&
+    process.env.VERCEL_TEAM_ID &&
+    process.env.NODE_ENV === "production"
+  );
+
+  // Storage status logic:
+  // - blob token present → "green" (assumes healthy; /api/health does real round-trip)
+  // - env adapter available → "amber" (durable via BASIL_DATA snapshot, not as fast as blob)
+  // - neither → "red" in production, "amber" in dev
+  const storageColor = blobConfigured
+    ? "green"
+    : envAdapterAvailable
+      ? "amber"
+      : process.env.NODE_ENV === "production" ? "red" : "amber";
+
+  const storageText = blobConfigured
+    ? "Vercel Blob connected"
+    : envAdapterAvailable
+      ? "Env-var snapshot (BASIL_DATA) — durable, slower writes"
+      : "Filesystem only (ephemeral on Vercel)";
+
+  const storageAction = blobConfigured
+    ? undefined
+    : envAdapterAvailable
+      ? "Storage is durable via BASIL_DATA env var. For better performance, add a Vercel Blob store."
+      : "Set BLOB_READ_WRITE_TOKEN or VERCEL_TOKEN + VERCEL_PROJECT_ID + VERCEL_TEAM_ID for durable storage.";
 
   // Check AI model config — failure is a tile, not a gate
   let modelConfigOk = false;
@@ -290,12 +318,10 @@ export async function gatherSystemHealth(username: string): Promise<SystemHealth
     {
       id:            "blob",
       label:         "Durable storage",
-      color:         blobConfigured ? "green" : "amber",
-      statusText:    blobConfigured ? "Vercel Blob connected" : "Filesystem only (local dev)",
+      color:         storageColor,
+      statusText:    storageText,
       lastCheckedAt: now,
-      nextAction:    blobConfigured
-        ? undefined
-        : "Set BLOB_READ_WRITE_TOKEN in Vercel project settings → Environment Variables",
+      nextAction:    storageAction,
     },
     {
       id:            "ai-brain",

@@ -49,12 +49,34 @@ import {
   fsDeleteJson,
   fsListJson,
 } from "./adapters/filesystem";
+import {
+  envReadJson,
+  envWriteJson,
+  envDeleteJson,
+  envListJson,
+  envFlush,
+  isVercelEnvAdapterAvailable,
+} from "./adapters/vercel-env";
 
-// ── Blob availability ────────────────────────────────────────────────────────
+// ── Backend selection ─────────────────────────────────────────────────────────
+//
+// Priority:
+//  1. Vercel Blob  — when BLOB_READ_WRITE_TOKEN is set (durable object storage)
+//  2. Vercel Env   — when VERCEL_TOKEN + credentials are set (BASIL_DATA snapshot)
+//  3. Local FS     — local dev / fallback
+//
+// The Vercel Env adapter survives cold starts because it reads from the env var
+// on each new instance. Writes are propagated back via the Vercel API so future
+// cold starts get the latest snapshot.
 
 /** True when Vercel Blob is configured (production). */
 function isBlobEnabled(): boolean {
   return !!process.env.BLOB_READ_WRITE_TOKEN;
+}
+
+/** True when the Vercel Env (BASIL_DATA) adapter can be used. */
+function isEnvEnabled(): boolean {
+  return !isBlobEnabled() && isVercelEnvAdapterAvailable();
 }
 
 // ── Migration (runs once per cold start if needed) ───────────────────────────
@@ -70,6 +92,7 @@ async function maybeRunMigration(): Promise<void> {
   if (migrationRan) return;
   migrationRan = true;
 
+  // Blob migration: only runs when Blob is configured
   if (!isBlobEnabled()) return;
   if (!process.env.BASIL_DATA) return;
 
@@ -79,13 +102,13 @@ async function maybeRunMigration(): Promise<void> {
     if (alreadyMigrated) return;
 
     const raw = process.env.BASIL_DATA;
-    const snapshot = JSON.parse(
+    const snap = JSON.parse(
       Buffer.from(raw, "base64").toString("utf8")
     ) as Record<string, unknown>;
 
-    if (Object.keys(snapshot).length === 0) return;
+    if (Object.keys(snap).length === 0) return;
 
-    await blobMigrateFromSnapshot(snapshot);
+    await blobMigrateFromSnapshot(snap);
   } catch (err) {
     console.error(
       "[storage] BASIL_DATA migration failed:",
@@ -180,12 +203,17 @@ export async function readStore<T>(
   // Run migration once (no-op on subsequent calls or if already done)
   await maybeRunMigration();
 
-  if (!isBlobEnabled()) {
+  if (!isBlobEnabled() && !isEnvEnabled()) {
     // Local dev: filesystem only
     return fsReadJson(scope, filename, fallback);
   }
 
-  // Production: try /tmp cache first (fast path)
+  if (isEnvEnabled()) {
+    // Vercel Env adapter: in-memory snapshot (populated from BASIL_DATA on cold start)
+    return envReadJson(scope, filename, fallback);
+  }
+
+  // Blob: try /tmp cache first (fast path)
   const cached = await tmpReadOrMiss<T>(scope, filename);
   if (cached !== NOT_FOUND) return cached as T;
 
@@ -225,11 +253,21 @@ export async function writeStore<T>(
   const scope = subdir ?? "";
   const durability = options?.durability ?? "eventual";
 
-  if (!isBlobEnabled()) {
+  if (!isBlobEnabled() && !isEnvEnabled()) {
     // Local dev: filesystem only (sync, no queue needed)
     return fsWriteJson(scope, filename, data);
   }
 
+  if (isEnvEnabled()) {
+    // Vercel Env adapter: synchronous in-memory write + async API persistence
+    envWriteJson(scope, filename, data);
+    if (durability === "strong") {
+      await envFlush();
+    }
+    return;
+  }
+
+  // Blob path
   // Write to /tmp immediately for fast subsequent reads
   await tmpWrite(scope, filename, data);
 
@@ -261,8 +299,13 @@ export async function deleteStore(
 ): Promise<void> {
   const scope = subdir ?? "";
 
-  if (!isBlobEnabled()) {
+  if (!isBlobEnabled() && !isEnvEnabled()) {
     return fsDeleteJson(scope, filename);
+  }
+
+  if (isEnvEnabled()) {
+    envDeleteJson(scope, filename);
+    return;
   }
 
   // Remove from /tmp
@@ -281,8 +324,12 @@ export async function deleteStore(
 export async function listStore(subdir?: string): Promise<string[]> {
   const scope = subdir ?? "";
 
-  if (!isBlobEnabled()) {
+  if (!isBlobEnabled() && !isEnvEnabled()) {
     return fsListJson(scope);
+  }
+
+  if (isEnvEnabled()) {
+    return envListJson(scope);
   }
 
   return blobListJson(scope);
@@ -300,13 +347,19 @@ export async function listStore(subdir?: string): Promise<string[]> {
  * In local dev (no Blob), this is a no-op.
  */
 export async function forceFlushSnapshot(): Promise<{ ok: boolean; errors: string[] }> {
-  if (!isBlobEnabled()) return { ok: true, errors: [] };
   try {
-    await blobChain;
+    if (isEnvEnabled()) {
+      await envFlush();
+      return { ok: true, errors: [] };
+    }
+    if (isBlobEnabled()) {
+      await blobChain;
+      return { ok: true, errors: [] };
+    }
     return { ok: true, errors: [] };
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
-    console.error("[storage] forceFlushSnapshot: Blob write failed:", msg);
+    console.error("[storage] forceFlushSnapshot failed:", msg);
     return { ok: false, errors: [msg] };
   }
 }
