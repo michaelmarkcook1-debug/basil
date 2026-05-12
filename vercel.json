@@ -3,20 +3,24 @@
   "alias": ["ag-contracts.vercel.app"],
   "crons": [
     {
-      "path": "/api/events/poll-ingest",
-      "schedule": "0 7 * * *"
-    },
-    {
-      "path": "/api/events/reprocess",
-      "schedule": "0 3 * * 0"
-    },
-    {
       "path": "/api/cron/renew-subscriptions",
-      "schedule": "0 4 * * *"
+      "schedule": "0 3 * * *"
     },
     {
       "path": "/api/cron/slack-sync",
+      "schedule": "0 */2 * * *"
+    },
+    {
+      "path": "/api/events/poll-ingest",
+      "schedule": "45 5 * * *"
+    },
+    {
+      "path": "/api/events/reprocess",
       "schedule": "0 6 * * *"
+    },
+    {
+      "path": "/api/cron/generate-briefing",
+      "schedule": "15 6 * * *"
     }
   ]
 }

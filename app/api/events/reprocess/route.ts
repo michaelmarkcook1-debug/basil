@@ -12,6 +12,7 @@ import { classifyTeams, shouldMaterializeSlack as shouldMaterializeTeams } from 
 import { materializeTeamsIntelligence } from "@/lib/teams/materialize-teams";
 import { forceFlushSnapshot } from "@/lib/storage/persistent";
 import { getSessionUser } from "@/lib/auth";
+import { getUsers, isAdminUser } from "@/lib/users";
 import { hashContent } from "@/lib/ingest/content-hash";
 import { recordIngest } from "@/lib/ingest/index";
 import { appendAuditEntries } from "@/lib/ingest/audit-log";
@@ -33,9 +34,22 @@ import { appendAuditEntries } from "@/lib/ingest/audit-log";
  * Called from the Settings page "Re-process recent events" button.
  */
 
-export async function POST(_req: Request) {
-  const username = await getSessionUser();
-  if (!username) return NextResponse.json({ error: "Unauthorised" }, { status: 401 });
+export async function POST(req: Request) {
+  // Cron callers authenticate with CRON_SECRET; browser callers use session cookie.
+  const authHeader = req.headers.get("authorization");
+  const cronSecret = process.env.CRON_SECRET;
+  const isCronCall = cronSecret && authHeader === `Bearer ${cronSecret}`;
+
+  let username: string | null = null;
+  if (isCronCall) {
+    const users = await getUsers();
+    const adminUser = users.find((u) => isAdminUser(u.username)) ?? users[0];
+    username = adminUser?.username ?? null;
+    if (!username) return NextResponse.json({ error: "No users configured" }, { status: 503 });
+  } else {
+    username = await getSessionUser();
+    if (!username) return NextResponse.json({ error: "Unauthorised" }, { status: 401 });
+  }
 
   // ── Gather existing sourceRefs so we can skip already-classified events ──
   const [actions, decisions] = await Promise.all([
@@ -270,3 +284,6 @@ export async function POST(_req: Request) {
     message: `Queued ${toClassify.length} unclassified event(s) for background classification (${breakdown}).`,
   });
 }
+
+// Vercel cron jobs call GET — expose the same logic so the daily cron works.
+export { POST as GET };

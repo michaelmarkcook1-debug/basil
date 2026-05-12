@@ -28,6 +28,7 @@ import {
   type SlackMessage,
 } from "@/lib/slack/client";
 import { getSessionUser } from "@/lib/auth";
+import { getUsers, isAdminUser } from "@/lib/users";
 import { listActions, isActionStalled } from "@/lib/actions/store";
 import { listDecisions } from "@/lib/decisions/store";
 import { getZoomSummariesFromGmail } from "@/lib/google/zoom-summaries";
@@ -64,8 +65,20 @@ export async function GET() {
 }
 
 // ── DELETE — invalidate cached briefing (force-regenerate on next POST) ─────
-export async function DELETE() {
-  const username = await getSessionUser();
+export async function DELETE(req: Request) {
+  // Cron callers (generate-briefing cron pre-clears the cache) use CRON_SECRET.
+  const authHeader = req.headers.get("authorization");
+  const cronSecret = process.env.CRON_SECRET;
+  const isCronCall = cronSecret && authHeader === `Bearer ${cronSecret}`;
+
+  let username: string | null = null;
+  if (isCronCall) {
+    const users = await getUsers();
+    const adminUser = users.find((u) => isAdminUser(u.username)) ?? users[0];
+    username = adminUser?.username ?? null;
+  } else {
+    username = await getSessionUser();
+  }
   if (!username) return Response.json({ error: "Unauthorised" }, { status: 401 });
 
   await deleteGenerateCache(username, "briefing");
@@ -163,8 +176,21 @@ function formatReadBlock(summaries: ReadSummary[], tz = "Europe/London"): string
 // ── Route ──────────────────────────────────────────────────────────────────────
 
 export async function POST(req: Request) {
-  const username = (await getSessionUser());
-  if (!username) return Response.json({ error: "Unauthorised" }, { status: 401 });
+  // Cron callers authenticate with CRON_SECRET; browser callers use session cookie.
+  const authHeader = req.headers.get("authorization");
+  const cronSecret = process.env.CRON_SECRET;
+  const isCronCall = cronSecret && authHeader === `Bearer ${cronSecret}`;
+
+  let username: string | null = null;
+  if (isCronCall) {
+    const users = await getUsers();
+    const adminUser = users.find((u) => isAdminUser(u.username)) ?? users[0];
+    username = adminUser?.username ?? null;
+    if (!username) return Response.json({ error: "No users configured" }, { status: 503 });
+  } else {
+    username = await getSessionUser();
+    if (!username) return Response.json({ error: "Unauthorised" }, { status: 401 });
+  }
 
   const settings  = await getSettings(username).catch(() => null); // ci-ok: settings optional, null falls back to defaults
   const tz        = settings?.timezone || "Europe/London";
