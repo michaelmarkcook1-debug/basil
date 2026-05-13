@@ -249,6 +249,13 @@ export default function ProjectsPage() {
 
   useEffect(() => { void load(); }, []);
 
+  // Reload when the tab regains focus — keeps data in sync across multiple open tabs
+  useEffect(() => {
+    const onVisible = () => { if (document.visibilityState === "visible") void load(); };
+    document.addEventListener("visibilitychange", onVisible);
+    return () => document.removeEventListener("visibilitychange", onVisible);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
   const metrics = useMemo(() => {
     const projects = data?.projects ?? [];
     return {

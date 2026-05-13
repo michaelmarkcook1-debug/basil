@@ -461,6 +461,13 @@ export default function DecisionsPage() {
     return () => clearInterval(interval);
   }, [refresh]);
 
+  // Reload when the tab regains focus — keeps data in sync across multiple open tabs
+  useEffect(() => {
+    const onVisible = () => { if (document.visibilityState === "visible") void refresh(); };
+    document.addEventListener("visibilitychange", onVisible);
+    return () => document.removeEventListener("visibilitychange", onVisible);
+  }, [refresh]);
+
   async function handleAdd() {
     if (!form.text.trim()) return;
     const res = await fetch("/api/decisions", {

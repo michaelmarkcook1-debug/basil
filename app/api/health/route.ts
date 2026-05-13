@@ -58,11 +58,10 @@ const ENV_CHECKS = {
   BLOB_READ_WRITE_TOKEN:    true,
   BASIL_TOKEN_ENCRYPTION_KEY: true,
   // AI providers
-  // Note: Basil uses env var `openai_basilv2` as the OpenAI key (legacy naming).
-  // OPENAI_API_KEY is the documented standard name; both are checked here so
-  // the health panel shows the correct state regardless of which is set.
+  // BASIL_LLM_KEY is the preferred Anthropic key name; ANTHROPIC_API_KEY is the standard fallback.
+  // OPENAI_API_KEY is checked for users who connect their own OpenAI account.
+  BASIL_LLM_KEY:            true,
   OPENAI_API_KEY:           true,
-  openai_basilv2:           true,
   ANTHROPIC_API_KEY:        true,
   GEMINI_API_KEY:           true,
   // Integration: Google

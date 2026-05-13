@@ -18,6 +18,8 @@ async function handleRequest(req: Request) {
     console.error("[stig/briefing] GET error:", msg);
 
     const isBrainMissing =
+      msg.includes("No AI credentials") ||
+      msg.includes("BASIL_LLM_KEY") ||
       msg.includes("OPENAI_API_KEY") ||
       msg.includes("openai_basilv2") ||
       msg.includes("not set");
@@ -25,7 +27,7 @@ async function handleRequest(req: Request) {
       {
         ok: false,
         error: isBrainMissing
-          ? "AI brain not configured. Add openai_basilv2 or OPENAI_API_KEY."
+          ? "AI brain not configured. Add BASIL_LLM_KEY (Anthropic API key) in Vercel environment variables."
           : msg,
         briefing: null,
         generatedAt: new Date().toISOString(),

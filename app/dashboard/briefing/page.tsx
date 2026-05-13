@@ -368,7 +368,7 @@ export default function BriefingPage() {
         if (res.status === 503) {
           setError(
             body.error ??
-              "AI brain not configured. Add openai_basilv2 or OPENAI_API_KEY in Vercel settings."
+              "AI brain not configured. Add BASIL_LLM_KEY (or ANTHROPIC_API_KEY) in Vercel settings."
           );
         } else {
           setError(body.error ?? "Generation failed");
@@ -504,7 +504,7 @@ export default function BriefingPage() {
 
           {readiness.brain === "missing" && (
             <p className="text-xs text-red-600 pt-1">
-              Missing: <code className="font-mono">OPENAI_API_KEY</code> and/or <code className="font-mono">OPENAI_MODEL</code>.
+              Missing: <code className="font-mono">BASIL_LLM_KEY</code> (Anthropic API key) in Vercel environment variables.
               {" "}<a href="/dashboard/settings?tab=brain" className="underline font-medium hover:text-red-800">Configure brain →</a>
             </p>
           )}

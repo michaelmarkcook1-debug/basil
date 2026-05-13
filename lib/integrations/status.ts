@@ -41,11 +41,11 @@ export const MISSING_ENV_NAMES: Partial<Record<string, string[]>> = {
   microsoft: ["MICROSOFT_CLIENT_ID", "MICROSOFT_CLIENT_SECRET"],
   zoom:      ["ZOOM_CLIENT_ID", "ZOOM_CLIENT_SECRET"],
   linear:    ["LINEAR_API_KEY"],
-  openai:    ["openai_basilv2 (or OPENAI_API_KEY)"],
+  openai:    ["OPENAI_API_KEY"],
   anthropic: ["ANTHROPIC_API_KEY"],
   gemini:    ["GOOGLE_AI_API_KEY"],
   github:    ["GITHUB_TOKEN"],
-  stig:      ["openai_basilv2 (or OPENAI_API_KEY)"],
+  stig:      ["BASIL_LLM_KEY (or ANTHROPIC_API_KEY)"],
 };
 
 export interface IntegrationStatusResult {
@@ -124,7 +124,7 @@ const DESCRIPTIONS: Record<string, Partial<Record<IntegrationStatus, string>>> =
     error:         "WhatsApp processing error.",
   },
   openai: {
-    missing_env:   "OpenAI API key is not set. Add openai_basilv2 or OPENAI_API_KEY in Vercel environment variables.",
+    missing_env:   "OpenAI API key is not set. Add OPENAI_API_KEY in Vercel environment variables.",
     not_connected: "OpenAI is not configured.",
     auth_expired:  "OpenAI API key is invalid or expired.",
     empty:         "OpenAI is configured.",
