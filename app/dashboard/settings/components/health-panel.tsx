@@ -22,6 +22,8 @@ import {
   Activity,
   Hash,
   Mail,
+  CalendarCheck,
+  Brain,
 } from "lucide-react";
 import type { HealthColor, HealthTile, SystemHealthReport } from "@/lib/system/health";
 
@@ -273,7 +275,7 @@ function Section({
 
 // ── Manual sync strip ─────────────────────────────────────────────────────────
 
-type SyncJob = "slack" | "ingest";
+type SyncJob = "slack" | "ingest" | "calendar" | "briefing";
 type SyncState = "idle" | "running" | "done" | "error";
 
 function SyncButton({
@@ -314,6 +316,10 @@ function SyncButton({
           setMsg(`${r.messageCount} messages`);
         } else if (job === "ingest") {
           setMsg("Running in background");
+        } else if (job === "calendar") {
+          setMsg("Webhook registered");
+        } else if (job === "briefing") {
+          setMsg("Generating in background");
         }
         setState("done");
         setTimeout(() => { setState("idle"); setMsg(""); }, 8_000);
@@ -365,11 +371,13 @@ function SyncNowStrip({ onSynced }: { onSynced: () => void }) {
         Sync now
       </p>
       <div className="flex flex-wrap gap-2">
-        <SyncButton icon={Hash} label="Sync Slack" job="slack" onComplete={onSynced} />
-        <SyncButton icon={Mail} label="Run ingest" job="ingest" onComplete={onSynced} />
+        <SyncButton icon={Hash}          label="Sync Slack"      job="slack"     onComplete={onSynced} />
+        <SyncButton icon={Mail}          label="Run ingest"      job="ingest"    onComplete={onSynced} />
+        <SyncButton icon={CalendarCheck} label="Register calendar webhook" job="calendar" onComplete={onSynced} />
+        <SyncButton icon={Brain}         label="Generate briefing" job="briefing" onComplete={onSynced} />
       </div>
       <p className="text-[11px] text-muted-foreground">
-        Slack syncs hourly · Ingest runs every 6 hours · or trigger manually here
+        Slack syncs hourly · Ingest runs every 6 hours · Calendar webhook auto-renews monthly · or trigger manually here
       </p>
     </div>
   );

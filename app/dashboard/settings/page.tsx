@@ -864,11 +864,16 @@ export default function SettingsPage() {
     setReprocessResult(null);
     try {
       const res = await fetch("/api/events/reprocess", { method: "POST" });
+      const body = await res.json().catch(() => ({})) as { queued?: number; message?: string };
       if (!res.ok) {
         setReprocessResult(`Backfill failed (${res.status}).`);
         return;
       }
-      setReprocessResult("Backfill queued. Basil will re-classify recent signals.");
+      if (body.queued === 0) {
+        setReprocessResult("Nothing to classify — all recent events are already processed.");
+      } else {
+        setReprocessResult(body.message ?? "Backfill queued. Basil will re-classify recent signals.");
+      }
     } catch (err) {
       console.error("[settings] backfill failed:", err instanceof Error ? err.message : String(err));
       setReprocessResult("Network error.");
