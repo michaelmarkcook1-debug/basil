@@ -71,6 +71,25 @@ export async function POST(req: Request) {
     results.ingest = { ok: true, status: "queued_in_background" };
   }
 
+  // ── Briefing generation (background via cron endpoint) ───────────────────
+  if (jobs.includes("briefing")) {
+    after(async () => {
+      try {
+        const secret = process.env.CRON_SECRET;
+        const host = process.env.APP_URL
+          ?? (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : "http://localhost:3000");
+        const res = await fetch(`${host}/api/cron/generate-briefing`, {
+          method: "GET",
+          headers: secret ? { authorization: `Bearer ${secret}` } : {},
+        });
+        console.log(`[sync-now] briefing cron triggered: ${res.status}`);
+      } catch (e) {
+        console.error("[sync-now] briefing background error:", e instanceof Error ? e.message : e);
+      }
+    });
+    results.briefing = { ok: true, status: "queued_in_background" };
+  }
+
   return NextResponse.json({
     ok: true,
     triggeredAt: new Date().toISOString(),

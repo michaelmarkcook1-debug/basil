@@ -398,6 +398,13 @@ export default function AIProjectsPage() {
 
   useEffect(() => { void load(); }, [load]);
 
+  // Reload when the tab regains focus — keeps data in sync across multiple open tabs
+  useEffect(() => {
+    const onVisible = () => { if (document.visibilityState === "visible") void load(); };
+    document.addEventListener("visibilitychange", onVisible);
+    return () => document.removeEventListener("visibilitychange", onVisible);
+  }, [load]);
+
   async function handleSync() {
     setSyncing(true);
     try {

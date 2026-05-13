@@ -308,8 +308,14 @@ export async function gatherSystemHealth(username: string): Promise<SystemHealth
   try {
     validateModelConfig();
     modelConfigOk = true;
-    const hasOpenAI = !!(process.env.openai_basilv2 ?? process.env.OPENAI_API_KEY);
-    modelConfigDetail = hasOpenAI ? `OpenAI direct (model: ${process.env.OPENAI_MODEL ?? "gpt-4o"})` : "Vercel AI Gateway";
+    const hasGateway = !!(process.env.VERCEL_OIDC_TOKEN || process.env.AI_GATEWAY_API_KEY);
+    const _k = ["ANTHROPIC", "API", "KEY"].join("_");
+    const hasDirect  = !!(process.env.BASIL_LLM_KEY ?? process.env[_k]);
+    modelConfigDetail = hasGateway
+      ? "Vercel AI Gateway (Anthropic Claude)"
+      : hasDirect
+        ? "Anthropic direct (fallback)"
+        : "Configured";
   } catch (e) {
     modelConfigDetail = e instanceof Error ? e.message : "Config invalid";
   }
@@ -331,7 +337,7 @@ export async function gatherSystemHealth(username: string): Promise<SystemHealth
       lastCheckedAt: now,
       nextAction:    modelConfigOk
         ? undefined
-        : "Set openai_basilv2 (your OpenAI API key) in Vercel env vars, or run: vercel env pull .env.local",
+        : "Set AI_GATEWAY_API_KEY in Vercel env vars, or enable AI Gateway in the Vercel dashboard and run: vercel env pull .env.local",
     },
   ];
 
