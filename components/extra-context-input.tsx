@@ -144,21 +144,67 @@ export function ExtraContextInput({
 
   const urlsEnabled = Array.isArray(urls) && typeof onUrlsChange === "function";
 
-  function addFiles(incoming: FileList | File[] | null) {
+  // Compress PNG/JPEG images client-side before upload.
+  // Vercel's 4.5MB request body limit means 10 raw screenshots (~18MB) will 413.
+  // We resize to max 1280px on the long edge at 0.85 JPEG quality — enough for
+  // Claude to read text and diagrams, small enough to fit in the payload budget.
+  async function compressImageFile(file: File): Promise<File> {
+    const MAX_SIDE = 1280;
+    const QUALITY = 0.85;
+    const IMAGE_TYPES = ["image/png", "image/jpeg", "image/webp", "image/gif"];
+    const ext = file.name.slice(file.name.lastIndexOf(".") + 1).toLowerCase();
+    const isImg = IMAGE_TYPES.includes(file.type) || ["png", "jpg", "jpeg", "webp"].includes(ext);
+    // Only compress images over 500KB — smaller ones are fine as-is
+    if (!isImg || file.size <= 500 * 1024) return file;
+
+    return new Promise<File>((resolve) => {
+      const url = URL.createObjectURL(file);
+      const img = new Image();
+      img.onload = () => {
+        URL.revokeObjectURL(url);
+        const { naturalWidth: w, naturalHeight: h } = img;
+        const scale = Math.min(1, MAX_SIDE / Math.max(w, h));
+        const canvas = document.createElement("canvas");
+        canvas.width  = Math.round(w * scale);
+        canvas.height = Math.round(h * scale);
+        const ctx = canvas.getContext("2d");
+        if (!ctx) { resolve(file); return; }
+        ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+        canvas.toBlob(
+          (blob) => {
+            if (!blob || blob.size >= file.size) { resolve(file); return; }
+            const compressed = new File(
+              [blob],
+              file.name.replace(/\.(png|PNG)$/, ".jpg"),
+              { type: "image/jpeg", lastModified: file.lastModified }
+            );
+            resolve(compressed);
+          },
+          "image/jpeg",
+          QUALITY
+        );
+      };
+      img.onerror = () => { URL.revokeObjectURL(url); resolve(file); };
+      img.src = url;
+    });
+  }
+
+  async function addFiles(incoming: FileList | File[] | null) {
     if (!incoming) return;
     const list = incoming instanceof FileList ? Array.from(incoming) : incoming;
     if (list.length === 0) return;
     const next = [...files];
     for (const f of list) {
       if (next.length >= maxFiles) break;
-      // De-dupe by name+size
-      if (next.some((existing) => existing.name === f.name && existing.size === f.size)) {
-        continue;
-      }
       // Skip obvious junk files from folder scans
       if (f.name.startsWith(".") || f.name.endsWith(".DS_Store")) continue;
       if (f.size === 0) continue;
-      next.push(f);
+      const processed = await compressImageFile(f);
+      // De-dupe by name (after possible .png→.jpg rename)
+      if (next.some((existing) => existing.name === processed.name && existing.size === processed.size)) {
+        continue;
+      }
+      next.push(processed);
     }
     onFilesChange(next);
   }
@@ -215,7 +261,7 @@ export function ExtraContextInput({
     }
     if (pasted.length > 0) {
       e.preventDefault();
-      addFiles(pasted);
+      void addFiles(pasted);
     }
   }
 
@@ -229,7 +275,7 @@ export function ExtraContextInput({
 
     // Files path
     if (dt.files && dt.files.length > 0) {
-      addFiles(dt.files);
+      void addFiles(dt.files);
     }
     // Dragged-in URL path (links from other tabs, Finder items with URLs, etc.)
     if (urlsEnabled) {
@@ -433,7 +479,7 @@ export function ExtraContextInput({
           multiple
           className="hidden"
           onChange={(e) => {
-            addFiles(e.target.files);
+            void addFiles(e.target.files);
             if (fileRef.current) fileRef.current.value = "";
           }}
         />
@@ -444,7 +490,7 @@ export function ExtraContextInput({
           multiple
           className="hidden"
           onChange={(e) => {
-            addFiles(e.target.files);
+            void addFiles(e.target.files);
             if (folderRef.current) folderRef.current.value = "";
           }}
         />

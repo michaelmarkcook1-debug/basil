@@ -71,7 +71,7 @@ function astToText(ast: OfficeParserAST): string {
 export const MAX_TEXT_FILE_BYTES = 128 * 1024; // 128KB per text file
 export const MAX_OFFICE_FILE_BYTES = 10 * 1024 * 1024; // 10MB per Office doc
 export const MAX_TOTAL_TEXT_BYTES = 1024 * 1024; // 1MB aggregate text budget
-export const MAX_BINARY_FILE_BYTES = 8 * 1024 * 1024; // 8MB per PDF/image
+export const MAX_BINARY_FILE_BYTES = 3 * 1024 * 1024; // 3MB per PDF/image — hard cap before Vercel's 4.5MB body limit
 export const MAX_FILES = 25;
 export const MAX_URLS = 10;
 export const MAX_URL_BYTES = 2 * 1024 * 1024; // 2MB per fetched page
