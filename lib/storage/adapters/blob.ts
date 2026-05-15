@@ -5,15 +5,12 @@
  *   basil/<scope>/<filename>   (e.g. basil/users/michael/sage-memory.json)
  *   basil/<filename>           (e.g. basil/users.json)
  *
- * Blobs are stored with access: 'public' and addRandomSuffix: false so that
+ * Blobs are stored with access: 'private' and addRandomSuffix: false so that
  * the URL is deterministic and overwrites are handled by the Blob service
  * (last write wins). The URL is cached in memory to avoid list() round-trips
  * on warm instances.
  *
- * Security note: The blob URL includes the store's immutable hostname hash,
- * which is not publicly guessable. For a personal assistant app whose data
- * owner is also the operator, this is acceptable. Future: use private access
- * when @vercel/blob private-blob GA lands.
+ * Reads are authenticated server-side via Authorization: Bearer <BLOB_READ_WRITE_TOKEN>.
  */
 
 import { put, list, del } from "@vercel/blob";
@@ -22,7 +19,7 @@ import { put, list, del } from "@vercel/blob";
 const PREFIX = "basil";
 
 // ── In-memory URL cache ─────────────────────────────────────────────────────
-// Maps blobPathname → public URL. Populated by put() and list() results.
+// Maps blobPathname → URL. Populated by put() and list() results.
 // Lives as long as the function instance — avoids redundant list() calls on
 // warm instances. Safe to lose on cold start (will re-discover via list).
 const urlCache = new Map<string, string>();
@@ -33,7 +30,16 @@ function blobPathname(scope: string, key: string): string {
   return scope ? `${PREFIX}/${scope}/${key}` : `${PREFIX}/${key}`;
 }
 
-/** Resolve the public URL for a blob pathname, using cache or list(). */
+/** Server-side authenticated fetch for private blobs. */
+async function fetchBlob(url: string): Promise<Response> {
+  const token = process.env.BLOB_READ_WRITE_TOKEN;
+  return fetch(`${url}?v=${Date.now()}`, {
+    cache: "no-store",
+    headers: token ? { Authorization: `Bearer ${token}` } : {},
+  });
+}
+
+/** Resolve the URL for a blob pathname, using cache or list(). */
 async function resolveUrl(pathname: string): Promise<string | null> {
   const cached = urlCache.get(pathname);
   if (cached) return cached;
@@ -60,10 +66,7 @@ export async function blobReadJson<T>(
     const url = await resolveUrl(pathname);
     if (!url) return fallback;
 
-    // Append a timestamp to bust Vercel's CDN edge cache so cross-instance
-    // reads always see the latest write (last-writer-wins, no stale reads).
-    const bustUrl = `${url}?v=${Date.now()}`;
-    const res = await fetch(bustUrl, { cache: "no-store" });
+    const res = await fetchBlob(url);
     if (!res.ok) return fallback;
 
     const data = await res.json();
@@ -83,7 +86,7 @@ export async function blobWriteJson<T>(
 ): Promise<void> {
   const pathname = blobPathname(scope, key);
   const blob = await put(pathname, JSON.stringify(data), {
-    access: "public",
+    access: "private",
     addRandomSuffix: false,
     contentType: "application/json",
   });

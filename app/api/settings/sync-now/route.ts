@@ -64,7 +64,7 @@ export async function POST(req: Request) {
           ? `https://${process.env.VERCEL_URL}`
           : "http://localhost:3000";
         const res = await fetch(`${host}/api/events/poll-ingest`, {
-          method: "GET",
+          method: "POST",
           headers: secret ? { authorization: `Bearer ${secret}` } : {},
         });
         console.log(`[sync-now] poll-ingest triggered: ${res.status}`);

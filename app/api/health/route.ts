@@ -115,13 +115,14 @@ async function getStorageStatus(): Promise<StorageStatus> {
       const testPayload = JSON.stringify({ ts: Date.now() });
 
       const result = await put(testPathname, testPayload, {
-        access: "public",
+        access: "private",
         addRandomSuffix: false,
         contentType: "application/json",
       });
 
       const readRes = await fetch(`${result.url}?v=${Date.now()}`, {
         cache: "no-store",
+        headers: { Authorization: `Bearer ${blobToken}` },
       });
       if (!readRes.ok) {
         console.error("[health] Blob read-back failed:", readRes.status);
