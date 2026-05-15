@@ -117,6 +117,7 @@ async function getStorageStatus(): Promise<StorageStatus> {
       const result = await put(testPathname, testPayload, {
         access: "private",
         addRandomSuffix: false,
+        allowOverwrite: true,
         contentType: "application/json",
       });
 

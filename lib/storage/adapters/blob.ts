@@ -88,6 +88,7 @@ export async function blobWriteJson<T>(
   const blob = await put(pathname, JSON.stringify(data), {
     access: "private",
     addRandomSuffix: false,
+    allowOverwrite: true,
     contentType: "application/json",
   });
   urlCache.set(pathname, blob.url);
