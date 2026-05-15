@@ -120,12 +120,16 @@ async function getStorageStatus(): Promise<StorageStatus> {
         contentType: "application/json",
       });
 
-      const readRes = await fetch(`${result.url}?v=${Date.now()}`, {
+      console.log("[health] Blob put OK, url:", result.url);
+
+      const readUrl = `${result.url}?v=${Date.now()}`;
+      const readRes = await fetch(readUrl, {
         cache: "no-store",
         headers: { Authorization: `Bearer ${blobToken}` },
       });
       if (!readRes.ok) {
-        console.error("[health] Blob read-back failed:", readRes.status);
+        const body = await readRes.text().catch(() => "(unreadable)");
+        console.error("[health] Blob read-back failed:", readRes.status, readRes.statusText, "url:", readUrl, "body:", body.slice(0, 200));
         return "blob-error";
       }
 
@@ -135,10 +139,8 @@ async function getStorageStatus(): Promise<StorageStatus> {
 
       return "blob-ok";
     } catch (err) {
-      console.error(
-        "[health] Blob round-trip failed:",
-        err instanceof Error ? err.message : err
-      );
+      const msg = err instanceof Error ? `${err.constructor.name}: ${err.message}` : String(err);
+      console.error("[health] Blob round-trip failed:", msg);
       return "blob-error";
     }
   }
