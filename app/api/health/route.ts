@@ -16,6 +16,7 @@
 
 import { readFileSync } from "node:fs";
 import path from "node:path";
+import { randomUUID } from "node:crypto";
 import { put, del } from "@vercel/blob";
 import { isVercelEnvAdapterAvailable, lastPersistError, lastPersistOk } from "@/lib/storage/adapters/vercel-env";
 
@@ -111,26 +112,21 @@ async function getStorageStatus(): Promise<StorageStatus> {
   if (blobToken && blobToken.trim().length > 0) {
     // Blob token present — perform a real write+read+delete round-trip
     try {
-      const testPathname = "basil/_health-check";
+      const testPathname = `basil/_health-check-${randomUUID()}`;
       const testPayload = JSON.stringify({ ts: Date.now() });
 
       const result = await put(testPathname, testPayload, {
         access: "private",
         addRandomSuffix: false,
-        allowOverwrite: true,
         contentType: "application/json",
       });
 
-      console.log("[health] Blob put OK, url:", result.url);
-
-      const readUrl = `${result.url}?v=${Date.now()}`;
-      const readRes = await fetch(readUrl, {
+      const readRes = await fetch(`${result.url}?v=${Date.now()}`, {
         cache: "no-store",
         headers: { Authorization: `Bearer ${blobToken}` },
       });
       if (!readRes.ok) {
-        const body = await readRes.text().catch(() => "(unreadable)");
-        console.error("[health] Blob read-back failed:", readRes.status, readRes.statusText, "url:", readUrl, "body:", body.slice(0, 200));
+        console.error("[health] Blob read-back failed:", readRes.status);
         return "blob-error";
       }
 
@@ -140,8 +136,10 @@ async function getStorageStatus(): Promise<StorageStatus> {
 
       return "blob-ok";
     } catch (err) {
-      const msg = err instanceof Error ? `${err.constructor.name}: ${err.message}` : String(err);
-      console.error("[health] Blob round-trip failed:", msg);
+      console.error(
+        "[health] Blob round-trip failed:",
+        err instanceof Error ? err.message : err
+      );
       return "blob-error";
     }
   }
