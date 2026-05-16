@@ -37,18 +37,21 @@ export async function getReadiness(username: string): Promise<ReadinessReport> {
     action: "Set BASIL_TOKEN_ENCRYPTION_KEY in Vercel env vars",
   });
 
-  // 2. Model config — blocker (OpenAI direct OR Vercel Gateway)
+  // 2. Model config — blocker (Anthropic, OpenAI, Vercel Gateway, or Basil LLM key)
+  const hasAnthropic = !!(process.env.ANTHROPIC_API_KEY ?? process.env.BASIL_LLM_KEY);
   const hasOpenAI = !!(process.env.openai_basilv2 ?? process.env.OPENAI_API_KEY);
-  const hasGateway = !!process.env.VERCEL_OIDC_TOKEN;
-  const modelConfigOk = hasOpenAI || hasGateway;
-  const modelDetail = hasOpenAI
+  const hasGateway = !!(process.env.VERCEL_OIDC_TOKEN ?? process.env.AI_GATEWAY_API_KEY);
+  const modelConfigOk = hasAnthropic || hasOpenAI || hasGateway;
+  const modelDetail = hasAnthropic
+    ? "ANTHROPIC_API_KEY is set — Anthropic Claude is ready."
+    : hasOpenAI
     ? `OPENAI_API_KEY is set — OpenAI direct is ready (model: ${process.env.OPENAI_MODEL ?? "gpt-4o"}).`
     : hasGateway
     ? "VERCEL_OIDC_TOKEN is set — Vercel AI Gateway is ready."
-    : "Neither OPENAI_API_KEY nor VERCEL_OIDC_TOKEN is set — Chat and briefings will not work.";
-  const modelAction = hasOpenAI || hasGateway
+    : "No AI provider key is set — Chat and briefings will not work.";
+  const modelAction = modelConfigOk
     ? ""
-    : "Add OPENAI_API_KEY in Vercel env vars (recommended), or run `vercel env pull .env.local` for Vercel AI Gateway.";
+    : "Add ANTHROPIC_API_KEY (or OPENAI_API_KEY) in Vercel env vars.";
   checks.push({
     id: "model_config",
     label: "AI brain",
