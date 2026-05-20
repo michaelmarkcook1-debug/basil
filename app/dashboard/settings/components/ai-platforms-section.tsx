@@ -21,7 +21,7 @@ import { Input } from "@/components/ui/input";
 import type { IntegrationState } from "@/lib/integrations/types";
 import type { Platform } from "@/lib/ai-projects/types";
 
-type ConnectMode = "api-key" | "auto" | "env" | "manual" | "planned";
+type ConnectMode = "api-key" | "auto" | "env" | "manual" | "import" | "planned";
 
 interface PlatformDef {
   id: Platform | "openai" | "anthropic";
@@ -30,7 +30,8 @@ interface PlatformDef {
   mode: ConnectMode;
   keyPlaceholder?: string;
   keyUrl?: string;
-  routePlatform?: "github" | "openai" | "anthropic" | "gemini";
+  routePlatform?: "github" | "openai" | "anthropic" | "gemini" | "perplexity" | "grok";
+  importPlatform?: "chatgpt" | "claude-chat";
   notes: string[];
 }
 
@@ -93,6 +94,26 @@ const PLATFORMS: PlatformDef[] = [
     notes: ["Validates by listing available Gemini models.", "Separate from Google Workspace OAuth."],
   },
   {
+    id: "perplexity",
+    label: "Perplexity",
+    role: "AI research and web search companion",
+    mode: "api-key",
+    routePlatform: "perplexity",
+    keyPlaceholder: "pplx-…",
+    keyUrl: "https://www.perplexity.ai/settings/api",
+    notes: ["Validates API access. No conversation history API available yet."],
+  },
+  {
+    id: "grok",
+    label: "Grok (xAI)",
+    role: "xAI's Grok model access",
+    mode: "api-key",
+    routePlatform: "grok",
+    keyPlaceholder: "xai-…",
+    keyUrl: "https://console.x.ai/",
+    notes: ["Validates API access via xAI's OpenAI-compatible API."],
+  },
+  {
     id: "claude-code",
     label: "Claude Code",
     role: "Local coding sessions from ~/.claude/projects",
@@ -107,16 +128,39 @@ const PLATFORMS: PlatformDef[] = [
     notes: ["Set VERCEL_TOKEN in environment variables.", "No browser-entered token required."],
   },
   {
+    id: "linear",
+    label: "Linear",
+    role: "Issues and engineering project movement",
+    mode: "auto",
+    notes: ["Connected via OAuth on the Integrations tab.", "Projects sync automatically when Linear OAuth is active."],
+  },
+  {
     id: "chatgpt",
-    label: "ChatGPT web",
-    role: "Manual export/import into the project ledger",
-    mode: "manual",
-    notes: ["ChatGPT web conversation history is not read automatically.", "Use exports/manual capture until an approved history API exists."],
+    label: "ChatGPT",
+    role: "Import conversation history from ChatGPT export",
+    mode: "import",
+    importPlatform: "chatgpt",
+    notes: [
+      "Export at chatgpt.com → Settings → Data controls → Export data.",
+      "Upload the conversations.json file from the downloaded ZIP.",
+      "Conversation titles become project entries in your Brain.",
+    ],
+  },
+  {
+    id: "claude-chat",
+    label: "Claude.ai chats",
+    role: "Import conversation history from Claude.ai export",
+    mode: "import",
+    importPlatform: "claude-chat",
+    notes: [
+      "Export at claude.ai → Settings → Privacy → Export data.",
+      "Upload the conversations.json file from the downloaded ZIP.",
+    ],
   },
   {
     id: "claude-cowork",
     label: "Claude Cowork",
-    role: "Manual/project workspace capture",
+    role: "Project workspace capture",
     mode: "manual",
     notes: ["No automatic Basil connector yet.", "Track deliverables through Project Truth Layer until export/import is implemented."],
   },
@@ -124,6 +168,7 @@ const PLATFORMS: PlatformDef[] = [
 
 function StateBadge({ state, mode }: { state?: IntegrationState; mode?: ConnectMode }) {
   if (mode === "manual") return <Badge className="bg-amber-100 text-amber-700 border-amber-200">Manual</Badge>;
+  if (mode === "import") return <Badge className="bg-blue-100 text-blue-700 border-blue-200"><Upload className="h-3 w-3 mr-1" />Import</Badge>;
   if (mode === "planned") return <Badge variant="secondary">Planned</Badge>;
   if (!state) return <Badge variant="secondary"><Loader2 className="h-3 w-3 mr-1 animate-spin" />Checking</Badge>;
   if (state === "connected") return <Badge className="bg-emerald-100 text-emerald-700 border-emerald-200"><CheckCircle2 className="h-3 w-3 mr-1" />Connected</Badge>;
@@ -158,11 +203,39 @@ function PlatformCard({
   const [apiKey, setApiKey] = useState("");
   const [showKey, setShowKey] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [uploading, setUploading] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
 
   const connected = status?.state === "connected" || projectStatus?.connected === true;
   const canConnect = def.mode === "api-key" && def.routePlatform && !connected;
   const canDisconnect = def.mode === "api-key" && def.routePlatform && connected;
+
+  async function handleFileUpload(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!file || !def.importPlatform) return;
+    setUploading(true);
+    setMessage(null);
+    try {
+      const formData = new FormData();
+      formData.append("platform", def.importPlatform);
+      formData.append("file", file);
+      const res = await fetch("/api/ai-projects/upload", { method: "POST", body: formData });
+      const data = await res.json() as { error?: string; imported?: number };
+      if (!res.ok) {
+        setMessage(data.error ?? "Upload failed");
+        return;
+      }
+      setMessage(`Imported ${data.imported ?? 0} conversation${(data.imported ?? 0) === 1 ? "" : "s"}`);
+      onChanged();
+    } catch (err) {
+      console.error("[AIPlatformsSection] upload failed:", err instanceof Error ? err.message : String(err));
+      setMessage("Network error during upload");
+    } finally {
+      setUploading(false);
+      // Reset the file input so the same file can be re-uploaded if needed
+      e.target.value = "";
+    }
+  }
 
   async function connect() {
     if (!def.routePlatform || !apiKey.trim()) return;
@@ -283,6 +356,29 @@ function PlatformCard({
           <Button variant="ghost" size="sm" className="h-8 text-xs text-muted-foreground hover:text-destructive" disabled={saving} onClick={disconnect}>
             {saving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : "Disconnect"}
           </Button>
+        </div>
+      )}
+
+      {def.mode === "import" && (
+        <div className="mt-4 space-y-2">
+          <label className="text-xs text-muted-foreground font-medium">
+            Import from export file (.json)
+          </label>
+          <div className="flex gap-2">
+            <Input
+              type="file"
+              accept=".json,application/json"
+              onChange={handleFileUpload}
+              className="h-9 text-xs file:text-xs file:mr-2"
+              disabled={uploading}
+            />
+          </div>
+          {uploading && (
+            <p className="text-xs text-muted-foreground flex items-center gap-1">
+              <Loader2 className="h-3 w-3 animate-spin" />
+              Importing...
+            </p>
+          )}
         </div>
       )}
 

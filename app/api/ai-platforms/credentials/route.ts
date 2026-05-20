@@ -9,7 +9,7 @@ import {
   type AIKeyPlatform,
 } from "@/lib/ai-platforms/credentials";
 
-const SUPPORTED: AIKeyPlatform[] = ["github", "openai", "anthropic", "gemini"];
+const SUPPORTED: AIKeyPlatform[] = ["github", "openai", "anthropic", "gemini", "perplexity", "grok"];
 
 function isPlatform(value: unknown): value is AIKeyPlatform {
   return typeof value === "string" && (SUPPORTED as string[]).includes(value);

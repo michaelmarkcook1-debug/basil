@@ -5,7 +5,7 @@ import type { IntegrationStatus } from "@/lib/integrations/types";
 import type { SupportedProvider } from "@/lib/storage/secure-token-store";
 import { getSettings, patchSettings } from "@/lib/settings/store";
 
-export type AIKeyPlatform = "github" | "openai" | "anthropic" | "gemini";
+export type AIKeyPlatform = "github" | "openai" | "anthropic" | "gemini" | "perplexity" | "grok";
 
 export interface AIPlatformSecret {
   apiKey: string;
@@ -13,12 +13,18 @@ export interface AIPlatformSecret {
   label?: string;
 }
 
-const LEGACY_FIELD: Record<AIKeyPlatform, "githubToken" | "openaiApiKey" | "anthropicApiKey" | "geminiApiKey"> = {
+type LegacyAIKeyPlatform = "github" | "openai" | "anthropic" | "gemini";
+
+const LEGACY_FIELD: Record<LegacyAIKeyPlatform, "githubToken" | "openaiApiKey" | "anthropicApiKey" | "geminiApiKey"> = {
   github: "githubToken",
   openai: "openaiApiKey",
   anthropic: "anthropicApiKey",
   gemini: "geminiApiKey",
 };
+
+function hasLegacyField(platform: AIKeyPlatform): platform is LegacyAIKeyPlatform {
+  return platform in LEGACY_FIELD;
+}
 
 function providerFor(platform: AIKeyPlatform): SupportedProvider {
   return platform;
@@ -94,6 +100,22 @@ export async function validateAIPlatformKey(platform: AIKeyPlatform, apiKey: str
     return `${count} Gemini model${count === 1 ? "" : "s"} available`;
   }
 
+  if (platform === "perplexity") {
+    const data = await fetchJson("https://api.perplexity.ai/models", {
+      headers: { Authorization: `Bearer ${key}` },
+    }) as { data?: Array<{ id?: string }> };
+    const count = Array.isArray(data.data) ? data.data.length : 0;
+    return `Perplexity API connected${count > 0 ? ` — ${count} model${count === 1 ? "" : "s"}` : ""}`;
+  }
+
+  if (platform === "grok") {
+    const data = await fetchJson("https://api.x.ai/v1/models", {
+      headers: { Authorization: `Bearer ${key}` },
+    }) as { data?: Array<{ id?: string }> };
+    const count = Array.isArray(data.data) ? data.data.length : 0;
+    return `xAI Grok API connected${count > 0 ? ` — ${count} model${count === 1 ? "" : "s"}` : ""}`;
+  }
+
   throw new Error(`Unsupported platform: ${platform}`);
 }
 
@@ -101,17 +123,19 @@ export async function getAIPlatformKey(username: string, platform: AIKeyPlatform
   const stored = await getIntegrationToken<AIPlatformSecret>(username, providerFor(platform));
   if (stored?.apiKey) return stored.apiKey;
 
-  // Backward-compatible migration from the old settings store fields.
-  const settings = await getSettings(username);
-  const legacyKey = settings[LEGACY_FIELD[platform]];
-  if (typeof legacyKey === "string" && legacyKey.trim()) {
-    try {
-      await saveAIPlatformKey(username, platform, legacyKey.trim(), "Migrated legacy key");
-      await patchSettings(username, { [LEGACY_FIELD[platform]]: "" });
-    } catch (err) {
-      console.error("[ai-platforms] legacy key migration failed:", redactError(err));
+  // Backward-compatible migration from the old settings store fields (original 4 only).
+  if (hasLegacyField(platform)) {
+    const settings = await getSettings(username);
+    const legacyKey = settings[LEGACY_FIELD[platform]];
+    if (typeof legacyKey === "string" && legacyKey.trim()) {
+      try {
+        await saveAIPlatformKey(username, platform, legacyKey.trim(), "Migrated legacy key");
+        await patchSettings(username, { [LEGACY_FIELD[platform]]: "" });
+      } catch (err) {
+        console.error("[ai-platforms] legacy key migration failed:", redactError(err));
+      }
+      return legacyKey.trim();
     }
-    return legacyKey.trim();
   }
 
   return null;
@@ -132,8 +156,10 @@ export async function saveAIPlatformKey(
 
 export async function deleteAIPlatformKey(username: string, platform: AIKeyPlatform): Promise<void> {
   await deleteIntegrationToken(username, providerFor(platform));
-  // Also clear legacy field if present.
-  await patchSettings(username, { [LEGACY_FIELD[platform]]: "" });
+  // Also clear legacy field if present (original 4 only).
+  if (hasLegacyField(platform)) {
+    await patchSettings(username, { [LEGACY_FIELD[platform]]: "" });
+  }
 }
 
 export async function getAIPlatformStatus(username: string, platform: AIKeyPlatform): Promise<IntegrationStatus & { label?: string }> {
@@ -150,15 +176,17 @@ export async function getAIPlatformStatus(username: string, platform: AIKeyPlatf
       };
     }
 
-    const settings = await getSettings(username);
-    const legacyKey = settings[LEGACY_FIELD[platform]];
-    if (typeof legacyKey === "string" && legacyKey.trim()) {
-      return {
-        id: platform,
-        state: "connected",
-        lastCheckedAt: now,
-        error: "Stored in legacy settings. Reconnect once to move this into encrypted token storage.",
-      };
+    if (hasLegacyField(platform)) {
+      const settings = await getSettings(username);
+      const legacyKey = settings[LEGACY_FIELD[platform]];
+      if (typeof legacyKey === "string" && legacyKey.trim()) {
+        return {
+          id: platform,
+          state: "connected",
+          lastCheckedAt: now,
+          error: "Stored in legacy settings. Reconnect once to move this into encrypted token storage.",
+        };
+      }
     }
 
     return { id: platform, state: "disconnected", lastCheckedAt: now };

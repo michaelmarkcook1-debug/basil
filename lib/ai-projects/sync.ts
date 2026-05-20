@@ -4,6 +4,8 @@ import { fetchGithubProjects } from "./platforms/github";
 import { fetchVercelProjects } from "./platforms/vercel";
 import { fetchLinearProjects } from "./platforms/linear";
 import { fetchOpenAIProjects } from "./platforms/openai";
+import { fetchPerplexityProjects } from "./platforms/perplexity";
+import { fetchGrokProjects } from "./platforms/grok";
 import type { AIProject, AIProjectsData, Platform } from "./types";
 import { isLinearConnected } from "@/lib/linear/client";
 import { getAIPlatformKey } from "@/lib/ai-platforms/credentials";
@@ -35,7 +37,7 @@ function detectRelated(projects: AIProject[]): AIProject[] {
 }
 
 export async function syncProjects(username: string): Promise<AIProjectsData> {
-  const [existing, linearConnected, githubToken, openaiApiKey] = await Promise.all([
+  const [existing, linearConnected, githubToken, openaiApiKey, geminiApiKey, perplexityKey, grokKey] = await Promise.all([
     readProjectsStore(username),
     isLinearConnected(username).catch((err) => {
       console.error("[ai-projects] Linear status check failed:", err instanceof Error ? err.message : String(err));
@@ -49,18 +51,32 @@ export async function syncProjects(username: string): Promise<AIProjectsData> {
       console.error("[ai-projects] OpenAI key read failed:", err instanceof Error ? err.message : String(err));
       return null;
     }),
+    getAIPlatformKey(username, "gemini").catch((err) => {
+      console.error("[ai-projects] Gemini key read failed:", err instanceof Error ? err.message : String(err));
+      return null;
+    }),
+    getAIPlatformKey(username, "perplexity").catch((err) => {
+      console.error("[ai-projects] Perplexity key read failed:", err instanceof Error ? err.message : String(err));
+      return null;
+    }),
+    getAIPlatformKey(username, "grok").catch((err) => {
+      console.error("[ai-projects] Grok key read failed:", err instanceof Error ? err.message : String(err));
+      return null;
+    }),
   ]);
 
   const vercelToken = process.env.VERCEL_TOKEN;
 
   // Fetch all platforms in parallel
-  const [claudeCodeProjects, githubProjects, vercelProjects, linearProjects, openaiProjects] =
+  const [claudeCodeProjects, githubProjects, vercelProjects, linearProjects, openaiProjects, perplexityProjects, grokProjects] =
     await Promise.all([
       fetchClaudeCodeProjects(),
       githubToken ? fetchGithubProjects(githubToken) : Promise.resolve([]),
       vercelToken ? fetchVercelProjects(vercelToken) : Promise.resolve([]),
       linearConnected ? fetchLinearProjects(username) : Promise.resolve([]),
       openaiApiKey ? fetchOpenAIProjects(openaiApiKey) : Promise.resolve([]),
+      perplexityKey ? fetchPerplexityProjects() : Promise.resolve([]),
+      grokKey ? fetchGrokProjects() : Promise.resolve([]),
     ]);
 
   const freshProjects = [
@@ -69,6 +85,8 @@ export async function syncProjects(username: string): Promise<AIProjectsData> {
     ...vercelProjects,
     ...linearProjects,
     ...openaiProjects,
+    ...perplexityProjects,
+    ...grokProjects,
   ];
 
   // Build a map of existing projects keyed by id so we can preserve user overrides
@@ -157,8 +175,44 @@ export async function syncProjects(username: string): Promise<AIProjectsData> {
     };
   }
 
-  // Platforms that require manual import — mark with setupUrl
-  const manualPlatforms: Platform[] = ["claude-chat", "claude-cowork", "chatgpt", "gemini", "perplexity", "grok"];
+  // gemini — API key connected, no project history API
+  if (geminiApiKey) {
+    platforms["gemini"] = {
+      ...platforms["gemini"],
+      platform: "gemini",
+      label: "Gemini",
+      connected: true,
+      lastSyncedAt: now,
+      itemCount: 0,
+    };
+  }
+
+  // perplexity — API key connected, no project history API
+  if (perplexityKey) {
+    platforms["perplexity"] = {
+      ...platforms["perplexity"],
+      platform: "perplexity",
+      label: "Perplexity",
+      connected: true,
+      lastSyncedAt: now,
+      itemCount: 0,
+    };
+  }
+
+  // grok — API key connected, no project history API
+  if (grokKey) {
+    platforms["grok"] = {
+      ...platforms["grok"],
+      platform: "grok",
+      label: "Grok",
+      connected: true,
+      lastSyncedAt: now,
+      itemCount: 0,
+    };
+  }
+
+  // Platforms that require manual import — mark as disconnected if not already connected
+  const manualPlatforms: Platform[] = ["claude-chat", "claude-cowork", "chatgpt"];
   for (const p of manualPlatforms) {
     if (!platforms[p]?.connected) {
       platforms[p] = {
