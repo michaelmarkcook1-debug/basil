@@ -193,7 +193,7 @@ function ActionCard({
   todayStr: string;
   photos?: Record<string, string>;
 }) {
-  const [confirmingDelete, setConfirmingDelete] = useState(false);
+  // No local confirmation state — delete is single-click with a 5 s undo toast.
   const contact = findContactByName(action.owner);
   const isOverdue =
     action.status === "overdue" ||
@@ -319,30 +319,14 @@ function ActionCard({
           )}
         </div>
 
-        {/* Delete — two-step confirmation */}
-        {confirmingDelete ? (
-          <div className="flex flex-col items-end gap-1 shrink-0">
-            <span className="text-[11px] text-destructive font-medium whitespace-nowrap">Delete?</span>
-            <div className="flex gap-1.5">
-              <button
-                onClick={() => { onDelete(action.id); setConfirmingDelete(false); }}
-                className="text-[11px] font-semibold text-destructive hover:underline"
-              >Yes</button>
-              <button
-                onClick={() => setConfirmingDelete(false)}
-                className="text-[11px] text-muted-foreground hover:underline"
-              >No</button>
-            </div>
-          </div>
-        ) : (
-          <button
-            onClick={() => setConfirmingDelete(true)}
-            className="text-muted-foreground/50 hover:text-destructive transition-colors shrink-0"
-            title="Delete action"
-          >
-            <Trash2 className="h-3.5 w-3.5" />
-          </button>
-        )}
+        {/* Delete — single click, undo toast gives 5 s to recover */}
+        <button
+          onClick={() => onDelete(action.id)}
+          className="text-muted-foreground/50 hover:text-destructive transition-colors shrink-0"
+          title="Delete action"
+        >
+          <Trash2 className="h-3.5 w-3.5" />
+        </button>
       </CardContent>
     </Card>
   );
