@@ -119,6 +119,7 @@ export async function fetchClaudeCodeProjects(): Promise<AIProject[]> {
     return projects
       .sort((a, b) => b._sortDate - a._sortDate)
       .slice(0, 10)
+       
       .map(({ _sortDate: _sd, ...p }) => p);
   } catch {
     return [];

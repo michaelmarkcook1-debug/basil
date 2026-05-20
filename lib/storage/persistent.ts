@@ -126,23 +126,6 @@ async function tmpPath(scope: string, key: string): Promise<string> {
   return path.join(dir, key);
 }
 
-async function tmpRead<T>(
-  scope: string,
-  key: string,
-  fallback: T
-): Promise<T> {
-  try {
-    const p = await tmpPath(scope, key);
-    const raw = await fs.readFile(p, "utf8");
-    const data = JSON.parse(raw);
-    return (
-      Array.isArray(fallback) ? (Array.isArray(data) ? data : fallback) : data
-    ) as T;
-  } catch {
-    return fallback;
-  }
-}
-
 async function tmpWrite<T>(scope: string, key: string, data: T): Promise<void> {
   const p = await tmpPath(scope, key);
   await fs.writeFile(p, JSON.stringify(data, null, 2), "utf8");

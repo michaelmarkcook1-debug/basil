@@ -31,8 +31,10 @@ export async function POST(req: Request) {
 
 async function handle(req: Request) {
   const authHeader = req.headers.get("authorization");
-  const expected = process.env.CRON_SECRET;
-  if (expected && authHeader !== `Bearer ${expected}`) {
+  const cronSecret = process.env.CRON_SECRET;
+  // Require CRON_SECRET — fail closed: if the secret is not set, deny all
+  // callers so the endpoint is never accidentally open.
+  if (!cronSecret || authHeader !== `Bearer ${cronSecret}`) {
     return new NextResponse("forbidden", { status: 403 });
   }
 

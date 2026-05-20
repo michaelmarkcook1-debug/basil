@@ -15,6 +15,8 @@ export interface CalendarEvent {
   location?: string;
   description?: string;
   videoLink?: string;  // extracted meet/zoom/teams join URL
+  isOrganizer: boolean;  // true if the authenticated user created/owns this event
+  myResponseStatus: "accepted" | "declined" | "tentative" | "needsAction"; // user's RSVP
 }
 
 function cleanSummary(summary: string): string {
@@ -62,6 +64,14 @@ function mapEvent(
     .filter(Boolean);
   const filteredAttendees = stripSelf(rawAttendees, identity);
 
+  // Determine if user is the organizer
+  const isOrganizer: boolean = e.organizer?.self === true || !e.organizer; // no organizer field = created by self
+
+  // Find user's own RSVP status from attendees list
+  const selfAttendee = (e.attendees || []).find((a: any) => a.self === true); // eslint-disable-line @typescript-eslint/no-explicit-any
+  const myResponseStatus: CalendarEvent["myResponseStatus"] =
+    selfAttendee?.responseStatus ?? (isOrganizer ? "accepted" : "needsAction");
+
   return {
     id: e.id || "",
     summary: cleanSummary(e.summary || "Untitled"),
@@ -80,6 +90,8 @@ function mapEvent(
     location: e.location || undefined,
     description,
     videoLink,
+    isOrganizer,
+    myResponseStatus,
   };
 }
 

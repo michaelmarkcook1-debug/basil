@@ -284,7 +284,6 @@ export async function POST() {
   // ── Calendar: split past vs upcoming ──────────────────────────────────────
 
   // todayStr already computed above; derive other date strings for calendar filtering
-  const weekStartStr    = weekStart.toLocaleDateString("en-CA", { timeZone: tz });
   const sevenDaysAgoStr = sevenDaysAgo.toLocaleDateString("en-CA", { timeZone: tz });
   const sevenDaysAheadStr = sevenDaysAhead.toLocaleDateString("en-CA", { timeZone: tz });
 

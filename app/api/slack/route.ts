@@ -80,7 +80,7 @@ export async function GET() {
     const merged = [...topDMs, ...extraDMs, ...topChannels, ...extraChannels];
     merged.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
 
-    const topMessages = merged.slice(0, 8).map(({ score, ...msg }) => msg);
+    const topMessages = merged.slice(0, 8).map(({ score: _score, ...msg }) => msg);
 
     // Enrich with analysis status by cross-referencing events store
     const events = await listEvents(username);
@@ -108,7 +108,7 @@ export async function GET() {
       messages: enriched,
       message: enriched.length === 0 ? "No recent messages." : `${enriched.length} highlights.`,
     });
-  } catch (e) {
+  } catch {
     return NextResponse.json({
       connected: false,
       messages: [],

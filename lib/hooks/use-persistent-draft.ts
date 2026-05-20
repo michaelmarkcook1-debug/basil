@@ -113,7 +113,7 @@ export function usePersistentDraft<T>(
     } catch {
       _setDraft(defaultRef.current);
     }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+   
   }, [storageKey]); // re-runs when entityId or username changes → different storageKey
 
   // ── Debounced write (only when dirty) ────────────────────────────────────────

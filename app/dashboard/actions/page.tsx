@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useRef, useCallback } from "react";
+import { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import { useDomainSync } from "@/lib/sync/use-domain-sync";
 // useDraft kept for any legacy callers; actions now uses usePersistentDraft
 import { Card, CardContent } from "@/components/ui/card";
@@ -8,8 +8,9 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
-import { Badge } from "@/components/ui/badge";
-import { Avatar, AvatarFallback } from "@/components/ui/avatar";
+
+import { ContactAvatar } from "@/components/ui/contact-avatar";
+import { useContactPhotos } from "@/lib/hooks/use-contact-photos";
 import {
   ListChecks,
   Plus,
@@ -23,13 +24,14 @@ import {
   ShieldQuestion,
   ThumbsUp,
   X,
-  AlertTriangle,
   Briefcase,
   ClipboardList,
   User,
   GitBranch,
   CheckSquare,
+  CheckCircle2,
   RefreshCw,
+  RotateCcw,
 } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { findContactByName } from "@/lib/contacts-lookup";
@@ -43,8 +45,6 @@ import { EvidencePanel } from "@/components/ui/trust-badge";
 
 const LEGACY_STORAGE_KEY = "sage-actions";
 
-// Draft key — persists unsaved form input across tab switches / navigation.
-const ACTION_DRAFT_KEY = "basil-draft-action";
 interface ActionFormDraft {
   showForm: boolean;
   text: string;
@@ -183,6 +183,7 @@ function ActionCard({
   onConfirmReview,
   onDecisionClick,
   todayStr,
+  photos = {},
 }: {
   action: ActionItem;
   onToggle: (id: string) => void;
@@ -190,7 +191,9 @@ function ActionCard({
   onConfirmReview?: (id: string) => void;
   onDecisionClick?: (action: ActionItem) => void;
   todayStr: string;
+  photos?: Record<string, string>;
 }) {
+  const [confirmingDelete, setConfirmingDelete] = useState(false);
   const contact = findContactByName(action.owner);
   const isOverdue =
     action.status === "overdue" ||
@@ -228,11 +231,13 @@ function ActionCard({
             {/* Owner */}
             <div className="flex items-center gap-1.5">
               {contact && (
-                <Avatar className="h-4 w-4">
-                  <AvatarFallback className={`text-[11px] text-white ${contact.color}`}>
-                    {contact.initials}
-                  </AvatarFallback>
-                </Avatar>
+                <ContactAvatar
+                  initials={contact.initials}
+                  color={contact.color}
+                  photoUrl={photos[contact.email?.toLowerCase() ?? ""]}
+                  className="h-4 w-4"
+                  fallbackClassName="text-[11px]"
+                />
               )}
               <span className="text-xs text-muted-foreground">{action.owner}</span>
             </div>
@@ -314,13 +319,30 @@ function ActionCard({
           )}
         </div>
 
-        {/* Delete */}
-        <button
-          onClick={() => onDelete(action.id)}
-          className="text-muted-foreground/50 hover:text-destructive transition-colors"
-        >
-          <Trash2 className="h-3.5 w-3.5" />
-        </button>
+        {/* Delete — two-step confirmation */}
+        {confirmingDelete ? (
+          <div className="flex flex-col items-end gap-1 shrink-0">
+            <span className="text-[11px] text-destructive font-medium whitespace-nowrap">Delete?</span>
+            <div className="flex gap-1.5">
+              <button
+                onClick={() => { onDelete(action.id); setConfirmingDelete(false); }}
+                className="text-[11px] font-semibold text-destructive hover:underline"
+              >Yes</button>
+              <button
+                onClick={() => setConfirmingDelete(false)}
+                className="text-[11px] text-muted-foreground hover:underline"
+              >No</button>
+            </div>
+          </div>
+        ) : (
+          <button
+            onClick={() => setConfirmingDelete(true)}
+            className="text-muted-foreground/50 hover:text-destructive transition-colors shrink-0"
+            title="Delete action"
+          >
+            <Trash2 className="h-3.5 w-3.5" />
+          </button>
+        )}
       </CardContent>
     </Card>
   );
@@ -338,6 +360,7 @@ function CollapsibleSection({
   onConfirmReview,
   onDecisionClick,
   todayStr,
+  photos = {},
 }: {
   label: string;
   accent?: string;
@@ -348,6 +371,7 @@ function CollapsibleSection({
   onConfirmReview?: (id: string) => void;
   onDecisionClick?: (action: ActionItem) => void;
   todayStr: string;
+  photos?: Record<string, string>;
 }) {
   const [open, setOpen] = useState(defaultOpen);
   if (items.length === 0) return null;
@@ -382,6 +406,7 @@ function CollapsibleSection({
               onConfirmReview={onConfirmReview}
               onDecisionClick={onDecisionClick}
               todayStr={todayStr}
+              photos={photos}
             />
           ))}
         </div>
@@ -426,6 +451,66 @@ function ActionsSyncButton({ onSynced }: { onSynced?: () => void }) {
   );
 }
 
+// ── Completed actions sidebar ─────────────────────────────────────────────────
+
+function CompletedActionsPanel({ items, todayStr }: { items: ActionItem[]; todayStr: string }) {
+  const yesterday = new Date(Date.now() - 86_400_000).toISOString().split("T")[0];
+
+  // Group by completion date (updatedAt), most recent first
+  const grouped = new Map<string, ActionItem[]>();
+  for (const a of [...items].sort(
+    (x, y) => new Date(y.updatedAt).getTime() - new Date(x.updatedAt).getTime()
+  )) {
+    const key = a.updatedAt.split("T")[0];
+    if (!grouped.has(key)) grouped.set(key, []);
+    grouped.get(key)!.push(a);
+  }
+  const dates = Array.from(grouped.keys());
+
+  function dateLabel(d: string) {
+    if (d === todayStr) return "Today";
+    if (d === yesterday) return "Yesterday";
+    return new Date(d + "T12:00:00").toLocaleDateString("en-GB", { day: "numeric", month: "short" });
+  }
+
+  if (dates.length === 0) return null;
+
+  return (
+    <div className="sticky top-4 space-y-3">
+      <div className="flex items-center gap-2">
+        <CheckCircle2 className="h-4 w-4 text-emerald-500" />
+        <span className="text-sm font-semibold">Completed</span>
+        <span className="text-xs text-muted-foreground">({items.length})</span>
+      </div>
+      <div className="space-y-4 max-h-[70vh] overflow-y-auto pr-1">
+        {dates.map((date) => (
+          <div key={date}>
+            <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground mb-1.5">
+              {dateLabel(date)}
+            </p>
+            <div>
+              {grouped.get(date)!.map((a) => (
+                <div
+                  key={a.id}
+                  className="flex items-start gap-2 py-1.5 border-b border-border/30 last:border-0"
+                >
+                  <Check className="h-3 w-3 text-emerald-500 mt-0.5 shrink-0" />
+                  <div className="min-w-0 flex-1">
+                    <p className="text-xs text-muted-foreground leading-snug line-clamp-2">{a.text}</p>
+                    {a.owner && (
+                      <p className="text-[10px] text-muted-foreground/60 mt-0.5">{a.owner}</p>
+                    )}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 // ── Page ───────────────────────────────────────────────────────────────────────
 
 export default function ActionsPage() {
@@ -441,6 +526,31 @@ export default function ActionsPage() {
   const { draft: form, setDraft: setForm, clearDraft: clearForm, draftSaved: formDraftSaved } =
     usePersistentDraft<ActionFormDraft>("draft-action", { defaultValue: ACTION_DRAFT_DEFAULT });
   const migratedRef = useRef(false);
+
+  // ── Undo system ────────────────────────────────────────────────────────────
+  const undoTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [undoEntry, setUndoEntry] = useState<{
+    label: string;
+    restore: () => Promise<void>;
+  } | null>(null);
+
+  function pushUndo(entry: { label: string; restore: () => Promise<void> }) {
+    if (undoTimeoutRef.current) clearTimeout(undoTimeoutRef.current);
+    setUndoEntry(entry);
+    undoTimeoutRef.current = setTimeout(() => {
+      setUndoEntry(null);
+      undoTimeoutRef.current = null;
+    }, 5000);
+  }
+
+  async function handleUndo() {
+    if (!undoEntry) return;
+    if (undoTimeoutRef.current) clearTimeout(undoTimeoutRef.current);
+    setUndoEntry(null);
+    await undoEntry.restore();
+    notify();
+    await refresh();
+  }
 
   function handleDecisionClick(action: ActionItem) {
     // Navigate to Decisions page with action context pre-filled as a query param
@@ -502,6 +612,7 @@ export default function ActionsPage() {
       }
       await refresh();
     })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // Periodic auto-refresh — background materialization (email/Slack classify → createAction)
@@ -541,7 +652,23 @@ export default function ActionsPage() {
   async function toggleDone(id: string) {
     const current = actions.find((a) => a.id === id);
     if (!current) return;
+    const prevStatus = current.status;
     const next = current.status === "done" ? "open" : "done";
+
+    // Offer undo when marking done
+    if (next === "done") {
+      pushUndo({
+        label: `"${current.text.slice(0, 45)}" marked done`,
+        restore: async () => {
+          await fetch(`/api/actions/${id}`, {
+            method: "PATCH",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ status: prevStatus }),
+          });
+        },
+      });
+    }
+
     await fetch(`/api/actions/${id}`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
@@ -551,12 +678,44 @@ export default function ActionsPage() {
   }
 
   async function handleDelete(id: string) {
+    const target = actions.find((a) => a.id === id);
+
     // Optimistic: remove from UI and cache immediately — no flash / accidental restore
     setActions((prev) => {
       const next = prev.filter((a) => a.id !== id);
       dashboardCache.set("actions", next);
       return next;
     });
+
+    // Allow undo for 5 s before the delete is permanent
+    if (target) {
+      pushUndo({
+        label: `"${target.text.slice(0, 45)}" deleted`,
+        restore: async () => {
+          // Restore optimistically in UI first
+          setActions((prev) => {
+            const next = [target, ...prev];
+            dashboardCache.set("actions", next);
+            return next;
+          });
+          // Re-create via API (new ID, but all content preserved)
+          await fetch("/api/actions", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              text:     target.text,
+              owner:    target.owner,
+              ownerId:  (target as ActionItem & { ownerId?: string }).ownerId,
+              dueDate:  target.dueDate,
+              source:   target.source,
+              priority: target.priority,
+              status:   target.status === "done" ? "open" : target.status,
+            }),
+          });
+        },
+      });
+    }
+
     await fetch(`/api/actions/${id}`, { method: "DELETE" });
     // Background sync to other tabs
     notify();
@@ -575,6 +734,17 @@ export default function ActionsPage() {
   }
 
   const todayStr = new Date().toISOString().split("T")[0];
+
+  // Batch-fetch headshots for all action owners that map to known contacts
+  const ownerEmails = useMemo(() => {
+    const emails: string[] = [];
+    for (const a of actions) {
+      const c = findContactByName(a.owner);
+      if (c?.email) emails.push(c.email.toLowerCase());
+    }
+    return Array.from(new Set(emails));
+  }, [actions]);
+  const photos = useContactPhotos(ownerEmails);
 
   // ── Filter ─────────────────────────────────────────────────────────────────
   const filtered = actions.filter((a) => {
@@ -640,7 +810,7 @@ export default function ActionsPage() {
   const decisionNeeded = openActions.filter((a) => a.decisionRequired && !a.linkedDecisionId).sort(sortByPriority);
 
   return (
-    <div className="p-4 sm:p-6 lg:p-8 space-y-6 max-w-4xl">
+    <div className="p-4 sm:p-6 lg:p-8 space-y-6">
       <header className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-semibold tracking-tight flex items-center gap-2">
@@ -761,6 +931,9 @@ export default function ActionsPage() {
         </select>
       </div>
 
+      {/* Content + Completed sidebar */}
+      <div className="grid lg:grid-cols-[1fr_280px] gap-6 items-start">
+      <div className="min-w-0 space-y-6">
       {/* Content */}
       {loading ? (
         <div className="space-y-3">
@@ -814,6 +987,7 @@ export default function ActionsPage() {
               onConfirmReview={handleConfirmReview}
               onDecisionClick={handleDecisionClick}
               todayStr={todayStr}
+              photos={photos}
             />
           )}
 
@@ -829,6 +1003,7 @@ export default function ActionsPage() {
               onConfirmReview={handleConfirmReview}
               onDecisionClick={handleDecisionClick}
               todayStr={todayStr}
+              photos={photos}
             />
           )}
 
@@ -882,6 +1057,7 @@ export default function ActionsPage() {
               onConfirmReview={handleConfirmReview}
               onDecisionClick={handleDecisionClick}
               todayStr={todayStr}
+              photos={photos}
             />
           )}
 
@@ -893,6 +1069,7 @@ export default function ActionsPage() {
             onToggle={toggleDone}
             onDelete={handleDelete}
             todayStr={todayStr}
+            photos={photos}
           />
         </div>
 
@@ -911,6 +1088,7 @@ export default function ActionsPage() {
               onConfirmReview={handleConfirmReview}
               onDecisionClick={handleDecisionClick}
               todayStr={todayStr}
+              photos={photos}
             />
           )}
           {statusFilter === "review" && (
@@ -924,6 +1102,7 @@ export default function ActionsPage() {
               onConfirmReview={handleConfirmReview}
               onDecisionClick={handleDecisionClick}
               todayStr={todayStr}
+              photos={photos}
             />
           )}
 
@@ -943,6 +1122,7 @@ export default function ActionsPage() {
                         onConfirmReview={handleConfirmReview}
                         onDecisionClick={handleDecisionClick}
                         todayStr={todayStr}
+                        photos={photos}
                       />
                     ))}
                   </div>
@@ -963,6 +1143,7 @@ export default function ActionsPage() {
                         onConfirmReview={handleConfirmReview}
                         onDecisionClick={handleDecisionClick}
                         todayStr={todayStr}
+                        photos={photos}
                       />
                     ))}
                   </div>
@@ -983,6 +1164,7 @@ export default function ActionsPage() {
                         onConfirmReview={handleConfirmReview}
                         onDecisionClick={handleDecisionClick}
                         todayStr={todayStr}
+                        photos={photos}
                       />
                     ))}
                   </div>
@@ -1003,6 +1185,7 @@ export default function ActionsPage() {
                         onConfirmReview={handleConfirmReview}
                         onDecisionClick={handleDecisionClick}
                         todayStr={todayStr}
+                        photos={photos}
                       />
                     ))}
                   </div>
@@ -1020,6 +1203,7 @@ export default function ActionsPage() {
                 onConfirmReview={handleConfirmReview}
                 onDecisionClick={handleDecisionClick}
                 todayStr={todayStr}
+                photos={photos}
               />
 
               {/* Done — collapsed by default */}
@@ -1030,6 +1214,7 @@ export default function ActionsPage() {
                 onToggle={toggleDone}
                 onDelete={handleDelete}
                 todayStr={todayStr}
+                photos={photos}
               />
             </>
           )}
@@ -1046,8 +1231,35 @@ export default function ActionsPage() {
               onConfirmReview={handleConfirmReview}
               onDecisionClick={handleDecisionClick}
               todayStr={todayStr}
+              photos={photos}
             />
           ))}
+        </div>
+      )}
+      </div>{/* end left column */}
+      {!loading && done.length > 0 && (
+        <CompletedActionsPanel items={done} todayStr={todayStr} />
+      )}
+      </div>{/* end grid */}
+
+      {/* ── Undo toast ──────────────────────────────────────────────────── */}
+      {undoEntry && (
+        <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 flex items-center gap-3 rounded-xl bg-foreground text-background px-4 py-2.5 shadow-xl text-sm font-medium animate-in slide-in-from-bottom-2 duration-200">
+          <RotateCcw className="h-3.5 w-3.5 shrink-0 opacity-70" />
+          <span className="max-w-[260px] truncate opacity-80">{undoEntry.label}</span>
+          <button
+            onClick={handleUndo}
+            className="ml-1 text-[oklch(0.72_0.15_85)] hover:text-[oklch(0.80_0.15_85)] font-semibold transition-colors"
+          >
+            Undo
+          </button>
+          <button
+            onClick={() => { if (undoTimeoutRef.current) clearTimeout(undoTimeoutRef.current); setUndoEntry(null); }}
+            className="opacity-50 hover:opacity-80 transition-opacity"
+            aria-label="Dismiss"
+          >
+            <X className="h-3.5 w-3.5" />
+          </button>
         </div>
       )}
     </div>

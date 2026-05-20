@@ -39,8 +39,14 @@ export async function createSession(username: string, sessionVersion = 1) {
 
 // ── Dev bypass ───────────────────────────────────────────────────────────────
 // Set SKIP_AUTH=true in .env.local to bypass login (local dev only).
-// Never set this in production — the production guard above will reject it if
-// AUTH_SECRET is missing, but SKIP_AUTH itself is not blocked at runtime.
+// Explicitly blocked in production so an accidental env var deploy can't open
+// all routes to unauthenticated access.
+if (process.env.SKIP_AUTH === "true" && process.env.NODE_ENV === "production") {
+  throw new Error(
+    "SKIP_AUTH=true is not permitted in production. " +
+    "Remove it from Vercel environment variables immediately."
+  );
+}
 export const SKIP_AUTH = process.env.SKIP_AUTH === "true";
 const SKIP_AUTH_USER = process.env.SKIP_AUTH_USER || process.env.ADMIN_USERNAME;
 

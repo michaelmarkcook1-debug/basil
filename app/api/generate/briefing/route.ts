@@ -52,6 +52,9 @@ import {
 } from "@/lib/generate-cache/store";
 import type { Briefing } from "@/lib/types/briefing";
 import { buildProjectTruth, formatProjectRadar } from "@/lib/projects/truth";
+import { checkRateLimit, getClientIp } from "@/lib/rate-limit";
+
+const GEN_BRIEFING_RATE_LIMIT = 5; // Briefings are expensive — 5 per minute per IP
 
 // ── GET — return today's cached briefing ────────────────────────────────────
 export async function GET() {
@@ -190,6 +193,16 @@ export async function POST(req: Request) {
   } else {
     username = await getSessionUser();
     if (!username) return Response.json({ error: "Unauthorised" }, { status: 401 });
+
+    // Rate-limit browser-initiated regenerations only (cron calls bypass this)
+    const ip = getClientIp(req);
+    const rl = checkRateLimit(`gen:briefing:${ip}`, GEN_BRIEFING_RATE_LIMIT);
+    if (!rl.allowed) {
+      return Response.json(
+        { error: "Too many requests — slow down" },
+        { status: 429, headers: { "Retry-After": String(rl.retryAfter) } }
+      );
+    }
   }
 
   const settings  = await getSettings(username).catch(() => null); // ci-ok: settings optional, null falls back to defaults

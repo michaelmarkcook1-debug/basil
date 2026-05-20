@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { BrainCircuit, RefreshCw, Loader2, ExternalLink } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Badge } from "@/components/ui/badge";
+
 import { Skeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
 import { relativeTime } from "@/lib/utils";

@@ -55,7 +55,7 @@ export async function POST(req: Request) {
       followUpDate,
     });
     return NextResponse.json({ action }, { status: 201 });
-  } catch (e) {
+  } catch {
     return NextResponse.json(
       { error: "Operation failed" },
       { status: 500 }

@@ -78,7 +78,7 @@ export function CachedDataBadge({
     );
   }
 
-  // eslint-disable-next-line react-hooks/purity -- freshness badge must compare against current time on every render
+   
   const now = Date.now();
   const msAgo = typeof fetchedAt === "number" ? now - fetchedAt : now - new Date(fetchedAt).getTime();
   const isStale = msAgo > staleMinutes * 60_000;

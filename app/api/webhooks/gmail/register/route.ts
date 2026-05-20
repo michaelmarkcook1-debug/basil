@@ -16,6 +16,11 @@ import { verifySession, getSessionUser } from "@/lib/auth";
  * The user's Gmail address is stored in watchedEmail so inbound push
  * notifications can be resolved back to this username.
  */
+/** GET — browser-friendly alias for the POST handler. */
+export async function GET() {
+  return POST();
+}
+
 export async function POST() {
   if (!(await verifySession())) {
     return NextResponse.json({ error: "forbidden" }, { status: 403 });

@@ -2,12 +2,15 @@ import { NextResponse } from "next/server";
 import { getStigRequestUser } from "@/lib/stig/auth";
 import { runStigAsk } from "@/lib/stig/engine";
 import { mapProviderError } from "@/lib/stig/error-mapper";
+import { checkRateLimit, getClientIp } from "@/lib/rate-limit";
 import type { StigAskRequest } from "@/lib/stig/types";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 300;
 
 const MAX_BODY_BYTES = 100_000;
+const MAX_QUESTION_CHARS = 4_000; // ~1 000 tokens; prevents prompt-stuffing
+const STIG_RATE_LIMIT = 20; // AI calls per minute per IP
 
 function safeError(err: unknown): string {
   const message = err instanceof Error ? err.message : String(err);
@@ -25,11 +28,27 @@ export async function POST(req: Request) {
   const user = await getStigRequestUser(req);
   if (!user) return NextResponse.json({ error: "Unauthorised" }, { status: 401 });
 
+  const ip = getClientIp(req);
+  const rl = checkRateLimit(`stig:ask:${ip}`, STIG_RATE_LIMIT);
+  if (!rl.allowed) {
+    return NextResponse.json(
+      { error: "Too many requests — slow down" },
+      { status: 429, headers: { "Retry-After": String(rl.retryAfter) } }
+    );
+  }
+
   let body: StigAskRequest;
   try {
-    body = await req.json();
+    body = await req.json() as StigAskRequest;
   } catch {
     return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 });
+  }
+
+  if (typeof body.question === "string" && body.question.length > MAX_QUESTION_CHARS) {
+    return NextResponse.json(
+      { error: `Question too long (max ${MAX_QUESTION_CHARS} characters)` },
+      { status: 400 }
+    );
   }
 
   try {

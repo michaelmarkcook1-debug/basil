@@ -39,6 +39,7 @@ import {
 } from "@/lib/ai/extra-context";
 import { getMemoriesForEntity, listMemories } from "@/lib/memory/store";
 import { getSessionUser } from "@/lib/auth";
+import { checkRateLimit, getClientIp } from "@/lib/rate-limit";
 import type { Memory } from "@/lib/memory/types";
 import {
   readGenerateCache,
@@ -48,9 +49,20 @@ import {
   MEETING_PREP_TTL_MS,
 } from "@/lib/generate-cache/store";
 
+const GEN_PREP_RATE_LIMIT = 10; // AI calls per minute per IP
+
 export async function POST(req: Request) {
   const username = (await getSessionUser());
   if (!username) return Response.json({ error: "Unauthorised" }, { status: 401 });
+
+  const ip = getClientIp(req);
+  const rl = checkRateLimit(`gen:prep:${ip}`, GEN_PREP_RATE_LIMIT);
+  if (!rl.allowed) {
+    return Response.json(
+      { error: "Too many requests — slow down" },
+      { status: 429, headers: { "Retry-After": String(rl.retryAfter) } }
+    );
+  }
 
   // Two ingress shapes:
   //  - JSON body (back-compat for anything still calling without extras)

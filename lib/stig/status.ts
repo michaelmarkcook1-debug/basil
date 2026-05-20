@@ -54,7 +54,16 @@ export async function buildStigStatus(username: string) {
       fast:         GATEWAY_MODEL_IDS.fast,
       default:      GATEWAY_MODEL_IDS.default,
       long:         GATEWAY_MODEL_IDS.long,
-      gatewayReady: Boolean(process.env.VERCEL_OIDC_TOKEN || process.env.AI_GATEWAY_API_KEY),
+      gatewayReady:  Boolean(process.env.VERCEL_OIDC_TOKEN || process.env.AI_GATEWAY_API_KEY),
+      // openaiReady is the legacy name the settings UI checks — true when ANY AI provider is configured
+      openaiReady:   Boolean(
+        process.env.openai_basilv2 ||
+        process.env.OPENAI_API_KEY ||
+        process.env.BASIL_LLM_KEY ||
+        process.env.ANTHROPIC_API_KEY ||
+        process.env.VERCEL_OIDC_TOKEN ||
+        process.env.AI_GATEWAY_API_KEY
+      ),
     },
     auth: {
       session: true,

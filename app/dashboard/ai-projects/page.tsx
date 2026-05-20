@@ -7,8 +7,6 @@ import {
   Loader2,
   ExternalLink,
   Trash2,
-  CheckCircle2,
-  XCircle,
   ChevronDown,
   Plus,
   X,

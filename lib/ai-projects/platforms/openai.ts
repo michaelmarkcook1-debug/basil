@@ -13,31 +13,12 @@ import { classifyCategory, scoreImportance, generateSummary } from "../classifie
 
 const OPENAI_API = "https://api.openai.com/v1";
 
-interface OAIThread {
-  id: string;
-  object: "thread";
-  created_at: number;
-  metadata: Record<string, string>;
-}
-
 interface OAIListResponse<T> {
   object: "list";
   data: T[];
   first_id?: string;
   last_id?: string;
   has_more: boolean;
-}
-
-interface OAIMessage {
-  id: string;
-  object: "thread.message";
-  created_at: number;
-  thread_id: string;
-  role: "user" | "assistant";
-  content: Array<{
-    type: "text";
-    text: { value: string; annotations: unknown[] };
-  }>;
 }
 
 interface OAIAssistant {
@@ -60,24 +41,6 @@ async function oaiFetch<T>(apiKey: string, path: string): Promise<T> {
     throw new Error(`OpenAI API ${res.status}: ${await res.text().catch(() => "")}`);
   }
   return res.json() as Promise<T>;
-}
-
-/** Returns the first user message text in a thread, truncated to 120 chars */
-async function getFirstMessage(apiKey: string, threadId: string): Promise<string | undefined> {
-  try {
-    const msgs = await oaiFetch<OAIListResponse<OAIMessage>>(
-      apiKey,
-      `/threads/${threadId}/messages?limit=1&order=asc`
-    );
-    const first = msgs.data[0];
-    if (!first) return undefined;
-    const textContent = first.content.find((c) => c.type === "text");
-    if (!textContent || textContent.type !== "text") return undefined;
-    const text = textContent.text.value.replace(/\n+/g, " ").trim();
-    return text.length > 120 ? text.slice(0, 117) + "…" : text;
-  } catch {
-    return undefined;
-  }
 }
 
 export async function fetchOpenAIProjects(apiKey: string): Promise<AIProject[]> {

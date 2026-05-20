@@ -13,7 +13,7 @@ import { getRecentSlackMessages } from "@/lib/slack/client";
 import { listActions, updateAction, createAction } from "@/lib/actions/store";
 import { createDecision, listDecisions } from "@/lib/decisions/store";
 import { getMyOpenIssues, linearPriorityToBasil } from "@/lib/linear/client";
-import { isZoomConnected, getValidZoomAccessToken } from "@/lib/zoom/auth";
+import { isZoomConnected } from "@/lib/zoom/auth";
 import { getPastMeetings, getMeetingParticipants, getRecentRecordingsWithTranscripts } from "@/lib/zoom/client";
 import { processZoomMeeting } from "@/lib/zoom/process-meeting";
 import { getSelfIdentity, isSelf } from "@/lib/self-identity";

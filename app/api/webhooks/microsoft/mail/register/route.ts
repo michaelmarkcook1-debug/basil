@@ -24,7 +24,7 @@ export async function POST(req: Request) {
   return handle(req);
 }
 
-async function handle(req: Request): Promise<Response> {
+async function handle(_req: Request): Promise<Response> {
   if (!(await verifySession())) {
     return new NextResponse("forbidden", { status: 403 });
   }

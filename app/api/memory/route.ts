@@ -47,7 +47,7 @@ export async function POST(req: Request) {
     // Flush synchronously so BASIL_DATA is current before the client re-fetches
     await forceFlushSnapshot();
     return NextResponse.json({ memory }, { status: 201 });
-  } catch (e) {
+  } catch {
     return NextResponse.json(
       { error: "Memory operation failed" },
       { status: 500 }

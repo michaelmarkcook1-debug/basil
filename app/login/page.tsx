@@ -1,10 +1,6 @@
 "use client";
 
 import { useState } from "react";
-import { Card, CardContent, CardHeader } from "@/components/ui/card";
-import { Input } from "@/components/ui/input";
-import { Button } from "@/components/ui/button";
-import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { setSessionUsername } from "@/lib/session-user";
 
@@ -147,7 +143,7 @@ export default function LoginPage() {
       <div className="flex flex-col items-center justify-center flex-1 px-4 py-16">
         {/* Wordmark */}
         <div className="flex flex-col items-center gap-3 mb-10">
-          {/* eslint-disable-next-line @next/next/no-img-element */}
+          { }
           <img
             src="/basil-logo.svg"
             alt="Basil"

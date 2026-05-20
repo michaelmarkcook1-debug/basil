@@ -12,7 +12,6 @@ import type {
   ProjectCategory,
   ProjectPriority,
   ProjectSignal,
-  ProjectSignalSource,
   ProjectStatus,
   ProjectTruthData,
 } from "./types";

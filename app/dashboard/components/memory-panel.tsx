@@ -61,7 +61,6 @@ export function MemoryPanel() {
   const [ingestText, setIngestText] = useState("");
   const [ingestLoading, setIngestLoading] = useState(false);
   const [ingestSuccess, setIngestSuccess] = useState(false);
-  const [recallLoading, setRecallLoading] = useState(false);
   const recallTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // ── Load memories ──────────────────────────────────────────────────────────

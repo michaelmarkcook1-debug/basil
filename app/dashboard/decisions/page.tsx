@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useRef, useCallback } from "react";
+import { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import { useDomainSync } from "@/lib/sync/use-domain-sync";
 import { usePersistentDraft } from "@/lib/hooks/use-persistent-draft";
 import { DraftSavedIndicator } from "@/components/ui/draft-saved-indicator";
@@ -10,12 +10,13 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
-import { Avatar, AvatarFallback } from "@/components/ui/avatar";
+
+import { ContactAvatar } from "@/components/ui/contact-avatar";
+import { useContactPhotos } from "@/lib/hooks/use-contact-photos";
 import {
   Scale,
   Plus,
   Search,
-  Archive,
   ChevronDown,
   ChevronRight,
   Link2,
@@ -24,6 +25,9 @@ import {
   ShieldQuestion,
   ThumbsUp,
   X,
+  Trash2,
+  CheckCircle2,
+  Check,
   RefreshCw,
 } from "lucide-react";
 import { findContactByName } from "@/lib/contacts-lookup";
@@ -34,8 +38,6 @@ import { EvidencePanel } from "@/components/ui/trust-badge";
 
 const LEGACY_STORAGE_KEY = "sage-decisions";
 
-// Draft key — persists unsaved form input across tab switches / navigation.
-const DECISION_DRAFT_KEY = "basil-draft-decision";
 interface DecisionFormDraft {
   showForm: boolean;
   text: string;
@@ -100,13 +102,16 @@ function DecisionCard({
   onToggleSuperseded,
   onConfirmReview,
   onDelete,
+  photos = {},
 }: {
   d: Decision;
   onToggleSuperseded: (id: string) => void;
   onConfirmReview?: (id: string) => void;
   onDelete?: (id: string) => void;
+  photos?: Record<string, string>;
 }) {
   const [expanded, setExpanded] = useState(false);
+  const [confirmingDelete, setConfirmingDelete] = useState(false);
   const contact = findContactByName(d.decidedBy);
   const hasDetail =
     d.summary ||
@@ -160,13 +165,42 @@ function DecisionCard({
                     )}
                   </button>
                 )}
+                {/* Mark resolved / reactivate */}
                 <button
                   onClick={() => onToggleSuperseded(d.id)}
-                  className="text-muted-foreground/50 hover:text-foreground transition-colors p-0.5"
-                  title={d.status === "active" ? "Mark superseded" : "Reactivate"}
+                  className={`p-0.5 transition-colors ${
+                    d.status === "active"
+                      ? "text-muted-foreground/50 hover:text-emerald-600"
+                      : "text-emerald-600 hover:text-muted-foreground"
+                  }`}
+                  title={d.status === "active" ? "Mark resolved" : "Reactivate"}
                 >
-                  <Archive className="h-3.5 w-3.5" />
+                  <CheckCircle2 className="h-3.5 w-3.5" />
                 </button>
+                {/* Delete — two-step confirmation */}
+                {onDelete && (
+                  confirmingDelete ? (
+                    <div className="flex items-center gap-1 ml-1">
+                      <span className="text-[10px] text-destructive font-medium">Delete?</span>
+                      <button
+                        onClick={() => { onDelete(d.id); setConfirmingDelete(false); }}
+                        className="text-[10px] font-semibold text-destructive hover:underline"
+                      >Yes</button>
+                      <button
+                        onClick={() => setConfirmingDelete(false)}
+                        className="text-[10px] text-muted-foreground hover:underline"
+                      >No</button>
+                    </div>
+                  ) : (
+                    <button
+                      onClick={() => setConfirmingDelete(true)}
+                      className="text-muted-foreground/50 hover:text-destructive transition-colors p-0.5"
+                      title="Delete decision"
+                    >
+                      <Trash2 className="h-3.5 w-3.5" />
+                    </button>
+                  )
+                )}
               </div>
             </div>
 
@@ -174,11 +208,13 @@ function DecisionCard({
             <div className="flex items-center gap-3 mt-2 flex-wrap">
               <div className="flex items-center gap-1.5">
                 {contact && (
-                  <Avatar className="h-4 w-4">
-                    <AvatarFallback className={`text-[10px] text-white ${contact.color}`}>
-                      {contact.initials}
-                    </AvatarFallback>
-                  </Avatar>
+                  <ContactAvatar
+                    initials={contact.initials}
+                    color={contact.color}
+                    photoUrl={photos[contact.email?.toLowerCase() ?? ""]}
+                    className="h-4 w-4"
+                    fallbackClassName="text-[10px]"
+                  />
                 )}
                 <span className="text-xs text-muted-foreground">{d.decidedBy}</span>
               </div>
@@ -357,10 +393,82 @@ function SyncButton({ onSynced }: { onSynced?: () => void }) {
   );
 }
 
+// ── Resolved decisions sidebar ────────────────────────────────────────────────
+
+function ResolvedDecisionsPanel({ items, todayStr }: { items: Decision[]; todayStr: string }) {
+  const yesterday = new Date(Date.now() - 86_400_000).toISOString().split("T")[0];
+
+  const grouped = new Map<string, Decision[]>();
+  for (const d of [...items].sort((a, b) => {
+    const aKey = (a.updatedAt || a.date).split("T")[0];
+    const bKey = (b.updatedAt || b.date).split("T")[0];
+    return bKey.localeCompare(aKey);
+  })) {
+    const key = (d.updatedAt || d.date).split("T")[0];
+    if (!grouped.has(key)) grouped.set(key, []);
+    grouped.get(key)!.push(d);
+  }
+  const dates = Array.from(grouped.keys());
+
+  function dateLabel(d: string) {
+    if (d === todayStr) return "Today";
+    if (d === yesterday) return "Yesterday";
+    return new Date(d + "T12:00:00").toLocaleDateString("en-GB", { day: "numeric", month: "short" });
+  }
+
+  if (dates.length === 0) return null;
+
+  return (
+    <div className="sticky top-4 space-y-3">
+      <div className="flex items-center gap-2">
+        <CheckCircle2 className="h-4 w-4 text-emerald-500" />
+        <span className="text-sm font-semibold">Resolved</span>
+        <span className="text-xs text-muted-foreground">({items.length})</span>
+      </div>
+      <div className="space-y-4 max-h-[70vh] overflow-y-auto pr-1">
+        {dates.map((date) => (
+          <div key={date}>
+            <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground mb-1.5">
+              {dateLabel(date)}
+            </p>
+            <div>
+              {grouped.get(date)!.map((d) => (
+                <div
+                  key={d.id}
+                  className="flex items-start gap-2 py-1.5 border-b border-border/30 last:border-0"
+                >
+                  <Check className="h-3 w-3 text-emerald-500 mt-0.5 shrink-0" />
+                  <div className="min-w-0 flex-1">
+                    <p className="text-xs text-muted-foreground leading-snug line-clamp-2">
+                      {d.title || d.text}
+                    </p>
+                    <p className="text-[10px] text-muted-foreground/60 mt-0.5">{d.decidedBy}</p>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 export default function DecisionsPage() {
   const [decisions, setDecisions] = useState<Decision[]>([]);
   const [loading, setLoading] = useState(true);
   const [fetchError, setFetchError] = useState<Error | null>(null);
+
+  // Batch-fetch headshots for decision owners
+  const decisionOwnerEmails = useMemo(() => {
+    const emails: string[] = [];
+    for (const d of decisions) {
+      const c = findContactByName(d.decidedBy);
+      if (c?.email) emails.push(c.email.toLowerCase());
+    }
+    return Array.from(new Set(emails));
+  }, [decisions]);
+  const photos = useContactPhotos(decisionOwnerEmails);
   const [search, setSearch] = useState("");
   // Form draft — survives tab switches; cleared on save or explicit cancel.
   const { draft: form, setDraft: setForm, clearDraft: clearForm, draftSaved: formDraftSaved } =
@@ -390,6 +498,7 @@ export default function DecisionsPage() {
       clean.searchParams.delete("text");
       window.history.replaceState(null, "", clean.toString());
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const refresh = useCallback(async () => {
@@ -451,6 +560,7 @@ export default function DecisionsPage() {
       }
       await refresh();
     })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // Periodic auto-refresh — materialization runs server-side after poll-ingest
@@ -554,7 +664,7 @@ export default function DecisionsPage() {
   const superseded = filtered.filter((d) => d.status === "superseded");
 
   return (
-    <div className="p-4 sm:p-6 lg:p-8 space-y-6 max-w-4xl">
+    <div className="p-4 sm:p-6 lg:p-8 space-y-6">
       <header className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-semibold tracking-tight flex items-center gap-2">
@@ -649,7 +759,11 @@ export default function DecisionsPage() {
         />
       </div>
 
-      {/* ── Needs Review decisions ─────────────────────────────────────────── */}
+      {/* ── Content + Resolved sidebar ──────────────────────────────────────── */}
+      <div className="grid lg:grid-cols-[1fr_280px] gap-6 items-start">
+      <div className="min-w-0 space-y-4">
+
+      {/* ── Needs Review decisions ──────────────────────────────────────────── */}
       {reviewDecisions.length > 0 && (
         <div className="space-y-3 rounded-lg border border-amber-200 bg-amber-50/40 p-3">
           <div className="flex items-center gap-2">
@@ -665,6 +779,7 @@ export default function DecisionsPage() {
               onToggleSuperseded={toggleSuperseded}
               onConfirmReview={handleConfirmReview}
               onDelete={handleDelete}
+              photos={photos}
             />
           ))}
         </div>
@@ -717,24 +832,18 @@ export default function DecisionsPage() {
           </Card>
         )}
         {confirmedDecisions.map((d) => (
-          <DecisionCard key={d.id} d={d} onToggleSuperseded={toggleSuperseded} />
+          <DecisionCard key={d.id} d={d} onToggleSuperseded={toggleSuperseded} onDelete={handleDelete} photos={photos} />
         ))}
       </div>
 
-      {/* ── Superseded decisions (collapsed section) ────────────────────────── */}
-      {superseded.length > 0 && (
-        <details className="group">
-          <summary className="cursor-pointer text-xs text-muted-foreground hover:text-foreground flex items-center gap-1 select-none">
-            <ChevronRight className="h-3 w-3 group-open:rotate-90 transition-transform" />
-            {superseded.length} superseded decision{superseded.length !== 1 ? "s" : ""}
-          </summary>
-          <div className="mt-3 space-y-3">
-            {superseded.map((d) => (
-              <DecisionCard key={d.id} d={d} onToggleSuperseded={toggleSuperseded} />
-            ))}
-          </div>
-        </details>
+      </div>{/* end left column */}
+      {!loading && superseded.length > 0 && (
+        <ResolvedDecisionsPanel
+          items={superseded}
+          todayStr={new Date().toISOString().split("T")[0]}
+        />
       )}
+      </div>{/* end grid */}
     </div>
   );
 }

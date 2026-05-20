@@ -1,5 +1,5 @@
 import { google } from "googleapis";
-import { getIntegrationToken, saveIntegrationToken, deleteIntegrationToken } from "@/lib/storage/secure-token-store";
+import { getIntegrationToken, saveIntegrationToken } from "@/lib/storage/secure-token-store";
 import type { IntegrationStatus } from "@/lib/integrations/types";
 
 const SCOPES = [
@@ -244,6 +244,9 @@ export async function getGoogleConnectionStatus(username: string): Promise<Integ
 /**
  * Returns a configured OAuth2Client ready to use with googleapis, or null if
  * Google is not connected for this user.  Callers must `await` this.
+ *
+ * Proactively refreshes the access token when it is missing or within 5 minutes
+ * of expiry — prevents intermittent 401 failures on API calls like sendEmail.
  */
 export async function getAuthedClient(username: string) {
   const tokens = await getStoredTokens(username);
@@ -251,5 +254,26 @@ export async function getAuthedClient(username: string) {
 
   const client = getOAuth2Client();
   client.setCredentials(tokens);
+
+  // Refresh proactively if the access token is absent or near-expiry (< 5 min)
+  const nearExpiry =
+    !tokens.access_token ||
+    !tokens.expiry_date ||
+    tokens.expiry_date < Date.now() + 5 * 60 * 1000;
+
+  if (nearExpiry) {
+    try {
+      await client.getAccessToken(); // refreshes internally and updates client.credentials
+      const updated = client.credentials;
+      if (updated.access_token) {
+        // Persist refreshed credentials so the next call gets the fast path
+        await saveIntegrationToken(username, "google", { ...tokens, ...updated as GoogleTokens });
+      }
+    } catch (err) {
+      console.error("[google/auth] getAuthedClient token refresh failed:", err);
+      // Return the client anyway — the API call will surface the real error
+    }
+  }
+
   return client;
 }

@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { getSessionUser } from "@/lib/auth";
 import { deleteUser, isAdminUser, findByUsername } from "@/lib/users";
-import { readStore, writeStore, forceFlushSnapshot } from "@/lib/storage/persistent";
+import { forceFlushSnapshot } from "@/lib/storage/persistent";
 import path from "path";
 import fs from "fs/promises";
 

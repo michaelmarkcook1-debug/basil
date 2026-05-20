@@ -45,8 +45,15 @@ export async function POST(req: Request) {
     return NextResponse.json({ ok: true });
   }
 
-  const token    = await createResetToken(user.username, user.email);
-  const base     = process.env.NEXT_PUBLIC_APP_URL || `https://${req.headers.get("host")}`;
+  const token  = await createResetToken(user.username, user.email);
+  const appUrl = process.env.NEXT_PUBLIC_APP_URL;
+  if (!appUrl && process.env.NODE_ENV === "production") {
+    // Log but don't block — falling back to Host header. Low risk on Vercel's
+    // infrastructure, but NEXT_PUBLIC_APP_URL should be set to eliminate any
+    // Host-header injection surface from misconfigured proxies.
+    console.warn("[forgot-password] NEXT_PUBLIC_APP_URL not set — reset URL derived from Host header. Set this env var in Vercel.");
+  }
+  const base     = appUrl || `https://${req.headers.get("host")}`;
   const resetUrl = `${base}/reset-password?token=${token}`;
 
   return NextResponse.json({ ok: true, resetUrl });

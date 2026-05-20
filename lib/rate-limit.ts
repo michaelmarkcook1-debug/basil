@@ -1,10 +1,12 @@
 /**
  * Simple in-memory IP-based rate limiter.
  *
- * Designed for auth endpoints where a small burst of legitimate retries is
- * acceptable but brute-force attacks should be blocked quickly.
+ * Designed for auth and AI endpoints where a small burst of legitimate
+ * requests is acceptable but brute-force or runaway loops should be blocked.
  *
- * Limits: 10 attempts per 60-second sliding window per IP.
+ * Default: 10 attempts per 60-second sliding window per key.
+ * Pass a custom `maxAttempts` to override for a specific route.
+ *
  * Memory: entries auto-expire; module-level map is fine for a single-instance
  * deployment (Vercel Fluid Compute reuses instances across concurrent requests).
  */
@@ -16,8 +18,8 @@ interface Entry {
 
 const store = new Map<string, Entry>();
 
-const WINDOW_MS  = 60_000; // 1 minute
-const MAX_ATTEMPTS = 10;
+const WINDOW_MS      = 60_000; // 1 minute
+const DEFAULT_MAX    = 10;
 
 /** Prune expired entries (runs inline on every check — cheap for low traffic). */
 function prune() {
@@ -30,10 +32,13 @@ function prune() {
 /**
  * Check whether the given key (typically an IP address) is within rate limits.
  *
+ * @param key        - Unique identifier for the rate-limit bucket (e.g. `chat:${ip}`)
+ * @param maxAttempts - Max calls allowed per window (default 10)
  * @returns `{ allowed: true }` or `{ allowed: false, retryAfter: <seconds> }`
  */
 export function checkRateLimit(
-  key: string
+  key: string,
+  maxAttempts = DEFAULT_MAX,
 ): { allowed: true } | { allowed: false; retryAfter: number } {
   prune();
   const now = Date.now();
@@ -46,7 +51,7 @@ export function checkRateLimit(
   }
 
   entry.count += 1;
-  if (entry.count > MAX_ATTEMPTS) {
+  if (entry.count > maxAttempts) {
     const retryAfter = Math.ceil((entry.resetAt - now) / 1000);
     return { allowed: false, retryAfter };
   }

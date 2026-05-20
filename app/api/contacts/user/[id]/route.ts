@@ -24,7 +24,7 @@ export async function PATCH(
       return NextResponse.json({ error: "Contact not found" }, { status: 404 });
     }
     return NextResponse.json({ contact: updated });
-  } catch (e) {
+  } catch {
     return NextResponse.json(
       { error: "Operation failed" },
       { status: 500 }
@@ -49,7 +49,7 @@ export async function DELETE(
       return NextResponse.json({ error: "Contact not found" }, { status: 404 });
     }
     return new NextResponse(null, { status: 204 });
-  } catch (e) {
+  } catch {
     return NextResponse.json(
       { error: "Operation failed" },
       { status: 500 }

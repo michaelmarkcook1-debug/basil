@@ -25,11 +25,11 @@
 import type { BasilEvent } from "./types";
 
 /** No-op — kept for backward-compatible call-sites. */
-// eslint-disable-next-line @typescript-eslint/no-unused-vars
+ 
 export function subscribe(_listener: (event: BasilEvent) => void): () => void {
   return () => {};
 }
 
 /** No-op — kept for backward-compatible call-sites. */
-// eslint-disable-next-line @typescript-eslint/no-unused-vars
+ 
 export function publish(_event: BasilEvent): void {}

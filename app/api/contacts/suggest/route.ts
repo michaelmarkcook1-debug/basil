@@ -161,7 +161,7 @@ export async function GET() {
     })
     .sort((a, b) => b.score - a.score)
     .slice(0, 12)
-    .map(({ score: _score, ...s }) => s); // eslint-disable-line @typescript-eslint/no-unused-vars
+    .map(({ score: _score, ...s }) => s);  
 
   return NextResponse.json({
     suggestions,

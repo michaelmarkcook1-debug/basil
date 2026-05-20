@@ -16,8 +16,9 @@ import {
   AlertTriangle,
   Apple,
   Bot,
-  Calendar,
   CheckCircle2,
+  ChevronDown,
+  ChevronRight,
   ClipboardCheck,
   Copy,
   Database,
@@ -31,9 +32,10 @@ import {
   Lock,
   Mail,
   MessageCircle,
+  Mic,
   RefreshCw,
   Settings,
-  ShieldCheck,
+  Smartphone,
   Trash2,
   Video,
   XCircle,
@@ -358,6 +360,18 @@ function StigApiTab({
   const [testResult, setTestResult] = React.useState<{ ok: boolean; text?: string; durationMs?: number; error?: { message: string } } | null>(null);
   const [testing, setTesting] = React.useState(false);
 
+  const [siriOpen, setSiriOpen] = React.useState(false);
+  const [siriTesting, setSiriTesting] = React.useState(false);
+  const [siriResult, setSiriResult] = React.useState<{ ok: boolean; text?: string; error?: string } | null>(null);
+  const [appUrl, setAppUrl] = React.useState("");
+  React.useEffect(() => { setAppUrl(window.location.origin); }, []);
+
+  const siriEndpoint = `${appUrl}/api/stig/siri`;
+  const curlSnippet = `curl -s -X POST "${siriEndpoint}" \\
+  -H "Content-Type: application/json" \\
+  -H "Authorization: Bearer YOUR_TOKEN" \\
+  -d '{"question":"What should I focus on today?"}'`;
+
   async function testBrain() {
     setTesting(true);
     setTestResult(null);
@@ -372,8 +386,33 @@ function StigApiTab({
     }
   }
 
+  async function testSiri() {
+    setSiriTesting(true);
+    setSiriResult(null);
+    try {
+      const t0 = Date.now();
+      const res = await fetch("/api/stig/siri", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ question: "What should I focus on right now? Keep your answer to one sentence." }),
+      });
+      const text = await res.text();
+      const ms = Date.now() - t0;
+      if (!res.ok) {
+        setSiriResult({ ok: false, error: `HTTP ${res.status}: ${text.slice(0, 120)}` });
+      } else {
+        setSiriResult({ ok: true, text: `(${ms}ms) ${text}` });
+      }
+    } catch (err) {
+      setSiriResult({ ok: false, error: err instanceof Error ? err.message : "Network error" });
+    } finally {
+      setSiriTesting(false);
+    }
+  }
+
   return (
     <div className="space-y-4">
+      {/* ── Brain status card ────────────────────────────────────────────── */}
       <Card className="border-[oklch(0.72_0.15_85)]/30 bg-[oklch(0.72_0.15_85)]/[0.04] shadow-sm">
         <CardHeader className="pb-3">
           <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
@@ -502,6 +541,228 @@ function StigApiTab({
           )}
         </CardContent>
       </Card>
+
+      {/* ── Siri Shortcuts setup ─────────────────────────────────────────── */}
+      <Card className="shadow-sm overflow-hidden">
+        <button
+          type="button"
+          onClick={() => setSiriOpen((v) => !v)}
+          className="w-full text-left"
+        >
+          <CardHeader className="pb-3 hover:bg-muted/30 transition-colors">
+            <div className="flex items-center justify-between gap-3">
+              <div className="flex items-center gap-3">
+                <div className="rounded-lg p-2 bg-slate-100 text-slate-600">
+                  <Smartphone className="h-4 w-4" />
+                </div>
+                <div>
+                  <CardTitle className="text-sm font-semibold flex items-center gap-2">
+                    Siri Shortcut setup
+                    {tokenReady
+                      ? <Badge className="bg-emerald-100 text-emerald-700 border-emerald-200 text-[11px]">Token ready</Badge>
+                      : <Badge className="bg-amber-100 text-amber-800 border-amber-200 text-[11px]">Token needed</Badge>}
+                  </CardTitle>
+                  <p className="mt-0.5 text-xs text-muted-foreground">
+                    Say &ldquo;Hey Siri, ask Basil&rdquo; — Basil answers out loud in 3–5 seconds.
+                  </p>
+                </div>
+              </div>
+              {siriOpen
+                ? <ChevronDown className="h-4 w-4 text-muted-foreground shrink-0" />
+                : <ChevronRight className="h-4 w-4 text-muted-foreground shrink-0" />}
+            </div>
+          </CardHeader>
+        </button>
+
+        {siriOpen && (
+          <CardContent className="space-y-5 pt-0">
+            <Separator />
+
+            {/* How it works pill-row */}
+            <div className="flex flex-wrap items-center gap-2 text-xs">
+              <span className="font-medium text-muted-foreground">How it works:</span>
+              <span className="rounded-full bg-muted px-2.5 py-1 font-medium">1 Dictate Text</span>
+              <span className="text-muted-foreground">→</span>
+              <span className="rounded-full bg-muted px-2.5 py-1 font-medium">2 Get Contents of URL</span>
+              <span className="text-muted-foreground">→</span>
+              <span className="rounded-full bg-muted px-2.5 py-1 font-medium">3 Speak Text</span>
+            </div>
+
+            {/* Step 1: Token */}
+            <div className="space-y-2">
+              <div className="flex items-center gap-2">
+                <span className={`flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-[11px] font-bold ${tokenReady ? "bg-emerald-500 text-white" : "bg-slate-200 text-slate-700"}`}>1</span>
+                <p className="text-sm font-semibold">Configure token auth</p>
+                {tokenReady && <CheckCircle2 className="h-3.5 w-3.5 text-emerald-500" />}
+              </div>
+              {tokenReady ? (
+                <p className="ml-7 text-xs text-emerald-700">
+                  ✓ Token auth is configured. Siri can authenticate without a browser session.
+                </p>
+              ) : (
+                <div className="ml-7 space-y-2">
+                  <p className="text-xs text-muted-foreground">
+                    Add two env vars in your Vercel project settings so Siri can authenticate without logging in:
+                  </p>
+                  <div className="flex flex-wrap gap-2">
+                    <EnvPill value="STIG_API_TOKEN" copied={copied === "STIG_API_TOKEN"} setCopied={setCopied} />
+                    <span className="text-xs text-muted-foreground self-center">→ any secret string you choose</span>
+                  </div>
+                  <div className="flex flex-wrap gap-2">
+                    <EnvPill value="STIG_API_USERNAME" copied={copied === "STIG_API_USERNAME"} setCopied={setCopied} />
+                    <span className="text-xs text-muted-foreground self-center">→ your Basil username</span>
+                  </div>
+                  <p className="text-xs text-muted-foreground">Then redeploy for the changes to take effect.</p>
+                </div>
+              )}
+            </div>
+
+            {/* Step 2: Endpoint URL */}
+            <div className="space-y-2">
+              <div className="flex items-center gap-2">
+                <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-slate-200 text-[11px] font-bold text-slate-700">2</span>
+                <p className="text-sm font-semibold">Copy your Siri endpoint</p>
+              </div>
+              <div className="ml-7 space-y-2">
+                <p className="text-xs text-muted-foreground">This is the URL you&apos;ll paste into the Shortcut.</p>
+                <div className="flex items-center gap-2 flex-wrap">
+                  <code className="flex-1 min-w-0 rounded-md bg-muted px-2.5 py-1.5 font-mono text-[11px] break-all">
+                    {siriEndpoint || "Loading…"}
+                  </code>
+                  {appUrl && (
+                    <button
+                      type="button"
+                      onClick={() => copyText(siriEndpoint, setCopied)}
+                      className="shrink-0 inline-flex items-center gap-1 rounded-md border px-2.5 py-1.5 text-[11px] font-medium hover:bg-muted/60"
+                    >
+                      {copied === siriEndpoint ? <ClipboardCheck className="h-3 w-3 text-emerald-600" /> : <Copy className="h-3 w-3" />}
+                      {copied === siriEndpoint ? "Copied" : "Copy URL"}
+                    </button>
+                  )}
+                </div>
+              </div>
+            </div>
+
+            {/* Step 3: Build the Shortcut */}
+            <div className="space-y-3">
+              <div className="flex items-center gap-2">
+                <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-slate-200 text-[11px] font-bold text-slate-700">3</span>
+                <p className="text-sm font-semibold">Build the Shortcut in the iOS Shortcuts app</p>
+              </div>
+              <div className="ml-7 space-y-2">
+                <p className="text-xs text-muted-foreground mb-3">Create a new Shortcut with these three actions in order:</p>
+
+                {/* Action cards */}
+                <div className="space-y-2">
+                  {/* Action 1 */}
+                  <div className="rounded-lg border bg-card p-3 flex items-start gap-3">
+                    <div className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md bg-blue-100 text-blue-700">
+                      <Mic className="h-3.5 w-3.5" />
+                    </div>
+                    <div className="space-y-0.5">
+                      <p className="text-xs font-semibold">Action 1 — Dictate Text</p>
+                      <p className="text-xs text-muted-foreground">Basil listens for your question. Leave all settings at default (Language: default, Stop listening: after pause).</p>
+                    </div>
+                  </div>
+
+                  {/* Action 2 */}
+                  <div className="rounded-lg border bg-card p-3 flex items-start gap-3">
+                    <div className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md bg-violet-100 text-violet-700">
+                      <Globe2 className="h-3.5 w-3.5" />
+                    </div>
+                    <div className="space-y-1.5 flex-1 min-w-0">
+                      <p className="text-xs font-semibold">Action 2 — Get Contents of URL</p>
+                      <div className="space-y-1 text-xs text-muted-foreground">
+                        <div className="flex gap-2">
+                          <span className="shrink-0 font-medium text-foreground/70 w-14">URL</span>
+                          <span className="font-mono break-all">{siriEndpoint || "/api/stig/siri"}</span>
+                        </div>
+                        <div className="flex gap-2">
+                          <span className="shrink-0 font-medium text-foreground/70 w-14">Method</span>
+                          <span className="font-mono">POST</span>
+                        </div>
+                        <div className="flex gap-2">
+                          <span className="shrink-0 font-medium text-foreground/70 w-14">Body</span>
+                          <div className="space-y-0.5">
+                            <p className="font-mono">JSON</p>
+                            <p className="font-mono">question → <em className="not-italic bg-blue-50 border border-blue-200 rounded px-1 text-blue-700">Dictated Text</em> (select from variables)</p>
+                          </div>
+                        </div>
+                        <div className="flex gap-2">
+                          <span className="shrink-0 font-medium text-foreground/70 w-14">Header</span>
+                          <span className="font-mono">Authorization: Bearer YOUR_TOKEN</span>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Action 3 */}
+                  <div className="rounded-lg border bg-card p-3 flex items-start gap-3">
+                    <div className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md bg-emerald-100 text-emerald-700">
+                      <Apple className="h-3.5 w-3.5" />
+                    </div>
+                    <div className="space-y-0.5">
+                      <p className="text-xs font-semibold">Action 3 — Speak Text</p>
+                      <p className="text-xs text-muted-foreground">Pass in the result from step 2. Siri will read Basil&apos;s answer aloud. Set pitch and rate to taste.</p>
+                    </div>
+                  </div>
+                </div>
+
+                <p className="text-xs text-muted-foreground pt-1">
+                  Tap the shortcut name and set it to something natural — e.g. <strong>&ldquo;Ask Basil&rdquo;</strong>. Then trigger it with &ldquo;Hey Siri, Ask Basil.&rdquo;
+                </p>
+              </div>
+            </div>
+
+            {/* curl reference */}
+            <div className="space-y-2">
+              <div className="flex items-center gap-2">
+                <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-slate-200 text-[11px] font-bold text-slate-700">4</span>
+                <p className="text-sm font-semibold">Test from terminal (optional)</p>
+              </div>
+              <div className="ml-7 space-y-2">
+                <div className="relative rounded-md bg-slate-900 p-3">
+                  <pre className="font-mono text-[11px] text-slate-100 whitespace-pre-wrap break-all">{curlSnippet}</pre>
+                  <button
+                    type="button"
+                    onClick={() => copyText(curlSnippet, setCopied)}
+                    className="absolute top-2 right-2 rounded bg-slate-700 px-1.5 py-1 text-[11px] text-slate-200 hover:bg-slate-600"
+                  >
+                    {copied === curlSnippet ? "Copied ✓" : "Copy"}
+                  </button>
+                </div>
+                <p className="text-xs text-muted-foreground">Replace <code className="bg-muted rounded px-1">YOUR_TOKEN</code> with the value you set for <code className="bg-muted rounded px-1">STIG_API_TOKEN</code>.</p>
+              </div>
+            </div>
+
+            <Separator />
+
+            {/* Live browser test */}
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div>
+                <p className="text-xs font-semibold">Test Siri endpoint right now</p>
+                <p className="text-xs text-muted-foreground">Fires a sample question using your current browser session (no token needed).</p>
+              </div>
+              <button
+                type="button"
+                onClick={() => void testSiri()}
+                disabled={siriTesting}
+                className="shrink-0 inline-flex items-center gap-1.5 rounded-md border px-3 py-1.5 text-xs font-medium hover:bg-muted/60 disabled:opacity-50"
+              >
+                <Mic className={`h-3.5 w-3.5 ${siriTesting ? "animate-pulse text-red-500" : ""}`} />
+                {siriTesting ? "Asking Basil…" : "Ask Basil a test question →"}
+              </button>
+            </div>
+            {siriResult && (
+              <div className={`rounded-lg border p-3 text-xs ${siriResult.ok ? "border-emerald-200 bg-emerald-50 text-emerald-800" : "border-red-200 bg-red-50 text-red-800"}`}>
+                {siriResult.ok
+                  ? <><span className="font-semibold">Basil says:</span> {siriResult.text}</>
+                  : <><span className="font-semibold">Error:</span> {siriResult.error}</>}
+              </div>
+            )}
+          </CardContent>
+        )}
+      </Card>
     </div>
   );
 }
@@ -627,7 +888,7 @@ export default function SettingsPage() {
   const [health, setHealth] = useState<HealthResponse | null>(null);
   const [stigStatus, setStigStatus] = useState<StigStatusResponse | null>(null);
   const [readiness, setReadiness] = useState<ReadinessBannerData | null>(null);
-  const [profile, setProfile] = useState<UserSettings | null>(null);
+  const [_profile, setProfile] = useState<UserSettings | null>(null);
   const [draft, setDraft] = useState<UserSettings | null>(null);
   const [loading, setLoading] = useState(true);
   const [notice, setNotice] = useState<{ type: "success" | "error"; message: string } | null>(null);
@@ -732,7 +993,7 @@ export default function SettingsPage() {
       setNotice({ type: "error", message: errorMessage });
     }
     if (connected || error) window.history.replaceState({}, "", window.location.pathname);
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+   
   }, []);
 
   async function disconnect(path: string, optimisticKey?: keyof AllStatuses) {

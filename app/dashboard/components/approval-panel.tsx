@@ -279,6 +279,7 @@ function EventDetail({
     setRegenerating(false);
     setRegenError(null);
     setLiveDraft(event.draft);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [event.id, event.draft?.body]);
 
   // Auto-close after a successful execution

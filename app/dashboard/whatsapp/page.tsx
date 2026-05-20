@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import Image from "next/image";
+
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -553,7 +553,7 @@ export default function WhatsAppPage() {
                   </div>
                 )}
                 <div className={`relative rounded-xl ring-1 bg-white p-3 shadow-sm transition-all ${qrSecondsLeft === 0 ? "ring-amber-400 opacity-40 grayscale" : "ring-border"}`}>
-                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  { }
                   <img
                     src={(status.qrDataUrl || stickyQrUrl)!}
                     alt="WhatsApp link QR"

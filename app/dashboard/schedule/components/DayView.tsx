@@ -7,6 +7,7 @@ import { Label } from "@/components/ui/label";
 import {
   X, Trash2, Video, Users, Save, Loader2, Plus, Pencil,
   MapPin, Clock, ExternalLink, Copy, Check, ChevronDown, ChevronUp,
+  CheckCircle2, XCircle, HelpCircle,
 } from "lucide-react";
 
 // ─── Constants ────────────────────────────────────────────────────────────────
@@ -60,6 +61,8 @@ export interface DayEvent {
   location?: string;
   description?: string;
   videoLink?: string;
+  isOrganizer?: boolean;
+  myResponseStatus?: "accepted" | "declined" | "tentative" | "needsAction";
 }
 
 interface EditState {
@@ -204,18 +207,30 @@ function EventDetailPopover({
   onClose,
   onEdit,
   onDelete,
+  onRsvp,
   deleting,
 }: {
   event: DayEvent;
   onClose: () => void;
   onEdit: () => void;
   onDelete: () => void;
+  onRsvp: (status: "accepted" | "declined" | "tentative") => Promise<void>;
   deleting: boolean;
 }) {
   const { startMin, endMin } = parseEventTimes(event);
   const dur = endMin - startMin;
   const [copied, setCopied] = useState(false);
   const [descExpanded, setDescExpanded] = useState(false);
+  const [rsvping, setRsvping] = useState(false);
+  const [rsvpStatus, setRsvpStatus] = useState(event.myResponseStatus ?? "needsAction");
+  const isOrganizer = event.isOrganizer ?? true;
+
+  async function handleRsvp(status: "accepted" | "declined" | "tentative") {
+    setRsvping(true);
+    await onRsvp(status);
+    setRsvpStatus(status);
+    setRsvping(false);
+  }
 
   const provider = event.videoLink ? isVideoProvider(event.videoLink) : null;
   const videoLabel = provider === "zoom" ? "Join Zoom" : provider === "meet" ? "Join Meet" : provider === "teams" ? "Join Teams" : "Join Call";
@@ -255,24 +270,26 @@ function EventDetailPopover({
               {event.summary}
             </h3>
             <div className="flex items-center gap-1 shrink-0">
-              {/* Edit */}
-              <button
-                onClick={onEdit}
-                className="p-1.5 rounded-md text-muted-foreground hover:text-foreground hover:bg-accent transition-colors"
-                title="Edit event"
-              >
-                <Pencil className="h-3.5 w-3.5" />
-              </button>
-              {/* Delete */}
-              <button
-                onClick={onDelete}
-                disabled={deleting}
-                className="p-1.5 rounded-md text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors disabled:opacity-50"
-                title="Delete event"
-              >
-                {deleting ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Trash2 className="h-3.5 w-3.5" />}
-              </button>
-              {/* Close */}
+              {/* Organizer: Edit + Delete. Invitee: no edit/delete */}
+              {isOrganizer && (
+                <>
+                  <button
+                    onClick={onEdit}
+                    className="p-1.5 rounded-md text-muted-foreground hover:text-foreground hover:bg-accent transition-colors"
+                    title="Edit event"
+                  >
+                    <Pencil className="h-3.5 w-3.5" />
+                  </button>
+                  <button
+                    onClick={onDelete}
+                    disabled={deleting}
+                    className="p-1.5 rounded-md text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors disabled:opacity-50"
+                    title="Cancel event"
+                  >
+                    {deleting ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Trash2 className="h-3.5 w-3.5" />}
+                  </button>
+                </>
+              )}
               <button
                 onClick={onClose}
                 className="p-1.5 rounded-md text-muted-foreground hover:text-foreground hover:bg-accent transition-colors"
@@ -282,6 +299,40 @@ function EventDetailPopover({
               </button>
             </div>
           </div>
+
+          {/* RSVP row — only for events where user is an invitee */}
+          {!isOrganizer && (
+            <div className="space-y-1.5">
+              <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Your response</p>
+              <div className="flex gap-2">
+                {(["accepted", "tentative", "declined"] as const).map((s) => {
+                  const active = rsvpStatus === s;
+                  const cfg = {
+                    accepted:  { label: "Accept",   icon: CheckCircle2, active: "bg-emerald-500 text-white border-emerald-500", hover: "hover:bg-emerald-50 hover:border-emerald-400 hover:text-emerald-700" },
+                    tentative: { label: "Maybe",    icon: HelpCircle,   active: "bg-amber-400 text-white border-amber-400",    hover: "hover:bg-amber-50 hover:border-amber-400 hover:text-amber-700" },
+                    declined:  { label: "Decline",  icon: XCircle,      active: "bg-red-500 text-white border-red-500",        hover: "hover:bg-red-50 hover:border-red-400 hover:text-red-700" },
+                  }[s];
+                  const Icon = cfg.icon;
+                  return (
+                    <button
+                      key={s}
+                      disabled={rsvping}
+                      onClick={() => handleRsvp(s)}
+                      className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium border transition-colors disabled:opacity-50
+                        ${active ? cfg.active : `border-border text-muted-foreground ${cfg.hover}`}`}
+                    >
+                      {rsvping && rsvpStatus !== s ? (
+                        <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                      ) : (
+                        <Icon className="h-3.5 w-3.5" />
+                      )}
+                      {cfg.label}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          )}
 
           {/* Time */}
           <div className="flex items-center gap-2 text-sm text-muted-foreground">
@@ -822,6 +873,14 @@ export function DayView({
           onClose={() => setDetailEvent(null)}
           onEdit={() => openEdit(detailEvent)}
           onDelete={() => handleDelete(detailEvent.id)}
+          onRsvp={async (status) => {
+            await fetch(`/api/calendar/${detailEvent.id}/rsvp`, {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ status }),
+            });
+            onRefresh();
+          }}
           deleting={deleting}
         />
       )}

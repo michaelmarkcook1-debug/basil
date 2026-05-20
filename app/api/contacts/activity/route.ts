@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { getEventsForDays, getEventsForMonth } from "@/lib/google/calendar";
+import { getEventsForMonth } from "@/lib/google/calendar";
 import { searchEmails } from "@/lib/google/gmail";
 import { getRecentDriveActivity } from "@/lib/google/drive";
 import { getRecentSlackMessages } from "@/lib/slack/client";

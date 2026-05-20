@@ -16,7 +16,7 @@ import { getTextModel, MAX_TOKENS } from "@/lib/ai/model-config";
 import { parseAndValidate } from "@/lib/ai/parse-json";
 import { MeetingIntelligenceSchema } from "@/lib/ai/schemas";
 import { createAction } from "@/lib/actions/store";
-import { createDecision, linkActionToDecision } from "@/lib/decisions/store";
+import { createDecision } from "@/lib/decisions/store";
 import { createMemory } from "@/lib/memory/store";
 import { actionTier, decisionTier, memoryTier, needsReviewFlag } from "@/lib/trust/policy";
 import { getSystemPrompt } from "@/lib/ai/system-prompt";
@@ -101,8 +101,6 @@ export async function processZoomMeeting(
   const { username, meeting, participants = [], recording, eventId } = opts;
   const sourceRef = `zoom-api:${meeting.id}`;
   const dateStr = meeting.startTime?.split("T")[0] ?? new Date().toISOString().split("T")[0];
-  const now = new Date().toISOString();
-
   let actionsCreated  = 0;
   let decisionsCreated = 0;
   let memoriesCreated  = 0;

@@ -44,7 +44,7 @@ export async function POST(req: Request) {
     }
     const saved = await addUserContactToStore(username, contact);
     return NextResponse.json({ contact: saved }, { status: 201 });
-  } catch (e) {
+  } catch {
     return NextResponse.json(
       { error: "Operation failed" },
       { status: 500 }

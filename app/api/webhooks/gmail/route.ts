@@ -98,68 +98,76 @@ export async function POST(req: Request) {
       }
     }
 
-    for (const id of added) {
-      try {
-        // Skip if already ingested (e.g. poll-ingest ran first)
-        const externalId = `gmail:${id}`;
-        if (await hasExternalId(webhookUsername, externalId)) continue;
+    // Fetch message metadata in parallel batches of 5 to stay well within
+    // Gmail API rate limits while avoiding the latency of sequential fetches.
+    // Pub/Sub has a ~10 s ACK deadline — sequential fetches on 50 messages
+    // would consistently time out on busy inboxes.
+    const addedIds = [...added];
+    const BATCH_SIZE = 5;
+    for (let i = 0; i < addedIds.length; i += BATCH_SIZE) {
+      await Promise.all(addedIds.slice(i, i + BATCH_SIZE).map(async (id) => {
+        try {
+          // Skip if already ingested (e.g. poll-ingest ran first)
+          const externalId = `gmail:${id}`;
+          if (await hasExternalId(webhookUsername, externalId)) return;
 
-        const detail = await gmail.users.messages.get({
-          userId: "me",
-          id,
-          format: "metadata",
-          metadataHeaders: ["From", "Subject"],
-        });
-        const headers = detail.data.payload?.headers || [];
-        const h = (n: string) =>
-          headers.find((hh) => hh.name === n)?.value || "";
+          const detail = await gmail.users.messages.get({
+            userId: "me",
+            id,
+            format: "metadata",
+            metadataHeaders: ["From", "Subject"],
+          });
+          const headers = detail.data.payload?.headers || [];
+          const h = (n: string) =>
+            headers.find((hh) => hh.name === n)?.value || "";
 
-        const fromRaw = h("From");
-        const subject = h("Subject");
-        const snippet = detail.data.snippet || "";
+          const fromRaw = h("From");
+          const subject = h("Subject");
+          const snippet = detail.data.snippet || "";
 
-        // Zoom detection: use the raw From header (includes domain) for reliable detection.
-        const zoomSignal = detectZoomEmail({
-          from: fromRaw,
-          subject,
-          snippet,
-        });
-        const source = zoomSignal.isZoom ? "zoom_email" as const : "email" as const;
+          // Zoom detection: use the raw From header (includes domain) for reliable detection.
+          const zoomSignal = detectZoomEmail({
+            from: fromRaw,
+            subject,
+            snippet,
+          });
+          const source = zoomSignal.isZoom ? "zoom_email" as const : "email" as const;
 
-        const shaped = eventFromIngest({
-          source,
-          externalId,
-          title: subject || "(no subject)",
-          body: snippet,
-          from: extractName(fromRaw),
-        });
-        const event = await createEvent(webhookUsername, shaped);
-        publish(event);
-        processed++;
+          const shaped = eventFromIngest({
+            source,
+            externalId,
+            title: subject || "(no subject)",
+            body: snippet,
+            from: extractName(fromRaw),
+          });
+          const event = await createEvent(webhookUsername, shaped);
+          publish(event);
+          processed++;
 
-        const gmailPayload = source === "zoom_email"
-          ? {
-              gmailId: id,
-              externalId,
-              eventId: event.id,
-              subject: subject || "(no subject)",
-              from: extractName(fromRaw),
-              isZoom: true as const,
-            }
-          : {
-              gmailId: id,
-              externalId,
-              eventId: event.id,
-              subject: subject || "(no subject)",
-              from: extractName(fromRaw),
-              isZoom: false as const,
-              snippetFallback: snippet,
-            };
-        void createJobRecord(webhookUsername, "ingest.gmail", externalId);
-        await start(ingestGmailWorkflow, [webhookUsername, gmailPayload]);
-      } catch (e) {
-        console.error("Gmail message fetch failed:", e instanceof Error ? e.message : e);
-      }
+          const gmailPayload = source === "zoom_email"
+            ? {
+                gmailId: id,
+                externalId,
+                eventId: event.id,
+                subject: subject || "(no subject)",
+                from: extractName(fromRaw),
+                isZoom: true as const,
+              }
+            : {
+                gmailId: id,
+                externalId,
+                eventId: event.id,
+                subject: subject || "(no subject)",
+                from: extractName(fromRaw),
+                isZoom: false as const,
+                snippetFallback: snippet,
+              };
+          void createJobRecord(webhookUsername, "ingest.gmail", externalId);
+          await start(ingestGmailWorkflow, [webhookUsername, gmailPayload]);
+        } catch (err) {
+          console.error(`[gmail-webhook] message fetch failed id=${id}:`, err instanceof Error ? err.message : err);
+        }
+      }));
     }
 
     await updateGmail(webhookUsername, { historyId: newHistoryId });

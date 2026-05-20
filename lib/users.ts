@@ -49,6 +49,7 @@ export type SafeUser = Omit<User, "password">;
 
 /** Strip the password hash before sending a user record to a client. */
 export function toSafeUser(user: User): SafeUser {
+   
   const { password: _pw, ...safe } = user;
   return safe;
 }

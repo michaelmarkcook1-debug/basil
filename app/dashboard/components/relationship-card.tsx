@@ -8,7 +8,9 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
-import { Avatar, AvatarFallback } from "@/components/ui/avatar";
+
+import { ContactAvatar } from "@/components/ui/contact-avatar";
+import { useContactPhotos } from "@/lib/hooks/use-contact-photos";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
@@ -130,6 +132,10 @@ export function RelationshipCard() {
   const [loading, setLoading] = useState(false);
   const [lastRefresh, setLastRefresh] = useState<string | null>(null);
   const [showExplainer, setShowExplainer] = useState(false);
+
+  // Batch-fetch headshots for all contacts in one request
+  const allEmails = staticContacts.map((c) => c.email ?? "").filter(Boolean);
+  const photos = useContactPhotos(allEmails);
 
   const refreshActivity = useCallback(async () => {
     setLoading(true);
@@ -307,13 +313,13 @@ export function RelationshipCard() {
                   key={c.id}
                   className={`relative rounded-lg ring-1 ring-inset ring-border ${s.bg} p-3 flex items-center gap-3`}
                 >
-                  <Avatar className={`h-10 w-10 ring-2 ${s.ring}`}>
-                    <AvatarFallback
-                      className={`text-xs text-white font-medium ${c.color}`}
-                    >
-                      {c.initials}
-                    </AvatarFallback>
-                  </Avatar>
+                  <ContactAvatar
+                    initials={c.initials}
+                    color={c.color}
+                    photoUrl={photos[c.email?.toLowerCase() ?? ""]}
+                    className={`h-10 w-10 ring-2 ${s.ring}`}
+                    fallbackClassName="text-xs"
+                  />
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2 flex-wrap">
                       <p className="text-sm font-medium truncate">{c.name}</p>
@@ -378,13 +384,13 @@ export function RelationshipCard() {
                             href="/dashboard/contacts"
                             className={`inline-flex items-center gap-1.5 rounded-full ring-1 ${s.ring} bg-background pr-2.5 transition-all hover:shadow-sm`}
                           >
-                            <Avatar className="h-6 w-6">
-                              <AvatarFallback
-                                className={`text-[12px] text-white font-medium ${c.color}`}
-                              >
-                                {c.initials}
-                              </AvatarFallback>
-                            </Avatar>
+                            <ContactAvatar
+                              initials={c.initials}
+                              color={c.color}
+                              photoUrl={photos[c.email?.toLowerCase() ?? ""]}
+                              className="h-6 w-6"
+                              fallbackClassName="text-[12px]"
+                            />
                             <span className="text-[12px] font-medium pr-0.5">
                               {c.name.split(" ")[0]}
                             </span>

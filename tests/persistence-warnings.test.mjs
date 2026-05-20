@@ -201,9 +201,6 @@ test("DATA_DIR — local-fs path constant used outside the storage layer", () =>
 // redeployment to be visible to the runtime.
 
 test("Vercel env-var API mutations — PATCH/POST to api.vercel.com/.../env", () => {
-  const VERCEL_ENV_MUTATE_RE =
-    /api\.vercel\.com\/[^'"]*\/env[^'"]*["']\s*,\s*\{[^}]*method\s*:\s*["'](PATCH|POST)/i;
-
   // Also catch the shorthand form: fetch(url, { method: "PATCH" }) where url contains vercel env
   const hits = scanFiles(
     (line) =>
@@ -243,7 +240,6 @@ test("writeStore calls in API routes — informational audit (never fails)", () 
 
   // Partition: storage layer (expected) vs route handlers (worth auditing)
   const routeHits = hits.filter((h) => h.rel.startsWith("app/api/") || h.rel.startsWith("lib/"));
-  const storageHits = hits.filter((h) => h.rel.startsWith("lib/storage/"));
 
   if (routeHits.length > 0) {
     console.info(

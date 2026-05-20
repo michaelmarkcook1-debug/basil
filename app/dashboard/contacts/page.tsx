@@ -21,6 +21,8 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
+import { ContactAvatar } from "@/components/ui/contact-avatar";
+import { useContactPhotos } from "@/lib/hooks/use-contact-photos";
 import { Search, Mail, MapPin, Users, Brain, CheckSquare, AlertTriangle, Activity, Flame, RefreshCw, Loader2, Wifi, Sparkles, Plus, X, Phone, Briefcase, Home, ArrowRightLeft, MessageCircle, Wand2, Check, ChevronLeft, ChevronDown, ChevronUp, Pencil } from "lucide-react";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { Textarea } from "@/components/ui/textarea";
@@ -64,10 +66,12 @@ function ContactList({
   contacts: list,
   selected,
   onSelect,
+  photos = {},
 }: {
   contacts: Contact[];
   selected: string | null;
   onSelect: (id: string) => void;
+  photos?: Record<string, string>;
 }) {
   return (
     <div className="space-y-1">
@@ -81,11 +85,13 @@ function ContactList({
               : "hover:bg-accent/50 border border-transparent"
           }`}
         >
-          <Avatar className="h-8 w-8 shrink-0">
-            <AvatarFallback className={`text-xs text-white font-medium ${c.color}`}>
-              {c.initials}
-            </AvatarFallback>
-          </Avatar>
+          <ContactAvatar
+            initials={c.initials}
+            color={c.color}
+            photoUrl={photos[c.email?.toLowerCase() ?? ""]}
+            className="h-8 w-8 shrink-0"
+            fallbackClassName="text-xs"
+          />
           <div className="flex-1 min-w-0">
             <div className="flex items-center gap-1.5 min-w-0">
               <p className="text-sm font-medium truncate">{c.name}</p>
@@ -115,6 +121,7 @@ function ContactList({
 
 function ContactDetail({
   contact,
+  photoUrl,
   liveItems,
   liveSources,
   lastInteraction,
@@ -130,6 +137,7 @@ function ContactDetail({
   onContactUpdated,
 }: {
   contact: Contact;
+  photoUrl?: string;
   liveItems: string[];
   liveSources: string[];
   lastInteraction?: string;
@@ -219,7 +227,7 @@ function ContactDetail({
     setGenLoading(false);
     setEditingName(false);
     setNameInput(contact.name);
-  }, [contact.id, contact.name]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [contact.id, contact.name]);  
 
   async function generateProfile() {
     setGenLoading(true);
@@ -365,11 +373,13 @@ function ContactDetail({
     <div className="space-y-6">
       {/* Header */}
       <div className="flex items-start gap-4">
-        <Avatar className="h-14 w-14">
-          <AvatarFallback className={`text-lg text-white font-semibold ${contact.color}`}>
-            {contact.initials}
-          </AvatarFallback>
-        </Avatar>
+        <ContactAvatar
+          initials={contact.initials}
+          color={contact.color}
+          photoUrl={photoUrl}
+          className="h-14 w-14 shrink-0"
+          fallbackClassName="text-lg font-semibold"
+        />
         <div className="flex-1 min-w-0">
           <div className="flex items-start justify-between gap-3">
             <div>
@@ -853,6 +863,13 @@ export default function ContactsPage() {
     [userContacts]
   );
 
+  // Batch-fetch headshots for all contacts (Gravatar, falls back to initials)
+  const contactEmails = useMemo(
+    () => contacts.map((c) => c.email ?? "").filter(Boolean),
+    [contacts]
+  );
+  const photos = useContactPhotos(contactEmails);
+
   // Slice by directory — every view on this page reads from here.
   const directoryContacts = useMemo<Contact[]>(
     () => contacts.filter((c) => c.directory === activeDirectory),
@@ -1290,11 +1307,13 @@ export default function ContactsPage() {
                         onClick={() => setSelectedId(c.id)}
                         className={`ring-[3px] ring-offset-1 ring-offset-transparent ${ringColor} rounded-full transition-transform hover:scale-110`}
                       >
-                        <Avatar className="h-7 w-7">
-                          <AvatarFallback className={`text-[12px] text-white font-medium ${c.color}`}>
-                            {c.initials}
-                          </AvatarFallback>
-                        </Avatar>
+                        <ContactAvatar
+                          initials={c.initials}
+                          color={c.color}
+                          photoUrl={photos[c.email?.toLowerCase() ?? ""]}
+                          className="h-7 w-7"
+                          fallbackClassName="text-[12px]"
+                        />
                       </button>
                     </TooltipTrigger>
                     <TooltipContent side="bottom" className="text-xs max-w-52">
@@ -1417,7 +1436,7 @@ export default function ContactsPage() {
         )}
 
         <div className="p-2">
-          <ContactList contacts={filtered} selected={selectedId} onSelect={handleMobileSelect} />
+          <ContactList contacts={filtered} selected={selectedId} onSelect={handleMobileSelect} photos={photos} />
         </div>
         </div>{/* end scrollable area */}
       </div>
@@ -1445,6 +1464,7 @@ export default function ContactsPage() {
         {selected ? (
           <ContactDetail
             contact={selected}
+            photoUrl={photos[selected.email?.toLowerCase() ?? ""]}
             liveItems={getLiveItems(selected.id)}
             liveSources={getLiveSources(selected.id)}
             lastInteraction={getLastInteraction(selected.id, selected.lastInteraction)}
@@ -1453,7 +1473,7 @@ export default function ContactsPage() {
             canMove={isSelectedUserContact}
             isUserContact={isSelectedUserContact}
             onMove={(target) => handleMoveDirectory(selected.id, target)}
-            onRename={(newName) => {
+            onRename={(_newName) => {
               setUserContacts(getUserContacts());
               notifyContacts();
             }}

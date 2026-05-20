@@ -169,7 +169,7 @@ export function AppSidebar({
 
       {/* Brand */}
       <div className="relative mb-5 flex items-center gap-2.5 px-4">
-        {/* eslint-disable-next-line @next/next/no-img-element */}
+        { }
         <img
           src="/basil-logo.svg"
           alt="Basil"

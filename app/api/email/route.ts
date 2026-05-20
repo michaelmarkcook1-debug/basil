@@ -1,9 +1,10 @@
 import { NextResponse } from "next/server";
 import { isGoogleConnected } from "@/lib/google/auth";
-import { getRecentEmails } from "@/lib/google/gmail";
+import { getRecentEmails, sendEmail, createDraft } from "@/lib/google/gmail";
 import { getSessionUser } from "@/lib/auth";
 import { listEvents } from "@/lib/events/store";
 import { contacts as staticContacts } from "@/lib/contacts-data";
+import { emitAuditEvent } from "@/lib/events/audit";
 
 // ── Email priority heuristic ───────────────────────────────────────────────────
 // An email is "priority" if it is unread AND appears to be a personal/direct
@@ -63,6 +64,67 @@ function isPersonalEmail(from: string, fromEmail: string, subject: string): bool
   if (looksLikeProduct.test(from)) return false;
 
   return true;
+}
+
+/**
+ * POST /api/email
+ * Body: { action: "send" | "draft", to: string, subject: string, body: string }
+ *
+ * Sends an email or saves it as a Gmail draft on behalf of the authenticated user.
+ */
+export async function POST(req: Request) {
+  const username = await getSessionUser();
+  if (!username) return NextResponse.json({ error: "Unauthorised" }, { status: 401 });
+
+  if (!(await isGoogleConnected(username))) {
+    return NextResponse.json({ error: "Gmail not connected." }, { status: 401 });
+  }
+
+  let action: string, to: string, subject: string, body: string;
+  try {
+    const parsed = await req.json() as { action?: string; to?: string; subject?: string; body?: string };
+    action = (parsed.action ?? "send").trim();
+    to = (parsed.to ?? "").trim();
+    subject = (parsed.subject ?? "").trim();
+    body = (parsed.body ?? "").trim();
+    if (!["send", "draft"].includes(action)) {
+      return NextResponse.json({ error: "action must be 'send' or 'draft'" }, { status: 400 });
+    }
+    if (!to) return NextResponse.json({ error: "Missing 'to' field" }, { status: 400 });
+    if (!subject) return NextResponse.json({ error: "Missing 'subject' field" }, { status: 400 });
+    if (!body) return NextResponse.json({ error: "Missing 'body' field" }, { status: 400 });
+  } catch {
+    return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 });
+  }
+
+  try {
+    if (action === "draft") {
+      const result = await createDraft(username, to, subject, body);
+      await emitAuditEvent({
+        username,
+        source: "email",
+        headline: `Saved draft to ${to}: "${subject}"`,
+        context: `To: ${to}\nSubject: ${subject}\n\n${body.slice(0, 200)}`,
+        rationale: "User saved an email as a Gmail draft.",
+        tags: ["email", "draft"],
+      });
+      return NextResponse.json({ success: true, action: "draft", draftId: result.id });
+    } else {
+      const result = await sendEmail(username, to, subject, body);
+      await emitAuditEvent({
+        username,
+        source: "email",
+        headline: `Sent email to ${to}: "${subject}"`,
+        context: `To: ${to}\nSubject: ${subject}\n\n${body.slice(0, 200)}`,
+        rationale: "User sent an email via the compose modal.",
+        tags: ["email", "sent"],
+      });
+      return NextResponse.json({ success: true, action: "sent", messageId: result.id });
+    }
+  } catch (e) {
+    console.error("Email send/draft error:", e);
+    return NextResponse.json({ error: "Failed to process email — please try again" }, { status: 500 });
+  }
 }
 
 export async function GET() {

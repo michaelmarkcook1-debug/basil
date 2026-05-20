@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, Suspense } from "react";
+import { useState, Suspense } from "react";
 import { useSearchParams } from "next/navigation";
 
 function ResetPasswordForm() {
@@ -152,7 +152,7 @@ export default function ResetPasswordPage() {
       <div className="w-full max-w-sm">
         {/* Wordmark */}
         <div className="flex items-center justify-center gap-2.5 mb-8">
-          {/* eslint-disable-next-line @next/next/no-img-element */}
+          { }
           <img src="/basil-logo.svg" alt="Basil" className="h-8 w-8 rounded-lg shadow-lg shadow-black/40" />
           <span
             className="text-white font-semibold text-lg tracking-tight"

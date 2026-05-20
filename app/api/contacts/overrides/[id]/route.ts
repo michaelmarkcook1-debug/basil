@@ -21,7 +21,7 @@ export async function PUT(
     const patch = (await req.json()) as ProfileOverride;
     const merged = await setOverrideInStore(username, id, patch);
     return NextResponse.json({ override: merged });
-  } catch (e) {
+  } catch {
     return NextResponse.json(
       { error: "Operation failed" },
       { status: 500 }
@@ -43,7 +43,7 @@ export async function DELETE(
     const { id } = await params;
     await clearOverrideFromStore(username, id);
     return new NextResponse(null, { status: 204 });
-  } catch (e) {
+  } catch {
     return NextResponse.json(
       { error: "Operation failed" },
       { status: 500 }

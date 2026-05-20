@@ -9,7 +9,7 @@ import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
-import { Badge } from "@/components/ui/badge";
+
 import {
   Send,
   Bot,
@@ -27,6 +27,9 @@ import {
   AlertTriangle,
   BookMarked,
   ListTodo,
+  ChevronDown,
+  ChevronUp,
+  MessageSquare,
 } from "lucide-react";
 
 // Per-session localStorage key — intentionally includes no username because
@@ -355,6 +358,12 @@ function ChatPageInner() {
     });
   }, []);
 
+  // History panel toggle — collapsed by default, auto-expands when Basil is responding
+  const [showHistory, setShowHistory] = useState(false);
+  useEffect(() => {
+    if (isActive) setShowHistory(true);
+  }, [isActive]);
+
   // Track per-message save state: null = idle, "saving" = in flight, "saved-action"|"saved-memory" = done
   const [saveState, setSaveState] = useState<Record<string, string>>({});
 
@@ -378,28 +387,303 @@ function ChatPageInner() {
     }
   }, []);
 
+  // ── Shared input form rendered in both layouts ──────────────────────────────
+  const inputForm = (
+    <form onSubmit={handleSubmit} className="space-y-2">
+      {/* Hidden file input */}
+      <input
+        ref={fileInputRef}
+        type="file"
+        accept="image/*,.pdf,.txt,.md,.csv,.json"
+        multiple
+        className="hidden"
+        onChange={handleFileChange}
+      />
+      {/* Staged file chips */}
+      {stagedFiles.length > 0 && (
+        <div className="flex flex-wrap gap-1.5">
+          {stagedFiles.map((sf) => (
+            <div
+              key={sf.id}
+              className="group relative flex items-center gap-1.5 rounded-md border border-border bg-muted/50 pl-2 pr-1 py-1 text-xs text-muted-foreground"
+            >
+              {sf.previewUrl ? (
+                 
+                <img
+                  src={sf.previewUrl}
+                  alt={sf.file.name}
+                  className="h-5 w-5 rounded object-cover shrink-0"
+                />
+              ) : (
+                <FileText className="h-3 w-3 shrink-0" />
+              )}
+              <span className="max-w-[140px] truncate">{sf.file.name}</span>
+              <span className="text-muted-foreground/60">{humanSize(sf.file.size)}</span>
+              <button
+                type="button"
+                onClick={() => removeFile(sf.id)}
+                className="ml-0.5 rounded p-0.5 opacity-60 hover:opacity-100 hover:text-destructive transition-opacity"
+                aria-label={`Remove ${sf.file.name}`}
+              >
+                <X className="h-3 w-3" />
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
+      <div className="flex items-end gap-2">
+        <Button
+          type="button"
+          size="icon"
+          variant="ghost"
+          disabled={isActive}
+          onClick={() => fileInputRef.current?.click()}
+          aria-label="Attach file"
+          className="h-12 w-12 shrink-0 text-muted-foreground hover:text-foreground"
+        >
+          <Paperclip className="h-4 w-4" />
+        </Button>
+        <Textarea
+          value={input}
+          onChange={(e) => setInput(e.target.value)}
+          onKeyDown={handleKeyDown}
+          placeholder="Ask me anything..."
+          enterKeyHint="send"
+          autoComplete="off"
+          autoCorrect="on"
+          spellCheck
+          className="min-h-12 max-h-40 resize-none border-[oklch(0.72_0.15_85)]/20 focus-visible:ring-[oklch(0.72_0.15_85)] py-3 text-[16px] sm:text-sm"
+          rows={1}
+        />
+        <Button
+          type="submit"
+          size="icon"
+          disabled={isActive || (!input.trim() && stagedFiles.length === 0)}
+          aria-label="Send message"
+          className="h-12 w-12 shrink-0 bg-gradient-to-r from-[oklch(0.72_0.15_85)] to-[oklch(0.78_0.12_85)] hover:from-[oklch(0.78_0.12_85)] hover:to-[oklch(0.82_0.10_85)] text-white"
+        >
+          <Send className="h-4 w-4" />
+        </Button>
+      </div>
+    </form>
+  );
+
+  // ── Message list (shared between layouts) ───────────────────────────────────
+  const messageList = (
+    <div className="max-w-3xl mx-auto space-y-6">
+      {messages.map((message) => (
+        <div key={message.id} className="flex gap-3">
+          <Avatar className="h-7 w-7 shrink-0 mt-0.5">
+            <AvatarFallback className="text-xs bg-secondary">
+              {message.role === "user" ? (
+                <User className="h-3.5 w-3.5" />
+              ) : (
+                <Bot className="h-3.5 w-3.5 text-[oklch(0.72_0.15_85)]" />
+              )}
+            </AvatarFallback>
+          </Avatar>
+          <div className="flex-1 space-y-2 min-w-0">
+            <p className="text-xs font-medium text-muted-foreground">
+              {message.role === "user" ? "You" : "Basil"}
+            </p>
+            {message.parts.map((part, i) => {
+              if (part.type === "text") {
+                const isAssistant = message.role === "assistant";
+                const actionKey = message.id + "action";
+                const memoryKey = message.id + "memory";
+                return (
+                  <div key={`${message.id}-${i}`}>
+                    <div className="text-sm leading-relaxed whitespace-pre-wrap">{part.text}</div>
+                    {isAssistant && part.text.trim().length > 0 && (
+                      <div className="mt-2 flex gap-1.5">
+                        <button
+                          type="button"
+                          disabled={saveState[actionKey] === "saving" || saveState[actionKey] === "saved"}
+                          onClick={() => saveChatSnippet(message.id, part.text, "action")}
+                          className="inline-flex items-center gap-1 rounded px-2 py-0.5 text-xs text-muted-foreground hover:text-foreground hover:bg-muted transition-colors disabled:opacity-50"
+                          title="Save as action"
+                        >
+                          {saveState[actionKey] === "saving" ? (
+                            <Loader2 className="h-3 w-3 animate-spin" />
+                          ) : saveState[actionKey] === "saved" ? (
+                            <Check className="h-3 w-3 text-emerald-500" />
+                          ) : (
+                            <ListTodo className="h-3 w-3" />
+                          )}
+                          {saveState[actionKey] === "saved" ? "Saved" : "→ Action"}
+                        </button>
+                        <button
+                          type="button"
+                          disabled={saveState[memoryKey] === "saving" || saveState[memoryKey] === "saved"}
+                          onClick={() => saveChatSnippet(message.id, part.text, "memory")}
+                          className="inline-flex items-center gap-1 rounded px-2 py-0.5 text-xs text-muted-foreground hover:text-foreground hover:bg-muted transition-colors disabled:opacity-50"
+                          title="Save to memory"
+                        >
+                          {saveState[memoryKey] === "saving" ? (
+                            <Loader2 className="h-3 w-3 animate-spin" />
+                          ) : saveState[memoryKey] === "saved" ? (
+                            <Check className="h-3 w-3 text-emerald-500" />
+                          ) : (
+                            <BookMarked className="h-3 w-3" />
+                          )}
+                          {saveState[memoryKey] === "saved" ? "Saved" : "→ Memory"}
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                );
+              }
+              if (part.type === "file") {
+                const filePart = part as { type: "file"; mediaType: string; url?: string; filename?: string };
+                const isImage = filePart.mediaType?.startsWith("image/");
+                if (isImage && filePart.url) {
+                  return (
+                     
+                    <img
+                      key={`${message.id}-${i}`}
+                      src={filePart.url}
+                      alt={filePart.filename ?? "attachment"}
+                      className="max-w-xs max-h-60 rounded-lg border border-border object-cover"
+                    />
+                  );
+                }
+                return (
+                  <div
+                    key={`${message.id}-${i}`}
+                    className="inline-flex items-center gap-1.5 rounded-md border border-border bg-muted/50 px-2.5 py-1.5 text-xs text-muted-foreground"
+                  >
+                    <FileText className="h-3 w-3 shrink-0" />
+                    <span className="max-w-[200px] truncate">
+                      {filePart.filename ?? filePart.mediaType ?? "file"}
+                    </span>
+                  </div>
+                );
+              }
+              if (part.type.startsWith("tool-")) {
+                const toolName = part.type.replace("tool-", "");
+                const IconComponent = toolIcons[toolName] || FileText;
+                const toolPart = part as Record<string, unknown>;
+                const state = toolPart.state as string | undefined;
+                const isAction = ACTION_TOOLS.has(toolName);
+                const isApprovalRequested = state === "approval-requested";
+                const isDone = state === "output-available" || state === "done";
+                const isDenied = state === "output-denied";
+                const isPending = !isDone && !isApprovalRequested && !isDenied;
+
+                if (isAction && isApprovalRequested) {
+                  const approval = toolPart.approval as { id: string } | undefined;
+                  const toolInput = toolPart.input as Record<string, unknown>;
+                  return (
+                    <Card key={`${message.id}-${i}`} className="p-4 border-amber-500/40 bg-amber-500/5">
+                      <div className="flex items-center gap-2 mb-3">
+                        <ShieldCheck className="h-4 w-4 text-amber-400" />
+                        <span className="text-sm font-medium text-amber-300">Approval needed</span>
+                      </div>
+                      <div className="flex items-center gap-2 mb-2">
+                        <IconComponent className="h-3.5 w-3.5 text-muted-foreground" />
+                        <span className="text-xs font-medium text-muted-foreground">
+                          {toolName.replace(/([A-Z])/g, " $1").trim()}
+                        </span>
+                      </div>
+                      {toolInput && (
+                        <pre className="text-sm bg-background/50 rounded-md p-3 mb-3 whitespace-pre-wrap">
+                          {formatToolInput(toolName, toolInput)}
+                        </pre>
+                      )}
+                      <div className="flex gap-2">
+                        <Button
+                          size="sm"
+                          className="bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-600 hover:to-teal-600 text-white gap-1.5"
+                          onClick={() => { if (approval?.id) addToolApprovalResponse({ id: approval.id, approved: true }); }}
+                        >
+                          <Check className="h-3.5 w-3.5" /> Approve
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          className="border-destructive/30 text-destructive hover:bg-destructive/10 gap-1.5"
+                          onClick={() => { if (approval?.id) addToolApprovalResponse({ id: approval.id, approved: false }); }}
+                        >
+                          <X className="h-3.5 w-3.5" /> Deny
+                        </Button>
+                      </div>
+                    </Card>
+                  );
+                }
+
+                return (
+                  <div key={`${message.id}-${i}`} className="flex items-center gap-2 py-1 text-xs text-muted-foreground">
+                    <IconComponent className="h-3 w-3" />
+                    <span className="font-medium">{toolName.replace(/([A-Z])/g, " $1").trim()}</span>
+                    {isPending && <Loader2 className="h-3 w-3 animate-spin" />}
+                    {isDone && <span className="text-emerald-600">✓</span>}
+                    {isDenied && <span className="text-destructive">denied</span>}
+                  </div>
+                );
+              }
+              return null;
+            })}
+          </div>
+        </div>
+      ))}
+
+      {isActive && messages[messages.length - 1]?.role === "user" && (
+        <div className="flex gap-3">
+          <Avatar className="h-7 w-7 shrink-0 mt-0.5">
+            <AvatarFallback className="text-xs bg-secondary">
+              <Bot className="h-3.5 w-3.5 text-[oklch(0.72_0.15_85)]" />
+            </AvatarFallback>
+          </Avatar>
+          <div className="flex items-center gap-2 text-sm text-muted-foreground">
+            <Loader2 className="h-3.5 w-3.5 animate-spin text-[oklch(0.72_0.15_85)]" />
+            Thinking...
+          </div>
+        </div>
+      )}
+    </div>
+  );
+
   return (
     <div className="flex h-full flex-col">
-      <header className="border-b border-border px-4 sm:px-6 py-3 sm:py-4 flex items-start justify-between gap-3">
+      {/* ── Header ─────────────────────────────────────────────────────────── */}
+      <header className="border-b border-border px-4 sm:px-6 py-3 sm:py-4 flex items-center justify-between gap-3">
         <div>
           <h1 className="text-lg font-semibold text-foreground">Ask Basil</h1>
           <p className="text-sm text-muted-foreground hidden sm:block">
             Ask me anything about your day, meetings, emails, or Slack.
           </p>
         </div>
-        {messages.length > 0 && (
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={clearChat}
-            disabled={isActive}
-            className="text-xs text-muted-foreground hover:text-destructive gap-1.5 shrink-0"
-            title="Clear conversation"
-          >
-            <Trash2 className="h-3.5 w-3.5" />
-            Clear
-          </Button>
-        )}
+        <div className="flex items-center gap-2 shrink-0">
+          {messages.length > 0 && (
+            <>
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={clearChat}
+                disabled={isActive}
+                className="text-xs text-muted-foreground hover:text-destructive gap-1.5"
+                title="Clear conversation"
+              >
+                <Trash2 className="h-3.5 w-3.5" />
+                Clear
+              </Button>
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => setShowHistory((v) => !v)}
+                className="text-xs text-muted-foreground hover:text-foreground gap-1.5"
+                title={showHistory ? "Collapse chat history" : "Show chat history"}
+              >
+                <MessageSquare className="h-3.5 w-3.5" />
+                {showHistory ? (
+                  <>History <ChevronUp className="h-3 w-3" /></>
+                ) : (
+                  <>History <ChevronDown className="h-3 w-3" /></>
+                )}
+              </Button>
+            </>
+          )}
+        </div>
       </header>
 
       {/* Brain loading spinner */}
@@ -447,16 +731,13 @@ function ChatPageInner() {
           )}
 
           {error && (() => {
-            // Try to parse narrowingOptions from the error if it came from the API
             let userMessage: string = "Something went wrong. Please try again.";
             let narrowingOptions: string[] | undefined;
             try {
-              // AI SDK wraps server errors — the message may contain JSON or a safe string
               const parsed = JSON.parse(error.message) as { error?: string; narrowingOptions?: string[] };
               if (parsed.error) userMessage = parsed.error;
               if (parsed.narrowingOptions) narrowingOptions = parsed.narrowingOptions;
             } catch {
-              // Not JSON — use the message directly only if it looks safe (no raw provider text)
               const msg = error.message ?? "";
               const looksLikeProviderError =
                 /sk-|org-|openai|anthropic|rate_limit|tokens per minute|context_length/i.test(msg);
@@ -484,10 +765,7 @@ function ChatPageInner() {
                         variant="outline"
                         size="sm"
                         className="text-xs border-destructive/30 text-destructive hover:bg-destructive/10 h-auto py-1"
-                        onClick={() => {
-                          hasSentMessage.current = true;
-                          sendMessage({ text: opt });
-                        }}
+                        onClick={() => { hasSentMessage.current = true; sendMessage({ text: opt }); }}
                       >
                         {opt}
                       </Button>
@@ -498,344 +776,80 @@ function ChatPageInner() {
             );
           })()}
 
-      <ScrollArea className="flex-1 p-3 sm:p-6" ref={scrollRef}>
-        <div className="max-w-3xl mx-auto space-y-6">
-          {messages.length === 0 && (
-            <div className="flex flex-col items-center justify-center py-20 text-center">
-              <div className="h-12 w-12 rounded-xl bg-gradient-to-br from-[oklch(0.72_0.15_85)] to-[oklch(0.78_0.12_85)] flex items-center justify-center mb-4">
-                <Bot className="h-6 w-6 text-white" />
-              </div>
-              <h2 className="text-lg font-medium">Hey, Michael</h2>
-              <p className="text-sm text-muted-foreground mt-1 max-w-sm">
-                What do you need? I can check your calendar, search emails,
-                draft messages, or just chat.
-              </p>
-              <div className="flex flex-wrap gap-2 mt-6 justify-center">
-                {[
-                  "What needs my attention today?",
-                  "Who is blocked?",
-                  "What decisions are waiting on me?",
-                  "What projects am I working on?",
-                  "What did I promise?",
-                  "What meetings need prep?",
-                  "What AI work needs review?",
-                  "What can I ignore?",
-                ].map((suggestion) => (
-                  <Button
-                    key={suggestion}
-                    variant="outline"
-                    size="sm"
-                    className="border-[oklch(0.72_0.15_85)]/30 hover:bg-[oklch(0.72_0.15_85)]/10"
-                    onClick={() => {
-                      hasSentMessage.current = true;
-                      sendMessage({ text: suggestion });
-                    }}
-                  >
-                    {suggestion}
-                  </Button>
-                ))}
-              </div>
-            </div>
-          )}
-
-          {messages.map((message) => (
-            <div key={message.id} className="flex gap-3">
-              <Avatar className="h-7 w-7 shrink-0 mt-0.5">
-                <AvatarFallback className="text-xs bg-secondary">
-                  {message.role === "user" ? (
-                    <User className="h-3.5 w-3.5" />
-                  ) : (
-                    <Bot className="h-3.5 w-3.5 text-[oklch(0.72_0.15_85)]" />
-                  )}
-                </AvatarFallback>
-              </Avatar>
-              <div className="flex-1 space-y-2 min-w-0">
-                <p className="text-xs font-medium text-muted-foreground">
-                  {message.role === "user" ? "You" : "Basil"}
-                </p>
-                {message.parts.map((part, i) => {
-                  if (part.type === "text") {
-                    const isAssistant = message.role === "assistant";
-                    const actionKey = message.id + "action";
-                    const memoryKey = message.id + "memory";
-                    return (
-                      <div key={`${message.id}-${i}`}>
-                        <div className="text-sm leading-relaxed whitespace-pre-wrap">
-                          {part.text}
-                        </div>
-                        {isAssistant && part.text.trim().length > 0 && (
-                          <div className="mt-2 flex gap-1.5">
-                            <button
-                              type="button"
-                              disabled={saveState[actionKey] === "saving" || saveState[actionKey] === "saved"}
-                              onClick={() => saveChatSnippet(message.id, part.text, "action")}
-                              className="inline-flex items-center gap-1 rounded px-2 py-0.5 text-xs text-muted-foreground hover:text-foreground hover:bg-muted transition-colors disabled:opacity-50"
-                              title="Save as action"
-                            >
-                              {saveState[actionKey] === "saving" ? (
-                                <Loader2 className="h-3 w-3 animate-spin" />
-                              ) : saveState[actionKey] === "saved" ? (
-                                <Check className="h-3 w-3 text-emerald-500" />
-                              ) : (
-                                <ListTodo className="h-3 w-3" />
-                              )}
-                              {saveState[actionKey] === "saved" ? "Saved" : "→ Action"}
-                            </button>
-                            <button
-                              type="button"
-                              disabled={saveState[memoryKey] === "saving" || saveState[memoryKey] === "saved"}
-                              onClick={() => saveChatSnippet(message.id, part.text, "memory")}
-                              className="inline-flex items-center gap-1 rounded px-2 py-0.5 text-xs text-muted-foreground hover:text-foreground hover:bg-muted transition-colors disabled:opacity-50"
-                              title="Save to memory"
-                            >
-                              {saveState[memoryKey] === "saving" ? (
-                                <Loader2 className="h-3 w-3 animate-spin" />
-                              ) : saveState[memoryKey] === "saved" ? (
-                                <Check className="h-3 w-3 text-emerald-500" />
-                              ) : (
-                                <BookMarked className="h-3 w-3" />
-                              )}
-                              {saveState[memoryKey] === "saved" ? "Saved" : "→ Memory"}
-                            </button>
-                          </div>
-                        )}
-                      </div>
-                    );
-                  }
-                  // Render file attachments sent by the user
-                  if (part.type === "file") {
-                    const filePart = part as {
-                      type: "file";
-                      mediaType: string;
-                      url?: string;
-                      filename?: string;
-                    };
-                    const isImage = filePart.mediaType?.startsWith("image/");
-                    if (isImage && filePart.url) {
-                      return (
-                        <img
-                          key={`${message.id}-${i}`}
-                          src={filePart.url}
-                          alt={filePart.filename ?? "attachment"}
-                          className="max-w-xs max-h-60 rounded-lg border border-border object-cover"
-                        />
-                      );
-                    }
-                    return (
-                      <div
-                        key={`${message.id}-${i}`}
-                        className="inline-flex items-center gap-1.5 rounded-md border border-border bg-muted/50 px-2.5 py-1.5 text-xs text-muted-foreground"
-                      >
-                        <FileText className="h-3 w-3 shrink-0" />
-                        <span className="max-w-[200px] truncate">
-                          {filePart.filename ?? filePart.mediaType ?? "file"}
-                        </span>
-                      </div>
-                    );
-                  }
-                  // Handle tool invocations
-                  if (part.type.startsWith("tool-")) {
-                    const toolName = part.type.replace("tool-", "");
-                    const IconComponent = toolIcons[toolName] || FileText;
-                    const toolPart = part as Record<string, unknown>;
-                    const state = toolPart.state as string | undefined;
-                    const isAction = ACTION_TOOLS.has(toolName);
-                    const isApprovalRequested = state === "approval-requested";
-                    const isDone = state === "output-available" || state === "done";
-                    const isDenied = state === "output-denied";
-                    const isPending = !isDone && !isApprovalRequested && !isDenied;
-
-                    // Approval UI for action tools
-                    if (isAction && isApprovalRequested) {
-                      const approval = toolPart.approval as { id: string } | undefined;
-                      const toolInput = toolPart.input as Record<string, unknown>;
-                      return (
-                        <Card
-                          key={`${message.id}-${i}`}
-                          className="p-4 border-amber-500/40 bg-amber-500/5"
-                        >
-                          <div className="flex items-center gap-2 mb-3">
-                            <ShieldCheck className="h-4 w-4 text-amber-400" />
-                            <span className="text-sm font-medium text-amber-300">
-                              Approval needed
-                            </span>
-                          </div>
-                          <div className="flex items-center gap-2 mb-2">
-                            <IconComponent className="h-3.5 w-3.5 text-muted-foreground" />
-                            <span className="text-xs font-medium text-muted-foreground">
-                              {toolName.replace(/([A-Z])/g, " $1").trim()}
-                            </span>
-                          </div>
-                          {toolInput && (
-                            <pre className="text-sm bg-background/50 rounded-md p-3 mb-3 whitespace-pre-wrap">
-                              {formatToolInput(toolName, toolInput)}
-                            </pre>
-                          )}
-                          <div className="flex gap-2">
-                            <Button
-                              size="sm"
-                              className="bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-600 hover:to-teal-600 text-white gap-1.5"
-                              onClick={() => {
-                                if (approval?.id) {
-                                  addToolApprovalResponse({
-                                    id: approval.id,
-                                    approved: true,
-                                  });
-                                }
-                              }}
-                            >
-                              <Check className="h-3.5 w-3.5" />
-                              Approve
-                            </Button>
-                            <Button
-                              size="sm"
-                              variant="outline"
-                              className="border-destructive/30 text-destructive hover:bg-destructive/10 gap-1.5"
-                              onClick={() => {
-                                if (approval?.id) {
-                                  addToolApprovalResponse({
-                                    id: approval.id,
-                                    approved: false,
-                                  });
-                                }
-                              }}
-                            >
-                              <X className="h-3.5 w-3.5" />
-                              Deny
-                            </Button>
-                          </div>
-                        </Card>
-                      );
-                    }
-
-                    return (
-                      <div
-                        key={`${message.id}-${i}`}
-                        className="flex items-center gap-2 py-1 text-xs text-muted-foreground"
-                      >
-                        <IconComponent className="h-3 w-3" />
-                        <span className="font-medium">
-                          {toolName.replace(/([A-Z])/g, " $1").trim()}
-                        </span>
-                        {isPending && (
-                          <Loader2 className="h-3 w-3 animate-spin" />
-                        )}
-                        {isDone && (
-                          <span className="text-emerald-600">✓</span>
-                        )}
-                        {isDenied && (
-                          <span className="text-destructive">denied</span>
-                        )}
-                      </div>
-                    );
-                  }
-                  return null;
-                })}
-              </div>
-            </div>
-          ))}
-
-          {isActive && messages[messages.length - 1]?.role === "user" && (
-            <div className="flex gap-3">
-              <Avatar className="h-7 w-7 shrink-0 mt-0.5">
-                <AvatarFallback className="text-xs bg-secondary">
-                  <Bot className="h-3.5 w-3.5 text-[oklch(0.72_0.15_85)]" />
-                </AvatarFallback>
-              </Avatar>
-              <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                <Loader2 className="h-3.5 w-3.5 animate-spin text-[oklch(0.72_0.15_85)]" />
-                Thinking...
-              </div>
-            </div>
-          )}
-        </div>
-      </ScrollArea>
-
-      <div className="border-t border-border px-4 py-4 pb-[max(1rem,env(safe-area-inset-bottom))] bg-background/80 backdrop-blur-sm">
-        <form
-          onSubmit={handleSubmit}
-          className="max-w-3xl mx-auto space-y-2"
-        >
-          {/* Staged file chips */}
-          {stagedFiles.length > 0 && (
-            <div className="flex flex-wrap gap-1.5">
-              {stagedFiles.map((sf) => (
-                <div
-                  key={sf.id}
-                  className="group relative flex items-center gap-1.5 rounded-md border border-border bg-muted/50 pl-2 pr-1 py-1 text-xs text-muted-foreground"
-                >
-                  {sf.previewUrl ? (
-                    <img
-                      src={sf.previewUrl}
-                      alt={sf.file.name}
-                      className="h-5 w-5 rounded object-cover shrink-0"
-                    />
-                  ) : (
-                    <FileText className="h-3 w-3 shrink-0" />
-                  )}
-                  <span className="max-w-[140px] truncate">{sf.file.name}</span>
-                  <span className="text-muted-foreground/60">
-                    {humanSize(sf.file.size)}
-                  </span>
-                  <button
-                    type="button"
-                    onClick={() => removeFile(sf.id)}
-                    className="ml-0.5 rounded p-0.5 opacity-60 hover:opacity-100 hover:text-destructive transition-opacity"
-                    aria-label={`Remove ${sf.file.name}`}
-                  >
-                    <X className="h-3 w-3" />
-                  </button>
+          {/* ── Full history layout ─────────────────────────────────────────── */}
+          {showHistory && messages.length > 0 ? (
+            <>
+              <ScrollArea className="flex-1 p-3 sm:p-6" ref={scrollRef}>
+                {messageList}
+              </ScrollArea>
+              <div className="border-t border-border px-4 py-4 pb-[max(1rem,env(safe-area-inset-bottom))] bg-background/80 backdrop-blur-sm">
+                <div className="max-w-3xl mx-auto">
+                  {inputForm}
                 </div>
-              ))}
+              </div>
+            </>
+          ) : (
+            /* ── Centered layout (default / history collapsed) ────────────── */
+            <div className="flex-1 flex flex-col items-center justify-center px-4 py-6 sm:px-6">
+              <div className="w-full max-w-2xl flex flex-col items-center gap-6">
+                {/* Welcome panel — shown when no messages yet */}
+                {messages.length === 0 && (
+                  <div className="text-center">
+                    <div className="h-12 w-12 rounded-xl bg-gradient-to-br from-[oklch(0.72_0.15_85)] to-[oklch(0.78_0.12_85)] flex items-center justify-center mb-4 mx-auto">
+                      <Bot className="h-6 w-6 text-white" />
+                    </div>
+                    <h2 className="text-lg font-medium">Hey, Michael</h2>
+                    <p className="text-sm text-muted-foreground mt-1 max-w-sm">
+                      What do you need? I can check your calendar, search emails,
+                      draft messages, or just chat.
+                    </p>
+                    <div className="flex flex-wrap gap-2 mt-5 justify-center">
+                      {[
+                        "What needs my attention today?",
+                        "Who is blocked?",
+                        "What decisions are waiting on me?",
+                        "What projects am I working on?",
+                        "What did I promise?",
+                        "What meetings need prep?",
+                        "What AI work needs review?",
+                        "What can I ignore?",
+                      ].map((suggestion) => (
+                        <Button
+                          key={suggestion}
+                          variant="outline"
+                          size="sm"
+                          className="border-[oklch(0.72_0.15_85)]/30 hover:bg-[oklch(0.72_0.15_85)]/10"
+                          onClick={() => {
+                            hasSentMessage.current = true;
+                            sendMessage({ text: suggestion });
+                          }}
+                        >
+                          {suggestion}
+                        </Button>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* Collapsed history banner — shown when messages exist but history is hidden */}
+                {messages.length > 0 && !showHistory && (
+                  <button
+                    onClick={() => setShowHistory(true)}
+                    className="flex items-center gap-2 text-xs text-muted-foreground hover:text-foreground transition-colors px-3 py-2 rounded-lg border border-border/60 hover:border-border bg-muted/30 hover:bg-muted/60"
+                  >
+                    <MessageSquare className="h-3.5 w-3.5" />
+                    <span>{messages.length} message{messages.length !== 1 ? "s" : ""} in conversation history</span>
+                    <ChevronDown className="h-3 w-3" />
+                  </button>
+                )}
+
+                {/* Centered input box with subtle tinted background */}
+                <div className="w-full rounded-2xl border border-[oklch(0.72_0.15_85)]/20 bg-[oklch(0.97_0.008_85)] dark:bg-card/80 shadow-sm px-3 py-3">
+                  {inputForm}
+                </div>
+              </div>
             </div>
           )}
-
-          <div className="flex items-end gap-2">
-            {/* Hidden file input */}
-            <input
-              ref={fileInputRef}
-              type="file"
-              accept="image/*,.pdf,.txt,.md,.csv,.json"
-              multiple
-              className="hidden"
-              onChange={handleFileChange}
-            />
-            {/* Paperclip button */}
-            <Button
-              type="button"
-              size="icon"
-              variant="ghost"
-              disabled={isActive}
-              onClick={() => fileInputRef.current?.click()}
-              aria-label="Attach file"
-              className="h-12 w-12 shrink-0 text-muted-foreground hover:text-foreground"
-            >
-              <Paperclip className="h-4 w-4" />
-            </Button>
-            <Textarea
-              value={input}
-              onChange={(e) => setInput(e.target.value)}
-              onKeyDown={handleKeyDown}
-              placeholder="Ask me anything..."
-              enterKeyHint="send"
-              autoComplete="off"
-              autoCorrect="on"
-              spellCheck
-              className="min-h-12 max-h-40 resize-none border-[oklch(0.72_0.15_85)]/20 focus-visible:ring-[oklch(0.72_0.15_85)] py-3 text-[16px] sm:text-sm"
-              rows={1}
-            />
-            <Button
-              type="submit"
-              size="icon"
-              disabled={isActive || (!input.trim() && stagedFiles.length === 0)}
-              aria-label="Send message"
-              className="h-12 w-12 shrink-0 bg-gradient-to-r from-[oklch(0.72_0.15_85)] to-[oklch(0.78_0.12_85)] hover:from-[oklch(0.78_0.12_85)] hover:to-[oklch(0.82_0.10_85)] text-white"
-            >
-              <Send className="h-4 w-4" />
-            </Button>
-          </div>
-        </form>
-      </div>
         </>
       )}
     </div>

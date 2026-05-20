@@ -109,7 +109,6 @@ const GROUP_A_LITERALS = ["michael", "demo-user", "test-user", "default-user", "
 // Build two regexes: one for double-quoted, one for single-quoted.
 // Require matching quotes to avoid false positives like "Michael's note" (mixed quotes).
 const _a = GROUP_A_LITERALS.join("|");
-const GROUP_A_RE = new RegExp(`"(${_a})"|(${_a})'`, "i");
 // More precise: double-quote form and single-quote form as separate alternations.
 const GROUP_A_DOUBLE = new RegExp(`"(${_a})"`, "i");
 const GROUP_A_SINGLE = new RegExp(`'(${_a})'`, "i");

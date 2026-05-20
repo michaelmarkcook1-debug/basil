@@ -80,7 +80,7 @@ export default function RegisterPage() {
     <div className="min-h-screen flex flex-col items-center justify-center bg-[oklch(0.18_0.05_250)] px-4 py-16">
       {/* Wordmark */}
       <div className="flex flex-col items-center gap-3 mb-10">
-        {/* eslint-disable-next-line @next/next/no-img-element */}
+        { }
         <img
           src="/basil-logo.svg"
           alt="Basil"

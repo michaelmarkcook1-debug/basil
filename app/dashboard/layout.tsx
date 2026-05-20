@@ -61,7 +61,7 @@ export default function DashboardLayout({
             <Menu className="h-5 w-5" />
           </button>
           <div className="flex items-center gap-2 ml-2">
-            {/* eslint-disable-next-line @next/next/no-img-element */}
+            { }
             <img
               src="/basil-logo.svg"
               alt="Basil"

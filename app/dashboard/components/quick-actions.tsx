@@ -10,8 +10,10 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+import { ScheduleMeetingModal } from "./schedule-meeting-modal";
+import { DraftEmailModal } from "./draft-email-modal";
 
-const actions = [
+const chatActions = [
   {
     label: "Ask anything",
     icon: MessageSquare,
@@ -28,26 +30,12 @@ const actions = [
     className:
       "border-[oklch(0.72_0.15_85)]/40 text-[oklch(0.28_0.06_250)] hover:bg-[oklch(0.72_0.15_85)]/10",
   },
-  {
-    label: "Draft email",
-    icon: Mail,
-    href: "/dashboard/chat?q=draft+an+email",
-    requiresBrain: true,
-    className:
-      "border-[oklch(0.72_0.15_85)]/40 text-[oklch(0.28_0.06_250)] hover:bg-[oklch(0.72_0.15_85)]/10",
-  },
-  {
-    label: "Schedule meeting",
-    icon: CalendarPlus,
-    href: "/dashboard/chat?q=schedule+a+meeting",
-    requiresBrain: true,
-    className:
-      "border-[oklch(0.72_0.15_85)]/40 text-[oklch(0.28_0.06_250)] hover:bg-[oklch(0.72_0.15_85)]/10",
-  },
 ];
 
 export function QuickActions() {
   const [brainReady, setBrainReady] = useState<boolean | null>(null);
+  const [scheduleOpen, setScheduleOpen] = useState(false);
+  const [composeOpen, setComposeOpen] = useState(false);
 
   useEffect(() => {
     fetch("/api/ai/test-brain")
@@ -57,51 +45,77 @@ export function QuickActions() {
   }, []);
 
   return (
-    <TooltipProvider delayDuration={200}>
-      <div className="flex flex-wrap gap-2">
-        {actions.map((action) => {
-          const isDisabled = action.requiresBrain && brainReady === false;
+    <>
+      <TooltipProvider delayDuration={200}>
+        <div className="flex flex-wrap gap-2">
+          {chatActions.map((action) => {
+            const isDisabled = action.requiresBrain && brainReady === false;
 
-          if (isDisabled) {
+            if (isDisabled) {
+              return (
+                <Tooltip key={action.label}>
+                  <TooltipTrigger asChild>
+                    <span className="inline-flex">
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className={`${action.className} opacity-40 cursor-not-allowed pointer-events-none`}
+                        disabled
+                      >
+                        <action.icon className="mr-1.5 h-3.5 w-3.5" />
+                        {action.label}
+                      </Button>
+                    </span>
+                  </TooltipTrigger>
+                  <TooltipContent side="bottom">
+                    <p className="text-xs">Configure brain in Settings first</p>
+                  </TooltipContent>
+                </Tooltip>
+              );
+            }
+
             return (
-              <Tooltip key={action.label}>
-                <TooltipTrigger asChild>
-                  {/* span wrapper needed: disabled Button can't be a TooltipTrigger child directly */}
-                  <span className="inline-flex">
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      className={`${action.className} opacity-40 cursor-not-allowed pointer-events-none`}
-                      disabled
-                    >
-                      <action.icon className="mr-1.5 h-3.5 w-3.5" />
-                      {action.label}
-                    </Button>
-                  </span>
-                </TooltipTrigger>
-                <TooltipContent side="bottom">
-                  <p className="text-xs">Configure brain in Settings first</p>
-                </TooltipContent>
-              </Tooltip>
+              <Button
+                key={action.label}
+                variant="outline"
+                size="sm"
+                className={action.className}
+                asChild
+              >
+                <Link href={action.href}>
+                  <action.icon className="mr-1.5 h-3.5 w-3.5" />
+                  {action.label}
+                </Link>
+              </Button>
             );
-          }
+          })}
 
-          return (
-            <Button
-              key={action.label}
-              variant="outline"
-              size="sm"
-              className={action.className}
-              asChild
-            >
-              <Link href={action.href}>
-                <action.icon className="mr-1.5 h-3.5 w-3.5" />
-                {action.label}
-              </Link>
-            </Button>
-          );
-        })}
-      </div>
-    </TooltipProvider>
+          {/* Draft email — opens compose modal */}
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => setComposeOpen(true)}
+            className="border-[oklch(0.72_0.15_85)]/40 text-[oklch(0.28_0.06_250)] hover:bg-[oklch(0.72_0.15_85)]/10"
+          >
+            <Mail className="mr-1.5 h-3.5 w-3.5" />
+            Draft email
+          </Button>
+
+          {/* Schedule meeting — opens modal directly */}
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => setScheduleOpen(true)}
+            className="border-[oklch(0.72_0.15_85)]/40 text-[oklch(0.28_0.06_250)] hover:bg-[oklch(0.72_0.15_85)]/10"
+          >
+            <CalendarPlus className="mr-1.5 h-3.5 w-3.5" />
+            Schedule meeting
+          </Button>
+        </div>
+      </TooltipProvider>
+
+      <ScheduleMeetingModal open={scheduleOpen} onClose={() => setScheduleOpen(false)} />
+      <DraftEmailModal open={composeOpen} onClose={() => setComposeOpen(false)} />
+    </>
   );
 }

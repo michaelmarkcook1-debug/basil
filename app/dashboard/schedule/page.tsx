@@ -39,6 +39,8 @@ interface CalEvent {
   location?: string;
   description?: string;
   videoLink?: string;
+  isOrganizer?: boolean;
+  myResponseStatus?: "accepted" | "declined" | "tentative" | "needsAction";
 }
 
 interface ProposedMeeting {
@@ -72,6 +74,8 @@ function toDay(e: CalEvent): DayEvent {
     location: e.location,
     description: e.description,
     videoLink: e.videoLink,
+    isOrganizer: e.isOrganizer,
+    myResponseStatus: e.myResponseStatus,
   };
 }
 
@@ -733,7 +737,7 @@ export default function SchedulePage() {
           <Card className="border-[oklch(0.72_0.15_85)]/30">
             <CardHeader className="pb-2">
               <CardTitle className="text-sm font-medium flex items-center gap-1.5">
-                {/* eslint-disable-next-line @next/next/no-img-element */}
+                { }
                 <img
                   src="/basil-logo.svg"
                   alt=""

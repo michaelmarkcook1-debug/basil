@@ -145,7 +145,7 @@ function DemoVideo({ videoId }: { videoId: string }) {
           aria-label="Play demo video"
         >
           {/* Thumbnail */}
-          {/* eslint-disable-next-line @next/next/no-img-element */}
+          { }
           <img
             src={thumbUrl}
             alt="Demo video thumbnail"
@@ -697,7 +697,7 @@ export default function OnboardingPage() {
     <div className="min-h-screen flex flex-col items-center justify-center bg-[oklch(0.18_0.05_250)] px-4 py-16">
       {/* Wordmark */}
       <div className="flex items-center gap-2.5 mb-10">
-        {/* eslint-disable-next-line @next/next/no-img-element */}
+        { }
         <img src="/basil-logo.svg" alt="Basil" className="h-8 w-8 rounded-lg shadow-lg shadow-black/40" />
         <span className="text-white font-semibold text-lg tracking-tight" style={{ fontFamily: "var(--font-fraunces), Georgia, serif" }}>
           Basil

@@ -171,7 +171,7 @@ export interface ClassifySlackInput {
 export async function classifySlack(
   input: ClassifySlackInput
 ): Promise<SlackIntelligence> {
-  const { channelName, transcript, isDM, isMention, date, username } = input;
+  const { transcript, isDM, isMention, date, username } = input;
 
   if (!username) {
     console.error("[slack-classify] username is required — refusing to classify without owner");

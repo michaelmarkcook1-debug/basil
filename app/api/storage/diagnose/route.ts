@@ -20,10 +20,11 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 export async function GET(req: Request) {
-  // Auth: require STIG_API_TOKEN or admin session
-  const authHeader = req.headers.get("x-stig-token") ?? "";
+  // Auth: require STIG_API_TOKEN via standard Authorization: Bearer header
+  // (matches the convention used by all other Stig API routes).
+  const authHeader = req.headers.get("authorization") ?? "";
   const expected = process.env.STIG_API_TOKEN ?? "";
-  if (!expected || authHeader !== expected) {
+  if (!expected || authHeader !== `Bearer ${expected}`) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 

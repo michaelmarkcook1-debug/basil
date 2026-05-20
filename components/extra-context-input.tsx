@@ -23,6 +23,7 @@ import { cn } from "@/lib/utils";
 // Allow the non-standard `webkitdirectory` attribute on <input>. Supported by
 // Chromium and Safari; React's built-in types don't know about it.
 declare module "react" {
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   interface InputHTMLAttributes<T> {
     webkitdirectory?: string;
   }

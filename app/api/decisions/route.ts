@@ -67,7 +67,7 @@ export async function POST(req: Request) {
       tags,
     });
     return NextResponse.json({ decision }, { status: 201 });
-  } catch (e) {
+  } catch {
     return NextResponse.json(
       { error: "Operation failed" },
       { status: 500 }

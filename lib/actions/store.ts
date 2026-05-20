@@ -192,7 +192,6 @@ function findDuplicate(
  */
 function mergeExistingDuplicates(items: ActionItem[]): { items: ActionItem[]; changed: boolean } {
   const now = new Date().toISOString();
-  const sevenDaysAgo = Date.now() - 7 * 24 * 60 * 60 * 1000;
   const toRemove = new Set<string>();
   const merged = items.map((a) => ({ ...a })); // shallow clone for mutation
 

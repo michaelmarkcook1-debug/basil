@@ -75,7 +75,6 @@ export async function GET() {
   const username = await getSessionUser();
   if (!username) return NextResponse.json({ error: "Unauthorised" }, { status: 401 });
 
-  const t0 = Date.now();
   const snapshot = await getSnapshot(username);
   if (!snapshot) {
     return NextResponse.json(
@@ -114,7 +113,6 @@ export async function POST() {
   const username = await getSessionUser();
   if (!username) return NextResponse.json({ error: "Unauthorised" }, { status: 401 });
 
-  const t0 = Date.now();
   const snapshot = await getSnapshot(username);
   if (!snapshot) {
     return NextResponse.json({ error: "No snapshot" }, { status: 404 });
