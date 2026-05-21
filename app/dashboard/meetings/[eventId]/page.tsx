@@ -230,7 +230,11 @@ export default function MeetingPrepPage() {
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify(meetingPayload),
           });
-      if (!res.ok) throw new Error("Generation failed");
+      if (!res.ok) {
+        let serverMsg = "";
+        try { const e = await res.json(); serverMsg = e?.error || ""; } catch { /* ignore */ }
+        throw new Error(serverMsg || `Generation failed (${res.status})`);
+      }
       const data = await res.json();
       if (data.error) throw new Error(data.error);
       setPrep(data);
@@ -247,19 +251,19 @@ export default function MeetingPrepPage() {
   }
 
   return (
-    <div className="p-6 lg:p-8 space-y-6 max-w-3xl pb-8">
+    <div className="p-4 sm:p-6 lg:p-8 space-y-6 max-w-3xl pb-8">
       <Link href="/dashboard/meetings" className="flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground">
         <ArrowLeft className="h-4 w-4" /> Back to meetings
       </Link>
 
       {/* Header — matches Mike's format */}
-      <header className="flex items-start justify-between gap-4">
-        <div className="space-y-1">
+      <header className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3">
+        <div className="space-y-1 min-w-0">
           <p className="text-xs font-semibold tracking-widest uppercase text-[oklch(0.72_0.15_85)]">
             TalentGenius · Meeting Prep
           </p>
-          <h1 className="text-xl font-semibold">{meta?.title}</h1>
-          <div className="flex items-center gap-2 text-sm text-[oklch(0.72_0.15_85)]">
+          <h1 className="text-xl font-semibold break-words">{meta?.title}</h1>
+          <div className="flex items-center gap-2 text-sm text-[oklch(0.72_0.15_85)] flex-wrap">
             {meta?.dateLabel && <span>{meta.dateLabel}</span>}
             {meta?.dateLabel && meta?.time && <span>·</span>}
             {meta?.time && <><Clock className="h-3.5 w-3.5" />{meta.time} UK</>}
@@ -270,7 +274,7 @@ export default function MeetingPrepPage() {
         <Button
           onClick={generate}
           disabled={loading}
-          className="bg-[oklch(0.72_0.15_85)] text-[oklch(0.18_0.04_250)] hover:bg-[oklch(0.78_0.12_85)] gap-1.5 shrink-0"
+          className="bg-[oklch(0.72_0.15_85)] text-[oklch(0.18_0.04_250)] hover:bg-[oklch(0.78_0.12_85)] gap-1.5 shrink-0 self-start"
         >
           {loading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Zap className="h-3.5 w-3.5" />}
           {loading ? "Generating..." : prep ? "Regenerate" : "Generate Prep"}
