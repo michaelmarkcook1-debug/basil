@@ -20,6 +20,7 @@ import {
   Cpu,
   FolderKanban,
   Hash,
+  Triangle,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { ThemeToggle } from "@/components/theme-toggle";
@@ -39,6 +40,7 @@ const work: NavItem[] = [
   { href: "/dashboard/projects", label: "Projects", icon: FolderKanban },
   { href: "/dashboard/slack-command", label: "Slack Command", icon: Hash },
   { href: "/dashboard/ai-projects", label: "AI Projects", icon: Cpu },
+  { href: "/dashboard/linear", label: "Linear", icon: Triangle },
 ];
 
 const track: NavItem[] = [

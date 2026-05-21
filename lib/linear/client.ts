@@ -69,6 +69,30 @@ export interface LinearIssue {
   url: string;
   createdAt: string;
   updatedAt: string;
+  assignee?: { id: string; name: string } | null;
+}
+
+export interface LinearTeam {
+  id: string;
+  name: string;
+  key: string;
+}
+
+export interface LinearWorkflowState {
+  id: string;
+  name: string;
+  type: string;
+  color: string;
+  team: { id: string };
+}
+
+export interface LinearIssueInput {
+  title: string;
+  description?: string;
+  teamId: string;
+  stateId?: string;
+  priority?: number;
+  dueDate?: string | null;
 }
 
 // ── Queries ────────────────────────────────────────────────────────────────
@@ -119,6 +143,186 @@ export async function getMyOpenIssues(username: string): Promise<LinearIssue[]> 
     console.error("[linear] getMyOpenIssues error:", err);
     return [];
   }
+}
+
+// ── Teams ──────────────────────────────────────────────────────────────────
+
+const TEAMS_QUERY = `
+  query Teams {
+    teams {
+      nodes {
+        id
+        name
+        key
+      }
+    }
+  }
+`;
+
+interface TeamsResult {
+  teams: { nodes: LinearTeam[] };
+}
+
+export async function getTeams(username: string): Promise<LinearTeam[]> {
+  try {
+    const config = await getLinearConfig(username);
+    if (!config.apiKey) return [];
+    const data = await gql<TeamsResult>(config.apiKey, TEAMS_QUERY);
+    return data.teams.nodes;
+  } catch (err) {
+    console.error("[linear] getTeams error:", err);
+    return [];
+  }
+}
+
+// ── Workflow States ────────────────────────────────────────────────────────
+
+const WORKFLOW_STATES_ALL_QUERY = `
+  query WorkflowStates {
+    workflowStates(orderBy: updatedAt) {
+      nodes {
+        id name type color
+        team { id }
+      }
+    }
+  }
+`;
+
+const WORKFLOW_STATES_FILTERED_QUERY = `
+  query WorkflowStatesByTeam($teamId: ID!) {
+    workflowStates(filter: { team: { id: { eq: $teamId } } }, orderBy: updatedAt) {
+      nodes {
+        id name type color
+        team { id }
+      }
+    }
+  }
+`;
+
+interface WorkflowStatesResult {
+  workflowStates: { nodes: LinearWorkflowState[] };
+}
+
+export async function getWorkflowStates(username: string, teamId?: string): Promise<LinearWorkflowState[]> {
+  try {
+    const config = await getLinearConfig(username);
+    if (!config.apiKey) return [];
+    const data = teamId
+      ? await gql<WorkflowStatesResult>(config.apiKey, WORKFLOW_STATES_FILTERED_QUERY, { teamId })
+      : await gql<WorkflowStatesResult>(config.apiKey, WORKFLOW_STATES_ALL_QUERY);
+    return data.workflowStates.nodes;
+  } catch (err) {
+    console.error("[linear] getWorkflowStates error:", err);
+    return [];
+  }
+}
+
+// ── All Issues (with optional filters) ────────────────────────────────────
+
+const ISSUE_FRAGMENT = `
+  id identifier title description priority dueDate url createdAt updatedAt
+  state { name type }
+  team { name }
+  project { name }
+  assignee { id name }
+`;
+
+interface AllIssuesResult {
+  issues: { nodes: LinearIssue[] };
+}
+
+export interface IssueFilters {
+  teamId?: string;
+  stateType?: string;
+  assigneeIsMe?: boolean;
+}
+
+export async function getAllIssues(username: string, filters?: IssueFilters): Promise<LinearIssue[]> {
+  try {
+    const config = await getLinearConfig(username);
+    if (!config.apiKey) return [];
+
+    const filterParts: string[] = [];
+    if (filters?.teamId) filterParts.push(`team: { id: { eq: "${filters.teamId}" } }`);
+    if (filters?.stateType) filterParts.push(`state: { type: { eq: "${filters.stateType}" } }`);
+    if (filters?.assigneeIsMe) filterParts.push(`assignee: { isMe: { eq: true } }`);
+
+    const filterBlock = filterParts.length > 0 ? `filter: { ${filterParts.join(" ")} }` : "";
+
+    const query = `
+      query AllIssues {
+        issues(
+          ${filterBlock}
+          orderBy: updatedAt
+          first: 100
+        ) {
+          nodes {
+            ${ISSUE_FRAGMENT}
+          }
+        }
+      }
+    `;
+
+    const data = await gql<AllIssuesResult>(config.apiKey, query);
+    return data.issues.nodes;
+  } catch (err) {
+    console.error("[linear] getAllIssues error:", err);
+    return [];
+  }
+}
+
+// ── Create Issue ───────────────────────────────────────────────────────────
+
+const CREATE_ISSUE_MUTATION = `
+  mutation CreateIssue($input: IssueCreateInput!) {
+    issueCreate(input: $input) {
+      success
+      issue {
+        ${ISSUE_FRAGMENT}
+      }
+    }
+  }
+`;
+
+interface IssueCreateResult {
+  issueCreate: { success: boolean; issue: LinearIssue };
+}
+
+export async function createIssue(username: string, input: LinearIssueInput): Promise<LinearIssue> {
+  const config = await getLinearConfig(username);
+  if (!config.apiKey) throw new Error("Linear not connected");
+  const data = await gql<IssueCreateResult>(config.apiKey, CREATE_ISSUE_MUTATION, { input });
+  if (!data.issueCreate.success) throw new Error("Issue creation failed");
+  return data.issueCreate.issue;
+}
+
+// ── Update Issue ───────────────────────────────────────────────────────────
+
+const UPDATE_ISSUE_MUTATION = `
+  mutation UpdateIssue($id: String!, $input: IssueUpdateInput!) {
+    issueUpdate(id: $id, input: $input) {
+      success
+      issue {
+        ${ISSUE_FRAGMENT}
+      }
+    }
+  }
+`;
+
+interface IssueUpdateResult {
+  issueUpdate: { success: boolean; issue: LinearIssue };
+}
+
+export async function updateIssue(
+  username: string,
+  id: string,
+  input: Partial<LinearIssueInput> & { stateId?: string }
+): Promise<LinearIssue> {
+  const config = await getLinearConfig(username);
+  if (!config.apiKey) throw new Error("Linear not connected");
+  const data = await gql<IssueUpdateResult>(config.apiKey, UPDATE_ISSUE_MUTATION, { id, input });
+  if (!data.issueUpdate.success) throw new Error("Issue update failed");
+  return data.issueUpdate.issue;
 }
 
 // ── Contact activity query ─────────────────────────────────────────────────
