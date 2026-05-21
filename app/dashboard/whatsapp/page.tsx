@@ -876,9 +876,9 @@ export default function WhatsAppPage() {
                                 : "bg-muted/60 text-foreground/90"
                             }`}
                           >
-                            {!m.fromMe && chat.isGroup && m.authorName && (
+                            {!m.fromMe && (
                               <p className="text-[11px] font-semibold text-[oklch(0.58_0.15_85)] mb-0.5">
-                                {m.authorName}
+                                {chat.isGroup ? (m.authorName || "Unknown") : chat.name}
                               </p>
                             )}
                             {m.text ? (
