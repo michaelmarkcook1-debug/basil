@@ -63,7 +63,7 @@ async function tryMigrateLegacy<T>(
 
   let legacy: T | null = null;
   try {
-    legacy = await readUserStore<T | null>(username, legacyFile, null);
+    legacy = await readUserStore<T | null>(username, legacyFile, null, { fresh: true });
   } catch {
     return null;
   }
@@ -111,7 +111,10 @@ export async function getIntegrationToken<T>(
   // Try the secure (encrypted) file first
   let envelope: unknown = null;
   try {
-    envelope = await readUserStore<unknown>(username, secureFile(provider), null);
+    // fresh:true bypasses /tmp cache — prevents stale warm-instance reads where
+    // an old instance has a null or wrongly-encrypted token cached in /tmp while
+    // the current token in Blob is valid. Same fix applied to user auth records.
+    envelope = await readUserStore<unknown>(username, secureFile(provider), null, { fresh: true });
   } catch {
     // Storage error — treat as not connected
     return null;

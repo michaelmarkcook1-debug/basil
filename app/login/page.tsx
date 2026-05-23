@@ -72,10 +72,11 @@ export default function LoginPage() {
   const [loading, setLoading] = useState(false);
 
   // Forgot-password state
-  const [fpEmail, setFpEmail] = useState("");
+  const [fpIdentifier, setFpIdentifier] = useState(""); // email or username
   const [fpLoading, setFpLoading] = useState(false);
   const [fpError, setFpError] = useState("");
   const [resetUrl, setResetUrl] = useState("");
+  const [emailSent, setEmailSent] = useState(false);
   const [copied, setCopied] = useState(false);
 
   const [showGuide, setShowGuide] = useState(false);
@@ -107,18 +108,22 @@ export default function LoginPage() {
     setFpLoading(true);
     setFpError("");
 
+    const identifier = fpIdentifier.trim();
+    const isEmail = identifier.includes("@");
+
     const res = await fetch("/api/auth/forgot-password", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ email: fpEmail }),
+      body: JSON.stringify(isEmail ? { email: identifier } : { username: identifier }),
     });
 
     if (res.ok) {
-      const data = await res.json();
+      const data = await res.json() as { ok: boolean; emailSent?: boolean; resetUrl?: string };
       setResetUrl(data.resetUrl ?? "");
+      setEmailSent(data.emailSent ?? false);
       setView("forgot-sent");
     } else {
-      const data = await res.json().catch(() => ({}));
+      const data = await res.json().catch(() => ({})) as { error?: string };
       setFpError(data.error || "Something went wrong. Please try again.");
     }
     setFpLoading(false);
@@ -218,7 +223,7 @@ export default function LoginPage() {
               <p className="text-center text-sm text-white/40 mt-5">
                 <button
                   type="button"
-                  onClick={() => { setFpEmail(""); setFpError(""); setView("forgot"); }}
+                  onClick={() => { setFpIdentifier(""); setFpError(""); setView("forgot"); }}
                   className="text-[oklch(0.72_0.15_85)] hover:underline font-medium"
                 >
                   Forgot password?
@@ -250,18 +255,18 @@ export default function LoginPage() {
                 Reset your password
               </h2>
               <p className="text-white/40 text-sm text-center mb-6">
-                Enter your account email and we&apos;ll generate a reset link.
+                Enter your email address or username.
               </p>
               <form onSubmit={handleForgot} className="space-y-4">
                 <div className="space-y-1.5">
                   <label className="block text-sm font-medium text-white/80">
-                    Email address
+                    Email or username
                   </label>
                   <input
-                    type="email"
-                    value={fpEmail}
-                    onChange={(e) => setFpEmail(e.target.value)}
-                    placeholder="you@example.com"
+                    type="text"
+                    value={fpIdentifier}
+                    onChange={(e) => setFpIdentifier(e.target.value)}
+                    placeholder="you@example.com or michael"
                     autoFocus
                     autoComplete="email"
                     required
@@ -275,10 +280,10 @@ export default function LoginPage() {
                 )}
                 <button
                   type="submit"
-                  disabled={fpLoading || fpEmail.trim().length === 0}
+                  disabled={fpLoading || fpIdentifier.trim().length === 0}
                   className="w-full rounded-lg bg-[oklch(0.72_0.15_85)] hover:bg-[oklch(0.68_0.18_85)] disabled:opacity-40 text-[oklch(0.18_0.04_250)] font-semibold py-2.5 text-sm shadow-lg shadow-black/20 transition"
                 >
-                  {fpLoading ? "Sending…" : "Send reset link"}
+                  {fpLoading ? "Generating link…" : "Get reset link"}
                 </button>
               </form>
               <p className="text-center text-sm text-white/30 mt-5">
@@ -296,55 +301,45 @@ export default function LoginPage() {
           {/* ── Forgot-password sent ── */}
           {view === "forgot-sent" && (
             <>
-              {resetUrl ? (
+              <div className="text-4xl mb-4 text-center">{emailSent ? "📬" : "🔑"}</div>
+              <h2
+                className="text-xl font-semibold text-white mb-1 text-center"
+                style={{ fontFamily: "var(--font-fraunces), Georgia, serif" }}
+              >
+                {emailSent ? "Check your email" : "Reset link ready"}
+              </h2>
+              <p className="text-white/40 text-sm text-center mb-5">
+                {emailSent
+                  ? "A reset link has been sent to your email address. It expires in 1 hour."
+                  : "Open or copy the link below to set a new password. It expires in 1 hour."}
+              </p>
+
+              {/* Always show the link — essential fallback when email isn't configured */}
+              {resetUrl && (
                 <>
-                  <div className="text-4xl mb-4 text-center">🔑</div>
-                  <h2
-                    className="text-xl font-semibold text-white mb-1 text-center"
-                    style={{ fontFamily: "var(--font-fraunces), Georgia, serif" }}
-                  >
-                    Reset link ready
-                  </h2>
-                  <p className="text-white/40 text-sm text-center mb-5">
-                    Copy this link and open it to set a new password. It expires in 15 minutes.
-                  </p>
-                  <div className="rounded-lg border border-white/15 bg-white/5 px-3.5 py-2.5 break-all text-xs text-white/70 font-mono mb-3 select-all">
+                  <div className="rounded-lg border border-white/15 bg-white/5 px-3.5 py-2.5 break-all text-xs text-white/70 font-mono mb-3 select-all cursor-text">
                     {resetUrl}
                   </div>
                   <button
                     type="button"
                     onClick={copyResetUrl}
-                    className="w-full rounded-lg border border-white/20 bg-white/8 hover:bg-white/12 text-white/80 font-medium py-2.5 text-sm transition"
+                    className="w-full rounded-lg border border-white/20 bg-white/8 hover:bg-white/12 text-white/80 font-medium py-2.5 text-sm transition mb-2"
                   >
                     {copied ? "✓ Copied!" : "Copy link"}
                   </button>
-                  <div className="mt-3">
-                    <a
-                      href={resetUrl}
-                      className="block w-full text-center rounded-lg bg-[oklch(0.72_0.15_85)] hover:bg-[oklch(0.68_0.18_85)] text-[oklch(0.18_0.04_250)] font-semibold py-2.5 text-sm shadow-lg shadow-black/20 transition"
-                    >
-                      Open reset link →
-                    </a>
-                  </div>
-                </>
-              ) : (
-                <>
-                  <div className="text-4xl mb-4 text-center">📬</div>
-                  <h2
-                    className="text-xl font-semibold text-white mb-1 text-center"
-                    style={{ fontFamily: "var(--font-fraunces), Georgia, serif" }}
+                  <a
+                    href={resetUrl}
+                    className="block w-full text-center rounded-lg bg-[oklch(0.72_0.15_85)] hover:bg-[oklch(0.68_0.18_85)] text-[oklch(0.18_0.04_250)] font-semibold py-2.5 text-sm shadow-lg shadow-black/20 transition"
                   >
-                    Check your email
-                  </h2>
-                  <p className="text-white/40 text-sm text-center mb-6">
-                    If an account with that email exists, a reset link has been sent.
-                  </p>
+                    Open reset link →
+                  </a>
                 </>
               )}
+
               <p className="text-center text-sm text-white/30 mt-5">
                 <button
                   type="button"
-                  onClick={() => setView("login")}
+                  onClick={() => { setView("login"); setFpIdentifier(""); setResetUrl(""); setEmailSent(false); }}
                   className="hover:text-white/60 transition-colors"
                 >
                   ← Back to sign in

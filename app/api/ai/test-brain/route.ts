@@ -31,11 +31,25 @@ export async function GET() {
       usage,
     });
   } catch (e) {
+    // Build a useful error string — SDK errors sometimes have empty .message
+    // but carry detail in .cause or other properties.
+    let errorMsg = "";
+    if (e instanceof Error) {
+      errorMsg = e.message;
+      if (!errorMsg && e.cause) errorMsg = String(e.cause);
+      if (!errorMsg) {
+        // Stringify the whole error object for any remaining properties
+        try { errorMsg = JSON.stringify(e, Object.getOwnPropertyNames(e)); } catch { /* ignore */ }
+      }
+    } else {
+      errorMsg = String(e);
+    }
+
     return NextResponse.json({
       ok: false,
       providerMode: PROVIDER_MODE,
       durationMs: Date.now() - start,
-      error: e instanceof Error ? e.message : String(e),
+      error: errorMsg || "unknown error (no message)",
     });
   }
 }

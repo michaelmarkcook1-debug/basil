@@ -699,13 +699,13 @@ function ChatPageInner() {
           <div className="mb-4 flex h-14 w-14 items-center justify-center rounded-full border-2 border-red-300 bg-red-50">
             <AlertTriangle className="h-7 w-7 text-red-500" />
           </div>
-          <h2 className="text-xl font-semibold text-foreground">Brain not configured</h2>
+          <h2 className="text-xl font-semibold text-foreground">AI not reachable</h2>
           <p className="mt-2 max-w-sm text-sm text-muted-foreground">
-            Basil needs an OpenAI API key to answer questions. Add the following environment variables to get started.
+            Basil couldn&apos;t reach the AI provider. Set one of the following environment variables in your Vercel project.
           </p>
           <div className="mt-4 rounded-lg border border-red-200 bg-red-50 px-5 py-4 text-left text-sm text-red-800 space-y-1 w-full max-w-sm">
-            <p><code className="font-mono font-semibold">OPENAI_API_KEY</code> — your OpenAI secret key</p>
-            <p><code className="font-mono font-semibold">OPENAI_MODEL</code> — e.g. <code className="font-mono">gpt-4o</code> <span className="text-red-500/70">(optional, has default)</span></p>
+            <p><code className="font-mono font-semibold">BASIL_LLM_KEY</code> — Anthropic API key <span className="text-red-500/70">(preferred)</span></p>
+            <p><code className="font-mono font-semibold">AI_GATEWAY_API_KEY</code> — Vercel AI Gateway key</p>
           </div>
           <div className="mt-5 flex gap-3">
             <a
@@ -724,7 +724,7 @@ function ChatPageInner() {
           {brainModel && (
             <div className="mx-4 mt-2 flex items-center gap-2 rounded-lg border border-emerald-200 bg-emerald-50/50 px-3 py-1.5 text-xs text-emerald-700">
               <div className="h-1.5 w-1.5 rounded-full bg-emerald-500 shrink-0" />
-              <span className="font-medium">OpenAI ready</span>
+              <span className="font-medium">AI ready</span>
               <span className="text-emerald-600/70">·</span>
               <span className="font-mono">{brainModel}</span>
             </div>

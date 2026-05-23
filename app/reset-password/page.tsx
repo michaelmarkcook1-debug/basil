@@ -83,7 +83,7 @@ function ResetPasswordForm() {
         Set a new password
       </h2>
       <p className="text-white/40 text-sm text-center mb-6">
-        This link expires in 15 minutes and can only be used once.
+        This link expires in 1 hour and can only be used once.
       </p>
 
       <form onSubmit={handleSubmit} className="space-y-4">

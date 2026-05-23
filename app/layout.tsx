@@ -2,6 +2,7 @@ import type { Metadata, Viewport } from "next";
 import { Geist, Geist_Mono, Fraunces } from "next/font/google";
 import { ThemeProvider } from "next-themes";
 import { TooltipProvider } from "@/components/ui/tooltip";
+import { ServiceWorkerRegister } from "@/components/pwa/service-worker-register";
 import "./globals.css";
 
 const geistSans = Geist({
@@ -20,16 +21,70 @@ const fraunces = Fraunces({
   axes: ["opsz", "SOFT"],
 });
 
+const APP_URL = process.env.NEXT_PUBLIC_APP_URL ?? "https://ag-contracts.vercel.app";
+
 export const metadata: Metadata = {
-  title: "Basil",
-  description: "Your personal executive assistant",
+  title: {
+    default: "Basil",
+    template: "%s — Basil",
+  },
+  description: "Your personal AI executive assistant",
+  applicationName: "Basil",
+  appleWebApp: {
+    capable: true,
+    title: "Basil",
+    statusBarStyle: "black-translucent",
+    startupImage: [
+      // iPhone 15 Pro Max / 14 Pro Max (430×932 @3x)
+      {
+        url: "/splash/iphone-430x932.png",
+        media:
+          "(device-width: 430px) and (device-height: 932px) and (-webkit-device-pixel-ratio: 3)",
+      },
+      // iPhone 14 / 15 (390×844 @3x)
+      {
+        url: "/splash/iphone-390x844.png",
+        media:
+          "(device-width: 390px) and (device-height: 844px) and (-webkit-device-pixel-ratio: 3)",
+      },
+      // iPhone SE 3rd gen (375×667 @2x)
+      {
+        url: "/splash/iphone-375x667.png",
+        media:
+          "(device-width: 375px) and (device-height: 667px) and (-webkit-device-pixel-ratio: 2)",
+      },
+    ],
+  },
+  manifest: "/manifest.webmanifest",
+  // Next.js 15 only emits the W3C `mobile-web-app-capable` from appleWebApp.capable.
+  // iOS Safari requires the Apple-specific name to enter standalone mode.
+  other: { "apple-mobile-web-app-capable": "yes" },
+  metadataBase: new URL(APP_URL),
+  openGraph: {
+    title: "Basil",
+    description: "Your personal AI executive assistant",
+    siteName: "Basil",
+    type: "website",
+  },
+  icons: {
+    icon: [
+      { url: "/icons/icon-32.png",  sizes: "32x32",   type: "image/png" },
+      { url: "/icons/icon-192.png", sizes: "192x192", type: "image/png" },
+      { url: "/icons/icon-512.png", sizes: "512x512", type: "image/png" },
+    ],
+    apple: [
+      { url: "/icons/apple-touch-icon.png", sizes: "180x180", type: "image/png" },
+    ],
+  },
 };
 
 export const viewport: Viewport = {
   width: "device-width",
   initialScale: 1,
-  // Allow user zoom for accessibility — iOS input-zoom is handled by font-size
-  // themeColor mirrors the app's primary background for a seamless status bar
+  // Prevent iOS from zooming on input focus — critical for standalone PWA feel
+  maximumScale: 1,
+  userScalable: false,
+  viewportFit: "cover", // lets content extend behind the notch / Dynamic Island
   themeColor: [
     { media: "(prefers-color-scheme: light)", color: "#f8f7f4" },
     { media: "(prefers-color-scheme: dark)",  color: "#1c1e2a" },
@@ -53,6 +108,7 @@ export default function RootLayout({
             {children}
           </TooltipProvider>
         </ThemeProvider>
+        <ServiceWorkerRegister />
       </body>
     </html>
   );

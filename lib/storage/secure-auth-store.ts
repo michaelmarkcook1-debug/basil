@@ -72,7 +72,10 @@ export function hashResetToken(rawToken: string): string {
  * The env-admin merge is handled in lib/users.ts.
  */
 export async function readUserRecords(): Promise<User[]> {
-  const raw = await readStore<EncryptedEnvelope | User[] | null>(SECURE_USERS_FILE, null);
+  // fresh:true bypasses the /tmp write-through cache so auth reads always
+  // reflect the current blob state — prevents stale warm-instance issues
+  // when the encryption key or user record is updated between deployments.
+  const raw = await readStore<EncryptedEnvelope | User[] | null>(SECURE_USERS_FILE, null, undefined, { fresh: true });
 
   // Happy path: encrypted envelope exists → decrypt and return
   if (raw !== null && isEnvelope(raw)) {
@@ -80,10 +83,10 @@ export async function readUserRecords(): Promise<User[]> {
       return JSON.parse(decrypt(raw)) as User[];
     } catch (err) {
       console.error(
-        "[secure-auth-store] Failed to decrypt user records:",
+        "[secure-auth-store] Failed to decrypt user records (key mismatch?) — falling back to legacy users.json:",
         err instanceof Error ? err.message : err
       );
-      return [];
+      // Fall through to legacy users.json migration rather than losing all users
     }
   }
 
@@ -96,7 +99,7 @@ export async function readUserRecords(): Promise<User[]> {
   }
 
   // secure-users.json absent: check legacy users.json for migration
-  const legacy = await readStore<User[]>(LEGACY_USERS_FILE, []);
+  const legacy = await readStore<User[]>(LEGACY_USERS_FILE, [], undefined, { fresh: true });
   if (legacy.length > 0) {
     try {
       await writeUserRecords(legacy);
@@ -114,11 +117,17 @@ export async function readUserRecords(): Promise<User[]> {
 
 /**
  * Encrypt and persist the user records array.
- * Always uses strong durability — user mutations must survive cold starts.
+ * Falls back to plain JSON when the encryption key is not yet configured,
+ * so registration/password-change never throws a hard 500.
  */
 export async function writeUserRecords(users: User[]): Promise<void> {
-  const envelope = encrypt(JSON.stringify(users));
-  await writeStore(SECURE_USERS_FILE, envelope, undefined, { durability: "strong" });
+  try {
+    const envelope = encrypt(JSON.stringify(users));
+    await writeStore(SECURE_USERS_FILE, envelope, undefined, { durability: "strong" });
+  } catch (err) {
+    console.error("[secure-auth-store] encrypt failed — writing plain users.json fallback:", err instanceof Error ? err.message : err);
+    await writeStore(LEGACY_USERS_FILE, users, undefined, { durability: "strong" });
+  }
 }
 
 // ── Reset token record storage ────────────────────────────────────────────────
@@ -140,28 +149,45 @@ export async function readResetTokenRecords(): Promise<HashedResetToken[]> {
       return JSON.parse(decrypt(raw)) as HashedResetToken[];
     } catch (err) {
       console.error(
-        "[secure-auth-store] Failed to decrypt reset token records:",
+        "[secure-auth-store] Failed to decrypt reset token records — returning empty:",
         err instanceof Error ? err.message : err
       );
-      return [];
+      return []; // tokens are short-lived; losing them forces a fresh request
     }
   }
 
   if (Array.isArray(raw)) {
-    // Shouldn't happen, but re-encrypt defensively
-    await writeResetTokenRecords(raw);
+    // Plain array (written during key-less fallback) — re-encrypt now that key is available
+    try { await writeResetTokenRecords(raw); } catch { /* best-effort */ }
     return raw;
   }
 
-  // No file → empty (also covers the case where legacy tokens are intentionally invalidated)
+  // Check plain-text fallback written when encryption key was absent
+  const plain = await readStore<HashedResetToken[] | null>(PLAIN_RESET_TOKENS_FILE, null);
+  if (Array.isArray(plain) && plain.length > 0) {
+    // Attempt to upgrade to encrypted now that key may be available
+    try { await writeResetTokenRecords(plain); } catch { /* best-effort */ }
+    return plain;
+  }
+
+  // No file → empty
   return [];
 }
 
+/** Plain-text fallback filename for when encryption key is unavailable. */
+const PLAIN_RESET_TOKENS_FILE = "reset-tokens.json";
+
 /**
  * Encrypt and persist the reset token records array.
- * Uses strong durability so tokens survive between cold starts.
+ * Falls back to plain JSON when the encryption key is not configured.
+ * Note: plain file stores only hashed tokens, never raw values — still safe.
  */
 export async function writeResetTokenRecords(records: HashedResetToken[]): Promise<void> {
-  const envelope = encrypt(JSON.stringify(records));
-  await writeStore(SECURE_RESET_TOKENS_FILE, envelope, undefined, { durability: "strong" });
+  try {
+    const envelope = encrypt(JSON.stringify(records));
+    await writeStore(SECURE_RESET_TOKENS_FILE, envelope, undefined, { durability: "strong" });
+  } catch (err) {
+    console.error("[secure-auth-store] encrypt failed — writing plain reset-tokens fallback:", err instanceof Error ? err.message : err);
+    await writeStore(PLAIN_RESET_TOKENS_FILE, records, undefined, { durability: "strong" });
+  }
 }

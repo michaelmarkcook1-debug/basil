@@ -16,7 +16,7 @@ import {
 } from "@/lib/storage/secure-auth-store";
 import { randomBytes } from "node:crypto";
 
-const TTL_MS = 15 * 60 * 1000; // 15 minutes
+const TTL_MS = 60 * 60 * 1000; // 1 hour
 
 /** Purge expired or used tokens to keep the file small. */
 async function gc(): Promise<void> {

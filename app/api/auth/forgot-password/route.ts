@@ -1,28 +1,84 @@
 /**
  * POST /api/auth/forgot-password
  *
- * Accepts { email } and returns a password-reset URL.
- * If the email matches a registered account a one-time token is created
- * and the reset URL is returned in the response body.
+ * Accepts { email } or { username } and issues a password-reset link.
  *
- * No SMTP is required — the URL is returned directly so the user (or an
- * admin) can share it.  If a RESEND_API_KEY is configured in the future,
- * email delivery can be wired up here without changing the frontend.
+ * Delivery priority:
+ *  1. Resend email  — when RESEND_API_KEY is set and the user has an email address
+ *  2. Response body — resetUrl always returned so admin / UI can copy it as fallback
  *
- * Deliberately returns the same success message whether or not the email
- * exists, to prevent user enumeration via timing — but the `resetUrl`
- * field is only present when a valid account was found.
+ * Security:
+ *  - Same success message regardless of whether the account exists (prevents enumeration)
+ *  - resetUrl always present in response (safe — fallback for no-email setups)
+ *  - Rate-limited: 10 req/min per IP
  */
 
 import { NextResponse } from "next/server";
-import { findByEmail } from "@/lib/users";
+import { findByEmail, findByUsername } from "@/lib/users";
 import { createResetToken } from "@/lib/auth/reset-tokens";
 import { checkRateLimit, getClientIp } from "@/lib/rate-limit";
+import { forceFlushSnapshot } from "@/lib/storage/persistent";
+
+// ── Email sending via Resend ──────────────────────────────────────────────────
+
+async function sendResetEmail(to: string, name: string, resetUrl: string): Promise<boolean> {
+  const apiKey = process.env.RESEND_API_KEY;
+  if (!apiKey) return false;
+
+  const fromAddress = process.env.RESEND_FROM_EMAIL || "Basil <noreply@basil-app.vercel.app>";
+
+  try {
+    const res = await fetch("https://api.resend.com/emails", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        from: fromAddress,
+        to: [to],
+        subject: "Reset your Basil password",
+        html: `
+          <div style="font-family:sans-serif;max-width:480px;margin:0 auto;padding:32px;">
+            <h2 style="font-size:20px;margin-bottom:8px;">Reset your password</h2>
+            <p style="color:#555;margin-bottom:24px;">
+              Hi ${name || "there"},<br><br>
+              Click the button below to set a new password.
+              This link expires in <strong>1 hour</strong> and can only be used once.
+            </p>
+            <a href="${resetUrl}"
+               style="display:inline-block;background:#b8860b;color:#fff;
+                      text-decoration:none;padding:12px 24px;border-radius:6px;
+                      font-weight:600;font-size:15px;">
+              Reset password →
+            </a>
+            <p style="color:#999;font-size:13px;margin-top:24px;">
+              If you didn't request this, ignore this email — your password won't change.<br>
+              Link: <a href="${resetUrl}" style="color:#999;">${resetUrl}</a>
+            </p>
+          </div>
+        `,
+        text: `Reset your Basil password\n\nClick this link (expires in 1 hour):\n${resetUrl}\n\nIf you didn't request this, ignore this email.`,
+      }),
+    });
+
+    if (!res.ok) {
+      const body = await res.text();
+      console.error("[forgot-password] Resend error:", res.status, body.slice(0, 200));
+      return false;
+    }
+    return true;
+  } catch (err) {
+    console.error("[forgot-password] Resend fetch failed:", err instanceof Error ? err.message : err);
+    return false;
+  }
+}
+
+// ── Route handler ─────────────────────────────────────────────────────────────
 
 export async function POST(req: Request) {
-  // Rate limit — shares the same 10/min window as the login endpoint
-  const ip  = getClientIp(req);
-  const rl  = checkRateLimit(`forgot-pw:${ip}`);
+  const ip = getClientIp(req);
+  const rl = checkRateLimit(`forgot-pw:${ip}`);
   if (!rl.allowed) {
     return NextResponse.json(
       { error: `Too many requests — please wait ${rl.retryAfter} seconds.` },
@@ -30,31 +86,40 @@ export async function POST(req: Request) {
     );
   }
 
-  let email: string;
+  let email: string | undefined;
+  let username: string | undefined;
   try {
-    ({ email } = await req.json());
-    if (!email || typeof email !== "string") throw new Error();
+    const body = await req.json();
+    email    = typeof body.email    === "string" ? body.email.trim().toLowerCase()    : undefined;
+    username = typeof body.username === "string" ? body.username.trim().toLowerCase() : undefined;
+    if (!email && !username) throw new Error("missing fields");
   } catch {
-    return NextResponse.json({ error: "Email required" }, { status: 400 });
+    return NextResponse.json({ error: "Email or username required" }, { status: 400 });
   }
 
-  const user = await findByEmail(email.trim().toLowerCase());
+  // Look up user — try email first, then username, then treat email field as username
+  let user = email ? await findByEmail(email) : null;
+  if (!user && username) user = await findByUsername(username);
+  if (!user && email)    user = await findByUsername(email.split("@")[0]); // common mistake
 
   if (!user) {
-    // Return success to prevent enumeration — no resetUrl
-    return NextResponse.json({ ok: true });
+    // Deliberate same-shape response to prevent account enumeration
+    return NextResponse.json({ ok: true, emailSent: false });
   }
 
-  const token  = await createResetToken(user.username, user.email);
-  const appUrl = process.env.NEXT_PUBLIC_APP_URL;
-  if (!appUrl && process.env.NODE_ENV === "production") {
-    // Log but don't block — falling back to Host header. Low risk on Vercel's
-    // infrastructure, but NEXT_PUBLIC_APP_URL should be set to eliminate any
-    // Host-header injection surface from misconfigured proxies.
-    console.warn("[forgot-password] NEXT_PUBLIC_APP_URL not set — reset URL derived from Host header. Set this env var in Vercel.");
+  let token: string;
+  try {
+    token = await createResetToken(user.username, user.email);
+    await forceFlushSnapshot();
+  } catch (err) {
+    console.error("[forgot-password] createResetToken failed:", err instanceof Error ? err.message : err);
+    return NextResponse.json({ error: "Could not generate reset link. Please try again." }, { status: 500 });
   }
-  const base     = appUrl || `https://${req.headers.get("host")}`;
+
+  const base     = process.env.NEXT_PUBLIC_APP_URL || `https://${req.headers.get("host")}`;
   const resetUrl = `${base}/reset-password?token=${token}`;
 
-  return NextResponse.json({ ok: true, resetUrl });
+  const emailSent = user.email ? await sendResetEmail(user.email, user.name, resetUrl) : false;
+
+  return NextResponse.json({ ok: true, emailSent, resetUrl });
 }

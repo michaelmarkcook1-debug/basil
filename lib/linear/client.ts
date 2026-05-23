@@ -426,6 +426,203 @@ export async function validateApiKey(apiKey: string): Promise<string> {
   return data.viewer.name;
 }
 
+// ── Comments ───────────────────────────────────────────────────────────────
+
+export interface LinearComment {
+  id: string;
+  body: string;
+  createdAt: string;
+  updatedAt: string;
+  user: { id: string; name: string };
+}
+
+const ISSUE_COMMENTS_QUERY = `
+  query IssueComments($id: String!) {
+    issue(id: $id) {
+      comments(orderBy: createdAt) {
+        nodes {
+          id
+          body
+          createdAt
+          updatedAt
+          user { id name }
+        }
+      }
+    }
+  }
+`;
+
+interface IssueCommentsResult {
+  issue: { comments: { nodes: LinearComment[] } };
+}
+
+export async function getIssueComments(
+  username: string,
+  issueId: string
+): Promise<LinearComment[]> {
+  try {
+    const config = await getLinearConfig(username);
+    if (!config.apiKey) return [];
+    const data = await gql<IssueCommentsResult>(config.apiKey, ISSUE_COMMENTS_QUERY, { id: issueId });
+    return data.issue.comments.nodes;
+  } catch (err) {
+    console.error("[linear] getIssueComments error:", err);
+    return [];
+  }
+}
+
+const CREATE_COMMENT_MUTATION = `
+  mutation CreateComment($issueId: String!, $body: String!) {
+    commentCreate(input: { issueId: $issueId, body: $body }) {
+      success
+      comment {
+        id
+        body
+        createdAt
+        updatedAt
+        user { id name }
+      }
+    }
+  }
+`;
+
+interface CommentCreateResult {
+  commentCreate: { success: boolean; comment: LinearComment };
+}
+
+export async function createComment(
+  username: string,
+  issueId: string,
+  body: string
+): Promise<LinearComment> {
+  const config = await getLinearConfig(username);
+  if (!config.apiKey) throw new Error("Linear not connected");
+  const data = await gql<CommentCreateResult>(config.apiKey, CREATE_COMMENT_MUTATION, {
+    issueId,
+    body,
+  });
+  if (!data.commentCreate.success) throw new Error("Comment creation failed");
+  return data.commentCreate.comment;
+}
+
+// ── Inbox / Notifications ──────────────────────────────────────────────────
+
+export interface LinearNotification {
+  id: string;
+  type: string;
+  readAt: string | null;
+  createdAt: string;
+  actor: { id: string; name: string } | null;
+  // IssueNotification fields
+  issue?: {
+    id: string;
+    identifier: string;
+    title: string;
+    url: string;
+    priority: number;
+    state: { name: string; type: string };
+  };
+  comment?: {
+    id: string;
+    body: string;
+    createdAt: string;
+  } | null;
+}
+
+const NOTIFICATIONS_QUERY = `
+  query MyNotifications($first: Int) {
+    notifications(first: $first, orderBy: createdAt) {
+      nodes {
+        id
+        type
+        readAt
+        createdAt
+        actor { id name }
+        ... on IssueNotification {
+          issue {
+            id
+            identifier
+            title
+            url
+            priority
+            state { name type }
+          }
+          comment { id body createdAt }
+        }
+      }
+    }
+  }
+`;
+
+interface NotificationsResult {
+  notifications: { nodes: LinearNotification[] };
+}
+
+export async function getNotifications(
+  username: string,
+  limit = 50
+): Promise<LinearNotification[]> {
+  try {
+    const config = await getLinearConfig(username);
+    if (!config.apiKey) return [];
+    const data = await gql<NotificationsResult>(config.apiKey, NOTIFICATIONS_QUERY, {
+      first: limit,
+    });
+    return data.notifications.nodes;
+  } catch (err) {
+    console.error("[linear] getNotifications error:", err);
+    return [];
+  }
+}
+
+const NOTIFICATION_ARCHIVE_MUTATION = `
+  mutation NotificationArchive($id: String!) {
+    notificationArchive(id: $id) {
+      success
+    }
+  }
+`;
+
+const NOTIFICATION_MARK_READ_MUTATION = `
+  mutation NotificationUpdate($id: String!, $readAt: DateTime!) {
+    notificationUpdate(id: $id, input: { readAt: $readAt }) {
+      success
+      notification { id readAt }
+    }
+  }
+`;
+
+const NOTIFICATIONS_MARK_ALL_READ_MUTATION = `
+  mutation NotificationsMarkAllRead {
+    notificationMarkAllAsRead {
+      success
+    }
+  }
+`;
+
+export async function archiveNotification(username: string, id: string): Promise<void> {
+  const config = await getLinearConfig(username);
+  if (!config.apiKey) throw new Error("Linear not connected");
+  await gql(config.apiKey, NOTIFICATION_ARCHIVE_MUTATION, { id });
+}
+
+export async function markNotificationRead(username: string, id: string): Promise<void> {
+  const config = await getLinearConfig(username);
+  if (!config.apiKey) throw new Error("Linear not connected");
+  await gql(config.apiKey, NOTIFICATION_MARK_READ_MUTATION, {
+    id,
+    readAt: new Date().toISOString(),
+  });
+}
+
+export async function markAllNotificationsRead(username: string): Promise<void> {
+  const config = await getLinearConfig(username);
+  if (!config.apiKey) throw new Error("Linear not connected");
+  await gql(config.apiKey, NOTIFICATIONS_MARK_ALL_READ_MUTATION);
+}
+
+// ── Map Linear priority number → Basil priority string ────────────────────
+
 /**
  * Map Linear priority number → Basil priority string.
  */

@@ -12,6 +12,12 @@
       "runtimeExecutable": "python3",
       "runtimeArgs": ["-m", "http.server", "8787", "--directory", "/Users/michaelcook/projects/pool-coach/.preview"],
       "port": 8787
+    },
+    {
+      "name": "basil-redesign-preview",
+      "runtimeExecutable": "python3",
+      "runtimeArgs": ["-m", "http.server", "8788", "--directory", "/Users/michaelcook/execautoclaude/.preview"],
+      "port": 8788
     }
   ]
 }

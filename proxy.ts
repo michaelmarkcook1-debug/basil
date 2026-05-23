@@ -53,12 +53,14 @@ export async function proxy(request: NextRequest) {
     return NextResponse.next();
   }
 
-  // Always allow public routes through immediately
+  // Always allow public routes through immediately.
+  // NOTE: We intentionally do NOT redirect authenticated users away from /login.
+  // Doing so would create an infinite loop when the session JWT is signature-valid
+  // but the sessionVersion is stale (e.g. after a password reset): DashboardLayout
+  // gets a 401 from /api/settings and sends the user to /login, then this proxy
+  // would see a valid JWT and send them back to /dashboard, and so on forever.
+  // The full sessionVersion check only happens inside API route handlers.
   if (isPublic(pathname)) {
-    // Redirect authenticated users away from /login to avoid double-login
-    if (pathname === "/login" && (await isAuthenticated(request))) {
-      return NextResponse.redirect(new URL("/dashboard", request.url));
-    }
     return NextResponse.next();
   }
 
@@ -78,6 +80,7 @@ export async function proxy(request: NextRequest) {
 }
 
 export const proxyConfig = {
+  runtime: "nodejs",
   matcher: [
     "/((?!_next/static|_next/image|favicon.ico|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)",
   ],

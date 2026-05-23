@@ -17,9 +17,17 @@ import {
   Clock,
   RefreshCw,
   Pencil,
+  MessageSquare,
+  Send,
+  Inbox,
+  Trash2,
+  Forward,
+  Check,
+  CheckCheck,
+  Bell,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
-import type { LinearIssue, LinearTeam, LinearWorkflowState } from "@/lib/linear/client";
+import type { LinearIssue, LinearTeam, LinearWorkflowState, LinearComment, LinearNotification } from "@/lib/linear/client";
 
 // ── Priority helpers ───────────────────────────────────────────────────────
 
@@ -180,6 +188,256 @@ function SkeletonCards() {
 
 // ── Main page ──────────────────────────────────────────────────────────────
 
+// ── Notification type label ────────────────────────────────────────────────
+
+function notifLabel(type: string): string {
+  const map: Record<string, string> = {
+    issueAssignedToYou: "Assigned to you",
+    issueCreated: "Issue created",
+    issueUnassignedFromYou: "Unassigned",
+    issueStatusChanged: "Status changed",
+    issuePriorityChanged: "Priority changed",
+    issueNewComment: "New comment",
+    issueMentioned: "Mentioned",
+    issueSubscribed: "Subscribed",
+    issueDue: "Due soon",
+    issueOverdue: "Overdue",
+  };
+  return map[type] ?? type.replace(/([A-Z])/g, " $1").trim();
+}
+
+// ── Inbox notification card ────────────────────────────────────────────────
+
+function NotificationCard({
+  notif,
+  onReply,
+  onDelete,
+  onForward,
+  onMarkRead,
+}: {
+  notif: LinearNotification;
+  onReply: (notif: LinearNotification) => void;
+  onDelete: (id: string) => void;
+  onForward: (notif: LinearNotification) => void;
+  onMarkRead: (id: string) => void;
+}) {
+  const isRead = !!notif.readAt;
+  const timeAgo = (iso: string) => {
+    const diff = Date.now() - new Date(iso).getTime();
+    const m = Math.floor(diff / 60000);
+    if (m < 1) return "just now";
+    if (m < 60) return `${m}m ago`;
+    const h = Math.floor(m / 60);
+    if (h < 24) return `${h}h ago`;
+    return `${Math.floor(h / 24)}d ago`;
+  };
+
+  return (
+    <Card
+      className={cn(
+        "rounded-lg border transition-all",
+        isRead
+          ? "border-border/40 bg-background/50"
+          : "border-[oklch(0.72_0.15_85)]/25 bg-[oklch(0.72_0.15_85)]/[0.03]"
+      )}
+    >
+      <CardContent className="p-3 space-y-2">
+        {/* Top row */}
+        <div className="flex items-start gap-2">
+          {/* Unread dot */}
+          <span
+            className={cn(
+              "mt-1.5 h-1.5 w-1.5 rounded-full shrink-0",
+              isRead ? "bg-transparent" : "bg-[oklch(0.72_0.15_85)]"
+            )}
+          />
+          <div className="flex-1 min-w-0 space-y-0.5">
+            {/* Type badge + time */}
+            <div className="flex items-center gap-2 flex-wrap">
+              <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground/70">
+                {notifLabel(notif.type)}
+              </span>
+              {notif.actor && (
+                <span className="text-[10px] text-muted-foreground/60">
+                  by {notif.actor.name}
+                </span>
+              )}
+              <span className="ml-auto text-[10px] text-muted-foreground/50 shrink-0">
+                {timeAgo(notif.createdAt)}
+              </span>
+            </div>
+            {/* Issue title */}
+            {notif.issue && (
+              <a
+                href={notif.issue.url}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="block text-sm font-medium text-foreground hover:text-[oklch(0.72_0.15_85)] transition-colors truncate"
+              >
+                <span className="font-mono text-[11px] text-muted-foreground mr-1.5">
+                  {notif.issue.identifier}
+                </span>
+                {notif.issue.title}
+              </a>
+            )}
+            {/* Comment preview */}
+            {notif.comment?.body && (
+              <p className="text-xs text-muted-foreground/80 line-clamp-2 leading-relaxed">
+                {notif.comment.body}
+              </p>
+            )}
+          </div>
+        </div>
+
+        {/* Action row */}
+        <div className="flex items-center gap-1 pl-3.5">
+          {/* Reply — only if there's an issue to reply to */}
+          {notif.issue && (
+            <button
+              onClick={() => onReply(notif)}
+              className="flex items-center gap-1 rounded px-2 py-1 text-[11px] text-muted-foreground/70 hover:text-foreground hover:bg-accent/40 transition-colors"
+              title="Reply"
+            >
+              <MessageSquare className="h-3 w-3" />
+              Reply
+            </button>
+          )}
+          {/* Forward — copy to clipboard */}
+          {notif.issue && (
+            <button
+              onClick={() => onForward(notif)}
+              className="flex items-center gap-1 rounded px-2 py-1 text-[11px] text-muted-foreground/70 hover:text-foreground hover:bg-accent/40 transition-colors"
+              title="Copy link"
+            >
+              <Forward className="h-3 w-3" />
+              Forward
+            </button>
+          )}
+          {/* Mark read */}
+          {!isRead && (
+            <button
+              onClick={() => onMarkRead(notif.id)}
+              className="flex items-center gap-1 rounded px-2 py-1 text-[11px] text-muted-foreground/70 hover:text-foreground hover:bg-accent/40 transition-colors"
+              title="Mark as read"
+            >
+              <Check className="h-3 w-3" />
+              Mark read
+            </button>
+          )}
+          {/* Delete / archive */}
+          <button
+            onClick={() => onDelete(notif.id)}
+            className="ml-auto flex items-center gap-1 rounded px-2 py-1 text-[11px] text-muted-foreground/50 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-950/20 transition-colors"
+            title="Archive notification"
+          >
+            <Trash2 className="h-3 w-3" />
+          </button>
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
+// ── Reply panel for inbox ──────────────────────────────────────────────────
+
+function InboxReplyPanel({
+  notif,
+  onClose,
+  onSent,
+}: {
+  notif: LinearNotification;
+  onClose: () => void;
+  onSent: (notifId: string) => void;
+}) {
+  const [body, setBody] = useState("");
+  const [sending, setSending] = useState(false);
+
+  async function send() {
+    if (!notif.issue || !body.trim()) return;
+    setSending(true);
+    try {
+      const res = await fetch(`/api/linear/issues/${notif.issue.id}/comments`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ body: body.trim() }),
+      });
+      if (res.ok) {
+        onSent(notif.id);
+        onClose();
+      }
+    } finally {
+      setSending(false);
+    }
+  }
+
+  return (
+    <Card className="rounded-lg border border-[oklch(0.72_0.15_85)]/30 bg-[oklch(0.72_0.15_85)]/[0.02]">
+      <CardContent className="p-3 space-y-2">
+        <div className="flex items-center justify-between">
+          <p className="text-xs font-medium text-muted-foreground">
+            Replying to{" "}
+            <span className="font-mono text-[10px]">{notif.issue?.identifier}</span>
+          </p>
+          <button onClick={onClose} className="text-muted-foreground/50 hover:text-muted-foreground">
+            <X className="h-3.5 w-3.5" />
+          </button>
+        </div>
+        {notif.comment?.body && (
+          <blockquote className="border-l-2 border-[oklch(0.72_0.15_85)]/40 pl-2 text-xs text-muted-foreground/70 line-clamp-2">
+            {notif.comment.body}
+          </blockquote>
+        )}
+        <div className="flex gap-2 items-end">
+          <Textarea
+            autoFocus
+            placeholder="Write a reply…"
+            value={body}
+            onChange={(e) => setBody(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
+                e.preventDefault();
+                void send();
+              }
+            }}
+            rows={2}
+            className="text-xs resize-none flex-1"
+          />
+          <button
+            disabled={sending || !body.trim()}
+            onClick={() => void send()}
+            className={cn(
+              "h-9 w-9 rounded-md border flex items-center justify-center shrink-0 transition-colors",
+              body.trim()
+                ? "border-[oklch(0.72_0.15_85)]/40 bg-[oklch(0.72_0.15_85)]/10 text-[oklch(0.55_0.15_85)] hover:bg-[oklch(0.72_0.15_85)]/20"
+                : "border-border text-muted-foreground/40"
+            )}
+            title="Send (⌘↵)"
+          >
+            <Send className={cn("h-3.5 w-3.5", sending && "opacity-40")} />
+          </button>
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
+// ── Forward toast ──────────────────────────────────────────────────────────
+
+function ForwardToast({ visible }: { visible: boolean }) {
+  return (
+    <div
+      className={cn(
+        "fixed bottom-24 left-1/2 -translate-x-1/2 z-50 rounded-lg bg-foreground text-background text-xs px-3 py-2 shadow-lg transition-all duration-300",
+        visible ? "opacity-100 translate-y-0" : "opacity-0 translate-y-2 pointer-events-none"
+      )}
+    >
+      Link copied to clipboard
+    </div>
+  );
+}
+
+// ── Main page ──────────────────────────────────────────────────────────────
+
 export default function LinearPage() {
   const [issues, setIssues] = useState<LinearIssue[]>([]);
   const [teams, setTeams] = useState<LinearTeam[]>([]);
@@ -187,6 +445,15 @@ export default function LinearPage() {
   const [loading, setLoading] = useState(true);
   const [notConnected, setNotConnected] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
+
+  // Tab: "issues" | "inbox"
+  const [activeTab, setActiveTab] = useState<"issues" | "inbox">("issues");
+
+  // Inbox
+  const [notifications, setNotifications] = useState<LinearNotification[]>([]);
+  const [inboxLoading, setInboxLoading] = useState(false);
+  const [replyingTo, setReplyingTo] = useState<LinearNotification | null>(null);
+  const [forwardToastVisible, setForwardToastVisible] = useState(false);
 
   // Filters
   const [teamFilter, setTeamFilter] = useState<string>("all");
@@ -212,6 +479,12 @@ export default function LinearPage() {
 
   // Panel states for team-specific workflow states
   const [panelStates, setPanelStates] = useState<LinearWorkflowState[]>([]);
+
+  // Comments
+  const [comments, setComments] = useState<LinearComment[]>([]);
+  const [commentsLoading, setCommentsLoading] = useState(false);
+  const [replyBody, setReplyBody] = useState("");
+  const [sendingReply, setSendingReply] = useState(false);
 
   // Load teams on mount
   useEffect(() => {
@@ -277,6 +550,21 @@ export default function LinearPage() {
       .catch(() => setPanelStates(states));
   }, [selectedIssue, teams, states]);
 
+  async function loadComments(issueId: string) {
+    setCommentsLoading(true);
+    try {
+      const res = await fetch(`/api/linear/issues/${issueId}/comments`);
+      if (res.ok) {
+        const data = (await res.json()) as { comments: LinearComment[] };
+        setComments(data.comments);
+      }
+    } catch {
+      // silent
+    } finally {
+      setCommentsLoading(false);
+    }
+  }
+
   function openPanel(issue: LinearIssue) {
     setSelectedIssue(issue);
     const currentState = states.find((s) => s.name === issue.state.name);
@@ -288,11 +576,37 @@ export default function LinearPage() {
       dueDate: issue.dueDate ?? "",
     });
     setEditingTitle(false);
+    setComments([]);
+    setReplyBody("");
+    void loadComments(issue.id);
   }
 
   function closePanel() {
     setSelectedIssue(null);
     setEditingTitle(false);
+    setComments([]);
+    setReplyBody("");
+  }
+
+  async function handleSendReply() {
+    if (!selectedIssue || !replyBody.trim()) return;
+    setSendingReply(true);
+    try {
+      const res = await fetch(`/api/linear/issues/${selectedIssue.id}/comments`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ body: replyBody.trim() }),
+      });
+      if (res.ok) {
+        const data = (await res.json()) as { comment: LinearComment };
+        setComments((prev) => [...prev, data.comment]);
+        setReplyBody("");
+      }
+    } catch {
+      // silent
+    } finally {
+      setSendingReply(false);
+    }
   }
 
   async function handleSave() {
@@ -362,8 +676,67 @@ export default function LinearPage() {
 
   async function handleRefresh() {
     setRefreshing(true);
-    await loadIssues();
+    if (activeTab === "inbox") {
+      await loadNotifications();
+    } else {
+      await loadIssues();
+    }
     setRefreshing(false);
+  }
+
+  // ── Inbox handlers ───────────────────────────────────────────────────────
+
+  async function loadNotifications() {
+    setInboxLoading(true);
+    try {
+      const res = await fetch("/api/linear/notifications");
+      if (res.ok) {
+        const data = (await res.json()) as { notifications: LinearNotification[] };
+        setNotifications(data.notifications);
+      }
+    } catch { /* silent */ } finally {
+      setInboxLoading(false);
+    }
+  }
+
+  useEffect(() => {
+    if (activeTab === "inbox" && notifications.length === 0) {
+      void loadNotifications();
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeTab]);
+
+  async function handleDeleteNotif(id: string) {
+    // Optimistic remove
+    setNotifications((prev) => prev.filter((n) => n.id !== id));
+    try {
+      await fetch(`/api/linear/notifications/${id}`, { method: "DELETE" });
+    } catch { /* silent */ }
+  }
+
+  async function handleMarkRead(id: string) {
+    setNotifications((prev) =>
+      prev.map((n) => (n.id === id ? { ...n, readAt: new Date().toISOString() } : n))
+    );
+    try {
+      await fetch(`/api/linear/notifications/${id}`, { method: "PATCH" });
+    } catch { /* silent */ }
+  }
+
+  async function handleMarkAllRead() {
+    setNotifications((prev) => prev.map((n) => ({ ...n, readAt: n.readAt ?? new Date().toISOString() })));
+    try {
+      await fetch("/api/linear/notifications", { method: "PATCH" });
+    } catch { /* silent */ }
+  }
+
+  function handleForward(notif: LinearNotification) {
+    if (!notif.issue) return;
+    const text = `${notif.issue.identifier}: ${notif.issue.title}\n${notif.issue.url}`;
+    void navigator.clipboard.writeText(text).then(() => {
+      setForwardToastVisible(true);
+      setTimeout(() => setForwardToastVisible(false), 2500);
+    });
   }
 
   // New form team-specific states
@@ -398,8 +771,13 @@ export default function LinearPage() {
     );
   }
 
+  const unreadCount = notifications.filter((n) => !n.readAt).length;
+
   return (
     <div className="p-4 sm:p-6 lg:p-8 space-y-5">
+      {/* Forward toast */}
+      <ForwardToast visible={forwardToastVisible} />
+
       {/* Header */}
       <header className="flex items-start justify-between gap-4">
         <div className="flex items-center gap-3">
@@ -418,21 +796,128 @@ export default function LinearPage() {
           >
             <RefreshCw className={cn("h-4 w-4", refreshing && "animate-spin")} />
           </button>
-          <Button
-            size="sm"
-            className="bg-[oklch(0.72_0.15_85)] hover:bg-[oklch(0.78_0.12_85)] text-[oklch(0.18_0.04_250)] gap-1.5"
-            onClick={() => {
-              setShowNewForm((v) => !v);
-              if (teams.length > 0 && !newForm.teamId) {
-                setNewForm((f) => ({ ...f, teamId: teams[0].id }));
-              }
-            }}
-          >
-            <Plus className="h-3.5 w-3.5" />
-            New Issue
-          </Button>
+          {activeTab === "issues" && (
+            <Button
+              size="sm"
+              className="bg-[oklch(0.72_0.15_85)] hover:bg-[oklch(0.78_0.12_85)] text-[oklch(0.18_0.04_250)] gap-1.5"
+              onClick={() => {
+                setShowNewForm((v) => !v);
+                if (teams.length > 0 && !newForm.teamId) {
+                  setNewForm((f) => ({ ...f, teamId: teams[0].id }));
+                }
+              }}
+            >
+              <Plus className="h-3.5 w-3.5" />
+              New Issue
+            </Button>
+          )}
         </div>
       </header>
+
+      {/* Tab switcher */}
+      <div className="flex items-center gap-1 border-b border-border/50">
+        <button
+          onClick={() => setActiveTab("issues")}
+          className={cn(
+            "flex items-center gap-1.5 px-3 py-2 text-sm font-medium border-b-2 transition-colors -mb-px",
+            activeTab === "issues"
+              ? "border-[oklch(0.72_0.15_85)] text-foreground"
+              : "border-transparent text-muted-foreground hover:text-foreground"
+          )}
+        >
+          <Triangle className="h-3.5 w-3.5" />
+          Issues
+        </button>
+        <button
+          onClick={() => setActiveTab("inbox")}
+          className={cn(
+            "flex items-center gap-1.5 px-3 py-2 text-sm font-medium border-b-2 transition-colors -mb-px",
+            activeTab === "inbox"
+              ? "border-[oklch(0.72_0.15_85)] text-foreground"
+              : "border-transparent text-muted-foreground hover:text-foreground"
+          )}
+        >
+          <div className="relative">
+            <Bell className="h-3.5 w-3.5" />
+            {unreadCount > 0 && (
+              <span className="absolute -top-1 -right-1.5 h-3.5 w-3.5 rounded-full bg-[oklch(0.72_0.15_85)] text-[oklch(0.18_0.04_250)] text-[8px] font-bold flex items-center justify-center">
+                {unreadCount > 9 ? "9+" : unreadCount}
+              </span>
+            )}
+          </div>
+          Inbox
+        </button>
+      </div>
+
+      {/* ── INBOX TAB ─────────────────────────────────────────────────── */}
+      {activeTab === "inbox" && (
+        <div className="space-y-3">
+          {/* Inbox toolbar */}
+          <div className="flex items-center gap-2">
+            {unreadCount > 0 && (
+              <button
+                onClick={() => void handleMarkAllRead()}
+                className="flex items-center gap-1.5 rounded-md border border-border px-3 py-1.5 text-xs font-medium text-muted-foreground hover:text-foreground hover:border-border/80 transition-colors"
+              >
+                <CheckCheck className="h-3.5 w-3.5" />
+                Mark all read
+              </button>
+            )}
+            <span className="ml-auto text-xs text-muted-foreground">
+              {notifications.length === 0
+                ? ""
+                : `${unreadCount} unread · ${notifications.length} total`}
+            </span>
+          </div>
+
+          {/* Reply panel */}
+          {replyingTo && (
+            <InboxReplyPanel
+              notif={replyingTo}
+              onClose={() => setReplyingTo(null)}
+              onSent={(id) => handleMarkRead(id)}
+            />
+          )}
+
+          {/* Notification list */}
+          {inboxLoading ? (
+            <div className="space-y-2">
+              {[1, 2, 3, 4].map((i) => (
+                <Card key={i} className="rounded-lg border border-border/60">
+                  <CardContent className="p-3 space-y-2">
+                    <Skeleton className="h-3 w-32" />
+                    <Skeleton className="h-4 w-full" />
+                    <Skeleton className="h-3 w-2/3" />
+                  </CardContent>
+                </Card>
+              ))}
+            </div>
+          ) : notifications.length === 0 ? (
+            <Card className="rounded-lg border border-border/60">
+              <CardContent className="py-12 text-center space-y-2">
+                <Inbox className="h-8 w-8 mx-auto text-muted-foreground/20" />
+                <p className="text-sm text-muted-foreground">Inbox is empty</p>
+              </CardContent>
+            </Card>
+          ) : (
+            <div className="space-y-2">
+              {notifications.map((notif) => (
+                <NotificationCard
+                  key={notif.id}
+                  notif={notif}
+                  onReply={(n) => setReplyingTo(replyingTo?.id === n.id ? null : n)}
+                  onDelete={handleDeleteNotif}
+                  onForward={handleForward}
+                  onMarkRead={handleMarkRead}
+                />
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* ── ISSUES TAB ────────────────────────────────────────────────── */}
+      {activeTab === "issues" && <>
 
       {/* New issue form */}
       {showNewForm && (
@@ -781,10 +1266,96 @@ export default function LinearPage() {
                   )}
                 </div>
               )}
+
+              {/* Comments section */}
+              <div className="pt-3 border-t border-border/50 space-y-3">
+                <div className="flex items-center gap-2">
+                  <MessageSquare className="h-3.5 w-3.5 text-muted-foreground" />
+                  <label className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+                    Comments
+                    {comments.length > 0 && (
+                      <span className="ml-1.5 text-muted-foreground/60 normal-case font-normal">
+                        ({comments.length})
+                      </span>
+                    )}
+                  </label>
+                </div>
+
+                {/* Comment thread */}
+                {commentsLoading ? (
+                  <div className="space-y-3">
+                    {[1, 2].map((i) => (
+                      <div key={i} className="space-y-1.5">
+                        <Skeleton className="h-3 w-24" />
+                        <Skeleton className="h-8 w-full" />
+                      </div>
+                    ))}
+                  </div>
+                ) : comments.length === 0 ? (
+                  <p className="text-xs text-muted-foreground/60 py-1">No comments yet.</p>
+                ) : (
+                  <div className="space-y-3 max-h-64 overflow-y-auto pr-1">
+                    {comments.map((c) => (
+                      <div key={c.id} className="space-y-1">
+                        <div className="flex items-center gap-2">
+                          {/* Avatar initial */}
+                          <span className="inline-flex h-5 w-5 items-center justify-center rounded-full bg-[oklch(0.72_0.15_85)]/15 text-[10px] font-semibold text-[oklch(0.55_0.15_85)] shrink-0">
+                            {c.user.name.charAt(0).toUpperCase()}
+                          </span>
+                          <span className="text-xs font-medium text-foreground">{c.user.name}</span>
+                          <span className="text-[10px] text-muted-foreground/60 ml-auto shrink-0">
+                            {new Date(c.createdAt).toLocaleDateString(undefined, {
+                              month: "short",
+                              day: "numeric",
+                              hour: "2-digit",
+                              minute: "2-digit",
+                            })}
+                          </span>
+                        </div>
+                        <div className="ml-7 text-xs text-muted-foreground leading-relaxed whitespace-pre-wrap">
+                          {c.body}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                {/* Reply input */}
+                <div className="flex gap-2 items-end">
+                  <Textarea
+                    placeholder="Write a comment…"
+                    value={replyBody}
+                    onChange={(e) => setReplyBody(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
+                        e.preventDefault();
+                        void handleSendReply();
+                      }
+                    }}
+                    rows={2}
+                    className="text-xs resize-none flex-1"
+                  />
+                  <button
+                    disabled={sendingReply || !replyBody.trim()}
+                    onClick={() => void handleSendReply()}
+                    className={cn(
+                      "h-9 w-9 rounded-md border flex items-center justify-center shrink-0 transition-colors",
+                      replyBody.trim()
+                        ? "border-[oklch(0.72_0.15_85)]/40 bg-[oklch(0.72_0.15_85)]/10 text-[oklch(0.55_0.15_85)] hover:bg-[oklch(0.72_0.15_85)]/20"
+                        : "border-border text-muted-foreground/40"
+                    )}
+                    title="Send comment (⌘↵)"
+                  >
+                    <Send className={cn("h-3.5 w-3.5", sendingReply && "opacity-40")} />
+                  </button>
+                </div>
+              </div>
             </div>
           </div>
         )}
       </div>
+
+      </> /* end issues tab */}
     </div>
   );
 }

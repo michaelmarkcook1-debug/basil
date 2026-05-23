@@ -179,7 +179,8 @@ function enqueueBlobWrite<T>(scope: string, key: string, data: T): void {
 export async function readStore<T>(
   filename: string,
   fallback: T,
-  subdir?: string
+  subdir?: string,
+  options?: { fresh?: boolean }
 ): Promise<T> {
   const scope = subdir ?? "";
 
@@ -196,11 +197,13 @@ export async function readStore<T>(
     return envReadJson(scope, filename, fallback);
   }
 
-  // Blob: try /tmp cache first (fast path)
-  const cached = await tmpReadOrMiss<T>(scope, filename);
-  if (cached !== NOT_FOUND) return cached as T;
+  // Blob: try /tmp cache first (fast path) — unless fresh=true (security-critical reads)
+  if (!options?.fresh) {
+    const cached = await tmpReadOrMiss<T>(scope, filename);
+    if (cached !== NOT_FOUND) return cached as T;
+  }
 
-  // /tmp miss — fetch from Blob and populate the cache
+  // /tmp miss (or bypassed) — fetch from Blob and populate the cache
   const data = await blobReadJson(scope, filename, fallback);
   if (data !== fallback) {
     // Only cache if we got real data (don't cache the fallback sentinel)

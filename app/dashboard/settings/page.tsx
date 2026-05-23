@@ -357,7 +357,7 @@ function StigApiTab({
   const sourceStates = Object.entries(status?.appSources ?? {});
   const aiStates = Object.entries(status?.aiSources ?? {});
 
-  const [testResult, setTestResult] = React.useState<{ ok: boolean; text?: string; durationMs?: number; error?: { message: string } } | null>(null);
+  const [testResult, setTestResult] = React.useState<{ ok: boolean; text?: string; durationMs?: number; providerMode?: string; model?: string; error?: string } | null>(null);
   const [testing, setTesting] = React.useState(false);
 
   const [siriOpen, setSiriOpen] = React.useState(false);
@@ -377,10 +377,10 @@ function StigApiTab({
     setTestResult(null);
     try {
       const res = await fetch("/api/ai/test-brain");
-      const data = await res.json() as { ok: boolean; text?: string; durationMs?: number; error?: { message: string } };
+      const data = await res.json() as { ok: boolean; text?: string; durationMs?: number; providerMode?: string; model?: string; error?: string };
       setTestResult(data);
     } catch {
-      setTestResult({ ok: false, error: { message: "Network error contacting test endpoint" } });
+      setTestResult({ ok: false, error: "Network error contacting test endpoint" });
     } finally {
       setTesting(false);
     }
@@ -472,8 +472,8 @@ function StigApiTab({
           {testResult && (
             <div className={`rounded-lg border p-3 text-xs ${testResult.ok ? "border-emerald-200 bg-emerald-50 text-emerald-800" : "border-red-200 bg-red-50 text-red-800"}`}>
               {testResult.ok
-                ? <>✓ OpenAI responded in {testResult.durationMs}ms: <em>&ldquo;{testResult.text}&rdquo;</em></>
-                : <>✗ Test failed: {testResult.error?.message}</>}
+                ? <>✓ AI responded in {testResult.durationMs}ms ({testResult.providerMode ?? "direct"}): <em>&ldquo;{testResult.text}&rdquo;</em></>
+                : <>✗ Test failed: {testResult.error ?? "unknown error"}</>}
             </div>
           )}
 

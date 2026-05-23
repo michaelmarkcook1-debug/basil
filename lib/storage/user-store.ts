@@ -22,9 +22,10 @@ function userSubdir(username: string): string {
 export async function readUserStore<T>(
   username: string,
   filename: string,
-  fallback: T
+  fallback: T,
+  options?: { fresh?: boolean }
 ): Promise<T> {
-  return readStore<T>(filename, fallback, userSubdir(username));
+  return readStore<T>(filename, fallback, userSubdir(username), options);
 }
 
 export async function writeUserStore<T>(
