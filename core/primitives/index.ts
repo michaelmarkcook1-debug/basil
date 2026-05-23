@@ -22,6 +22,14 @@ export type {
   SignalEvent,
 } from "./signal-event";
 
+// ── Primitive 6 — CanonicalIdentity ──────────────────────────────────────────
+export type { CanonicalIdentity } from "./canonical-identity";
+export {
+  CANONICAL_IDENTITY_FILE,
+  buildCanonicalIdentity,
+  mergeObservation,
+} from "./canonical-identity";
+
 // ── Primitive 2 — TrustEnvelope ───────────────────────────────────────────────
 export type {
   TrustTier,

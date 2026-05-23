@@ -44,6 +44,8 @@ import {
 } from "@/lib/ingest/audit-log";
 import { getFlags } from "@/core/feature-flags";
 import { runGmailShadow } from "@/core/ingestion/shadow-runner";
+import { normalizeGmailSignal } from "@/core/signals/normalizers/gmail.normalizer";
+import { writeSignalEvent } from "@/core/storage/signal-event-store";
 
 // ── HTML stripper ─────────────────────────────────────────────────────────────
 
@@ -198,18 +200,54 @@ export async function processRegularEmail(opts: ProcessEmailOpts): Promise<void>
       );
     }
 
-    // ── Shadow runner (Week 1 parity gate) ───────────────────────────────────
-    // Runs new SignalEvent normalizer alongside old pipeline. Old path remains
-    // authoritative — shadow only observes and logs diffs.
-    // Gated on signalEvent_shadow feature flag (default: false).
-    // Fire-and-forget: never blocks or throws into the old pipeline.
+    // ── Primitive pipeline (Week 1-2 gated) ──────────────────────────────────
+    // signalEvent_shadow → observe + log diffs (old path remains authoritative)
+    // signalEvent_active → dual-write: write SignalEvent alongside old stores
+    // Both share the same normalizeGmailSignal() call to avoid double work.
+    // Fire-and-forget blocks: never throw into the old pipeline.
     const flags = await getFlags(username);
+    const normInput = { opts, body, date, senderIsKnown: true };
+
     if (flags.signalEvent_shadow) {
-      void runGmailShadow(
-        { opts, body, date, senderIsKnown: true },
-        contentHash,
-        username
-      );
+      void runGmailShadow(normInput, contentHash, username);
+    }
+
+    if (flags.signalEvent_active) {
+      // Dual-write: produce a fully-populated SignalEvent and persist it.
+      // The SignalEvent is enriched with the IDs materialized by the old pipeline
+      // so it carries complete provenance from day one.
+      void (async () => {
+        try {
+          const signal = normalizeGmailSignal(normInput);
+          // Attach IDs produced by the old pipeline
+          signal.actionIds = actionIds;
+          signal.decisionIds = decisionIds;
+          signal.memoryIds = memoryIds;
+          // Attach intel category from AI classification
+          signal.category = (intel.category as typeof signal.category) ?? "unknown";
+          // Attach extracted intelligence
+          signal.actions = (intel.actions ?? []).map((a) => ({
+            text: a.text,
+            dueDate: a.dueDate,
+            priority: a.priority,
+          }));
+          signal.decisions = (intel.decisions ?? []).map((d) => ({
+            text: d.text,
+            title: d.title,
+            decidedBy: d.decidedBy,
+            rationale: d.rationale,
+            alternatives: d.alternatives,
+            consequences: d.consequences,
+          }));
+          await writeSignalEvent(username, signal);
+        } catch (err) {
+          // Dual-write failures must never surface to the caller
+          console.error(
+            `[process-gmail] signalEvent_active dual-write failed for ${externalId}:`,
+            err instanceof Error ? err.message : err
+          );
+        }
+      })();
     }
   } catch (err) {
     const errMsg = err instanceof Error ? err.message : String(err);
