@@ -42,6 +42,8 @@ import {
   auditFailed,
   type AuditEntry,
 } from "@/lib/ingest/audit-log";
+import { getFlags } from "@/core/feature-flags";
+import { runGmailShadow } from "@/core/ingestion/shadow-runner";
 
 // ── HTML stripper ─────────────────────────────────────────────────────────────
 
@@ -193,6 +195,20 @@ export async function processRegularEmail(opts: ProcessEmailOpts): Promise<void>
         `[email-process] materialized ${externalId}: ` +
         `${result.actionsCreated} action(s), ${result.decisionsCreated} decision(s), ` +
         `${result.memoriesCreated} memory item(s)`
+      );
+    }
+
+    // ── Shadow runner (Week 1 parity gate) ───────────────────────────────────
+    // Runs new SignalEvent normalizer alongside old pipeline. Old path remains
+    // authoritative — shadow only observes and logs diffs.
+    // Gated on signalEvent_shadow feature flag (default: false).
+    // Fire-and-forget: never blocks or throws into the old pipeline.
+    const flags = await getFlags(username);
+    if (flags.signalEvent_shadow) {
+      void runGmailShadow(
+        { opts, body, date, senderIsKnown: true },
+        contentHash,
+        username
       );
     }
   } catch (err) {
