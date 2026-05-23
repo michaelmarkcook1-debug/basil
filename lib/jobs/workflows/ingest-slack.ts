@@ -82,20 +82,69 @@ async function processSlackStep(username: string, payload: IngestSlackPayload): 
     username,
   });
 
+  const actionIds = result.auditEntries
+    .filter((e) => e.itemType === "action" && e.itemId)
+    .map((e) => e.itemId!);
+  const decisionIds = result.auditEntries
+    .filter((e) => e.itemType === "decision" && e.itemId)
+    .map((e) => e.itemId!);
+  const memoryIds = result.auditEntries
+    .filter((e) => e.itemType === "memory" && e.itemId)
+    .map((e) => e.itemId!);
+
   void recordIngest(username, {
     sourceRef: externalId,
     hash: contentHash,
-    actionIds: result.auditEntries
-      .filter((e) => e.itemType === "action" && e.itemId)
-      .map((e) => e.itemId!),
-    decisionIds: result.auditEntries
-      .filter((e) => e.itemType === "decision" && e.itemId)
-      .map((e) => e.itemId!),
-    memoryIds: result.auditEntries
-      .filter((e) => e.itemType === "memory" && e.itemId)
-      .map((e) => e.itemId!),
+    actionIds,
+    decisionIds,
+    memoryIds,
   });
   void appendAuditEntries(username, result.auditEntries);
+
+  // ── Primitive pipeline (Week 3 gated) ────────────────────────────────────
+  // signalEvent_shadow → observe + log diffs (old path remains authoritative)
+  // signalEvent_active → dual-write SignalEvent alongside old stores
+  // Called directly (no extra after()) — we're already inside a durable step.
+  const { getFlags } = await import("@/core/feature-flags");
+  const flags = await getFlags(username);
+  const normInput = { payload, transcript, senderIsKnown: true };
+
+  if (flags.signalEvent_shadow) {
+    const { runSlackShadow } = await import("@/core/ingestion/slack-shadow-runner");
+    await runSlackShadow(normInput, contentHash, username);
+  }
+
+  if (flags.signalEvent_active) {
+    const { normalizeSlackSignal } = await import("@/core/signals/normalizers/slack.normalizer");
+    const { writeSignalEvent } = await import("@/core/storage/signal-event-store");
+    try {
+      const signal = normalizeSlackSignal(normInput);
+      signal.actionIds = actionIds;
+      signal.decisionIds = decisionIds;
+      signal.memoryIds = memoryIds;
+      signal.category = (intel.category as typeof signal.category) ?? "unknown";
+      signal.actions = (intel.actions ?? []).map((a) => ({
+        text: a.text,
+        dueDate: a.dueDate,
+        priority: a.priority,
+      }));
+      signal.decisions = (intel.decisions ?? []).map((d) => ({
+        text: d.text,
+        title: d.title,
+        decidedBy: d.decidedBy,
+        rationale: d.rationale,
+        alternatives: d.alternatives,
+        consequences: d.consequences,
+      }));
+      await writeSignalEvent(username, signal);
+    } catch (err) {
+      // Dual-write failure must never fail the step
+      console.error(
+        `[ingest-slack] signalEvent_active dual-write failed for ${externalId}:`,
+        err instanceof Error ? err.message : err
+      );
+    }
+  }
 
   console.log(`[ingest-slack] step done: ${externalId}`);
 }

@@ -30,6 +30,13 @@ export {
   mergeObservation,
 } from "./canonical-identity";
 
+// ── Primitive 4 — SignalThread ────────────────────────────────────────────────
+export type {
+  SignalThreadStatus,
+  SignalThread,
+} from "./signal-thread";
+export { buildSignalThread, addSignalToThread } from "./signal-thread";
+
 // ── Primitive 2 — TrustEnvelope ───────────────────────────────────────────────
 export type {
   TrustTier,
