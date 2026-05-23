@@ -231,6 +231,46 @@ Respond with ONLY valid JSON — no markdown fences, no explanation:
   // Read flags outside the try block — failure to fetch flags must not block classification
   const flags = await getFlags(username).catch(() => null);
 
+  // ── dispatch_active: dispatcher is the authoritative AI call path (Week 7) ──
+  // When enabled, dispatch() replaces generateText() as the primary call and
+  // injects assembled intelligence context into the system prompt.
+  // Falls back to the legacy path on any error — rollback is flag-flip only.
+  if (flags && flags.dispatch_active) {
+    try {
+      const { buildIntelligenceContext } = await import("@/core/context/intelligence-context-builder");
+      const { serializeContext } = await import("@/core/primitives/intelligence-context");
+      const { dispatch } = await import("@/core/dispatch/dispatcher");
+
+      const system = await getSystemPrompt(username);
+      const ctx = await buildIntelligenceContext({ username, currentSignal: null, flags });
+      const ctxText = serializeContext(ctx);
+      const enrichedSystem = ctxText
+        ? `${system}\n\n## Intelligence Context\n${ctxText}`
+        : system;
+
+      const { output } = await dispatch({
+        username,
+        intent: "classify_email",
+        sourceRef: null,
+        modelKind: "fast",
+        system: enrichedSystem,
+        prompt,
+        schema: EmailIntelligenceSchema,
+        schemaName: "EmailIntelligence",
+        schemaDescription: "Structured intelligence extracted from an email",
+      });
+
+      return output as EmailIntelligence;
+    } catch (err) {
+      // Dispatch failure: log and fall through to legacy path below
+      console.error(
+        "[email-classify] dispatch_active failed, falling back to generateText:",
+        err instanceof Error ? err.message : err
+      );
+    }
+  }
+
+  // ── Legacy path: generateText + optional dispatch_shadow trace ────────────
   try {
     const system = await getSystemPrompt(username);
     const { text } = await generateText({
@@ -242,10 +282,8 @@ Respond with ONLY valid JSON — no markdown fences, no explanation:
 
     const result = parseIntelligence(text);
 
-    // ── dispatch_shadow: parallel structured trace (Week 6) ───────────────────
-    // Fires generateValidated() alongside the existing generateText() call.
-    // Never blocks the caller — existing result is always authoritative.
-    if (flags?.dispatch_shadow) {
+    // dispatch_shadow: parallel trace — only when dispatch is not already primary
+    if (flags?.dispatch_shadow && !(flags?.dispatch_active)) {
       void (async () => {
         try {
           const { dispatch } = await import("@/core/dispatch/dispatcher");
