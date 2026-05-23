@@ -30,6 +30,25 @@ export {
   mergeObservation,
 } from "./canonical-identity";
 
+// ── Primitive 3 — DispatchRequest ────────────────────────────────────────────
+export type {
+  DispatchIntent,
+  DispatchStatus,
+  DispatchTrace,
+  DispatchRequest,
+} from "./dispatch-request";
+export {
+  DISPATCH_LOG_FILE,
+  MAX_DISPATCH_TRACES,
+} from "./dispatch-request";
+
+// ── Primitive 7 — IntelligenceContext ─────────────────────────────────────────
+export type {
+  SignalSummary,
+  IntelligenceContext,
+} from "./intelligence-context";
+export { serializeContext } from "./intelligence-context";
+
 // ── Primitive 5 — RankedSignal ────────────────────────────────────────────────
 export type { RankedSignal } from "./ranked-signal";
 export { RANKING_WEIGHTS, SURFACE_THRESHOLD, DIGEST_THRESHOLD } from "./ranked-signal";
