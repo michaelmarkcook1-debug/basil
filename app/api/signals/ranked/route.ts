@@ -3,6 +3,7 @@ import { getSessionUser } from "@/lib/auth";
 import { readSignalEvents } from "@/core/storage/signal-event-store";
 import { SURFACE_THRESHOLD, DIGEST_THRESHOLD } from "@/core/primitives/ranked-signal";
 import { getFlags } from "@/core/feature-flags";
+import type { SignalSource } from "@/core/primitives/signal-event";
 
 /**
  * GET /api/signals/ranked
@@ -64,7 +65,7 @@ export async function GET(req: NextRequest) {
     DIGEST_THRESHOLD;
 
   let signals = await readSignalEvents(username, {
-    source: source as Parameters<typeof readSignalEvents>[1]["source"],
+    source: source as SignalSource | undefined,
     limit: 500,   // fetch wide, filter + sort in memory
   });
 

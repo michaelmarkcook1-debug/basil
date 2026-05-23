@@ -225,7 +225,7 @@ function scoreMeetingProximity(
     explanation.push("MEETING_PROXIMITY: is calendar/meeting event (score=0.90)");
     return 0.90;
   }
-  if (signal.category === "meeting_signal" || signal.category === "meeting_intelligence") {
+  if (signal.category === "meeting_intelligence") {
     explanation.push("MEETING_PROXIMITY: meeting-related category (score=0.60)");
     return 0.60;
   }

@@ -21,6 +21,7 @@ import { getTextModel, MAX_TOKENS } from "@/lib/ai/model-config";
 import { getSystemPrompt } from "@/lib/ai/system-prompt";
 import { parseAndValidate } from "@/lib/ai/parse-json";
 import { SlackIntelligenceSchema } from "@/lib/ai/schemas";
+import { getFlags } from "@/core/feature-flags";
 
 // ── Category types ─────────────────────────────────────────────────────────────
 
@@ -252,6 +253,9 @@ Respond with ONLY valid JSON — no markdown fences, no explanation:
   "keyContext": "1-2 sentences or empty string"
 }`;
 
+  // Read flags outside the try block — failure to fetch flags must not block classification
+  const flags = await getFlags(username).catch(() => null);
+
   try {
     const system = await getSystemPrompt(username);
     const { text } = await generateText({
@@ -261,7 +265,33 @@ Respond with ONLY valid JSON — no markdown fences, no explanation:
       messages: [{ role: "user", content: prompt }],
     });
 
-    return parseIntelligence(text);
+    const result = parseIntelligence(text);
+
+    // ── dispatch_shadow: parallel structured trace (Week 6) ───────────────────
+    // Fires generateValidated() alongside the existing generateText() call.
+    // Never blocks the caller — existing result is always authoritative.
+    if (flags?.dispatch_shadow) {
+      void (async () => {
+        try {
+          const { dispatch } = await import("@/core/dispatch/dispatcher");
+          await dispatch({
+            username,
+            intent: "classify_slack",
+            sourceRef: null,
+            modelKind: "fast",
+            system,
+            prompt,
+            schema: SlackIntelligenceSchema,
+            schemaName: "SlackIntelligence",
+            schemaDescription: "Structured intelligence extracted from a Slack conversation",
+          });
+        } catch {
+          // Shadow failures are intentionally silent — never surface to caller
+        }
+      })();
+    }
+
+    return result;
   } catch (err) {
     console.error(
       "[slack-classify] classification failed:",

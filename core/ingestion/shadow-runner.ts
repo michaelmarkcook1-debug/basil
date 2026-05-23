@@ -27,7 +27,7 @@
 import { readUserStore, writeUserStore } from "@/lib/storage/user-store";
 import { normalizeGmailSignal } from "@/core/signals/normalizers/gmail.normalizer";
 import type { GmailNormalizerInput } from "@/core/signals/normalizers/gmail.normalizer";
-import type { SignalEvent } from "@/core/primitives/signal-event";
+import type { SignalEvent, SignalSource } from "@/core/primitives/signal-event";
 
 // ── Log storage key ───────────────────────────────────────────────────────────
 
@@ -99,8 +99,8 @@ export interface OldPipelineSummary {
   sourceRef: string;
   /** Subject line as passed to the old pipeline. */
   title: string;
-  /** "gmail" — hardcoded since this runner is Gmail-only. */
-  source: "gmail";
+  /** Signal source (gmail, slack, etc.) */
+  source: SignalSource;
   /** Content hash used by the old pipeline for idempotency. */
   contentHash: string;
 }
