@@ -206,3 +206,44 @@ export async function countIdentities(username: string): Promise<number> {
     return 0;
   }
 }
+
+// ── Resolution pass ───────────────────────────────────────────────────────────
+
+import type { SignalEvent } from "@/core/primitives/signal-event";
+
+/**
+ * Resolve all participant EntityRefs in a SignalEvent against the
+ * CanonicalIdentity store, populating EntityRef.canonicalId where a match
+ * exists. Upserts new identities for participants not yet seen.
+ *
+ * Mutates the signal's participants array in-place.
+ * Gated on canonicalIdentity_active flag in the caller.
+ *
+ * @returns The sender's CanonicalIdentity (first participant, role=sender),
+ *          or null if unresolvable. Used by the ranker for hierarchy scoring.
+ */
+export async function resolveParticipants(
+  username: string,
+  signal: SignalEvent
+): Promise<CanonicalIdentity | null> {
+  let senderIdentity: CanonicalIdentity | null = null;
+
+  for (const participant of signal.participants) {
+    const identity = await upsertIdentity(username, {
+      rawEmail: participant.rawEmail,
+      rawName: participant.rawName,
+      source: signal.source,
+      isDirect: participant.role === "sender" || participant.role === "recipient",
+      observedAt: signal.occurredAt,
+    });
+
+    if (identity) {
+      participant.canonicalId = identity.id;
+      if (participant.role === "sender" && !senderIdentity) {
+        senderIdentity = identity;
+      }
+    }
+  }
+
+  return senderIdentity;
+}

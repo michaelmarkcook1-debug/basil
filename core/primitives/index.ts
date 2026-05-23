@@ -30,6 +30,10 @@ export {
   mergeObservation,
 } from "./canonical-identity";
 
+// ── Primitive 5 — RankedSignal ────────────────────────────────────────────────
+export type { RankedSignal } from "./ranked-signal";
+export { RANKING_WEIGHTS, SURFACE_THRESHOLD, DIGEST_THRESHOLD } from "./ranked-signal";
+
 // ── Primitive 4 — SignalThread ────────────────────────────────────────────────
 export type {
   SignalThreadStatus,

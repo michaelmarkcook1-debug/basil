@@ -45,7 +45,7 @@ import {
 import { getFlags } from "@/core/feature-flags";
 import { runGmailShadow } from "@/core/ingestion/shadow-runner";
 import { normalizeGmailSignal } from "@/core/signals/normalizers/gmail.normalizer";
-import { writeSignalEvent } from "@/core/storage/signal-event-store";
+import { enrichAndWriteSignal } from "@/core/ingestion/signal-pipeline";
 
 // ── HTML stripper ─────────────────────────────────────────────────────────────
 
@@ -213,19 +213,16 @@ export async function processRegularEmail(opts: ProcessEmailOpts): Promise<void>
     }
 
     if (flags.signalEvent_active) {
-      // Dual-write: produce a fully-populated SignalEvent and persist it.
-      // The SignalEvent is enriched with the IDs materialized by the old pipeline
-      // so it carries complete provenance from day one.
+      // Dual-write: produce a fully-populated SignalEvent, enrich it through
+      // the pipeline (identity resolution → ranking → write → thread upsert),
+      // all gated on individual flags. Fire-and-forget — never throws here.
       void (async () => {
         try {
           const signal = normalizeGmailSignal(normInput);
-          // Attach IDs produced by the old pipeline
           signal.actionIds = actionIds;
           signal.decisionIds = decisionIds;
           signal.memoryIds = memoryIds;
-          // Attach intel category from AI classification
           signal.category = (intel.category as typeof signal.category) ?? "unknown";
-          // Attach extracted intelligence
           signal.actions = (intel.actions ?? []).map((a) => ({
             text: a.text,
             dueDate: a.dueDate,
@@ -239,11 +236,10 @@ export async function processRegularEmail(opts: ProcessEmailOpts): Promise<void>
             alternatives: d.alternatives,
             consequences: d.consequences,
           }));
-          await writeSignalEvent(username, signal);
+          await enrichAndWriteSignal(username, signal, flags);
         } catch (err) {
-          // Dual-write failures must never surface to the caller
           console.error(
-            `[process-gmail] signalEvent_active dual-write failed for ${externalId}:`,
+            `[process-gmail] signalEvent_active pipeline failed for ${externalId}:`,
             err instanceof Error ? err.message : err
           );
         }

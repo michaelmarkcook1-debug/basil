@@ -116,7 +116,7 @@ async function processSlackStep(username: string, payload: IngestSlackPayload): 
 
   if (flags.signalEvent_active) {
     const { normalizeSlackSignal } = await import("@/core/signals/normalizers/slack.normalizer");
-    const { writeSignalEvent } = await import("@/core/storage/signal-event-store");
+    const { enrichAndWriteSignal } = await import("@/core/ingestion/signal-pipeline");
     try {
       const signal = normalizeSlackSignal(normInput);
       signal.actionIds = actionIds;
@@ -136,11 +136,10 @@ async function processSlackStep(username: string, payload: IngestSlackPayload): 
         alternatives: d.alternatives,
         consequences: d.consequences,
       }));
-      await writeSignalEvent(username, signal);
+      await enrichAndWriteSignal(username, signal, flags);
     } catch (err) {
-      // Dual-write failure must never fail the step
       console.error(
-        `[ingest-slack] signalEvent_active dual-write failed for ${externalId}:`,
+        `[ingest-slack] signalEvent_active pipeline failed for ${externalId}:`,
         err instanceof Error ? err.message : err
       );
     }

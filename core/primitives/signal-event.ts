@@ -111,6 +111,7 @@ export type SignalCategory =
 // ── SignalEvent ───────────────────────────────────────────────────────────────
 
 import type { TrustEnvelope } from "./trust-envelope";
+import type { RankedSignal } from "./ranked-signal";
 
 export interface SignalEvent {
   // ── Identity ───────────────────────────────────────────────────────────────
@@ -208,6 +209,12 @@ export interface SignalEvent {
    * Always present. Built at normalization time.
    */
   trust: TrustEnvelope;
+
+  /**
+   * Ranking score — attached by the signal ranker when ranking_active is true.
+   * Undefined until the ranking pass runs.
+   */
+  ranking?: RankedSignal;
 
   // ── Relationships ──────────────────────────────────────────────────────────
 
