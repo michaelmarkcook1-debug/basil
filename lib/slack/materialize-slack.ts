@@ -52,23 +52,45 @@ export interface MaterializeSlackResult {
 
 // ── Categories that generate actions ──────────────────────────────────────────
 
-/** Categories that trigger action creation — including synthesized fallback when no explicit items found. */
+/**
+ * Categories that trigger action creation when Michael is specifically addressed
+ * OR when the category is inherently direct (action_assigned, blocker, escalation).
+ */
 const ACTION_CATEGORIES = new Set<SlackSignalCategory>([
   "action_assigned",
-  "action_identified",
-  "decision_needed",
   "blocker_raised",
   "escalation",
+  "decision_needed",
   "meeting_signal",
 ]);
 
 /**
- * Categories that produce actions ONLY when the AI explicitly extracted them.
- * Never synthesize a fallback action for these — only honour explicit items.
+ * Categories that produce actions ONLY when the AI explicitly extracted them
+ * AND Michael is addressed. Never synthesize a fallback for these.
+ *
+ * action_identified is here because the action may belong to someone else in the
+ * thread — only create it when Michael was specifically named/mentioned.
  */
 const EXPLICIT_ONLY_ACTION_CATEGORIES = new Set<SlackSignalCategory>([
   "relationship_signal",
+  "action_identified",  // moved from ACTION_CATEGORIES — requires isMichaelAddressed check
 ]);
+
+/**
+ * Returns true if the action's owner field clearly refers to Michael Cook.
+ * Blank/omitted owner is treated as "possibly Michael" (included).
+ * An owner that is clearly someone else → excluded.
+ */
+function isOwnerMichaelOrUnknown(owner: string | undefined): boolean {
+  if (!owner || !owner.trim()) return true; // unset → include (ambiguous)
+  const o = owner.trim().toLowerCase();
+  // Accept variations of Michael's name
+  if (o.includes("michael") || o === "me" || o === "i") return true;
+  // Reject channel/team references (#dev-team, @team, "the team", "everyone", etc.)
+  if (o.startsWith("#") || o.startsWith("@") || o.includes(" team") || o === "everyone" || o === "all") return false;
+  // Any other named person → not Michael
+  return false;
+}
 
 // ── Core materialization function ─────────────────────────────────────────────
 
@@ -108,9 +130,33 @@ export async function materializeSlackIntelligence(
     const isExplicitOnlyCategory = EXPLICIT_ONLY_ACTION_CATEGORIES.has(intel.category);
 
     if (intel.actions.length > 0 && (isActionCategory || isExplicitOnlyCategory)) {
-      // Explicit extracted action items — honour for all qualifying category types
+      // Explicit extracted action items — only create actions owned by (or assignable to) Michael.
+      //
+      // Filter rules (in priority order):
+      //   1. Skip if owner is clearly someone other than Michael (e.g. "Christopher Walton")
+      //   2. For action_identified: also skip if Michael wasn't specifically addressed —
+      //      channel broadcasts where "someone" needs to do something shouldn't become
+      //      Michael's actions unless he was named.
+      //   3. For all other categories: include when owner is blank/Michael.
       for (const item of intel.actions) {
         if (!item.text?.trim()) continue;
+
+        // Skip actions that belong to a named person who isn't Michael
+        if (!isOwnerMichaelOrUnknown(item.owner)) {
+          console.log(
+            `[slack-materialize] skipping action owned by "${item.owner}" (not Michael): "${item.text.slice(0, 60)}"`
+          );
+          continue;
+        }
+
+        // For action_identified: only include if Michael was explicitly addressed
+        if (intel.category === "action_identified" && !intel.isMichaelAddressed) {
+          console.log(
+            `[slack-materialize] skipping action_identified (Michael not addressed): "${item.text.slice(0, 60)}"`
+          );
+          continue;
+        }
+
         try {
           const { item: action, created } = await createActionTracked(username, {
             text: item.text.trim(),
