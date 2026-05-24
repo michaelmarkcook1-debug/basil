@@ -19,16 +19,16 @@ import {
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
 interface ParityGate {
-  name: string;
+  gate: string;
   required: number | string;
-  actual: number | string;
+  observed: number | string;
   passed: boolean;
+  explanation: string;
 }
 
 interface ParityReport {
@@ -37,11 +37,11 @@ interface ParityReport {
   shadowDays: number;
   gates: ParityGate[];
   metrics: {
-    totalComparisons: number;
+    total: number;
     exactMatchRate: number;
     criticalDiffRate: number;
   };
-  blockedReason?: string;
+  blockedReason: string | null;
 }
 
 interface DispatchByIntent {
@@ -96,11 +96,11 @@ function GateRow({ gate }: { gate: ParityGate }) {
   return (
     <div className="flex items-center justify-between py-1.5 border-b border-border/50 last:border-0">
       <span className="text-sm text-muted-foreground capitalize">
-        {gate.name.replace(/_/g, " ")}
+        {gate.gate.replace(/_/g, " ")}
       </span>
       <div className="flex items-center gap-3">
         <span className="text-xs font-mono text-muted-foreground">
-          need {typeof gate.required === "number" && gate.required < 1
+          need {typeof gate.required === "number" && (gate.required as number) < 1
             ? pct(gate.required as number)
             : String(gate.required)}
         </span>
@@ -108,9 +108,9 @@ function GateRow({ gate }: { gate: ParityGate }) {
           "text-sm font-mono font-medium tabular-nums",
           gate.passed ? "text-emerald-600" : "text-red-500"
         )}>
-          {typeof gate.actual === "number" && (gate.actual as number) < 1
-            ? pct(gate.actual as number)
-            : String(gate.actual)}
+          {typeof gate.observed === "number" && (gate.observed as number) < 1
+            ? pct(gate.observed as number)
+            : String(gate.observed)}
         </span>
         {gate.passed
           ? <CheckCircle className="h-3.5 w-3.5 text-emerald-500" />
@@ -173,7 +173,7 @@ export default function TelemetryPage() {
       fetch("/api/admin/feature-flags").then((r) => r.json()),
       fetch("/api/admin/intelligence-context?serialized=0").then((r) => r.json()),
     ]);
-    if (parityRes.status === "fulfilled") setParity(parityRes.value);
+    if (parityRes.status === "fulfilled") setParity(parityRes.value.report ?? null);
     if (dispatchRes.status === "fulfilled") setDispatch(dispatchRes.value.metrics ?? null);
     if (flagsRes.status === "fulfilled") setFlags(flagsRes.value.flags ?? null);
     if (ctxRes.status === "fulfilled") setContext(ctxRes.value);
@@ -245,9 +245,14 @@ export default function TelemetryPage() {
                 Parity Gates
               </span>
               {parity && (
-                <Badge variant={parity.cutoversAllowed ? "default" : "destructive"} className="text-xs">
+                <span className={cn(
+                  "text-xs font-mono px-2 py-0.5 rounded-full",
+                  parity.cutoversAllowed
+                    ? "bg-emerald-500/10 text-emerald-600"
+                    : "bg-red-500/10 text-red-600"
+                )}>
                   {parity.cutoversAllowed ? "✓ cutover allowed" : "✗ cutover blocked"}
-                </Badge>
+                </span>
               )}
             </CardTitle>
           </CardHeader>
@@ -265,7 +270,7 @@ export default function TelemetryPage() {
                   </div>
                   <div className="rounded-lg bg-muted/50 p-3 text-center">
                     <p className="text-2xl font-mono font-semibold tabular-nums">
-                      {parity.metrics.totalComparisons}
+                      {parity.metrics.total}
                     </p>
                     <p className="text-xs text-muted-foreground mt-0.5">comparisons</p>
                   </div>
@@ -280,7 +285,7 @@ export default function TelemetryPage() {
                   </div>
                 </div>
                 <div className="rounded-lg border border-border p-3 space-y-0">
-                  {parity.gates.map((g) => <GateRow key={g.name} gate={g} />)}
+                  {parity.gates.map((g) => <GateRow key={g.gate} gate={g} />)}
                 </div>
                 {parity.blockedReason && (
                   <p className="mt-3 flex items-start gap-1.5 text-xs text-amber-600">
