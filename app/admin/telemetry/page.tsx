@@ -19,6 +19,16 @@ import {
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { cn } from "@/lib/utils";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -154,36 +164,57 @@ function FlagToggle({
   flagKey,
   value,
   onToggle,
-  toggling,
+  togglingKey,
+  isActive,
 }: {
   label: string;
   flagKey: string;
   value: boolean;
   onToggle: (key: string, value: boolean) => void;
-  toggling: boolean;
+  togglingKey: string | null;
+  isActive: boolean; // this flag is a pipeline-switching flag
 }) {
+  const busy = togglingKey === flagKey;
+  const anyBusy = togglingKey !== null;
+
   return (
     <div className="flex items-center justify-between py-2 border-b border-border/50 last:border-0">
-      <span className="text-sm font-mono">{label}</span>
+      <div className="flex items-center gap-2">
+        <span className="text-sm font-mono">{label}</span>
+        {isActive && (
+          <span className="text-[10px] font-medium px-1.5 py-0.5 rounded bg-amber-500/10 text-amber-600">
+            pipeline
+          </span>
+        )}
+      </div>
       <button
-        onClick={() => onToggle(flagKey, !value)}
-        disabled={toggling}
+        onClick={() => !anyBusy && onToggle(flagKey, !value)}
+        disabled={anyBusy}
         className={cn(
           "flex items-center gap-1.5 text-xs font-medium transition-colors",
+          anyBusy && "opacity-50 cursor-not-allowed",
+          !anyBusy && "cursor-pointer",
           value ? "text-emerald-600" : "text-muted-foreground"
         )}
-        title={value ? "Click to disable" : "Click to enable"}
+        title={anyBusy ? "Another flag is being updated…" : value ? "Click to disable" : "Click to enable"}
       >
-        {value
-          ? <ToggleRight className="h-5 w-5" />
-          : <ToggleLeft className="h-5 w-5" />}
-        {value ? "on" : "off"}
+        {busy ? (
+          <div className="h-4 w-4 rounded-full border-2 border-current border-t-transparent animate-spin" />
+        ) : value ? (
+          <ToggleRight className="h-5 w-5" />
+        ) : (
+          <ToggleLeft className="h-5 w-5" />
+        )}
+        {busy ? "" : value ? "on" : "off"}
       </button>
     </div>
   );
 }
 
 // ── Page ──────────────────────────────────────────────────────────────────────
+
+// Flags that require confirmation before enabling (they switch on live pipelines)
+const ACTIVE_FLAGS = new Set(["signalEvent_active", "canonicalIdentity_active", "signalThread_active", "dispatch_active"]);
 
 export default function TelemetryPage() {
   const router = useRouter();
@@ -192,7 +223,10 @@ export default function TelemetryPage() {
   const [dispatch, setDispatch] = useState<DispatchMetrics | null>(null);
   const [flags, setFlags] = useState<FeatureFlags | null>(null);
   const [context, setContext] = useState<ContextSummary | null>(null);
-  const [toggling, setToggling] = useState(false);
+  // Per-flag toggling state: key → true while that flag's API call is in flight
+  const [togglingKey, setTogglingKey] = useState<string | null>(null);
+  // Pending confirmation: key + intended value waiting for user approval
+  const [pendingToggle, setPendingToggle] = useState<{ key: string; value: boolean } | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -211,17 +245,38 @@ export default function TelemetryPage() {
 
   useEffect(() => { load(); }, [load]);
 
-  async function toggleFlag(key: string, value: boolean) {
-    setToggling(true);
+  async function commitToggle(key: string, value: boolean) {
+    // Optimistic update — flip the flag in local state immediately
+    setFlags((prev) => prev ? { ...prev, [key]: value } : prev);
+    setTogglingKey(key);
     try {
-      await fetch("/api/admin/feature-flags", {
+      const res = await fetch("/api/admin/feature-flags", {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ key, value }),
       });
-      await load();
+      if (res.ok) {
+        const data = await res.json();
+        // Sync with server's confirmed state (clears any optimistic drift)
+        if (data.flags) setFlags(data.flags);
+      } else {
+        // Revert optimistic update on error
+        setFlags((prev) => prev ? { ...prev, [key]: !value } : prev);
+      }
+    } catch {
+      // Revert on network error
+      setFlags((prev) => prev ? { ...prev, [key]: !value } : prev);
     } finally {
-      setToggling(false);
+      setTogglingKey(null);
+    }
+  }
+
+  function toggleFlag(key: string, value: boolean) {
+    // Enabling an _active flag requires confirmation (it switches a live pipeline)
+    if (value && ACTIVE_FLAGS.has(key)) {
+      setPendingToggle({ key, value });
+    } else {
+      void commitToggle(key, value);
     }
   }
 
@@ -399,7 +454,8 @@ export default function TelemetryPage() {
                       flagKey={key}
                       value={flags[key]}
                       onToggle={toggleFlag}
-                      toggling={toggling}
+                      togglingKey={togglingKey}
+                      isActive={ACTIVE_FLAGS.has(key)}
                     />
                   ))}
                 </div>
@@ -462,6 +518,33 @@ export default function TelemetryPage() {
         </div>
 
       </div>
+
+      {/* Confirmation dialog for pipeline-switching (_active) flags */}
+      <AlertDialog open={!!pendingToggle} onOpenChange={(open) => !open && setPendingToggle(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Enable {pendingToggle?.key}?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This flag switches a <strong>live pipeline</strong>. Once enabled, all incoming
+              signals will route through the new path. You can roll back instantly by
+              disabling it again (takes effect within 60 seconds).
+              <br /><br />
+              Make sure parity gates are satisfied before enabling.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel onClick={() => setPendingToggle(null)}>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => {
+                if (pendingToggle) void commitToggle(pendingToggle.key, pendingToggle.value);
+                setPendingToggle(null);
+              }}
+            >
+              Enable
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }
