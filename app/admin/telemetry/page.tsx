@@ -92,25 +92,54 @@ function pct(n: number): string {
   return `${(n * 100).toFixed(1)}%`;
 }
 
+function formatShadowAge(days: number): string {
+  if (days < 1 / 1440) {
+    // Less than 1 minute
+    const secs = Math.round(days * 86400);
+    return `${secs}s`;
+  }
+  if (days < 1 / 24) {
+    // Less than 1 hour
+    const mins = Math.round(days * 1440);
+    return `${mins}m`;
+  }
+  if (days < 1) {
+    // Less than 1 day
+    const hours = (days * 24).toFixed(1);
+    return `${hours}h`;
+  }
+  return `${days.toFixed(1)}d`;
+}
+
+// Rate gates store values as 0-100 floats (e.g. 100.0, 0.0) — append %.
+// Count/age gates (minSampleSize, minShadowDays) are plain numbers.
+function isRateGate(gateName: string): boolean {
+  const n = gateName.toLowerCase();
+  return n.includes("rate") || n.includes("matchrate");
+}
+
+function fmtGateVal(gate: ParityGate, field: "required" | "observed"): string {
+  const val = gate[field];
+  if (typeof val === "string") return val; // already formatted (e.g. "< 2")
+  if (isRateGate(gate.gate)) return `${val}%`;
+  return String(val);
+}
+
 function GateRow({ gate }: { gate: ParityGate }) {
   return (
     <div className="flex items-center justify-between py-1.5 border-b border-border/50 last:border-0">
       <span className="text-sm text-muted-foreground capitalize">
-        {gate.gate.replace(/_/g, " ")}
+        {gate.gate.replace(/([A-Z])/g, " $1").trim()}
       </span>
       <div className="flex items-center gap-3">
         <span className="text-xs font-mono text-muted-foreground">
-          need {typeof gate.required === "number" && (gate.required as number) < 1
-            ? pct(gate.required as number)
-            : String(gate.required)}
+          need {fmtGateVal(gate, "required")}
         </span>
         <span className={cn(
           "text-sm font-mono font-medium tabular-nums",
           gate.passed ? "text-emerald-600" : "text-red-500"
         )}>
-          {typeof gate.observed === "number" && (gate.observed as number) < 1
-            ? pct(gate.observed as number)
-            : String(gate.observed)}
+          {fmtGateVal(gate, "observed")}
         </span>
         {gate.passed
           ? <CheckCircle className="h-3.5 w-3.5 text-emerald-500" />
@@ -264,7 +293,7 @@ export default function TelemetryPage() {
                 <div className="grid grid-cols-3 gap-3 mb-4">
                   <div className="rounded-lg bg-muted/50 p-3 text-center">
                     <p className="text-2xl font-mono font-semibold tabular-nums">
-                      {parity.shadowDays}d
+                      {formatShadowAge(parity.shadowDays)}
                     </p>
                     <p className="text-xs text-muted-foreground mt-0.5">shadow age</p>
                   </div>
@@ -405,6 +434,7 @@ export default function TelemetryPage() {
                     ))}
                   </div>
                   <div className="rounded-md border border-border p-2.5 space-y-1.5">
+                    <p className="text-[10px] text-muted-foreground/60 mb-1.5">flags at context-build time (60s cache)</p>
                     {Object.entries(context.flagsActive).map(([key, val]) => (
                       <div key={key} className="flex items-center justify-between text-xs">
                         <span className="font-mono text-muted-foreground">{key}</span>

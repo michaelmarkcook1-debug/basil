@@ -152,6 +152,16 @@ export async function processRegularEmail(opts: ProcessEmailOpts): Promise<void>
       `[email-process] ${externalId} → ${intel.category} (confidence=${intel.confidence})`
     );
 
+    // ── Shadow comparison (runs on ALL classified emails, not just materialized) ──
+    // This gives parity data for every email that has new content, regardless of
+    // whether the old pipeline decided to materialize it. Moving this before
+    // shouldMaterialize avoids missing shadow comparisons for low-confidence emails.
+    const flagsForShadow = await getFlags(username);
+    const normInputForShadow = { opts, body, date, senderIsKnown: true };
+    if (flagsForShadow.signalEvent_shadow) {
+      void runGmailShadow(normInputForShadow, contentHash, username);
+    }
+
     if (!shouldMaterialize(intel)) {
       // Record in index so we don't re-classify this message on the next poll
       void recordIngest(username, { sourceRef, hash: contentHash });
@@ -201,16 +211,12 @@ export async function processRegularEmail(opts: ProcessEmailOpts): Promise<void>
     }
 
     // ── Primitive pipeline (Week 1-2 gated) ──────────────────────────────────
-    // signalEvent_shadow → observe + log diffs (old path remains authoritative)
-    // signalEvent_active → dual-write: write SignalEvent alongside old stores
-    // Both share the same normalizeGmailSignal() call to avoid double work.
+    // signalEvent_shadow — already fired above (before shouldMaterialize) so
+    //   we capture parity data for all classified emails, not just materialized ones.
+    // signalEvent_active → dual-write: write SignalEvent alongside old stores.
     // Fire-and-forget blocks: never throw into the old pipeline.
-    const flags = await getFlags(username);
-    const normInput = { opts, body, date, senderIsKnown: true };
-
-    if (flags.signalEvent_shadow) {
-      void runGmailShadow(normInput, contentHash, username);
-    }
+    const flags = flagsForShadow; // reuse flags already fetched above
+    const normInput = normInputForShadow; // reuse normInput already built above
 
     if (flags.signalEvent_active) {
       // Dual-write: produce a fully-populated SignalEvent, enrich it through
