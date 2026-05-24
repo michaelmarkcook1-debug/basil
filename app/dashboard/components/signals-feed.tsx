@@ -13,6 +13,10 @@ import {
   Users,
   Pin,
   CircleDot,
+  Zap,
+  TrendingUp,
+  AlertCircle,
+  CheckSquare,
 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -21,7 +25,50 @@ import { cn } from "@/lib/utils";
 import { basilFetch, BasilFetchError } from "@/lib/basil-fetch";
 import { DataState } from "@/components/ui/data-state";
 
-type Tab = "priority" | "mail" | "slack" | "linear";
+type Tab = "priority" | "mail" | "slack" | "linear" | "ranked";
+
+// ── Ranked signal view (from /api/signals/ranked) ─────────────────────────────
+
+interface RankedParticipant {
+  name: string;
+  email?: string;
+  role: string;
+  canonicalId?: string;
+}
+
+interface RankedSignalRanking {
+  score: number;
+  urgency: number;
+  hierarchy: number;
+  commercialImpact: number;
+  relationshipWeight: number;
+  commitmentRisk: number;
+  meetingProximity: number;
+  explanation: string[];
+  rankedAt: string;
+}
+
+interface RankedSignalView {
+  id: string;
+  sourceRef: string;
+  source: string;
+  title: string;
+  snippet: string;
+  category: string;
+  occurredAt: string;
+  participants: RankedParticipant[];
+  actionCount: number;
+  decisionCount: number;
+  ranking: RankedSignalRanking;
+}
+
+interface RankedResponse {
+  signals: RankedSignalView[];
+  total: number;
+  thresholds: { surface: number; digest: number };
+  flagsActive: { signalEvent_active: boolean; ranking_active: boolean };
+  hint?: string;
+}
 
 interface Email {
   id: string;
@@ -225,6 +272,7 @@ export function SignalsFeed() {
   const [mail, setMail] = useState<{ connected: boolean; emails: Email[] } | null>(null);
   const [slack, setSlack] = useState<{ connected: boolean; messages: SlackMessage[] } | null>(null);
   const [linear, setLinear] = useState<{ connected: boolean; issues: LinearIssueData[] } | null>(null);
+  const [ranked, setRanked] = useState<RankedResponse | null>(null);
   const [tab, setTab] = useState<Tab>("priority");
   const [loading, setLoading] = useState(true);
   const [fetchError, setFetchError] = useState<BasilFetchError | Error | null>(null);
@@ -236,14 +284,19 @@ export function SignalsFeed() {
       basilFetch<{ connected: boolean; emails: Email[] }>("/api/email", { component: "SignalsFeed" }),
       basilFetch<{ connected: boolean; messages: SlackMessage[] }>("/api/slack", { component: "SignalsFeed" }),
       basilFetch<{ connected: boolean; issues: LinearIssueData[] }>("/api/linear", { component: "SignalsFeed" }),
-    ]).then(([mResult, sResult, lResult]) => {
+      basilFetch<RankedResponse>("/api/signals/ranked?tier=digest&limit=25", { component: "SignalsFeed" }),
+    ]).then(([mResult, sResult, lResult, rResult]) => {
       // Apply each result independently — one failed endpoint shouldn't blank the others
       if (mResult.status === "fulfilled") setMail(mResult.value);
       if (sResult.status === "fulfilled") setSlack(sResult.value);
       if (lResult.status === "fulfilled") setLinear(lResult.value);
+      if (rResult.status === "fulfilled") setRanked(rResult.value);
 
-      // Only surface an error if ALL three failed (partial data is still useful)
-      if (mResult.status === "rejected" && sResult.status === "rejected" && lResult.status === "rejected") {
+      // Only surface an error if ALL four failed (partial data is still useful)
+      if (
+        mResult.status === "rejected" && sResult.status === "rejected" &&
+        lResult.status === "rejected" && rResult.status === "rejected"
+      ) {
         setFetchError(mResult.reason instanceof Error ? mResult.reason : new Error("Failed to load signals"));
       }
       setLoading(false);
@@ -413,6 +466,9 @@ export function SignalsFeed() {
   const linearConnected = linear?.connected;
   const allDisconnected = !mailConnected && !slackConnected && !linearConnected;
 
+  const rankedSignals = ranked?.signals ?? [];
+  const rankedActive = ranked?.flagsActive?.ranking_active ?? false;
+
   return (
     <Card className="flex flex-col">
       <CardHeader className="pb-1">
@@ -451,60 +507,99 @@ export function SignalsFeed() {
             onClick={() => setTab("linear")}
             connected={linear === null ? undefined : !!linear.connected}
           />
+          <TabButton
+            label="Ranked"
+            count={rankedActive ? rankedSignals.length : undefined}
+            active={tab === "ranked"}
+            onClick={() => setTab("ranked")}
+          />
         </div>
       </CardHeader>
       <CardContent className="pt-3">
-        {loading ? (
-          <div className="space-y-3">
-            {Array.from({ length: 4 }).map((_, i) => (
-              <div key={i} className="space-y-1.5">
-                <Skeleton className="h-3.5 w-1/3" />
-                <Skeleton className="h-3 w-full" />
-              </div>
-            ))}
-          </div>
-        ) : fetchError ? (
-          <DataState error={fetchError} fill />
-        ) : allDisconnected ? (
-          <div className="flex flex-col items-center py-8 text-center">
-            <Unplug className="h-8 w-8 text-muted-foreground/40 mb-2" />
-            <p className="text-sm text-muted-foreground">Connect Gmail, Slack, or Linear to see signals.</p>
-            <Link
-              href="/dashboard/settings"
-              className="text-xs text-[oklch(0.72_0.15_85)] hover:underline mt-2"
-            >
-              Settings →
-            </Link>
-          </div>
-        ) : shown.length === 0 ? (
-          <div className="py-8 text-center">
-            <Sparkles className="h-6 w-6 text-[oklch(0.72_0.15_85)]/60 mx-auto mb-2" />
-            <p className="text-sm text-muted-foreground">
-              {tab === "priority"
-                ? "Inbox zero. Nothing urgent."
-                : tab === "linear" && !linearConnected
-                  ? "Connect Linear in Settings to see issues."
-                  : "Nothing new."}
-            </p>
-            {tab === "linear" && !linearConnected && (
+        {/* ── Ranked tab has its own render path ─────────────────────────── */}
+        {tab === "ranked" ? (
+          loading ? (
+            <div className="space-y-3">
+              {Array.from({ length: 4 }).map((_, i) => (
+                <div key={i} className="space-y-1.5">
+                  <Skeleton className="h-3.5 w-1/3" />
+                  <Skeleton className="h-3 w-full" />
+                </div>
+              ))}
+            </div>
+          ) : !rankedActive ? (
+            <div className="py-8 text-center">
+              <TrendingUp className="h-6 w-6 text-muted-foreground/30 mx-auto mb-2" />
+              <p className="text-sm text-muted-foreground">
+                {ranked?.hint ?? "Enable ranking_active flag to see Basil's scored signals."}
+              </p>
+            </div>
+          ) : rankedSignals.length === 0 ? (
+            <div className="py-8 text-center">
+              <Sparkles className="h-6 w-6 text-[oklch(0.72_0.15_85)]/60 mx-auto mb-2" />
+              <p className="text-sm text-muted-foreground">No signals above score threshold yet.</p>
+            </div>
+          ) : (
+            <div className="space-y-0.5 max-h-[380px] overflow-y-auto -mx-2 pr-1">
+              {rankedSignals.map((s) => (
+                <RankedSignalRow key={s.id} signal={s} />
+              ))}
+            </div>
+          )
+        ) : (
+          /* ── Standard tabs ──────────────────────────────────────────────── */
+          loading ? (
+            <div className="space-y-3">
+              {Array.from({ length: 4 }).map((_, i) => (
+                <div key={i} className="space-y-1.5">
+                  <Skeleton className="h-3.5 w-1/3" />
+                  <Skeleton className="h-3 w-full" />
+                </div>
+              ))}
+            </div>
+          ) : fetchError ? (
+            <DataState error={fetchError} fill />
+          ) : allDisconnected ? (
+            <div className="flex flex-col items-center py-8 text-center">
+              <Unplug className="h-8 w-8 text-muted-foreground/40 mb-2" />
+              <p className="text-sm text-muted-foreground">Connect Gmail, Slack, or Linear to see signals.</p>
               <Link
                 href="/dashboard/settings"
-                className="text-xs text-[oklch(0.72_0.15_85)] hover:underline mt-2 inline-block"
+                className="text-xs text-[oklch(0.72_0.15_85)] hover:underline mt-2"
               >
                 Settings →
               </Link>
-            )}
-          </div>
-        ) : (
-          <div className="space-y-0.5 max-h-[380px] overflow-y-auto -mx-2 pr-1">
-            {shown.slice(0, 14).map((s) => (
-              <SignalRow
-                key={s.id}
-                signal={s}
-                onExpand={(ts) => s.channelId && markSeen(s.channelId, ts)}
-              />
-            ))}
-          </div>
+            </div>
+          ) : shown.length === 0 ? (
+            <div className="py-8 text-center">
+              <Sparkles className="h-6 w-6 text-[oklch(0.72_0.15_85)]/60 mx-auto mb-2" />
+              <p className="text-sm text-muted-foreground">
+                {tab === "priority"
+                  ? "Inbox zero. Nothing urgent."
+                  : tab === "linear" && !linearConnected
+                    ? "Connect Linear in Settings to see issues."
+                    : "Nothing new."}
+              </p>
+              {tab === "linear" && !linearConnected && (
+                <Link
+                  href="/dashboard/settings"
+                  className="text-xs text-[oklch(0.72_0.15_85)] hover:underline mt-2 inline-block"
+                >
+                  Settings →
+                </Link>
+              )}
+            </div>
+          ) : (
+            <div className="space-y-0.5 max-h-[380px] overflow-y-auto -mx-2 pr-1">
+              {shown.slice(0, 14).map((s) => (
+                <SignalRow
+                  key={s.id}
+                  signal={s}
+                  onExpand={(ts) => s.channelId && markSeen(s.channelId, ts)}
+                />
+              ))}
+            </div>
+          )
         )}
       </CardContent>
     </Card>
@@ -700,6 +795,95 @@ function SignalRow({
                 <p className="text-muted-foreground">{clipSignal(m.text, 320)}</p>
               </div>
             ))
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── Ranked signal row ─────────────────────────────────────────────────────────
+
+const CATEGORY_LABELS: Record<string, string> = {
+  action_required:    "Action",
+  decision_made:      "Decision",
+  relationship_signal:"Relation",
+  commercial_signal:  "Commercial",
+  meeting_intelligence:"Meeting",
+  document_activity:  "Document",
+  issue_update:       "Issue",
+  low_value_noise:    "Noise",
+  unknown:            "Unknown",
+};
+
+const SCORE_COLOR = (score: number) =>
+  score >= 0.70 ? "text-[oklch(0.72_0.15_85)] bg-[oklch(0.72_0.15_85)]/10"
+  : score >= 0.50 ? "text-amber-600 bg-amber-500/10"
+  : "text-muted-foreground bg-muted";
+
+const SOURCE_ICON: Record<string, React.ReactNode> = {
+  gmail:    <Mail className="h-3.5 w-3.5 text-blue-500/70" />,
+  outlook:  <Mail className="h-3.5 w-3.5 text-blue-600/70" />,
+  slack:    <Hash className="h-3.5 w-3.5 text-amber-500/80" />,
+  teams:    <Hash className="h-3.5 w-3.5 text-violet-500/70" />,
+  linear:   <CircleDot className="h-3.5 w-3.5 text-violet-500/70" />,
+};
+
+function RankedSignalRow({ signal: s }: { signal: RankedSignalView }) {
+  const score = s.ranking.score;
+  const isUrgent = s.ranking.urgency >= 0.7;
+
+  return (
+    <div className="group relative rounded-md px-2 py-2 hover:bg-accent/40 transition-colors">
+      {/* Left accent: gold for surface-tier, muted for digest-tier */}
+      {score >= 0.70 && (
+        <span className="absolute left-0 top-2.5 h-[calc(100%-1.25rem)] w-[2px] rounded-r-full bg-[oklch(0.72_0.15_85)]" />
+      )}
+      <div className="flex items-center gap-2 mb-0.5">
+        {/* Source icon */}
+        <span className="shrink-0">
+          {SOURCE_ICON[s.source] ?? <Zap className="h-3.5 w-3.5 text-muted-foreground/50" />}
+        </span>
+        {/* Title */}
+        <span className="text-xs font-medium truncate">{s.title}</span>
+        {/* Urgency flash */}
+        {isUrgent && (
+          <span title="High urgency">
+            <AlertCircle className="h-3 w-3 text-red-500 shrink-0" />
+          </span>
+        )}
+        {/* Category badge */}
+        <span className="rounded-sm bg-muted text-muted-foreground text-[11px] font-mono uppercase tracking-wider px-1.5 py-0.5 shrink-0">
+          {CATEGORY_LABELS[s.category] ?? s.category}
+        </span>
+        {/* Score pill */}
+        <span className={cn(
+          "rounded-sm text-[11px] font-mono tabular-nums px-1.5 py-0.5 shrink-0 ml-auto",
+          SCORE_COLOR(score)
+        )}>
+          {(score * 100).toFixed(0)}
+        </span>
+        <span className="text-[12px] font-mono text-muted-foreground shrink-0 tabular-nums">
+          {relTime(s.occurredAt)}
+        </span>
+      </div>
+      <p className="text-xs text-muted-foreground truncate pl-5">
+        <span className="text-foreground/80">{s.snippet}</span>
+      </p>
+      {/* Action / decision counts */}
+      {(s.actionCount > 0 || s.decisionCount > 0) && (
+        <div className="flex items-center gap-2 mt-1 pl-5">
+          {s.actionCount > 0 && (
+            <span className="flex items-center gap-0.5 text-[11px] text-muted-foreground">
+              <CheckSquare className="h-2.5 w-2.5" />
+              {s.actionCount} action{s.actionCount !== 1 ? "s" : ""}
+            </span>
+          )}
+          {s.decisionCount > 0 && (
+            <span className="flex items-center gap-0.5 text-[11px] text-muted-foreground">
+              <Zap className="h-2.5 w-2.5" />
+              {s.decisionCount} decision{s.decisionCount !== 1 ? "s" : ""}
+            </span>
           )}
         </div>
       )}

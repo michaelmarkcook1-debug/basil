@@ -125,10 +125,15 @@ export default function AdminPage() {
             </div>
             <p className="text-sm text-muted-foreground">Manage users, sessions, and account access.</p>
           </div>
-          <Button variant="outline" size="sm" onClick={load} disabled={loading} className="gap-1.5 shrink-0">
-            <RefreshCw className={cn("h-3.5 w-3.5", loading && "animate-spin")} />
-            Refresh
-          </Button>
+          <div className="flex items-center gap-2 shrink-0">
+            <Button variant="outline" size="sm" onClick={() => router.push("/admin/telemetry")} className="gap-1.5">
+              Telemetry
+            </Button>
+            <Button variant="outline" size="sm" onClick={load} disabled={loading} className="gap-1.5">
+              <RefreshCw className={cn("h-3.5 w-3.5", loading && "animate-spin")} />
+              Refresh
+            </Button>
+          </div>
         </div>
 
         {/* Stats row */}
