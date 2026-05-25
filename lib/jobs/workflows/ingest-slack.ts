@@ -28,6 +28,7 @@ async function processSlackStep(username: string, payload: IngestSlackPayload): 
   const { hashContent } = await import("@/lib/ingest/content-hash");
   const { isHashUnchanged, recordIngest } = await import("@/lib/ingest/index");
   const { appendAuditEntries, auditSkipped } = await import("@/lib/ingest/audit-log");
+  const { getSelfIdentity } = await import("@/lib/self-identity");
 
   const {
     channelId,
@@ -42,10 +43,13 @@ async function processSlackStep(username: string, payload: IngestSlackPayload): 
     bodyFallback,
   } = payload;
 
+  const selfIdentity = await getSelfIdentity(username).catch(() => ({ emails: [], names: [] }));
+  const selfDisplayName = selfIdentity.names[0] ?? undefined;
+
   const threadMessages = await fetchSlackThread(username, channelId, messageTs);
   const transcript =
     threadMessages.length > 0
-      ? formatThreadTranscript(threadMessages, channelName)
+      ? formatThreadTranscript(threadMessages, channelName, selfDisplayName)
       : `Channel: ${channelName}\n\n${from}: ${bodyFallback || ""}`;
 
   const contentHash = hashContent(channelName, transcript);
@@ -80,6 +84,7 @@ async function processSlackStep(username: string, payload: IngestSlackPayload): 
     from,
     date,
     username,
+    isDM,
   });
 
   const actionIds = result.auditEntries

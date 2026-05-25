@@ -24,6 +24,7 @@ import { relativeTime } from "@/lib/utils";
 import { cn } from "@/lib/utils";
 import { basilFetch, BasilFetchError } from "@/lib/basil-fetch";
 import { DataState } from "@/components/ui/data-state";
+import { ConfidenceMeter } from "@/components/ui/trust-ui";
 
 type Tab = "priority" | "mail" | "slack" | "linear" | "ranked";
 
@@ -184,14 +185,43 @@ const PINNED_SLOTS: Array<{
   },
 ];
 
-/** Cap overly long signal bodies so one wall-of-text message can't dominate
- *  the feed. The row itself uses `truncate` CSS for single-line collapse, but
- *  expanded Slack history wraps — and we'd rather show "…" than 5 lines. */
+/**
+ * Strip Slack's mrkdwn formatting codes so raw API text is readable in the feed.
+ * Handles: <!date^ts^fmt|fallback>, <url|label>, <@USERID>, <!channel>, *bold*, _italic_
+ */
+function stripSlackFormatting(text: string): string {
+  return text
+    // Date tokens: <!date^unix^format|fallback> → use the human fallback
+    .replace(/<!date\^[^|>]*\|([^>]*)>/g, "$1")
+    // Special commands: <!channel>, <!here>, <!everyone>
+    .replace(/<!(\w+)>/g, "@$1")
+    // User/channel mentions: <@USERID> or <#CHANID|name>
+    .replace(/<@[A-Z0-9]+>/g, "")
+    .replace(/<#[A-Z0-9]+\|([^>]+)>/g, "#$1")
+    // Labelled URLs: <https://...|label> → label
+    .replace(/<https?:\/\/[^|>]+\|([^>]+)>/g, "$1")
+    // Bare URLs: <https://...> → strip angle brackets
+    .replace(/<(https?:\/\/[^>]+)>/g, "$1")
+    // Bold/italic mrkdwn
+    .replace(/\*([^*]+)\*/g, "$1")
+    .replace(/_([^_]+)_/g, "$1")
+    // Multiple spaces/newlines → single space
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+/**
+ * Known Slack bot usernames / display names that should NOT be treated as
+ * human DMs even though they arrive in a "DM:" channel.
+ */
+const SLACK_BOT_NAMES = /^(google calendar|slackbot|workflow builder|zapier|github|jira|asana|linear|notion|zoom|calendly|intercom|datadog|pagerduty|sentry|stripe|heroku|jenkins|circleci|hubspot|salesforce)$/i;
+
+/** Cap overly long signal bodies. */
 function clipSignal(text: string, max = 220): string {
   if (!text) return "";
-  const trimmed = text.trim();
-  if (trimmed.length <= max) return trimmed;
-  return trimmed.slice(0, max - 1).trimEnd() + "…";
+  const cleaned = stripSlackFormatting(text);
+  if (cleaned.length <= max) return cleaned;
+  return cleaned.slice(0, max - 1).trimEnd() + "…";
 }
 
 function relTime(d: string): string {
@@ -327,6 +357,9 @@ export function SignalsFeed() {
         : isDM
           ? "dm"
           : "channel";
+      // Bots (Google Calendar, Slackbot, etc.) arrive as DMs but are not human —
+      // exclude them from priority even though isDM is true.
+      const isBot = SLACK_BOT_NAMES.test(m.author.trim());
       return {
         id: `slack-${m.id}`,
         kind: "slack",
@@ -334,7 +367,7 @@ export function SignalsFeed() {
         subtitle: m.channel,
         body: clipSignal(m.text),
         date: m.date,
-        priority: m.isMention || isDM || isGroup,
+        priority: !isBot && (m.isMention || isDM || isGroup),
         isDM,
         isGroup,
         isMention: m.isMention,
@@ -457,7 +490,10 @@ export function SignalsFeed() {
         : tab === "slack"
           ? [
               ...pinnedSignals,
-              ...slackOnly.filter((s) => !pinnedSourceIds.has(s.id)),
+              // Only show signals relevant to the user: DMs, mentions, group DMs.
+              // Channel noise (posts in channels the user doesn't participate in)
+              // and bot DMs (Google Calendar, Slackbot, etc.) are excluded.
+              ...slackOnly.filter((s) => s.priority && !pinnedSourceIds.has(s.id)),
             ]
           : linearOnly;
 
@@ -856,12 +892,9 @@ function RankedSignalRow({ signal: s }: { signal: RankedSignalView }) {
         <span className="rounded-sm bg-muted text-muted-foreground text-[11px] font-mono uppercase tracking-wider px-1.5 py-0.5 shrink-0">
           {CATEGORY_LABELS[s.category] ?? s.category}
         </span>
-        {/* Score pill */}
-        <span className={cn(
-          "rounded-sm text-[11px] font-mono tabular-nums px-1.5 py-0.5 shrink-0 ml-auto",
-          SCORE_COLOR(score)
-        )}>
-          {(score * 100).toFixed(0)}
+        {/* Score — compact meter replaces raw number */}
+        <span className="ml-auto shrink-0 w-14">
+          <ConfidenceMeter value={score} showLabel={false} />
         </span>
         <span className="text-[12px] font-mono text-muted-foreground shrink-0 tabular-nums">
           {relTime(s.occurredAt)}

@@ -119,7 +119,14 @@ export default function LoginPage() {
 
     if (res.ok) {
       const data = await res.json() as { ok: boolean; emailSent?: boolean; resetUrl?: string };
-      setResetUrl(data.resetUrl ?? "");
+      if (!data.resetUrl) {
+        // Account not found — API returns ok:true deliberately to prevent enumeration,
+        // but we want to give the user a clear message rather than an empty state.
+        setFpError("No account found with that email or username. Check the spelling and try again.");
+        setFpLoading(false);
+        return;
+      }
+      setResetUrl(data.resetUrl);
       setEmailSent(data.emailSent ?? false);
       setView("forgot-sent");
     } else {

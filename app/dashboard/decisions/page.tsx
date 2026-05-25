@@ -23,7 +23,6 @@ import {
   Lightbulb,
   GitBranch,
   ShieldQuestion,
-  ThumbsUp,
   X,
   Trash2,
   CheckCircle2,
@@ -35,6 +34,7 @@ import { dashboardCache } from "@/lib/dashboard-cache";
 import type { Decision } from "@/lib/types/decision";
 import { DataState } from "@/components/ui/data-state";
 import { EvidencePanel } from "@/components/ui/trust-badge";
+import { TrustReviewPrompt } from "@/components/ui/trust-ui";
 
 const LEGACY_STORAGE_KEY = "sage-decisions";
 
@@ -246,25 +246,14 @@ function DecisionCard({
               {d.needsReview && <NeedsReviewBadge />}
             </div>
 
-            {/* ── Review controls ─────────────────────────────────────── */}
+            {/* ── Review prompt ────────────────────────────────────────── */}
             {d.needsReview && (
-              <div className="flex items-center gap-2 mt-2 pt-2 border-t border-amber-100">
-                <span className="text-[11px] text-amber-700">Basil extracted this — looks right?</span>
-                <button
-                  onClick={() => onConfirmReview?.(d.id)}
-                  className="inline-flex items-center gap-1 rounded-md bg-amber-50 border border-amber-200 px-2 py-0.5 text-[11px] text-amber-700 hover:bg-amber-100 transition-colors"
-                >
-                  <ThumbsUp className="h-3 w-3" />
-                  Confirm
-                </button>
-                <button
-                  onClick={() => onDelete?.(d.id)}
-                  className="inline-flex items-center gap-1 rounded-md bg-red-50 border border-red-200 px-2 py-0.5 text-[11px] text-red-600 hover:bg-red-100 transition-colors"
-                >
-                  <X className="h-3 w-3" />
-                  Dismiss
-                </button>
-              </div>
+              <TrustReviewPrompt
+                artifactType="decision"
+                onConfirm={() => onConfirmReview?.(d.id)}
+                onDismiss={() => onDelete?.(d.id)}
+                className="mt-2"
+              />
             )}
 
             {/* ── Summary (always shown when present, no expand needed) ─ */}

@@ -114,15 +114,28 @@ export async function fetchSlackThread(
  *
  *   Alice: We need to decide on the API approach.
  *   Bob: I think REST is safer for now.
- *   Alice: Agreed — let's go with REST. @Michael can you update the spec?
+ *   [You]: Agreed — let's go with REST. I'll update the spec.
+ *   Alice: Thanks!
+ *
+ * When `selfName` is provided, messages whose author matches Michael's display
+ * name are rendered as "[You]: text" instead of "Michael Cook: text". This
+ * lets the classifier distinguish messages Michael sent from messages he received.
  */
 export function formatThreadTranscript(
   messages: SlackThreadMessage[],
-  channelName: string
+  channelName: string,
+  selfName?: string
 ): string {
   if (messages.length === 0) return "";
 
-  const lines = messages.map((m) => `${m.author}: ${m.text}`);
+  const selfLower = selfName?.trim().toLowerCase();
+
+  const lines = messages.map((m) => {
+    const isSelf = selfLower && m.author.trim().toLowerCase() === selfLower;
+    const label = isSelf ? "[You]" : m.author;
+    return `${label}: ${m.text}`;
+  });
+
   const full = `Channel: ${channelName}\n\n${lines.join("\n")}`;
   return full.slice(0, MAX_TRANSCRIPT_CHARS);
 }

@@ -400,7 +400,7 @@ export async function POST(req: Request) {
     else if (a.dueDate) flags.push(`due ${a.dueDate}`);
     if (a.priority === "high") flags.push("HIGH PRIORITY");
     if (isActionStalled(a)) flags.push("STALLED");
-    if (a.owner && a.owner !== "Michael Cook") flags.push(`owner: ${a.owner}`);
+    if (a.owner && a.owner !== (settings?.name ?? username)) flags.push(`owner: ${a.owner}`);
     if (a.source && a.source !== "manual") flags.push(a.source);
     if (a.needsReview) flags.push("UNCONFIRMED — awaiting review");
     return `- ${a.text}${flags.length ? ` (${flags.join(", ")})` : ""}`;

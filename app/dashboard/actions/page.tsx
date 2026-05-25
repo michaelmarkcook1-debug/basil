@@ -42,6 +42,7 @@ import { DataState } from "@/components/ui/data-state";
 import { usePersistentDraft } from "@/lib/hooks/use-persistent-draft";
 import { DraftSavedIndicator } from "@/components/ui/draft-saved-indicator";
 import { EvidencePanel } from "@/components/ui/trust-badge";
+import { TrustReviewPrompt } from "@/components/ui/trust-ui";
 
 const LEGACY_STORAGE_KEY = "sage-actions";
 
@@ -295,27 +296,14 @@ function ActionCard({
             />
           )}
 
-          {/* Review controls — confirm keeps it, dismiss removes it */}
+          {/* Review prompt — confirm keeps it, dismiss removes it */}
           {action.needsReview && (
-            <div className="flex items-center gap-2 mt-2 pt-2 border-t border-amber-100">
-              <span className="text-[11px] text-amber-700">Basil extracted this — looks right?</span>
-              <button
-                onClick={() => onConfirmReview?.(action.id)}
-                className="inline-flex items-center gap-1 rounded px-2 py-0.5 text-[11px] font-medium bg-emerald-50 text-emerald-700 hover:bg-emerald-100 transition-colors border border-emerald-200"
-                title="Confirm — trust this action"
-              >
-                <ThumbsUp className="h-2.5 w-2.5" />
-                Confirm
-              </button>
-              <button
-                onClick={() => onDelete(action.id)}
-                className="inline-flex items-center gap-1 rounded px-2 py-0.5 text-[11px] font-medium bg-red-50 text-red-600 hover:bg-red-100 transition-colors border border-red-200"
-                title="Dismiss — remove this action"
-              >
-                <X className="h-2.5 w-2.5" />
-                Dismiss
-              </button>
-            </div>
+            <TrustReviewPrompt
+              artifactType="action"
+              onConfirm={() => onConfirmReview?.(action.id)}
+              onDismiss={() => onDelete(action.id)}
+              className="mt-2"
+            />
           )}
         </div>
 
@@ -622,7 +610,7 @@ export default function ActionsPage() {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         text: form.text,
-        owner: form.owner || "Michael Cook",
+        owner: form.owner || undefined,
         ownerId: findContactByName(form.owner)?.id,
         dueDate: form.due || undefined,
         source: form.source,
@@ -1076,18 +1064,34 @@ export default function ActionsPage() {
             />
           )}
           {statusFilter === "review" && (
-            <CollapsibleSection
-              label="Needs Review"
-              accent="text-amber-600"
-              items={filtered}
-              defaultOpen={true}
-              onToggle={toggleDone}
-              onDelete={handleDelete}
-              onConfirmReview={handleConfirmReview}
-              onDecisionClick={handleDecisionClick}
-              todayStr={todayStr}
-              photos={photos}
-            />
+            <>
+              {filtered.length > 1 && (
+                <div className="flex justify-end mb-2">
+                  <button
+                    type="button"
+                    onClick={async () => {
+                      if (!confirm(`Dismiss all ${filtered.length} review items? This cannot be undone.`)) return;
+                      await Promise.all(filtered.map((a) => handleDelete(a.id)));
+                    }}
+                    className="text-xs text-muted-foreground hover:text-destructive border border-border rounded px-3 py-1.5 transition-colors"
+                  >
+                    Dismiss all ({filtered.length})
+                  </button>
+                </div>
+              )}
+              <CollapsibleSection
+                label="Needs Review"
+                accent="text-amber-600"
+                items={filtered}
+                defaultOpen={true}
+                onToggle={toggleDone}
+                onDelete={handleDelete}
+                onConfirmReview={handleConfirmReview}
+                onDecisionClick={handleDecisionClick}
+                todayStr={todayStr}
+                photos={photos}
+              />
+            </>
           )}
 
           {statusFilter !== "review" && (

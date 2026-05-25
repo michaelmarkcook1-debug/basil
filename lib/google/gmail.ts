@@ -238,6 +238,24 @@ export interface SentReplyInfo {
 }
 
 /**
+ * Returns the email address of the authenticated Gmail account (from users.getProfile).
+ * This is the canonical address to use for self-sent mail detection — it works regardless
+ * of what email is registered in the Basil user record.
+ * Returns null if Gmail is not connected or the call fails.
+ */
+export async function getGmailAddress(username: string): Promise<string | null> {
+  try {
+    const auth = await getAuthedClient(username);
+    if (!auth) return null;
+    const gmail = google.gmail({ version: "v1", auth });
+    const profile = await gmail.users.getProfile({ userId: "me" });
+    return profile.data.emailAddress?.toLowerCase() ?? null;
+  } catch {
+    return null;
+  }
+}
+
+/**
  * Given an original Gmail message ID and the action creation timestamp, checks
  * whether the user sent a reply in that thread AFTER the action was created.
  *

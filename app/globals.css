@@ -4,6 +4,25 @@
 
 @custom-variant dark (&:is(.dark *));
 
+/**
+ * ─────────────────────────────────────────────────────────────────────────────
+ * BASIL DESIGN SYSTEM v2
+ *
+ * Operational intelligence platform — calm, composed, trustworthy.
+ *
+ * Philosophy
+ * ──────────────────────────────────────────────────────────────────────────────
+ * 1. Flat surfaces over floating cards   Information lives on planes, not bubbles.
+ * 2. Typography carries hierarchy        Weight and scale over colour and decoration.
+ * 3. Colour reserved for meaning         No decorative colour — only signal colour.
+ * 4. Motion serves cognition             Transitions aid spatial orientation, not delight.
+ * 5. Density with breathing room         Tight information clusters, generous section gaps.
+ * 6. Numbers are first-class             Tabular, monospaced where aligned, always legible.
+ *
+ * Reference: Linear · Bloomberg · Palantir Foundry · Mercury · Pitch
+ * ─────────────────────────────────────────────────────────────────────────────
+ */
+
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
@@ -48,192 +67,611 @@
   --radius-4xl: calc(var(--radius) * 2.6);
 }
 
-/* Navy, Gold & White — clean, executive, premium */
+/* ─── Light mode ──────────────────────────────────────────────────────────── */
 :root {
-  --background: oklch(0.97 0.003 240);
-  --foreground: oklch(0.18 0.04 250);
-  --card: oklch(1.0 0 0);
-  --card-foreground: oklch(0.18 0.04 250);
-  --popover: oklch(1.0 0 0);
-  --popover-foreground: oklch(0.18 0.04 250);
-  --primary: oklch(0.28 0.06 250);
-  --primary-foreground: oklch(0.97 0.003 240);
-  --secondary: oklch(0.95 0.005 240);
-  --secondary-foreground: oklch(0.28 0.06 250);
-  --muted: oklch(0.94 0.005 240);
-  --muted-foreground: oklch(0.48 0.03 250);
-  --accent: oklch(0.94 0.005 240);
-  --accent-foreground: oklch(0.22 0.05 250);
-  --destructive: oklch(0.55 0.20 25);
-  --border: oklch(0.90 0.008 240);
-  --input: oklch(0.94 0.005 240);
-  --ring: oklch(0.72 0.15 85);
-  --chart-1: oklch(0.28 0.06 250);
-  --chart-2: oklch(0.72 0.15 85);
-  --chart-3: oklch(0.50 0.05 250);
-  --chart-4: oklch(0.82 0.10 85);
-  --chart-5: oklch(0.38 0.05 250);
-  --radius: 0.625rem;
-  --sidebar: oklch(0.22 0.05 250);
-  --sidebar-foreground: oklch(0.90 0.01 240);
-  --sidebar-primary: oklch(0.72 0.15 85);
+  /* Core palette */
+  --background:          oklch(0.965 0.004 245);
+  --foreground:          oklch(0.16 0.042 252);
+  --card:                oklch(0.995 0.001 240);
+  --card-foreground:     oklch(0.16 0.042 252);
+  --popover:             oklch(0.995 0.001 240);
+  --popover-foreground:  oklch(0.16 0.042 252);
+  --primary:             oklch(0.26 0.062 252);
+  --primary-foreground:  oklch(0.97 0.003 240);
+  --secondary:           oklch(0.94 0.006 245);
+  --secondary-foreground:oklch(0.26 0.062 252);
+  --muted:               oklch(0.93 0.006 245);
+  --muted-foreground:    oklch(0.46 0.028 252);
+  --accent:              oklch(0.93 0.006 245);
+  --accent-foreground:   oklch(0.20 0.050 252);
+  --destructive:         oklch(0.52 0.18 24);
+  --border:              oklch(0.88 0.010 245);
+  --input:               oklch(0.93 0.006 245);
+  --ring:                oklch(0.72 0.15 85);
+  --radius:              0.5rem;
+
+  /* Surface elevation (light) */
+  --surface-0:   oklch(0.965 0.004 245);   /* page background  */
+  --surface-1:   oklch(0.995 0.001 240);   /* cards            */
+  --surface-2:   oklch(0.985 0.003 242);   /* raised panels    */
+  --surface-3:   oklch(0.975 0.004 244);   /* dialogs          */
+  --surface-border: oklch(0.88 0.010 245);
+
+  /* Sidebar */
+  --sidebar:                oklch(0.22 0.050 252);
+  --sidebar-foreground:     oklch(0.90 0.010 242);
+  --sidebar-primary:        oklch(0.72 0.15 85);
   --sidebar-primary-foreground: oklch(0.18 0.04 250);
-  --sidebar-accent: oklch(0.28 0.06 250);
-  --sidebar-accent-foreground: oklch(0.93 0.005 240);
-  --sidebar-border: oklch(0.30 0.05 250);
-  --sidebar-ring: oklch(0.72 0.15 85);
+  --sidebar-accent:         oklch(0.28 0.058 252);
+  --sidebar-accent-foreground: oklch(0.93 0.006 242);
+  --sidebar-border:         oklch(0.30 0.050 252);
+  --sidebar-ring:           oklch(0.72 0.15 85);
+
+  /* Charts */
+  --chart-1: oklch(0.28 0.062 252);
+  --chart-2: oklch(0.72 0.150 85);
+  --chart-3: oklch(0.52 0.050 252);
+  --chart-4: oklch(0.82 0.100 85);
+  --chart-5: oklch(0.40 0.050 252);
+
+  /* Signal palette — desaturated for calm, reserved for meaning */
+  --signal-critical:         oklch(0.50 0.17 24);
+  --signal-critical-subtle:  oklch(0.96 0.02 24);
+  --signal-critical-border:  oklch(0.86 0.06 24);
+  --signal-warning:          oklch(0.58 0.13 68);
+  --signal-warning-subtle:   oklch(0.96 0.02 68);
+  --signal-warning-border:   oklch(0.86 0.06 68);
+  --signal-positive:         oklch(0.54 0.10 158);
+  --signal-positive-subtle:  oklch(0.96 0.02 158);
+  --signal-positive-border:  oklch(0.84 0.06 158);
+  --signal-info:             oklch(0.52 0.10 232);
+  --signal-info-subtle:      oklch(0.96 0.02 232);
+  --signal-info-border:      oklch(0.85 0.06 232);
+  --signal-neutral:          oklch(0.46 0.028 252);
+  --signal-neutral-subtle:   oklch(0.93 0.006 245);
+
+  /* Gold accent — identity colour, use sparingly */
+  --gold:         oklch(0.72 0.15 85);
+  --gold-muted:   oklch(0.82 0.10 85);
+  --gold-subtle:  oklch(0.95 0.03 85);
 }
 
-/* ── Night mode — deep navy-charcoal, gold accent preserved ── */
+/* ─── Dark mode — deep navy, gold preserved ───────────────────────────────── */
 .dark {
-  --background: oklch(0.11 0.025 250);
-  --foreground: oklch(0.92 0.006 240);
-  --card: oklch(0.15 0.030 250);
-  --card-foreground: oklch(0.92 0.006 240);
-  --popover: oklch(0.15 0.030 250);
-  --popover-foreground: oklch(0.92 0.006 240);
-  --primary: oklch(0.72 0.15 85);
-  --primary-foreground: oklch(0.11 0.025 250);
-  --secondary: oklch(0.20 0.040 250);
-  --secondary-foreground: oklch(0.88 0.008 240);
-  --muted: oklch(0.19 0.035 250);
-  --muted-foreground: oklch(0.56 0.018 250);
-  --accent: oklch(0.20 0.040 250);
-  --accent-foreground: oklch(0.90 0.006 240);
-  --destructive: oklch(0.60 0.22 25);
-  --border: oklch(0.23 0.042 250);
-  --input: oklch(0.19 0.035 250);
-  --ring: oklch(0.72 0.15 85);
+  /* Core palette */
+  --background:          oklch(0.105 0.024 252);
+  --foreground:          oklch(0.918 0.007 242);
+  --card:                oklch(0.145 0.030 252);
+  --card-foreground:     oklch(0.918 0.007 242);
+  --popover:             oklch(0.158 0.032 252);
+  --popover-foreground:  oklch(0.918 0.007 242);
+  --primary:             oklch(0.72 0.15 85);
+  --primary-foreground:  oklch(0.105 0.024 252);
+  --secondary:           oklch(0.192 0.038 252);
+  --secondary-foreground:oklch(0.880 0.008 242);
+  --muted:               oklch(0.182 0.036 252);
+  --muted-foreground:    oklch(0.545 0.018 252);
+  --accent:              oklch(0.192 0.038 252);
+  --accent-foreground:   oklch(0.900 0.007 242);
+  --destructive:         oklch(0.56 0.20 24);
+  --border:              oklch(0.224 0.042 252);
+  --input:               oklch(0.182 0.036 252);
+  --ring:                oklch(0.72 0.15 85);
+
+  /* Surface elevation (dark) — subtle stacking */
+  --surface-0:   oklch(0.105 0.024 252);   /* page background  */
+  --surface-1:   oklch(0.145 0.030 252);   /* cards            */
+  --surface-2:   oklch(0.168 0.034 252);   /* raised panels    */
+  --surface-3:   oklch(0.188 0.038 252);   /* dialogs          */
+  --surface-border: oklch(0.224 0.042 252);
+
+  /* Sidebar — deepest surface */
+  --sidebar:                oklch(0.088 0.020 252);
+  --sidebar-foreground:     oklch(0.878 0.008 242);
+  --sidebar-primary:        oklch(0.72 0.15 85);
+  --sidebar-primary-foreground: oklch(0.105 0.024 252);
+  --sidebar-accent:         oklch(0.155 0.034 252);
+  --sidebar-accent-foreground: oklch(0.920 0.007 242);
+  --sidebar-border:         oklch(0.195 0.038 252);
+  --sidebar-ring:           oklch(0.72 0.15 85);
+
+  /* Charts */
   --chart-1: oklch(0.72 0.15 85);
-  --chart-2: oklch(0.55 0.10 250);
-  --chart-3: oklch(0.65 0.12 200);
+  --chart-2: oklch(0.52 0.09 252);
+  --chart-3: oklch(0.62 0.11 200);
   --chart-4: oklch(0.82 0.10 85);
-  --chart-5: oklch(0.45 0.08 250);
-  --sidebar: oklch(0.09 0.022 250);
-  --sidebar-foreground: oklch(0.88 0.008 240);
-  --sidebar-primary: oklch(0.72 0.15 85);
-  --sidebar-primary-foreground: oklch(0.11 0.025 250);
-  --sidebar-accent: oklch(0.16 0.035 250);
-  --sidebar-accent-foreground: oklch(0.92 0.006 240);
-  --sidebar-border: oklch(0.20 0.038 250);
-  --sidebar-ring: oklch(0.72 0.15 85);
+  --chart-5: oklch(0.44 0.08 252);
+
+  /* Signal palette — dark mode, slightly higher lightness for readability */
+  --signal-critical:         oklch(0.62 0.18 24);
+  --signal-critical-subtle:  oklch(0.16 0.04 24);
+  --signal-critical-border:  oklch(0.28 0.08 24);
+  --signal-warning:          oklch(0.68 0.14 68);
+  --signal-warning-subtle:   oklch(0.16 0.04 68);
+  --signal-warning-border:   oklch(0.30 0.08 68);
+  --signal-positive:         oklch(0.64 0.11 158);
+  --signal-positive-subtle:  oklch(0.15 0.04 158);
+  --signal-positive-border:  oklch(0.28 0.08 158);
+  --signal-info:             oklch(0.62 0.11 232);
+  --signal-info-subtle:      oklch(0.15 0.04 232);
+  --signal-info-border:      oklch(0.28 0.08 232);
+  --signal-neutral:          oklch(0.545 0.018 252);
+  --signal-neutral-subtle:   oklch(0.182 0.036 252);
+
+  /* Gold */
+  --gold:         oklch(0.72 0.15 85);
+  --gold-muted:   oklch(0.62 0.10 85);
+  --gold-subtle:  oklch(0.18 0.04 85);
 }
 
 @layer base {
   * {
     @apply border-border outline-ring/50;
-    /* Remove grey tap flash on iOS/Android */
     -webkit-tap-highlight-color: transparent;
   }
-  body {
-    @apply bg-background text-foreground;
-    font-feature-settings: "ss01", "ss02", "cv11";
-    /* Momentum scrolling on iOS for the whole page */
-    -webkit-overflow-scrolling: touch;
-    /* Prevent rubber-band overscroll on the body when content is in a scroll container */
-    overscroll-behavior: none;
-  }
+
   html {
     @apply font-sans;
-    /* Fluid base: 17.5px on small screens → 22px on ultra-wide.
-       Every Tailwind size (text-xs…text-4xl) scales in lockstep since they use rem.
-       Bumped from 17→17.5 floor / 21→22 ceiling for readability — the app runs in
-       dashboard context where text density was cramping.
-       Mobile note: at 360px viewport this yields ~16.6px — just above the 16px iOS
-       auto-zoom threshold, so inputs using text-sm (0.875rem ≈ 14.5px) are overridden
-       explicitly with text-[16px] in login/register/chat to prevent zoom-on-focus. */
-    font-size: clamp(17.5px, 15px + 0.45vw, 22px);
+    /* Fluid base: 15px floor → 17px ceiling.
+       Smaller than before — operational density tools read at 14–15px base.
+       The old 17.5–22px range was too large for information-dense layouts.
+       Mobile inputs that need zoom-prevention use text-[16px] explicitly. */
+    font-size: clamp(15px, 14px + 0.25vw, 17px);
+    /* Crisp rendering — no subpixel smoothing artefacts */
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    text-rendering: optimizeLegibility;
   }
-  h1, h2, h3 {
+
+  body {
+    @apply bg-background text-foreground;
+    /* OpenType features: stylistic alternates + contextual alternates */
+    font-feature-settings: "ss01" 1, "ss02" 1, "cv11" 1, "tnum" 0;
+    -webkit-overflow-scrolling: touch;
+    overscroll-behavior: none;
+  }
+
+  /* Only display headings use the serif — body h2/h3 stay sans */
+  h1 {
     font-family: var(--font-heading);
-    letter-spacing: -0.02em;
+    letter-spacing: -0.030em;
+    font-weight: 400;
+    font-optical-sizing: auto;
+  }
+
+  /* Precision number rendering — active on all numeric contexts */
+  [data-numeric], .tabular, input[type="number"] {
+    font-feature-settings: "tnum" 1, "ss01" 1;
+    font-variant-numeric: tabular-nums;
+  }
+
+  /* Consistent focus ring — gold, not system blue */
+  :focus-visible {
+    outline: 2px solid oklch(0.72 0.15 85);
+    outline-offset: 2px;
+    border-radius: var(--radius-sm);
+  }
+
+  /* Remove focus ring from mouse-driven interactions (pointer only) */
+  :focus:not(:focus-visible) {
+    outline: none;
   }
 }
 
-/* ── Basil design system utilities ── */
+/* ═══════════════════════════════════════════════════════════════════════════
+   BASIL DESIGN SYSTEM — LAYER UTILITIES
+   ═══════════════════════════════════════════════════════════════════════════ */
 
-/* Executive ambient — subtle gold aura in the top-right, navy vignette */
+/* ── 1. SURFACE SYSTEM ────────────────────────────────────────────────────────
+   Four elevation levels. No shadows — surfaces distinguish themselves
+   through background value, never through drop shadows.
+
+   Flat surfaces = operational. Floating cards = consumer SaaS.
+   ─────────────────────────────────────────────────────────────────────────── */
+
+/* Page background with a whisper of gold in the upper right.
+   Ambient, not decorative — disappears under content. */
 .basil-surface {
   background:
-    radial-gradient(1100px 520px at 88% -120px, oklch(0.72 0.15 85 / 0.08), transparent 60%),
-    radial-gradient(900px 600px at 8% 110%, oklch(0.28 0.06 250 / 0.05), transparent 60%),
+    radial-gradient(900px 400px at 85% -80px, var(--gold) / 0.06, transparent 55%),
     var(--background);
 }
 .dark .basil-surface {
   background:
-    radial-gradient(1100px 520px at 88% -120px, oklch(0.72 0.15 85 / 0.05), transparent 60%),
-    radial-gradient(900px 600px at 8% 110%, oklch(0.28 0.06 250 / 0.08), transparent 60%),
+    radial-gradient(900px 400px at 85% -80px, var(--gold) / 0.04, transparent 55%),
     var(--background);
 }
 
-/* Premium card — crisp hairline + whisper of depth */
+/* Level 1 — primary card surface */
 .basil-card {
-  background: linear-gradient(180deg, oklch(1 0 0) 0%, oklch(0.985 0.004 240) 100%);
-  box-shadow:
-    0 1px 0 oklch(1 0 0 / 0.9) inset,
-    0 1px 2px oklch(0.18 0.04 250 / 0.04),
-    0 8px 24px -12px oklch(0.18 0.04 250 / 0.08);
+  background-color: var(--surface-1);
+  border: 1px solid var(--surface-border);
+  border-radius: var(--radius);
 }
 .dark .basil-card {
-  background: linear-gradient(180deg, oklch(0.17 0.032 250) 0%, oklch(0.14 0.028 250) 100%);
   box-shadow:
-    0 1px 0 oklch(1 0 0 / 0.04) inset,
-    0 1px 2px oklch(0 0 0 / 0.30),
-    0 8px 24px -12px oklch(0 0 0 / 0.40);
+    0 1px 0 oklch(1 0 0 / 0.035) inset;  /* single inset highlight — barely perceptible */
 }
 
-/* Uppercase eyebrow for section labels — 0.75rem (~13-16px fluid) keeps it
-   small enough to be an eyebrow but large enough to read. */
-.basil-eyebrow {
-  font-size: 0.75rem;
-  font-weight: 600;
-  letter-spacing: 0.18em;
-  text-transform: uppercase;
-  color: oklch(0.48 0.03 250);
+/* Level 2 — raised surface (dialogs, panels, hover states) */
+.basil-surface-raised {
+  background-color: var(--surface-2);
+  border: 1px solid var(--surface-border);
+  border-radius: var(--radius);
 }
 
-/* Serif display lockup */
+/* Level 3 — overlay surface (modals, tooltips, dropdowns) */
+.basil-surface-overlay {
+  background-color: var(--surface-3);
+  border: 1px solid var(--surface-border);
+  border-radius: var(--radius);
+  box-shadow: 0 8px 32px -8px oklch(0 0 0 / 0.18), 0 2px 8px -2px oklch(0 0 0 / 0.10);
+}
+.dark .basil-surface-overlay {
+  box-shadow: 0 12px 40px -8px oklch(0 0 0 / 0.50), 0 2px 8px -2px oklch(0 0 0 / 0.30);
+}
+
+/* ── 2. TYPOGRAPHY SYSTEM ─────────────────────────────────────────────────────
+   Five levels. Each level has a fixed role — never use them decoratively.
+
+   Level 1 · Display   — page identity, hero labels. Fraunces serif.
+   Level 2 · Heading   — section titles. Sans, tight.
+   Level 3 · Label     — basil-eyebrow. Uppercase tracking.
+   Level 4 · Body      — primary reading text.
+   Level 5 · Caption   — metadata, secondary context.
+   Level 6 · Data      — numbers, metrics, mono values.
+   ─────────────────────────────────────────────────────────────────────────── */
+
+/* Display — Fraunces, used for primary page/section identity */
 .basil-display {
   font-family: var(--font-heading);
   font-weight: 400;
-  letter-spacing: -0.03em;
+  letter-spacing: -0.032em;
   font-optical-sizing: auto;
+  line-height: 1.05;
 }
 
-/* Gold underline accent for active/hero elements */
+/* Heading — tight sans for sub-display titles */
+.basil-heading {
+  font-family: var(--font-sans);
+  font-weight: 600;
+  letter-spacing: -0.022em;
+  line-height: 1.2;
+  color: var(--foreground);
+}
+
+/* Eyebrow — operational section labels. The DNA of Basil's language. */
+.basil-eyebrow {
+  font-family: var(--font-sans);
+  font-size: 0.6875rem;    /* 11px at 16px base — reads as metadata, not body */
+  font-weight: 600;
+  letter-spacing: 0.200em;
+  text-transform: uppercase;
+  color: oklch(0.46 0.028 252);
+  line-height: 1.4;
+}
+.dark .basil-eyebrow {
+  color: oklch(0.52 0.018 252);
+}
+
+/* Caption — secondary context, timestamps, source labels */
+.basil-caption {
+  font-family: var(--font-sans);
+  font-size: 0.6875rem;
+  font-weight: 400;
+  letter-spacing: 0.005em;
+  color: var(--muted-foreground);
+  line-height: 1.45;
+}
+
+/* Data — numbers and metrics. Always tabular. Geist Mono when column-aligned. */
+.basil-data {
+  font-family: var(--font-mono);
+  font-size: 0.8125rem;    /* 13px — large enough to scan, tight enough for density */
+  font-weight: 500;
+  font-feature-settings: "tnum" 1;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.01em;
+  line-height: 1.3;
+}
+
+/* Data large — primary metric display (KPIs, counts, durations) */
+.basil-data-lg {
+  font-family: var(--font-mono);
+  font-size: 1.5rem;
+  font-weight: 400;
+  font-feature-settings: "tnum" 1;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.03em;
+  line-height: 1.0;
+}
+
+/* Prose — reading copy (briefings, chat, notes). Measure-constrained. */
+.basil-prose {
+  font-size: 0.9375rem;    /* 15px — reading size */
+  line-height: 1.65;
+  letter-spacing: 0.005em;
+  max-width: 68ch;         /* optimal reading measure */
+  color: oklch(0.28 0.040 252);
+}
+.dark .basil-prose {
+  color: oklch(0.82 0.010 242);
+}
+
+/* ── 3. SPACING & LAYOUT SYSTEM ───────────────────────────────────────────────
+   Based on an 8pt grid. Use these class names for consistent rhythm.
+   ─────────────────────────────────────────────────────────────────────────── */
+
+/* Content width containers */
+.basil-content-xs   { max-width: 28rem;  }   /* 448px — form/modal width     */
+.basil-content-sm   { max-width: 40rem;  }   /* 640px — chat/brief width     */
+.basil-content-md   { max-width: 56rem;  }   /* 896px — standard page width  */
+.basil-content-lg   { max-width: 72rem;  }   /* 1152px — wide layout         */
+.basil-content-full { max-width: 90rem;  }   /* 1440px — dashboard max       */
+
+/* Section spacing — between major content blocks */
+.basil-section     { margin-bottom: 3rem;   }  /* 48px */
+.basil-section-sm  { margin-bottom: 1.5rem; }  /* 24px */
+.basil-section-lg  { margin-bottom: 4rem;   }  /* 64px */
+
+/* ── 4. MOTION SYSTEM ─────────────────────────────────────────────────────────
+   All transitions are purposeful — they aid spatial orientation, not delight.
+   No bounce. No spring. No elastic.
+
+   Timing tiers:
+     micro    100ms — colour/opacity state changes (hover, active)
+     quick    150ms — UI feedback (focus, button press)
+     reveal   200ms — content appearing
+     exit     120ms — content disappearing (faster = less waiting)
+     layout   250ms — panel slides, sidebar toggles
+     deliberate 350ms — mode switches, important state changes
+   ─────────────────────────────────────────────────────────────────────────── */
+
+:root {
+  /* Durations */
+  --dur-micro:      100ms;
+  --dur-quick:      150ms;
+  --dur-reveal:     200ms;
+  --dur-exit:       120ms;
+  --dur-layout:     250ms;
+  --dur-deliberate: 350ms;
+
+  /* Easing curves */
+  --ease-standard:    cubic-bezier(0.4, 0, 0.2, 1);   /* material standard       */
+  --ease-decelerate:  cubic-bezier(0, 0, 0.2, 1);     /* enter: slow at end      */
+  --ease-accelerate:  cubic-bezier(0.4, 0, 1, 1);     /* exit: fast at start     */
+  --ease-sharp:       cubic-bezier(0.4, 0, 0.6, 1);   /* crisp, no linger        */
+}
+
+/* Micro-transition: colour, opacity, border */
+.basil-transition {
+  transition-property: color, background-color, border-color, opacity, fill, stroke;
+  transition-duration: var(--dur-micro);
+  transition-timing-function: var(--ease-standard);
+}
+
+/* Quick-transition: includes transform (for button press) */
+.basil-transition-quick {
+  transition-property: color, background-color, border-color, opacity, transform;
+  transition-duration: var(--dur-quick);
+  transition-timing-function: var(--ease-standard);
+}
+
+/* Reveal: for items entering the DOM */
+.basil-transition-reveal {
+  transition-property: opacity, transform;
+  transition-duration: var(--dur-reveal);
+  transition-timing-function: var(--ease-decelerate);
+}
+
+/* Layout: for panel/sidebar dimension changes */
+.basil-transition-layout {
+  transition-property: width, height, max-height, padding, margin, transform;
+  transition-duration: var(--dur-layout);
+  transition-timing-function: var(--ease-standard);
+}
+
+/* Deliberate: mode changes, important alerts */
+.basil-transition-deliberate {
+  transition-property: color, background-color, border-color, opacity, transform;
+  transition-duration: var(--dur-deliberate);
+  transition-timing-function: var(--ease-decelerate);
+}
+
+/* Reduced motion override — respect user preference */
+@media (prefers-reduced-motion: reduce) {
+  .basil-transition,
+  .basil-transition-quick,
+  .basil-transition-reveal,
+  .basil-transition-layout,
+  .basil-transition-deliberate {
+    transition-duration: 0ms !important;
+  }
+  * {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+/* ── 5. INTERACTION SYSTEM ────────────────────────────────────────────────────
+   Interaction states: functional, not decorative.
+
+   Hover: colour/opacity shift only. No scale. No lift. No shadow change.
+   Active: transform scale(0.985) on click targets — barely perceptible.
+   Focus: gold ring, consistent everywhere.
+   Selected: gold left border + subtle surface tint.
+   Disabled: opacity 0.38 — standard disabled state.
+   ─────────────────────────────────────────────────────────────────────────── */
+
+/* Interactive base: hover colour shift, no other effect */
+.basil-interactive {
+  cursor: pointer;
+  transition-property: color, background-color, border-color, opacity;
+  transition-duration: var(--dur-micro);
+  transition-timing-function: var(--ease-standard);
+}
+
+/* Clickable action: micro scale on press */
+.basil-pressable {
+  cursor: pointer;
+  transition-property: color, background-color, border-color, opacity, transform;
+  transition-duration: var(--dur-quick);
+  transition-timing-function: var(--ease-standard);
+}
+.basil-pressable:active {
+  transform: scale(0.985);
+}
+
+/* Disabled state */
+.basil-disabled,
+[disabled],
+[aria-disabled="true"] {
+  opacity: 0.38;
+  cursor: not-allowed;
+  pointer-events: none;
+}
+
+/* Selected item — gold left rail */
+.basil-selected {
+  position: relative;
+  background-color: oklch(0.72 0.15 85 / 0.06);
+}
+.basil-selected::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 25%;
+  height: 50%;
+  width: 2px;
+  border-radius: 0 2px 2px 0;
+  background: oklch(0.72 0.15 85);
+}
+
+/* ── 6. SIGNAL SYSTEM ─────────────────────────────────────────────────────────
+   Operational state classes. Use for status, not for decoration.
+   Every signal colour maps to a semantic meaning — never use interchangeably.
+
+   critical  — action required immediately. Business risk.
+   warning   — attention needed. Potential issue.
+   positive  — healthy, resolved, nominal.
+   info      — neutral information. No action required.
+   neutral   — muted context, secondary data.
+   ─────────────────────────────────────────────────────────────────────────── */
+
+/* Inline signal text */
+.signal-critical { color: var(--signal-critical); }
+.signal-warning  { color: var(--signal-warning);  }
+.signal-positive { color: var(--signal-positive); }
+.signal-info     { color: var(--signal-info);     }
+.signal-neutral  { color: var(--signal-neutral);  }
+
+/* Signal surface (for cards, rows, banners) */
+.signal-surface-critical {
+  background-color: var(--signal-critical-subtle);
+  border-color: var(--signal-critical-border);
+}
+.signal-surface-warning {
+  background-color: var(--signal-warning-subtle);
+  border-color: var(--signal-warning-border);
+}
+.signal-surface-positive {
+  background-color: var(--signal-positive-subtle);
+  border-color: var(--signal-positive-border);
+}
+.signal-surface-info {
+  background-color: var(--signal-info-subtle);
+  border-color: var(--signal-info-border);
+}
+
+/* Priority bar — left rail for ranked items */
+.priority-bar::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 3px;
+  border-radius: 0 2px 2px 0;
+}
+.priority-critical::before { background: var(--signal-critical); }
+.priority-warning::before  { background: var(--signal-warning);  }
+.priority-info::before     { background: var(--signal-info);     }
+.priority-neutral::before  { background: var(--signal-neutral);  }
+
+/* ── 7. AMBIENT & DECORATIVE ──────────────────────────────────────────────────
+   Only two ambient patterns in the entire design system.
+   Both are dark-mode-tuned. Light mode gets plain backgrounds.
+   ─────────────────────────────────────────────────────────────────────────── */
+
+/* Gold underline — used ONLY for identity elements (logo, active nav, hero) */
 .basil-gold-underline {
-  background-image: linear-gradient(to right, oklch(0.72 0.15 85), oklch(0.82 0.12 85));
+  background-image: linear-gradient(to right, oklch(0.72 0.15 85), oklch(0.80 0.12 85));
   background-repeat: no-repeat;
-  background-size: 100% 2px;
+  background-size: 100% 1.5px;
   background-position: 0 100%;
-  padding-bottom: 2px;
+  padding-bottom: 1.5px;
 }
 
-/* Hairline divider used throughout */
+/* Hairline divider */
 .basil-hairline {
   height: 1px;
-  background: linear-gradient(to right, transparent, oklch(0.90 0.008 240), transparent);
+  background: linear-gradient(to right, transparent, var(--border) 20%, var(--border) 80%, transparent);
 }
 
-/* ── Mobile-first utilities ── */
+/* ── 8. ACCESSIBILITY & MOBILE ────────────────────────────────────────────────*/
 
-/* Add bottom padding so content clears the iPhone home indicator */
 .basil-safe-bottom {
   padding-bottom: env(safe-area-inset-bottom, 0px);
 }
 
-/* Scrollable container that respects safe areas */
 .basil-scroll {
   overflow-y: auto;
   -webkit-overflow-scrolling: touch;
   overscroll-behavior-y: contain;
 }
 
-/* Minimum touch target size (44×44px) — WCAG 2.5.5 */
+/* 44×44px minimum touch target — WCAG 2.5.5 */
 .basil-touch {
   min-height: 44px;
   min-width: 44px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
+}
+
+/* ── 9. SKELETON / LOADING STATES ─────────────────────────────────────────────
+   Loading skeletons should feel like resting states, not activity.
+   Slow pulse, low contrast.
+   ─────────────────────────────────────────────────────────────────────────── */
+
+@keyframes basil-pulse {
+  0%, 100% { opacity: 1;    }
+  50%       { opacity: 0.45; }
+}
+
+.basil-skeleton {
+  background-color: var(--muted);
+  border-radius: var(--radius-sm);
+  animation: basil-pulse 2.2s ease-in-out infinite;
+}
+
+/* ── 10. SCROLLBAR REFINEMENT ─────────────────────────────────────────────────
+   Thin, navy-tinted. Invisible until hover.
+   ─────────────────────────────────────────────────────────────────────────── */
+
+::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb {
+  background: oklch(0.60 0.020 252 / 0.30);
+  border-radius: 3px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: oklch(0.60 0.020 252 / 0.55);
+}
+.dark ::-webkit-scrollbar-thumb {
+  background: oklch(0.50 0.025 252 / 0.35);
+}
+.dark ::-webkit-scrollbar-thumb:hover {
+  background: oklch(0.55 0.025 252 / 0.60);
 }

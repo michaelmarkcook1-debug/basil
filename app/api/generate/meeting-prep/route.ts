@@ -451,7 +451,7 @@ export async function POST(req: Request) {
             else if (a.dueDate) flags.push(`due ${a.dueDate}`);
             if (a.priority === "high") flags.push("high priority");
             if (isActionStalled(a)) flags.push("stalled");
-            if (a.owner && a.owner !== "Michael Cook") flags.push(`owner: ${a.owner}`);
+            if (a.owner && a.owner !== (settings?.name ?? username)) flags.push(`owner: ${a.owner}`);
             const flagStr = flags.length ? ` (${flags.join(", ")})` : "";
             return `- ${a.text}${flagStr}`;
           })

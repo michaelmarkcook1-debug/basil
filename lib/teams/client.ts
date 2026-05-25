@@ -7,6 +7,7 @@
  */
 
 import { graphGet, graphFetch } from "@/lib/microsoft/auth";
+import { getSelfIdentity, isSelf } from "@/lib/self-identity";
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -143,6 +144,7 @@ export async function getRecentTeamsMessages(
 ): Promise<TeamsMessage[]> {
   const cutoff = new Date(Date.now() - maxAgeDays * 86400000).toISOString();
   const messages: TeamsMessage[] = [];
+  const selfIdentity = await getSelfIdentity(username).catch(() => ({ emails: [], names: [] }));
 
   // ── 1. Chats (DMs and group chats) ───────────────────────────────────────
 
@@ -180,7 +182,7 @@ export async function getRecentTeamsMessages(
                 `/me/chats/${chat.id}/members`
               );
               const others = (membersData?.value || []).filter(
-                (m) => !m.displayName?.toLowerCase().includes("michael cook")
+                (m) => !isSelf(m.displayName ?? "", selfIdentity)
               );
               if (others.length > 0) channelName = `DM: ${others[0].displayName}`;
             } catch {

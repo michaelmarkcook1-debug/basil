@@ -361,7 +361,7 @@ export async function POST() {
           const flags: string[] = [];
           if (a.dueDate) flags.push(`due ${a.dueDate}`);
           if (a.priority === "high") flags.push("HIGH");
-          if (a.owner && a.owner !== "Michael Cook") flags.push(`owner: ${a.owner}`);
+          if (a.owner && a.owner !== (settings?.name ?? username)) flags.push(`owner: ${a.owner}`);
           if (a.source && a.source !== "manual") flags.push(a.source);
           return `- ${a.text}${flags.length ? ` (${flags.join(", ")})` : ""}`;
         })
@@ -471,15 +471,16 @@ export async function POST() {
     .filter((line) => line !== "")
     .join("\n");
 
-  const prompt = `Generate Michael Cook's weekly executive summary — a clear, honest account of the past 7 days and what next week needs.
+  const userName = settings?.name ?? username;
+  const prompt = `Generate ${userName}'s weekly executive summary — a clear, honest account of the past 7 days and what next week needs.
 
 ${liveDataBlock}
 
-IMPORTANT: Michael Cook is the CEO of AnalystGenius and VP of Product at TalentGenius. There is another person named Michael Trujillo who is a different team member — do NOT confuse them.
+IMPORTANT: ${userName} is the primary user of this assistant. Do not confuse them with other team members who may share a similar name.
 
 ## How Basil writes a weekly summary
 
-This is a chief-of-staff end-of-week note, not a data dump. Michael reads this on Friday afternoon or Sunday morning to understand: what actually happened, what shifted, what got decided, and where he needs to focus next week.
+This is a chief-of-staff end-of-week note, not a data dump. ${userName} reads this on Friday afternoon or Sunday morning to understand: what actually happened, what shifted, what got decided, and where they need to focus next week.
 
 - Lead each section with the most important item, not chronology.
 - Use Basil's voice: name the pattern, name the tension, flag what's ripening. "Crystal's timeline moved twice this week — unusual." "Ed's 1:1 slipped again — worth a word." "Three separate threads with Sona this week suggests something is converging."
@@ -508,7 +509,7 @@ JSON. Each field is free-form text (paragraphs, bullets, numbered lists) or null
   "decisionsLog": "Decisions logged or clearly implied in the past 7-14 days. Each decision traceable to a line in the live data. Include rationale and follow-on consequences where present. Draw from RECENT DECISIONS block and Zoom/Read.ai summaries. Null if none.",
   "blockers": "What's stuck. Overdue actions. Stalled threads. Risks raised but unresolved. Items that need a nudge or decision to unblock. Draw from OVERDUE, STALLED, and blocker-language in emails/Slack/memory. Be specific — name the item, the owner, and why it matters. Null if nothing is genuinely blocked.",
   "relationshipSignals": "Cross-source signals about people and accounts. Who appeared in multiple channels this week? Any relationship that's warming, cooling, or needs attention? Any account activity worth noting? Draw from calendar attendees, email senders, Slack participants, and memory notes. Null if no cross-source signal.",
-  "nextWeekNeeds": "What next week requires. Meetings that need prep. Open threads to close. Decisions that are ripening. Items from DUE NEXT 7 DAYS and NEXT 7 DAYS CALENDAR. Basil's one or two priorities for Michael's attention. Null if nothing notable upcoming."
+  "nextWeekNeeds": "What next week requires. Meetings that need prep. Open threads to close. Decisions that are ripening. Items from DUE NEXT 7 DAYS and NEXT 7 DAYS CALENDAR. Basil's one or two priorities for the user's attention. Null if nothing notable upcoming."
 }
 
 Return ONLY valid JSON, no markdown code fences.`;

@@ -94,20 +94,7 @@ async function fetchRecentExchanges(
 
 // ── Persona tone guidance ─────────────────────────────────────────────────────
 
-const TONE_OVERRIDES: Record<string, string> = {
-  "ed baum":       "Concise, operational, lead with status and action items. Use bullets if listing multiple things.",
-  "malcolm frank": "Lead with a sharp insight or strategic framing. Data-backed. Slightly more expansive.",
-  "isaac frank":   "Detailed and specific. Clear go/no-go signals. Technical if the content warrants it.",
-  "olivia":        "Clear asks and timelines. ICPs if relevant. Deadline-aware.",
-  "crystal":       "Brand-clear direction. Concise but thoughtful.",
-};
-
-function getToneGuidance(senderName: string | undefined): string {
-  if (!senderName) return "Professional, direct, and warm. Concise.";
-  const lower = senderName.toLowerCase();
-  for (const [key, guidance] of Object.entries(TONE_OVERRIDES)) {
-    if (lower.includes(key)) return guidance;
-  }
+function getToneGuidance(_senderName: string | undefined): string {
   return "Professional, direct, and warm. Concise — 2–4 sentences unless the message requires more.";
 }
 

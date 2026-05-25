@@ -1,10 +1,11 @@
 import { NextResponse } from "next/server";
 import { isGoogleConnected } from "@/lib/google/auth";
-import { getRecentEmails, sendEmail, createDraft } from "@/lib/google/gmail";
+import { getRecentEmails, sendEmail, createDraft, getGmailAddress } from "@/lib/google/gmail";
 import { getSessionUser } from "@/lib/auth";
 import { listEvents } from "@/lib/events/store";
 import { contacts as staticContacts } from "@/lib/contacts-data";
 import { emitAuditEvent } from "@/lib/events/audit";
+import { getSelfIdentity } from "@/lib/self-identity";
 
 // ── Email priority heuristic ───────────────────────────────────────────────────
 // An email is "priority" if it is unread AND appears to be a personal/direct
@@ -140,10 +141,25 @@ export async function GET() {
   }
 
   try {
-    const [emails, events] = await Promise.all([
+    const [emails, events, selfIdentity, gmailAddress] = await Promise.all([
       getRecentEmails(username, 10),
       listEvents(username),
+      getSelfIdentity(username),
+      getGmailAddress(username),
     ]);
+    // Build sets of addresses and display names that belong to this user.
+    // Address set: Basil-registered emails + the live authenticated Gmail address.
+    // Name set: display names from the user's profile (e.g. full name).
+    // Both are sourced dynamically — nothing is hardcoded for any specific user.
+    const selfEmails = new Set([
+      ...selfIdentity.emails.map((e) => e.toLowerCase()),
+      ...(gmailAddress ? [gmailAddress] : []),
+    ]);
+    const selfNames = new Set(
+      selfIdentity.names
+        .map((n) => n.toLowerCase())
+        .filter((n) => n.length > 2)
+    );
 
     // Build a map from externalId → event for quick lookup
     const eventByRef = new Map<string, { analysed: boolean; materialized: boolean }>();
@@ -160,10 +176,16 @@ export async function GET() {
       const ref = `gmail:${e.id}`;
       const ev = eventByRef.get(ref);
       const personal = isPersonalEmail(e.from, e.fromEmail, e.subject);
+      // Never surface self-sent mail as priority (test messages, drafts sent to self).
+      // Match on email address OR display name — both sourced from the user's own profile,
+      // nothing hardcoded. Name matching catches alternate addresses the user sends from.
+      const fromAddr = e.fromEmail?.toLowerCase() ?? "";
+      const fromName = e.from?.toLowerCase() ?? "";
+      const isSelf = selfEmails.has(fromAddr) || (fromName.length > 0 && selfNames.has(fromName));
       return {
         ...e,
-        // priority = unread AND looks like a personal/direct email (not marketing)
-        priority: e.unread && personal,
+        // priority = unread AND personal AND not sent by the user themselves
+        priority: e.unread && personal && !isSelf,
         // undefined = not yet ingested, false = ingested but nothing extracted, true = something created
         analysed: ev?.analysed ?? false,
         materialized: ev?.materialized ?? false,

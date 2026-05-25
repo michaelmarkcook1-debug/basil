@@ -6,6 +6,7 @@ import {
 } from "@/lib/actions/store";
 import type { ActionItem } from "@/lib/types/action";
 import { getSessionUser } from "@/lib/auth";
+import { getSettings } from "@/lib/settings/store";
 
 export async function GET() {
   const username = await getSessionUser();
@@ -44,9 +45,10 @@ export async function POST(req: Request) {
       );
     }
 
+    const resolvedOwner = owner?.trim() || (await getSettings(username).catch(() => null))?.name || undefined;
     const action = await createAction(username, {
       text,
-      owner,
+      owner: resolvedOwner,
       ownerId,
       dueDate,
       source,

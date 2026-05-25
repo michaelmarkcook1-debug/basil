@@ -23,6 +23,7 @@ import {
   type AuditEntry,
 } from "@/lib/ingest/audit-log";
 import type { SlackIntelligence, SlackSignalCategory } from "./classify-slack";
+import { getSelfIdentity } from "@/lib/self-identity";
 
 // ── Input / output types ───────────────────────────────────────────────────────
 
@@ -40,6 +41,12 @@ export interface MaterializeSlackInput {
   from: string;
   /** ISO date string of the message. */
   date: string;
+  /**
+   * True when this message is a Direct Message or Group DM.
+   * Used to relax the isMichaelAddressed requirement — in a DM the
+   * conversation is inherently between Michael and the other party.
+   */
+  isDM?: boolean;
 }
 
 export interface MaterializeSlackResult {
@@ -103,7 +110,7 @@ function isOwnerMichaelOrUnknown(owner: string | undefined): boolean {
 export async function materializeSlackIntelligence(
   input: MaterializeSlackInput
 ): Promise<MaterializeSlackResult> {
-  const { intelligence: intel, sourceRef, eventId, channelName, from, date, username } = input;
+  const { intelligence: intel, sourceRef, eventId, channelName, from, date, username, isDM = false } = input;
 
   if (!username) {
     console.error("[slack-materialize] username is required — refusing to write without owner", { sourceRef });
@@ -149,8 +156,18 @@ export async function materializeSlackIntelligence(
           continue;
         }
 
+        // Blank-owner actions in channel messages (not DMs) are channel broadcasts —
+        // "someone needs to do X" does NOT mean Michael. Only include when Michael
+        // was explicitly addressed or it is his own DM/group-DM conversation.
+        if (!item.owner?.trim() && !isDM && !intel.isMichaelAddressed) {
+          console.log(
+            `[slack-materialize] skipping blank-owner action in channel (Michael not addressed): "${item.text.slice(0, 60)}"`
+          );
+          continue;
+        }
+
         // For action_identified: only include if Michael was explicitly addressed
-        if (intel.category === "action_identified" && !intel.isMichaelAddressed) {
+        if (intel.category === "action_identified" && !isDM && !intel.isMichaelAddressed) {
           console.log(
             `[slack-materialize] skipping action_identified (Michael not addressed): "${item.text.slice(0, 60)}"`
           );
@@ -188,7 +205,8 @@ export async function materializeSlackIntelligence(
         intel.category,
         channelLabel,
         from,
-        intel.isMichaelAddressed
+        intel.isMichaelAddressed,
+        isDM
       );
       if (actionText) {
         try {
@@ -365,26 +383,37 @@ function synthesizeSlackAction(
   category: SlackSignalCategory,
   channelLabel: string,
   from: string,
-  isMichaelAddressed: boolean
+  isMichaelAddressed: boolean,
+  isDM: boolean
 ): string {
+  // In a DM the conversation is inherently with Michael — no isMichaelAddressed check needed.
+  const addressed = isMichaelAddressed || isDM;
+
   switch (category) {
     case "action_assigned":
-      return `Follow up on action from ${from} in ${channelLabel}`;
+      // Only synthesize when Michael was explicitly named/addressed — a channel broadcast
+      // saying "someone assigned X" is not necessarily Michael's task.
+      return addressed
+        ? `Follow up on action from ${from} in ${channelLabel}`
+        : "";
     case "action_identified":
       // Don't synthesize for identified-but-not-assigned unless Michael is named
-      return isMichaelAddressed
+      return addressed
         ? `Review action item from ${from} in ${channelLabel}`
         : "";
     case "decision_needed":
-      return isMichaelAddressed
+      return addressed
         ? `Provide decision requested by ${from} in ${channelLabel}`
         : "";
     case "blocker_raised":
+      // Blockers and escalations are always worth actioning — they affect Michael's work
+      // even if he wasn't the one named. But only when confidence is sufficient (caller
+      // already checked the tier).
       return `Unblock: ${from} flagged a blocker in ${channelLabel}`;
     case "escalation":
       return `Urgent: escalation from ${from} in ${channelLabel}`;
     case "meeting_signal":
-      return isMichaelAddressed
+      return addressed
         ? `Respond to scheduling request from ${from} in ${channelLabel}`
         : "";
     default:

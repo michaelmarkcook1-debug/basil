@@ -21,7 +21,11 @@ import {
   FolderKanban,
   Hash,
   Triangle,
+  Layers,
+  GitCompareArrows,
+  Fingerprint,
 } from "lucide-react";
+import { ModeSwitcherTrigger } from "@/components/ui/mode-switcher";
 import { cn } from "@/lib/utils";
 import { ThemeToggle } from "@/components/theme-toggle";
 
@@ -37,6 +41,8 @@ const work: NavItem[] = [
   { href: "/dashboard/schedule", label: "Schedule", icon: CalendarPlus },
   { href: "/dashboard/meetings", label: "Meeting Prep", icon: CalendarCheck },
   { href: "/dashboard/chat", label: "Chat", icon: MessageSquare },
+  { href: "/dashboard/signals", label: "Threads", icon: Layers },
+  { href: "/dashboard/delta", label: "What Changed", icon: GitCompareArrows },
   { href: "/dashboard/projects", label: "Projects", icon: FolderKanban },
   { href: "/dashboard/slack-command", label: "Slack Command", icon: Hash },
   { href: "/dashboard/ai-projects", label: "AI Projects", icon: Cpu },
@@ -49,6 +55,7 @@ const track: NavItem[] = [
   { href: "/dashboard/actions", label: "Actions", icon: ListChecks },
   { href: "/dashboard/decisions", label: "Decisions", icon: Scale },
   { href: "/dashboard/memory", label: "Memory", icon: Brain },
+  { href: "/dashboard/trust", label: "Trust UI", icon: Fingerprint },
 ];
 
 function SidebarLink({
@@ -226,8 +233,10 @@ export function AppSidebar({
         </div>
       </nav>
 
-      {/* Bottom — theme toggle + settings */}
+      {/* Bottom — mode switcher + theme toggle + settings */}
       <div className="relative mt-2 border-t border-sidebar-border/60 pt-3 px-2 flex flex-col gap-1">
+        {/* Operational mode trigger */}
+        <ModeSwitcherTrigger expanded={expanded} />
         {/* Night mode toggle — centred on collapsed sidebar, full row on expanded */}
         <div className={cn(
           "flex",

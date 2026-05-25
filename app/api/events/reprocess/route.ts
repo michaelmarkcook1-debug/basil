@@ -13,6 +13,7 @@ import { materializeTeamsIntelligence } from "@/lib/teams/materialize-teams";
 import { forceFlushSnapshot } from "@/lib/storage/persistent";
 import { getSessionUser } from "@/lib/auth";
 import { getUsers, isAdminUser } from "@/lib/users";
+import { getSelfIdentity } from "@/lib/self-identity";
 import { hashContent } from "@/lib/ingest/content-hash";
 import { recordIngest } from "@/lib/ingest/index";
 import { appendAuditEntries } from "@/lib/ingest/audit-log";
@@ -105,6 +106,10 @@ export async function POST(req: Request) {
     (ev) => ev.source === "slack" && ev.externalId!.startsWith("teams:")
   );
 
+  // Load Michael's self-identity so we can mark his messages as [You] in transcripts
+  const selfIdentity = await getSelfIdentity(username).catch(() => ({ emails: [], names: [] }));
+  const selfDisplayName = selfIdentity.names[0] ?? undefined;
+
   // ── Queue classification via after() ────────────────────────────────────
   after(async () => {
     let processed = 0;
@@ -169,7 +174,7 @@ export async function POST(req: Request) {
         const threadMessages = await fetchSlackThread(username, channelId, messageTs);
         const transcript =
           threadMessages.length > 0
-            ? formatThreadTranscript(threadMessages, channelName)
+            ? formatThreadTranscript(threadMessages, channelName, selfDisplayName)
             : `Channel: ${channelName}\n\n${ev.entityName || "Unknown"}: ${
                 (ev.payload as { body?: string })?.body || ev.context || ""
               }`;
@@ -194,6 +199,7 @@ export async function POST(req: Request) {
           from: ev.entityName || "Unknown",
           date: ev.createdAt,
           username,
+          isDM: channelName.startsWith("DM:"),
         });
         void recordIngest(username, {
           sourceRef: externalId,

@@ -3,6 +3,7 @@ import { getSessionUser } from "@/lib/auth";
 import { readSignalEvents } from "@/core/storage/signal-event-store";
 import { SURFACE_THRESHOLD, DIGEST_THRESHOLD } from "@/core/primitives/ranked-signal";
 import { getFlags } from "@/core/feature-flags";
+import { rankSignal } from "@/core/ingestion/signal-ranker";
 import type { SignalSource } from "@/core/primitives/signal-event";
 
 /**
@@ -49,7 +50,7 @@ export async function GET(req: NextRequest) {
     });
   }
 
-  const { searchParams } = req.nextUrl;
+  const searchParams = req.nextUrl.searchParams;
   const source    = searchParams.get("source") ?? undefined;
   const category  = searchParams.get("category") ?? undefined;
   const tier      = searchParams.get("tier") ?? "digest";
@@ -69,7 +70,20 @@ export async function GET(req: NextRequest) {
     limit: 500,   // fetch wide, filter + sort in memory
   });
 
-  // Filter to ranked signals only, above the tier floor
+  // Signals ingested before ranking_active was enabled have no .ranking field.
+  // Re-rank them on the fly (pure, synchronous) so the Ranked tab is immediately
+  // useful without requiring a full re-ingest.
+  for (const s of signals) {
+    if (!s.ranking) {
+      try {
+        s.ranking = rankSignal(s, null);
+      } catch {
+        // leave unranked — will be filtered below
+      }
+    }
+  }
+
+  // Filter to ranked signals above the tier score floor
   signals = signals.filter(
     (s) => s.ranking && s.ranking.score >= minScore
   );

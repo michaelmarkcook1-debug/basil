@@ -27,6 +27,8 @@ import {
   MessageSquare,
   Info,
 } from "lucide-react";
+import { RelationshipHealthGrid } from "@/components/ui/thread-health";
+import type { ContactHealth, HealthState, HealthTrend } from "@/lib/relationship/types";
 import { contacts as staticContacts } from "@/lib/contacts-data";
 
 interface ContactActivity {
@@ -221,6 +223,52 @@ export function RelationshipCard() {
     }
     return g;
   }, [enriched, featuredIds]);
+
+  // Map enriched contacts → ContactHealth for the health grid
+  const contactHealthData = useMemo((): ContactHealth[] => {
+    return enriched.map((c) => {
+      const days = c.days === BUCKET_DAYS.noSignal ? null : c.days;
+
+      let state: HealthState;
+      let trend: HealthTrend;
+      let primaryAlert: string | undefined;
+
+      if (days === null) {
+        state = "unknown";
+        trend = "stable";
+      } else if (days <= 3) {
+        state = "strengthening";
+        trend = "improving";
+      } else if (days <= BUCKET_DAYS.loopMax) {
+        state = "stable";
+        trend = "stable";
+      } else if (days <= BUCKET_DAYS.driftingMax) {
+        state = "cooling";
+        trend = "declining";
+        primaryAlert = `No contact in ${days} days`;
+      } else if (days <= 30) {
+        state = "critical";
+        trend = "declining";
+        primaryAlert = `${days} days since last contact`;
+      } else {
+        state = "disengaged";
+        trend = "declining";
+        primaryAlert = `Silent for ${days} days`;
+      }
+
+      const unresolvedCommitments = c.liveActivity?.recentItems?.length ?? 0;
+
+      return {
+        contactId: c.id,
+        name: c.name,
+        state,
+        trend,
+        primaryAlert,
+        daysSinceContact: days,
+        unresolvedCommitments,
+      };
+    });
+  }, [enriched]);
 
   return (
     <Card className="border-[oklch(0.72_0.15_85)]/30">
@@ -454,6 +502,19 @@ export function RelationshipCard() {
           </div>
         )}
       </CardContent>
+
+      {/* ── Relationship health grid ──────────────────────────────────────── */}
+      {contactHealthData.length > 0 ? (
+        <CardContent className="pt-0 pb-4">
+          <div className="border-t border-border/40 pt-4">
+            <RelationshipHealthGrid
+              contacts={contactHealthData.slice(0, 6)}
+              title="Relationship Health"
+              viewAllHref="/dashboard/contacts"
+            />
+          </div>
+        </CardContent>
+      ) : null}
     </Card>
   );
 }

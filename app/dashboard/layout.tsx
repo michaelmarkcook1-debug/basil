@@ -8,6 +8,9 @@ import { ThemeToggle } from "@/components/theme-toggle";
 import { clearSessionUsername } from "@/lib/session-user";
 import { Menu } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { ModeProvider } from "@/components/ui/mode-context";
+import { ModeStatusBar, ModeSwitcherDialog } from "@/components/ui/mode-switcher";
+import { ModeIntelligenceBar } from "@/components/ui/mode-intelligence";
 
 export default function DashboardLayout({
   children,
@@ -16,6 +19,7 @@ export default function DashboardLayout({
 }) {
   const [mobileOpen, setMobileOpen] = useState(false);
   const [isStandalone, setIsStandalone] = useState(false);
+  const [modeDialogOpen, setModeDialogOpen] = useState(false);
 
   // Detect PWA standalone mode
   useEffect(() => {
@@ -24,6 +28,32 @@ export default function DashboardLayout({
     const handler = (e: MediaQueryListEvent) => setIsStandalone(e.matches);
     mq.addEventListener("change", handler);
     return () => mq.removeEventListener("change", handler);
+  }, []);
+
+  // Global keyboard shortcut: M → open mode switcher
+  // (skipped when focus is in an input or contenteditable)
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      const target = e.target as HTMLElement;
+      if (
+        target.tagName === "INPUT" ||
+        target.tagName === "TEXTAREA" ||
+        target.isContentEditable
+      )
+        return;
+      if (
+        e.key === "m" &&
+        !e.metaKey &&
+        !e.ctrlKey &&
+        !e.altKey &&
+        !e.shiftKey
+      ) {
+        setModeDialogOpen(true);
+        e.preventDefault();
+      }
+    };
+    window.addEventListener("keydown", handler);
+    return () => window.removeEventListener("keydown", handler);
   }, []);
 
   // Client-side guard: redirect to login if session is gone
@@ -43,6 +73,7 @@ export default function DashboardLayout({
   }, []);
 
   return (
+    <ModeProvider>
     <div className="flex h-screen overflow-hidden">
       {/* Desktop sidebar — always visible on lg+ */}
       <div className="hidden lg:flex">
@@ -102,6 +133,15 @@ export default function DashboardLayout({
             "lg:pb-0 pb-[calc(3.5rem+env(safe-area-inset-bottom))]"
           )}
         >
+          {/* Mode status bar — renders only when a non-default mode is active */}
+          <ModeStatusBar />
+          {/* Mode intelligence — contextual signals for the active mode */}
+          <ModeIntelligenceBar />
+          {/* Global mode dialog — opened by M keyboard shortcut */}
+          <ModeSwitcherDialog
+            open={modeDialogOpen}
+            onOpenChange={setModeDialogOpen}
+          />
           {children}
         </main>
       </div>
@@ -109,5 +149,6 @@ export default function DashboardLayout({
       {/* Bottom tab bar — mobile only, above lg hidden via CSS in component */}
       <MobileBottomNav onMoreClick={() => setMobileOpen(true)} />
     </div>
+    </ModeProvider>
   );
 }

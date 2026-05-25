@@ -22,6 +22,7 @@ import { getSystemPrompt } from "@/lib/ai/system-prompt";
 import { parseAndValidate } from "@/lib/ai/parse-json";
 import { SlackIntelligenceSchema } from "@/lib/ai/schemas";
 import { getFlags } from "@/core/feature-flags";
+import { getSettings } from "@/lib/settings/store";
 
 // ── Category types ─────────────────────────────────────────────────────────────
 
@@ -178,18 +179,23 @@ export async function classifySlack(
     console.error("[slack-classify] username is required — refusing to classify without owner");
     return emptyIntelligence();
   }
+  const userName = (await getSettings(username).catch(() => null))?.name ?? username;
+  const userFirstName = userName.split(" ")[0];
 
   if (!transcript.trim()) return emptyIntelligence();
 
   const contextHints = [
-    isDM && "This is a direct message to Michael.",
-    isMention && "Michael was @-mentioned in this conversation.",
+    isDM && `This is a direct message conversation involving ${userFirstName}.`,
+    isMention && `${userFirstName} was @-mentioned in this conversation.`,
+    `Lines prefixed [You] are messages ${userFirstName} themselves sent. Lines with other names are messages they received.`,
+    isDM && `In a DM, if the last message is prefixed [You], ${userFirstName} has already replied and likely does not need to reply again.`,
   ]
     .filter(Boolean)
     .join(" ");
 
   const prompt = `Analyze this Slack conversation and extract structured business intelligence. \
-The primary reader is Michael Cook, a business executive.
+The primary reader is ${userName}, a business executive.
+IMPORTANT: Lines prefixed "[You]:" in the transcript are messages ${userFirstName} sent. All other lines are messages they received from others.
 
 ${contextHints ? `Context: ${contextHints}\n` : ""}DATE: ${date}
 CONVERSATION:
@@ -198,8 +204,8 @@ ${transcript}
 Classification rules — follow strictly:
 
 1. category — choose exactly one:
-   - action_assigned: explicit task assigned to or directly requested of Michael
-   - action_identified: action item mentioned in the conversation (may not be Michael's)
+   - action_assigned: explicit task assigned to or directly requested of ${userFirstName}
+   - action_identified: action item mentioned in the conversation (may not be ${userFirstName}'s)
    - decision_made: a decision was confirmed/reached in this conversation
    - decision_needed: a decision is being awaited or requested from the team
    - blocker_raised: something is explicitly blocked, stuck, or at risk
@@ -216,7 +222,7 @@ Classification rules — follow strictly:
    - medium: should be addressed this week
    - low: informational, no time pressure
 
-4. isMichaelAddressed: true ONLY if Michael is specifically named or @-mentioned as owner of an action/decision
+4. isMichaelAddressed: true ONLY if another person (not ${userFirstName}) specifically names or @-mentions ${userFirstName} as the owner/requester of an action or decision. Do NOT set true just because [You] lines appear — that just means ${userFirstName} participated.
 
 5. actions: only explicit next steps or assigned tasks — not wishes or vague suggestions.
    Each action: text (required), owner (omit if unclear), dueDate (omit if none), priority ("high"/"medium"/"low" — high if urgent/blocking/time-critical)

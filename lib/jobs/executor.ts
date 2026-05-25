@@ -134,13 +134,17 @@ async function execIngestSlack(
   const { hashContent } = await import("@/lib/ingest/content-hash");
   const { isHashUnchanged, recordIngest } = await import("@/lib/ingest/index");
   const { appendAuditEntries, auditSkipped } = await import("@/lib/ingest/audit-log");
+  const { getSelfIdentity } = await import("@/lib/self-identity");
 
   const { channelId, messageTs, externalId, eventId, channelName, from, date, isDM, isMention, bodyFallback } = payload;
+
+  const selfIdentity = await getSelfIdentity(username).catch(() => ({ emails: [], names: [] }));
+  const selfDisplayName = selfIdentity.names[0] ?? undefined;
 
   const threadMessages = await fetchSlackThread(username, channelId, messageTs);
   const transcript =
     threadMessages.length > 0
-      ? formatThreadTranscript(threadMessages, channelName)
+      ? formatThreadTranscript(threadMessages, channelName, selfDisplayName)
       : `Channel: ${channelName}\n\n${from}: ${bodyFallback || ""}`;
 
   const contentHash = hashContent(channelName, transcript);
@@ -174,6 +178,7 @@ async function execIngestSlack(
     from,
     date,
     username,
+    isDM,
   });
 
   void recordIngest(username, {

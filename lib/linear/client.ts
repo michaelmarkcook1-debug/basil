@@ -131,18 +131,13 @@ interface OpenIssuesResult {
 
 /**
  * Returns all open Linear issues assigned to the authenticated user.
- * Never throws — returns empty array on failure.
+ * Throws on API/network failure so the caller can distinguish error from empty.
  */
 export async function getMyOpenIssues(username: string): Promise<LinearIssue[]> {
-  try {
-    const config = await getLinearConfig(username);
-    if (!config.apiKey) return [];
-    const data = await gql<OpenIssuesResult>(config.apiKey, OPEN_ISSUES_QUERY);
-    return data.issues.nodes;
-  } catch (err) {
-    console.error("[linear] getMyOpenIssues error:", err);
-    return [];
-  }
+  const config = await getLinearConfig(username);
+  if (!config.apiKey) return [];
+  const data = await gql<OpenIssuesResult>(config.apiKey, OPEN_ISSUES_QUERY);
+  return data.issues.nodes;
 }
 
 // ── Teams ──────────────────────────────────────────────────────────────────

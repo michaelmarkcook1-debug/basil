@@ -17,6 +17,7 @@ import { getSystemPrompt } from "@/lib/ai/system-prompt";
 import { parseAndValidate } from "@/lib/ai/parse-json";
 import { EmailIntelligenceSchema } from "@/lib/ai/schemas";
 import { getFlags } from "@/core/feature-flags";
+import { getSettings } from "@/lib/settings/store";
 
 // ── Category types ─────────────────────────────────────────────────────────────
 
@@ -163,6 +164,8 @@ export async function classifyEmail(
     console.error("[email-classify] username is required — refusing to classify without owner");
     return emptyIntelligence();
   }
+  const userName = (await getSettings(username).catch(() => null))?.name ?? username;
+  const userFirstName = userName.split(" ")[0];
 
   // Clip to 4 000 chars — enough for rich emails, bounded AI cost
   const bodyClip = (body || snippet || "").trim().slice(0, 4_000);
@@ -170,7 +173,12 @@ export async function classifyEmail(
   if (!bodyClip) return emptyIntelligence();
 
   const prompt = `Classify this email and extract structured intelligence. \
-The recipient is Michael Cook, a business executive.
+The recipient is ${userName}, a business executive. The sender is ${from}.
+
+IMPORTANT — message direction:
+- The FROM field is the SENDER. ${userFirstName} is the RECIPIENT.
+- Email bodies often contain quoted reply history (lines starting with ">", or preceded by "On [date], [name] wrote:"). That quoted content is from PREVIOUS messages and may include things ${userFirstName} wrote earlier.
+- Classify based on the MOST RECENT (top) message only. Do NOT extract actions from quoted sections that ${userFirstName} themselves wrote — those are their past outgoing messages, not requests being made of them now.
 
 FROM: ${from}
 SUBJECT: ${subject}
@@ -181,10 +189,10 @@ ${bodyClip}
 Classification rules — follow these strictly:
 
 1. category — choose exactly one:
-   - action_required: sender explicitly asks Michael to do something
-   - decision_request: sender asks Michael to decide or give approval
+   - action_required: sender explicitly asks ${userFirstName} to do something
+   - decision_request: sender asks ${userFirstName} to decide or give approval
    - decision_made: email announces/confirms a decision that was reached
-   - follow_up_needed: thread Michael should actively follow up on
+   - follow_up_needed: thread ${userFirstName} should actively follow up on
    - relationship_signal: significant update about a contact, account, or business relationship
    - scheduling_signal: meeting request, availability question, calendar coordination
    - informational_only: FYI update, no response or action needed
@@ -197,7 +205,7 @@ Classification rules — follow these strictly:
    - medium: expected response within a few days
    - low: no urgency or purely informational
 
-4. actions: only explicitly assigned or implied tasks for Michael — not vague suggestions.
+4. actions: only explicitly assigned or implied tasks for ${userFirstName} — not vague suggestions.
    Each action: text (required), dueDate (omit if none), priority ("high"/"medium"/"low" — high if urgent/deadline-driven, low if no urgency)
 5. decisions: for confirmed/announced decisions, extract:
    - text: the full decision as a sentence

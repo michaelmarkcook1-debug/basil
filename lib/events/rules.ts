@@ -17,8 +17,8 @@ const HIRING_KEYWORDS = /\b(hire|hiring|fired|firing|offer|termination|resign|no
 const DECISION_KEYWORDS = /\b(decision|decided|approve|approval|ship|go\/no-go|sign off|green light)/i;
 const ACTION_KEYWORDS = /\b(todo|to do|action|follow up|follow-up|action item|next step|owner:|due:)/i;
 
-/** Fallback hardcoded list used when no dynamic contact set is available. */
-const KEY_PEOPLE_FALLBACK = ["malcolm", "ed baum", " ed ", "isaac", "olivia", "sam jordan"];
+/** Fallback used when no dynamic contact set is available. Empty: prefer callers always supply dynamicNames. */
+const KEY_PEOPLE_FALLBACK: string[] = [];
 
 /**
  * Returns true when `text` matches a known contact.

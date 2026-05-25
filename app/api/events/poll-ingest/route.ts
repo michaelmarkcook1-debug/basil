@@ -459,10 +459,13 @@ export async function POST(req: Request) {
           // Fetch full thread — gives the AI conversation context, not just a snippet
           const threadMessages = await fetchSlackThread(username, channelId, messageTs);
 
+          // Pass Michael's display name so [You] markers are injected for his messages.
+          const selfDisplayName = selfIdentity.names[0] ?? undefined;
+
           // If no thread replies fetched, fall back to the snippet we already have
           const transcript =
             threadMessages.length > 0
-              ? formatThreadTranscript(threadMessages, channelName)
+              ? formatThreadTranscript(threadMessages, channelName, selfDisplayName)
               : `Channel: ${channelName}\n\n${payload.from || "Unknown"}: ${payload.body || ""}`;
 
           const slackSourceRef = payload.externalId!;
@@ -500,6 +503,7 @@ export async function POST(req: Request) {
             // Use the Slack message's actual send date, not ingest time
             date: payload.date || new Date().toISOString(),
             username,
+            isDM: !!payload.hints?.isDM,
           });
 
           const slackActionIds = result.auditEntries.filter((e) => e.itemType === "action" && e.itemId).map((e) => e.itemId!);

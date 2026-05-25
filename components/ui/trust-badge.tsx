@@ -30,14 +30,14 @@ type KnownSource =
   | "Chat";
 
 const SOURCE_STYLES: Record<KnownSource, string> = {
-  Gmail:     "bg-red-50   text-red-700   border-red-200",
-  Calendar:  "bg-blue-50  text-blue-700  border-blue-200",
-  Slack:     "bg-green-50 text-green-700 border-green-200",
-  Zoom:      "bg-sky-50   text-sky-700   border-sky-200",
-  WhatsApp:  "bg-teal-50  text-teal-700  border-teal-200",
-  Microsoft: "bg-indigo-50 text-indigo-700 border-indigo-200",
-  Manual:    "bg-slate-50 text-slate-600  border-slate-200",
-  Chat:      "bg-violet-50 text-violet-700 border-violet-200",
+  Gmail:     "bg-red-50    text-red-700    border-red-200    dark:bg-red-950/30    dark:text-red-400    dark:border-red-800/50",
+  Calendar:  "bg-blue-50   text-blue-700   border-blue-200   dark:bg-blue-950/30   dark:text-blue-400   dark:border-blue-800/50",
+  Slack:     "bg-amber-50  text-amber-700  border-amber-200  dark:bg-amber-950/30  dark:text-amber-400  dark:border-amber-800/50",
+  Zoom:      "bg-sky-50    text-sky-700    border-sky-200    dark:bg-sky-950/30    dark:text-sky-400    dark:border-sky-800/50",
+  WhatsApp:  "bg-emerald-50 text-emerald-700 border-emerald-200 dark:bg-emerald-950/30 dark:text-emerald-400 dark:border-emerald-800/50",
+  Microsoft: "bg-violet-50 text-violet-700 border-violet-200 dark:bg-violet-950/30 dark:text-violet-400 dark:border-violet-800/50",
+  Manual:    "bg-slate-50  text-slate-600  border-slate-200  dark:bg-slate-900/40  dark:text-slate-400  dark:border-slate-700/50",
+  Chat:      "bg-[oklch(0.96_0.02_85)] text-[oklch(0.45_0.12_85)] border-[oklch(0.88_0.04_85)] dark:bg-[oklch(0.16_0.03_85)] dark:text-[oklch(0.72_0.15_85)] dark:border-[oklch(0.24_0.05_85)]",
 };
 
 /** Parse a sourceRef string like "gmail:1abc2def" → human-readable label. */

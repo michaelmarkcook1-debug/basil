@@ -121,6 +121,7 @@ export default function MeetingPrepPage() {
   const [prep, setPrep] = useState<PrepData | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+  const [selfName, setSelfName] = useState<string>("");
   const [extraFiles, setExtraFiles] = useState<File[]>([]);
 
   // extraNotes and extraUrls persist across tab switches, scoped by eventId.
@@ -136,6 +137,14 @@ export default function MeetingPrepPage() {
   const extraUrls = extraDraft.extraUrls;
   const setExtraNotes = (v: string) => setExtraDraft((d) => ({ ...d, extraNotes: v }));
   const setExtraUrls = (v: string[]) => setExtraDraft((d) => ({ ...d, extraUrls: v }));
+
+  // Resolve current user's display name for owner comparisons.
+  useEffect(() => {
+    fetch("/api/settings", { cache: "no-store" })
+      .then((r) => r.ok ? r.json() : null)
+      .then((d) => { if (d?.name) setSelfName(d.name); })
+      .catch(() => {});
+  }, []);
 
   // Hydrate cached prep for this event id — so navigating away and back
   // doesn't lose the generated cheatsheet. Key per eventId, username-scoped.
@@ -492,7 +501,7 @@ export default function MeetingPrepPage() {
                             {isOverdue && <span className="text-red-500 font-medium">OVERDUE</span>}
                             {!isOverdue && a.dueDate && <span>due {a.dueDate}</span>}
                             {a.priority === "high" && !isOverdue && <span className="text-amber-600 font-medium">high priority</span>}
-                            {a.owner && a.owner !== "Michael Cook" && <span>· {a.owner}</span>}
+                            {a.owner && a.owner !== selfName && <span>· {a.owner}</span>}
                           </p>
                         </div>
                       </CardContent>

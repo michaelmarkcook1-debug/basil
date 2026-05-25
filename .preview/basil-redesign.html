@@ -1,0 +1,1212 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Basil — Design Preview</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  :root {
+    --bg:        #080c14;
+    --s1:        #0e1420;
+    --s2:        #131b2b;
+    --s3:        #1a2438;
+    --s4:        #212d3f;
+    --gold:      #c9a257;
+    --gold-dim:  #8a6d39;
+    --gold-glow: rgba(201,162,87,0.15);
+    --gold-line: rgba(201,162,87,0.25);
+    --text:      #eef2ff;
+    --muted:     #7a8499;
+    --dim:       #3d4a60;
+    --border:    rgba(255,255,255,0.06);
+    --border-hi: rgba(255,255,255,0.10);
+    --green:     #22c55e;
+    --amber:     #f59e0b;
+    --red:       #ef4444;
+    --blue:      #3b82f6;
+    --radius:    14px;
+    --radius-sm: 8px;
+    --sidebar-w: 56px;
+    --font: 'Inter', system-ui, sans-serif;
+  }
+
+  html, body { height: 100%; background: var(--bg); color: var(--text); font-family: var(--font); font-size: 14px; line-height: 1.5; overflow: hidden; }
+
+  /* ── Layout ── */
+  .app { display: flex; height: 100vh; }
+
+  /* ── Sidebar ── */
+  .sidebar {
+    width: var(--sidebar-w);
+    background: var(--s1);
+    border-right: 1px solid var(--border);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 16px 0;
+    gap: 4px;
+    flex-shrink: 0;
+    position: relative;
+    z-index: 10;
+  }
+  .sidebar-logo {
+    width: 32px; height: 32px;
+    background: linear-gradient(135deg, var(--gold), #a07828);
+    border-radius: 8px;
+    display: flex; align-items: center; justify-content: center;
+    font-weight: 700; font-size: 13px; color: #080c14;
+    margin-bottom: 20px;
+    box-shadow: 0 0 20px var(--gold-glow);
+  }
+  .nav-item {
+    width: 40px; height: 40px;
+    border-radius: 10px;
+    display: flex; align-items: center; justify-content: center;
+    cursor: pointer;
+    color: var(--muted);
+    transition: all 0.15s ease;
+    position: relative;
+    border: 1px solid transparent;
+  }
+  .nav-item:hover { background: var(--s3); color: var(--text); }
+  .nav-item.active {
+    background: var(--gold-glow);
+    color: var(--gold);
+    border-color: var(--gold-line);
+  }
+  .nav-item svg { width: 18px; height: 18px; }
+  .nav-tooltip {
+    position: absolute; left: calc(100% + 12px);
+    background: var(--s3); border: 1px solid var(--border-hi);
+    color: var(--text); font-size: 12px; font-weight: 500;
+    padding: 5px 10px; border-radius: 6px;
+    white-space: nowrap; pointer-events: none;
+    opacity: 0; transition: opacity 0.12s;
+    box-shadow: 0 4px 20px rgba(0,0,0,0.4);
+  }
+  .nav-item:hover .nav-tooltip { opacity: 1; }
+  .sidebar-spacer { flex: 1; }
+  .sidebar-avatar {
+    width: 30px; height: 30px; border-radius: 50%;
+    background: linear-gradient(135deg, #2a3f5f, #1a2d45);
+    border: 1.5px solid var(--gold-dim);
+    display: flex; align-items: center; justify-content: center;
+    font-size: 11px; font-weight: 600; color: var(--gold);
+    cursor: pointer;
+  }
+
+  /* ── Main content ── */
+  .main { flex: 1; overflow: hidden; display: flex; flex-direction: column; }
+
+  /* ── Topbar ── */
+  .topbar {
+    height: 52px;
+    border-bottom: 1px solid var(--border);
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 0 24px;
+    background: var(--s1);
+    flex-shrink: 0;
+  }
+  .topbar-left { display: flex; align-items: center; gap: 8px; }
+  .topbar-title { font-size: 15px; font-weight: 600; letter-spacing: -0.01em; }
+  .topbar-sub { font-size: 12px; color: var(--muted); }
+  .topbar-right { display: flex; align-items: center; gap: 8px; }
+  .topbar-btn {
+    width: 32px; height: 32px; border-radius: 8px;
+    background: var(--s3); border: 1px solid var(--border);
+    display: flex; align-items: center; justify-content: center;
+    cursor: pointer; color: var(--muted); transition: all 0.15s;
+  }
+  .topbar-btn:hover { color: var(--text); background: var(--s4); }
+  .topbar-btn svg { width: 15px; height: 15px; }
+  .badge-dot {
+    position: relative;
+  }
+  .badge-dot::after {
+    content: '';
+    position: absolute; top: 6px; right: 6px;
+    width: 6px; height: 6px; border-radius: 50%;
+    background: var(--gold);
+    box-shadow: 0 0 6px var(--gold);
+  }
+
+  /* ── Page container ── */
+  .page { display: none; flex: 1; overflow-y: auto; padding: 24px; animation: fadeIn 0.2s ease; }
+  .page.active { display: block; }
+
+  @keyframes fadeIn { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: translateY(0); } }
+
+  /* ── Stat cards ── */
+  .stats-row { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin-bottom: 20px; }
+  .stat-card {
+    background: var(--s2);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 18px 20px;
+    transition: border-color 0.2s;
+    cursor: default;
+  }
+  .stat-card:hover { border-color: var(--border-hi); }
+  .stat-card.gold-card {
+    background: linear-gradient(135deg, rgba(201,162,87,0.12) 0%, var(--s2) 60%);
+    border-color: var(--gold-line);
+  }
+  .stat-label { font-size: 11px; font-weight: 500; color: var(--muted); text-transform: uppercase; letter-spacing: 0.06em; margin-bottom: 10px; }
+  .stat-value {
+    font-size: 32px; font-weight: 700; letter-spacing: -0.03em;
+    line-height: 1; margin-bottom: 8px;
+    font-variant-numeric: tabular-nums;
+  }
+  .stat-card.gold-card .stat-value { color: var(--gold); }
+  .stat-delta { font-size: 11px; color: var(--muted); display: flex; align-items: center; gap: 4px; }
+  .stat-delta .up { color: var(--green); }
+  .stat-delta .down { color: var(--red); }
+  .stat-icon {
+    float: right; margin-top: -2px;
+    width: 28px; height: 28px; opacity: 0.25;
+  }
+
+  /* ── Grid layout ── */
+  .grid-2 { display: grid; grid-template-columns: 1fr 340px; gap: 16px; }
+  .grid-3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 12px; }
+
+  /* ── Card ── */
+  .card {
+    background: var(--s2);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    overflow: hidden;
+  }
+  .card-header {
+    padding: 14px 18px;
+    border-bottom: 1px solid var(--border);
+    display: flex; align-items: center; justify-content: space-between;
+  }
+  .card-title { font-size: 13px; font-weight: 600; }
+  .card-action { font-size: 11px; color: var(--gold); cursor: pointer; transition: opacity 0.15s; }
+  .card-action:hover { opacity: 0.8; }
+  .card-body { padding: 14px 18px; }
+
+  /* ── Activity feed ── */
+  .feed-item {
+    display: flex; align-items: flex-start; gap: 12px;
+    padding: 10px 0; border-bottom: 1px solid var(--border);
+  }
+  .feed-item:last-child { border-bottom: none; }
+  .feed-icon {
+    width: 30px; height: 30px; border-radius: 8px;
+    background: var(--s3); flex-shrink: 0;
+    display: flex; align-items: center; justify-content: center;
+    color: var(--muted);
+  }
+  .feed-icon svg { width: 13px; height: 13px; }
+  .feed-icon.gold { background: var(--gold-glow); color: var(--gold); }
+  .feed-icon.green { background: rgba(34,197,94,0.12); color: var(--green); }
+  .feed-icon.blue { background: rgba(59,130,246,0.12); color: var(--blue); }
+  .feed-text { flex: 1; min-width: 0; }
+  .feed-title { font-size: 12.5px; font-weight: 500; line-height: 1.4; }
+  .feed-sub { font-size: 11px; color: var(--muted); margin-top: 1px; }
+  .feed-time { font-size: 10.5px; color: var(--dim); white-space: nowrap; flex-shrink: 0; }
+
+  /* ── Health indicators ── */
+  .health-row {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 9px 0; border-bottom: 1px solid var(--border);
+  }
+  .health-row:last-child { border-bottom: none; }
+  .health-label { font-size: 12px; color: var(--muted); }
+  .health-status { display: flex; align-items: center; gap-6px; gap: 6px; font-size: 11.5px; font-weight: 500; }
+  .dot { width: 7px; height: 7px; border-radius: 50%; }
+  .dot.green { background: var(--green); box-shadow: 0 0 6px rgba(34,197,94,0.6); }
+  .dot.amber { background: var(--amber); box-shadow: 0 0 6px rgba(245,158,11,0.6); }
+  .dot.red { background: var(--red); }
+  .dot.dim { background: var(--dim); }
+  .health-status.ok { color: var(--green); }
+  .health-status.warn { color: var(--amber); }
+  .health-status.off { color: var(--dim); }
+
+  /* ── Big health number ── */
+  .health-score {
+    text-align: center; padding: 16px 0 12px;
+  }
+  .health-score-num { font-size: 42px; font-weight: 700; color: var(--green); letter-spacing: -0.04em; line-height: 1; }
+  .health-score-label { font-size: 11px; color: var(--muted); margin-top: 4px; }
+  .health-ring {
+    width: 80px; height: 80px; margin: 0 auto 10px;
+    position: relative;
+  }
+  .health-ring svg { width: 80px; height: 80px; transform: rotate(-90deg); }
+  .health-ring circle { fill: none; stroke-width: 6; }
+  .ring-bg { stroke: var(--s4); }
+  .ring-val { stroke: var(--green); stroke-linecap: round; stroke-dasharray: 220; stroke-dashoffset: 18; filter: drop-shadow(0 0 4px rgba(34,197,94,0.5)); }
+
+  /* ── Badge / pill ── */
+  .pill {
+    display: inline-flex; align-items: center; gap: 4px;
+    padding: 2px 8px; border-radius: 100px; font-size: 10.5px; font-weight: 600;
+  }
+  .pill.green { background: rgba(34,197,94,0.12); color: var(--green); border: 1px solid rgba(34,197,94,0.2); }
+  .pill.amber { background: rgba(245,158,11,0.12); color: var(--amber); border: 1px solid rgba(245,158,11,0.2); }
+  .pill.blue  { background: rgba(59,130,246,0.12); color: var(--blue);  border: 1px solid rgba(59,130,246,0.2); }
+  .pill.muted { background: var(--s4); color: var(--muted); border: 1px solid var(--border); }
+
+  /* ── Table ── */
+  .data-table { width: 100%; border-collapse: collapse; }
+  .data-table th {
+    text-align: left; font-size: 10.5px; font-weight: 600; color: var(--muted);
+    text-transform: uppercase; letter-spacing: 0.06em;
+    padding: 0 14px 10px; border-bottom: 1px solid var(--border);
+  }
+  .data-table td {
+    padding: 11px 14px; border-bottom: 1px solid var(--border);
+    font-size: 12.5px; vertical-align: middle;
+  }
+  .data-table tr:last-child td { border-bottom: none; }
+  .data-table tr { transition: background 0.1s; cursor: pointer; }
+  .data-table tr:hover td { background: var(--s3); }
+  .data-table tr.selected td { background: rgba(201,162,87,0.06); }
+  .item-title { font-weight: 500; }
+  .item-sub { font-size: 11px; color: var(--muted); margin-top: 1px; }
+  .table-actions { display: flex; gap: 4px; opacity: 0; transition: opacity 0.15s; }
+  tr:hover .table-actions { opacity: 1; }
+  .tbl-btn {
+    width: 26px; height: 26px; border-radius: 6px;
+    background: var(--s4); border: 1px solid var(--border);
+    display: flex; align-items: center; justify-content: center;
+    cursor: pointer; color: var(--muted); transition: all 0.12s;
+  }
+  .tbl-btn:hover { color: var(--text); background: var(--s3); border-color: var(--border-hi); }
+  .tbl-btn svg { width: 12px; height: 12px; }
+  .tbl-btn.danger:hover { color: var(--red); border-color: rgba(239,68,68,0.3); }
+  .check-circle { color: var(--green); }
+  .check-circle svg { width: 14px; height: 14px; }
+
+  /* ── Search / input ── */
+  .search-bar {
+    display: flex; align-items: center; gap: 8px;
+    background: var(--s2); border: 1px solid var(--border);
+    border-radius: 9px; padding: 7px 12px;
+    color: var(--muted);
+    width: 220px;
+    transition: border-color 0.15s;
+  }
+  .search-bar:focus-within { border-color: var(--border-hi); }
+  .search-bar input {
+    background: none; border: none; outline: none;
+    color: var(--text); font-size: 12.5px; width: 100%;
+    font-family: var(--font);
+  }
+  .search-bar input::placeholder { color: var(--dim); }
+  .search-bar svg { width: 13px; height: 13px; flex-shrink: 0; }
+
+  /* ── Page header ── */
+  .page-header { display: flex; align-items: flex-start; justify-content: space-between; margin-bottom: 20px; }
+  .page-title { font-size: 18px; font-weight: 700; letter-spacing: -0.02em; }
+  .page-sub { font-size: 12px; color: var(--muted); margin-top: 2px; }
+  .btn {
+    display: inline-flex; align-items: center; gap-6px; gap: 6px;
+    padding: 7px 14px; border-radius: 8px; font-size: 12.5px; font-weight: 500;
+    cursor: pointer; transition: all 0.15s; border: 1px solid transparent;
+    font-family: var(--font);
+  }
+  .btn svg { width: 14px; height: 14px; }
+  .btn-gold {
+    background: linear-gradient(135deg, var(--gold), #a07828);
+    color: #080c14;
+    box-shadow: 0 2px 12px rgba(201,162,87,0.3);
+  }
+  .btn-gold:hover { box-shadow: 0 4px 20px rgba(201,162,87,0.4); transform: translateY(-1px); }
+  .btn-ghost {
+    background: var(--s3); border-color: var(--border);
+    color: var(--muted);
+  }
+  .btn-ghost:hover { color: var(--text); background: var(--s4); }
+
+  /* ── Chat page ── */
+  .chat-page {
+    display: none;
+    flex: 1;
+    flex-direction: column;
+    height: 100%;
+  }
+  .chat-page.active { display: flex; }
+  .chat-centered {
+    flex: 1; display: flex; flex-direction: column;
+    align-items: center; justify-content: center;
+    padding: 32px 24px;
+  }
+  .chat-welcome { text-align: center; max-width: 480px; margin-bottom: 32px; }
+  .chat-bot-icon {
+    width: 52px; height: 52px; border-radius: 14px;
+    background: linear-gradient(135deg, var(--gold), #a07828);
+    display: flex; align-items: center; justify-content: center;
+    margin: 0 auto 16px;
+    box-shadow: 0 0 30px rgba(201,162,87,0.25);
+  }
+  .chat-bot-icon svg { width: 24px; height: 24px; color: #080c14; }
+  .chat-welcome h2 { font-size: 22px; font-weight: 700; letter-spacing: -0.02em; margin-bottom: 6px; }
+  .chat-welcome p { font-size: 13px; color: var(--muted); line-height: 1.6; }
+  .suggestion-chips { display: flex; flex-wrap: wrap; gap: 8px; justify-content: center; margin-bottom: 28px; }
+  .chip {
+    padding: 6px 14px; border-radius: 100px; font-size: 12px; font-weight: 500;
+    background: var(--s2); border: 1px solid var(--border);
+    color: var(--muted); cursor: pointer; transition: all 0.15s;
+  }
+  .chip:hover { border-color: var(--gold-line); color: var(--gold); background: var(--gold-glow); }
+  .chat-input-wrap {
+    width: 100%; max-width: 640px;
+    background: var(--s2);
+    border: 1px solid var(--border-hi);
+    border-radius: 18px;
+    padding: 14px 16px;
+    box-shadow: 0 4px 40px rgba(0,0,0,0.3);
+    transition: border-color 0.2s, box-shadow 0.2s;
+  }
+  .chat-input-wrap:focus-within {
+    border-color: var(--gold-line);
+    box-shadow: 0 4px 40px rgba(0,0,0,0.3), 0 0 0 1px var(--gold-line);
+  }
+  .chat-input-row { display: flex; align-items: flex-end; gap: 10px; }
+  .chat-textarea {
+    flex: 1; background: none; border: none; outline: none;
+    color: var(--text); font-size: 14px; font-family: var(--font);
+    resize: none; min-height: 24px; max-height: 120px;
+    line-height: 1.5;
+  }
+  .chat-textarea::placeholder { color: var(--dim); }
+  .chat-send {
+    width: 36px; height: 36px; border-radius: 10px; flex-shrink: 0;
+    background: linear-gradient(135deg, var(--gold), #a07828);
+    border: none; cursor: pointer;
+    display: flex; align-items: center; justify-content: center;
+    transition: all 0.15s;
+    box-shadow: 0 2px 10px rgba(201,162,87,0.3);
+  }
+  .chat-send:hover { box-shadow: 0 4px 16px rgba(201,162,87,0.5); transform: translateY(-1px); }
+  .chat-send svg { width: 15px; height: 15px; color: #080c14; }
+  .chat-tools { display: flex; align-items: center; gap: 6px; margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--border); }
+  .chat-tool-btn {
+    display: inline-flex; align-items: center; gap: 5px;
+    padding: 4px 10px; border-radius: 6px;
+    background: var(--s3); border: 1px solid var(--border);
+    color: var(--muted); font-size: 11px; cursor: pointer; transition: all 0.15s;
+  }
+  .chat-tool-btn:hover { color: var(--text); border-color: var(--border-hi); }
+  .chat-tool-btn svg { width: 11px; height: 11px; }
+  .chat-model-tag {
+    margin-left: auto; font-size: 10.5px; color: var(--dim);
+    display: flex; align-items: center; gap: 4px;
+  }
+  .chat-model-tag .dot { width: 5px; height: 5px; }
+
+  /* ── Chat — history collapsed banner ── */
+  .history-banner {
+    display: flex; align-items: center; gap-8px; gap: 8px; justify-content: center;
+    margin-bottom: 20px;
+  }
+  .history-pill {
+    display: flex; align-items: center; gap: 8px;
+    background: var(--s2); border: 1px solid var(--border);
+    padding: 7px 16px; border-radius: 100px;
+    font-size: 12px; color: var(--muted); cursor: pointer;
+    transition: all 0.15s;
+  }
+  .history-pill:hover { border-color: var(--border-hi); color: var(--text); }
+  .history-pill svg { width: 13px; height: 13px; }
+
+  /* ── Schedule strips ── */
+  .schedule-day { margin-bottom: 20px; }
+  .day-header { font-size: 11px; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: 0.06em; margin-bottom: 10px; }
+  .event-block {
+    display: flex; align-items: flex-start; gap: 14px;
+    background: var(--s2); border: 1px solid var(--border);
+    border-radius: 10px; padding: 12px 16px; margin-bottom: 8px;
+    cursor: pointer; transition: all 0.15s; position: relative; overflow: hidden;
+  }
+  .event-block:hover { border-color: var(--border-hi); background: var(--s3); }
+  .event-block::before {
+    content: ''; position: absolute; left: 0; top: 0; bottom: 0;
+    width: 3px; background: var(--gold);
+  }
+  .event-block.blue::before { background: var(--blue); }
+  .event-block.green::before { background: var(--green); }
+  .event-block.dim::before { background: var(--dim); }
+  .event-time { font-size: 11px; font-weight: 600; color: var(--muted); width: 68px; flex-shrink: 0; padding-top: 1px; font-variant-numeric: tabular-nums; }
+  .event-details { flex: 1; min-width: 0; }
+  .event-title { font-size: 13px; font-weight: 600; }
+  .event-meta { font-size: 11px; color: var(--muted); margin-top: 2px; display: flex; align-items: center; gap: 10px; }
+  .event-attendees { display: flex; gap: 4px; margin-left: auto; }
+  .avatar-chip {
+    width: 22px; height: 22px; border-radius: 50%;
+    background: var(--s4); border: 1.5px solid var(--s2);
+    display: flex; align-items: center; justify-content: center;
+    font-size: 8px; font-weight: 700; color: var(--gold);
+  }
+  .event-rsvp { display: flex; gap: 4px; align-items: center; flex-shrink: 0; }
+  .rsvp-btn {
+    padding: 3px 10px; border-radius: 6px; font-size: 10.5px; font-weight: 500;
+    cursor: pointer; transition: all 0.12s;
+  }
+  .rsvp-accept { background: rgba(34,197,94,0.12); color: var(--green); border: 1px solid rgba(34,197,94,0.25); }
+  .rsvp-accept:hover { background: rgba(34,197,94,0.2); }
+  .rsvp-decline { background: var(--s4); color: var(--muted); border: 1px solid var(--border); }
+  .rsvp-decline:hover { color: var(--red); border-color: rgba(239,68,68,0.3); }
+
+  /* ── Scrollbar ── */
+  ::-webkit-scrollbar { width: 4px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb { background: var(--s4); border-radius: 2px; }
+  ::-webkit-scrollbar-thumb:hover { background: var(--dim); }
+
+  /* ── Section label ── */
+  .section-label { font-size: 10.5px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.07em; color: var(--dim); margin-bottom: 12px; }
+
+  /* ── Metric number animation ── */
+  @keyframes countUp { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
+  .stat-value { animation: countUp 0.4s ease both; }
+
+  /* ── Pulse animation for live dot ── */
+  @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.4; } }
+  .live-dot { animation: pulse 2s ease infinite; }
+
+  /* ── Page transitions ── */
+  .page, .chat-page { transition: opacity 0.15s ease; }
+
+  /* ── KBD hint ── */
+  .kbd {
+    background: var(--s3); border: 1px solid var(--border-hi);
+    border-radius: 4px; padding: 1px 5px; font-size: 10px;
+    font-family: 'JetBrains Mono', monospace; color: var(--muted);
+  }
+
+  /* ── Command palette overlay ── */
+  .cmd-overlay {
+    position: fixed; inset: 0;
+    background: rgba(0,0,0,0.7);
+    display: none; align-items: flex-start; justify-content: center;
+    padding-top: 120px; z-index: 100;
+    backdrop-filter: blur(4px);
+    animation: fadeIn 0.15s ease;
+  }
+  .cmd-overlay.open { display: flex; }
+  .cmd-palette {
+    width: 560px;
+    background: var(--s2); border: 1px solid var(--border-hi);
+    border-radius: 16px; overflow: hidden;
+    box-shadow: 0 24px 80px rgba(0,0,0,0.6);
+  }
+  .cmd-input-row {
+    display: flex; align-items: center; gap: 12px;
+    padding: 14px 18px; border-bottom: 1px solid var(--border);
+  }
+  .cmd-input-row svg { width: 16px; height: 16px; color: var(--muted); flex-shrink: 0; }
+  .cmd-input {
+    flex: 1; background: none; border: none; outline: none;
+    font-size: 15px; color: var(--text); font-family: var(--font);
+  }
+  .cmd-input::placeholder { color: var(--dim); }
+  .cmd-items { padding: 8px; max-height: 320px; overflow-y: auto; }
+  .cmd-section-label { font-size: 10px; font-weight: 600; color: var(--dim); text-transform: uppercase; letter-spacing: 0.07em; padding: 6px 10px 4px; }
+  .cmd-item {
+    display: flex; align-items: center; gap: 10px;
+    padding: 9px 10px; border-radius: 8px; cursor: pointer;
+    transition: background 0.1s;
+  }
+  .cmd-item:hover, .cmd-item.selected { background: var(--s3); }
+  .cmd-item-icon {
+    width: 28px; height: 28px; border-radius: 7px;
+    background: var(--s4); display: flex; align-items: center; justify-content: center;
+    color: var(--muted); flex-shrink: 0;
+  }
+  .cmd-item-icon svg { width: 13px; height: 13px; }
+  .cmd-item-label { font-size: 13px; flex: 1; }
+  .cmd-item-kbd { display: flex; gap: 3px; }
+  .cmd-footer {
+    padding: 8px 14px; border-top: 1px solid var(--border);
+    display: flex; gap: 16px; align-items: center;
+  }
+  .cmd-hint { font-size: 10.5px; color: var(--dim); display: flex; align-items: center; gap: 5px; }
+
+  /* ── Glow hover on cards ── */
+  .card:hover { box-shadow: inset 0 0 0 1px rgba(201,162,87,0.08); }
+  .stat-card:hover { box-shadow: inset 0 0 0 1px rgba(201,162,87,0.1); }
+</style>
+</head>
+<body>
+
+<div class="app">
+  <!-- ── Sidebar ── -->
+  <nav class="sidebar">
+    <div class="sidebar-logo">B</div>
+
+    <div class="nav-item active" onclick="nav('dashboard')">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/></svg>
+      <div class="nav-tooltip">Dashboard</div>
+    </div>
+    <div class="nav-item" onclick="nav('chat')">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+      <div class="nav-tooltip">Ask Basil</div>
+    </div>
+    <div class="nav-item" onclick="nav('schedule')">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
+      <div class="nav-tooltip">Schedule</div>
+    </div>
+    <div class="nav-item" onclick="nav('actions')">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><polyline points="9 11 12 14 22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>
+      <div class="nav-tooltip">Actions</div>
+    </div>
+    <div class="nav-item" onclick="nav('decisions')">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+      <div class="nav-tooltip">Decisions</div>
+    </div>
+    <div class="nav-item">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/><polyline points="22,6 12,13 2,6"/></svg>
+      <div class="nav-tooltip">Email</div>
+    </div>
+
+    <div class="sidebar-spacer"></div>
+
+    <div class="nav-item" style="margin-bottom:8px" onclick="toggleCmd()">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+      <div class="nav-tooltip">Search <span class="kbd">⌘K</span></div>
+    </div>
+    <div class="sidebar-avatar">MC</div>
+  </nav>
+
+  <!-- ── Main ── -->
+  <div class="main">
+    <!-- Topbar -->
+    <div class="topbar">
+      <div class="topbar-left">
+        <span class="topbar-title" id="topbar-title">Dashboard</span>
+        <span style="color:var(--dim);font-size:13px">·</span>
+        <span class="topbar-sub" id="topbar-sub">Sunday, 17 May 2026</span>
+      </div>
+      <div class="topbar-right">
+        <div class="topbar-btn badge-dot" title="Notifications">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>
+        </div>
+        <div class="topbar-btn" onclick="toggleCmd()">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+        </div>
+      </div>
+    </div>
+
+    <!-- ───────────── DASHBOARD ───────────── -->
+    <div class="page active" id="page-dashboard">
+      <!-- Stats row -->
+      <div class="stats-row">
+        <div class="stat-card gold-card">
+          <div class="stat-label">
+            <svg class="stat-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><polyline points="9 11 12 14 22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>
+            Pending Actions
+          </div>
+          <div class="stat-value">7</div>
+          <div class="stat-delta"><span class="up">↑ 2</span>&nbsp;since yesterday</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-label">
+            <svg class="stat-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
+            Meetings Today
+          </div>
+          <div class="stat-value">4</div>
+          <div class="stat-delta">Next at <strong style="color:var(--text)">2:30 PM</strong></div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-label">
+            <svg class="stat-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/><polyline points="22,6 12,13 2,6"/></svg>
+            Priority Emails
+          </div>
+          <div class="stat-value">3</div>
+          <div class="stat-delta"><span class="up">↑ 1</span>&nbsp;in the last hour</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-label">
+            <svg class="stat-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+            Open Decisions
+          </div>
+          <div class="stat-value">5</div>
+          <div class="stat-delta"><span class="down">↓ 1</span>&nbsp;resolved this week</div>
+        </div>
+      </div>
+
+      <!-- Two column -->
+      <div class="grid-2">
+        <!-- Activity feed -->
+        <div class="card">
+          <div class="card-header">
+            <div>
+              <div class="card-title">Recent Activity</div>
+            </div>
+            <div style="display:flex;align-items:center;gap:8px">
+              <div style="display:flex;align-items:center;gap:5px;font-size:11px;color:var(--green)">
+                <span class="dot green live-dot"></span> Live
+              </div>
+              <span class="card-action">View all</span>
+            </div>
+          </div>
+          <div class="card-body" style="padding:8px 18px">
+            <div class="feed-item">
+              <div class="feed-icon green"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="20 6 9 17 4 12"/></svg></div>
+              <div class="feed-text">
+                <div class="feed-title">Action completed — Q2 board pack</div>
+                <div class="feed-sub">Marked done by you via chat</div>
+              </div>
+              <div class="feed-time">2m ago</div>
+            </div>
+            <div class="feed-item">
+              <div class="feed-icon gold"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="3" y1="10" x2="21" y2="10"/></svg></div>
+              <div class="feed-text">
+                <div class="feed-title">RSVP'd <span class="pill green" style="font-size:10px;padding:1px 6px">Accepted</span> · Product review call</div>
+                <div class="feed-sub">Monday 19 May · 10:00 AM</div>
+              </div>
+              <div class="feed-time">8m ago</div>
+            </div>
+            <div class="feed-item">
+              <div class="feed-icon blue"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/><polyline points="22,6 12,13 2,6"/></svg></div>
+              <div class="feed-text">
+                <div class="feed-title">Email drafted to Tom Beardmore</div>
+                <div class="feed-sub">Re: Partnership proposal · Saved as draft</div>
+              </div>
+              <div class="feed-time">15m ago</div>
+            </div>
+            <div class="feed-item">
+              <div class="feed-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg></div>
+              <div class="feed-text">
+                <div class="feed-title">Decision logged — Hire senior AI engineer</div>
+                <div class="feed-sub">Decided by Michael Cook · Engineering</div>
+              </div>
+              <div class="feed-time">32m ago</div>
+            </div>
+            <div class="feed-item">
+              <div class="feed-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg></div>
+              <div class="feed-text">
+                <div class="feed-title">Basil briefing generated</div>
+                <div class="feed-sub">Morning digest ready — 3 urgent items</div>
+              </div>
+              <div class="feed-time">1h ago</div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Right column -->
+        <div style="display:flex;flex-direction:column;gap:14px">
+          <!-- System health -->
+          <div class="card">
+            <div class="card-header">
+              <div class="card-title">Connections</div>
+              <span class="card-action">Settings</span>
+            </div>
+            <div class="card-body">
+              <div class="health-ring">
+                <svg viewBox="0 0 80 80"><circle class="ring-bg" cx="40" cy="40" r="35"/><circle class="ring-val" cx="40" cy="40" r="35"/></svg>
+                <div style="position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;top:0">
+                  <span style="font-size:18px;font-weight:700;color:var(--green);line-height:1">5/5</span>
+                  <span style="font-size:9px;color:var(--muted);margin-top:1px">connected</span>
+                </div>
+              </div>
+              <div class="health-row">
+                <span class="health-label">Google Calendar</span>
+                <span class="health-status ok"><span class="dot green"></span>Active</span>
+              </div>
+              <div class="health-row">
+                <span class="health-label">Gmail</span>
+                <span class="health-status ok"><span class="dot green"></span>Active</span>
+              </div>
+              <div class="health-row">
+                <span class="health-label">Slack</span>
+                <span class="health-status ok"><span class="dot green"></span>Active</span>
+              </div>
+              <div class="health-row">
+                <span class="health-label">Google Drive</span>
+                <span class="health-status warn"><span class="dot amber"></span>Syncing</span>
+              </div>
+              <div class="health-row">
+                <span class="health-label">AI Brain (GPT-4o)</span>
+                <span class="health-status ok"><span class="dot green"></span>Ready</span>
+              </div>
+            </div>
+          </div>
+
+          <!-- Today's meetings mini -->
+          <div class="card">
+            <div class="card-header">
+              <div class="card-title">Today</div>
+              <span class="card-action" onclick="nav('schedule')">Full schedule</span>
+            </div>
+            <div class="card-body" style="padding:10px 14px">
+              <div class="feed-item" style="padding:7px 0">
+                <div style="width:52px;flex-shrink:0;font-size:10px;font-weight:600;color:var(--muted);font-variant-numeric:tabular-nums">9:00 AM</div>
+                <div style="flex:1">
+                  <div style="font-size:12px;font-weight:500">Standup — Engineering</div>
+                  <div style="font-size:10.5px;color:var(--muted)">15 min · Zoom</div>
+                </div>
+                <span class="pill green">Done</span>
+              </div>
+              <div class="feed-item" style="padding:7px 0">
+                <div style="width:52px;flex-shrink:0;font-size:10px;font-weight:600;color:var(--text);font-variant-numeric:tabular-nums">2:30 PM</div>
+                <div style="flex:1">
+                  <div style="font-size:12px;font-weight:500">Board Prep — Q2</div>
+                  <div style="font-size:10.5px;color:var(--muted)">1h · Google Meet · 6 attendees</div>
+                </div>
+                <span class="pill amber">Next</span>
+              </div>
+              <div class="feed-item" style="padding:7px 0;border:none">
+                <div style="width:52px;flex-shrink:0;font-size:10px;font-weight:600;color:var(--muted);font-variant-numeric:tabular-nums">5:00 PM</div>
+                <div style="flex:1">
+                  <div style="font-size:12px;font-weight:500">1:1 with Sarah</div>
+                  <div style="font-size:10.5px;color:var(--muted)">30 min · Teams</div>
+                </div>
+                <span class="pill muted">Later</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ───────────── CHAT ───────────── -->
+    <div class="chat-page" id="page-chat">
+      <div class="chat-centered">
+        <div class="history-banner">
+          <div class="history-pill">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+            12 messages in conversation history
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"/></svg>
+          </div>
+        </div>
+        <div class="chat-welcome">
+          <div class="chat-bot-icon">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 2a2 2 0 0 1 2 2c0 .74-.4 1.39-1 1.73V7h1a7 7 0 0 1 7 7h1a1 1 0 0 1 1 1v3a1 1 0 0 1-1 1h-1v1a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-1H2a1 1 0 0 1-1-1v-3a1 1 0 0 1 1-1h1a7 7 0 0 1 7-7h1V5.73c-.6-.34-1-.99-1-1.73a2 2 0 0 1 2-2z"/></svg>
+          </div>
+          <h2>Hey, Michael</h2>
+          <p>What do you need? I can check your calendar, search emails, draft messages, log decisions, or just chat.</p>
+        </div>
+        <div class="suggestion-chips">
+          <span class="chip">What needs my attention?</span>
+          <span class="chip">Who is blocked?</span>
+          <span class="chip">What did I promise?</span>
+          <span class="chip">What meetings need prep?</span>
+          <span class="chip">Draft a weekly update</span>
+        </div>
+        <div class="chat-input-wrap">
+          <div class="chat-input-row">
+            <textarea class="chat-textarea" placeholder="Ask me anything..." rows="1"></textarea>
+            <button class="chat-send">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>
+            </button>
+          </div>
+          <div class="chat-tools">
+            <button class="chat-tool-btn">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
+              Calendar
+            </button>
+            <button class="chat-tool-btn">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/><polyline points="22,6 12,13 2,6"/></svg>
+              Email
+            </button>
+            <button class="chat-tool-btn">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+              Slack
+            </button>
+            <button class="chat-tool-btn">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+              Drive
+            </button>
+            <div class="chat-model-tag">
+              <span class="dot green live-dot"></span>
+              GPT-4o ready
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ───────────── ACTIONS ───────────── -->
+    <div class="page" id="page-actions">
+      <div class="page-header">
+        <div>
+          <div class="page-title">Actions</div>
+          <div class="page-sub">7 pending · 3 completed today</div>
+        </div>
+        <div style="display:flex;gap:8px;align-items:center">
+          <div class="search-bar">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+            <input placeholder="Search actions…" />
+          </div>
+          <button class="btn btn-gold">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+            Add action
+          </button>
+        </div>
+      </div>
+
+      <div class="grid-2">
+        <div class="card">
+          <div class="card-header">
+            <div class="card-title">Pending</div>
+            <span class="pill amber">7 open</span>
+          </div>
+          <div style="padding:0 4px">
+            <table class="data-table">
+              <thead>
+                <tr>
+                  <th style="width:24px"></th>
+                  <th>Action</th>
+                  <th>Owner</th>
+                  <th>Source</th>
+                  <th>Due</th>
+                  <th></th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td><div style="width:16px;height:16px;border:1.5px solid var(--dim);border-radius:4px;cursor:pointer"></div></td>
+                  <td><div class="item-title">Review Q2 board pack slides</div><div class="item-sub">Finance · High priority</div></td>
+                  <td><span class="pill blue">Michael</span></td>
+                  <td><span class="pill muted">Email</span></td>
+                  <td style="color:var(--amber);font-size:12px;font-weight:500">Today</td>
+                  <td><div class="table-actions">
+                    <div class="tbl-btn"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="20 6 9 17 4 12"/></svg></div>
+                    <div class="tbl-btn danger"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/></svg></div>
+                  </div></td>
+                </tr>
+                <tr>
+                  <td><div style="width:16px;height:16px;border:1.5px solid var(--dim);border-radius:4px;cursor:pointer"></div></td>
+                  <td><div class="item-title">Reply to Tom re: partnership proposal</div><div class="item-sub">External · Medium priority</div></td>
+                  <td><span class="pill blue">Michael</span></td>
+                  <td><span class="pill muted">Email</span></td>
+                  <td style="color:var(--muted);font-size:12px">Tue 20</td>
+                  <td><div class="table-actions">
+                    <div class="tbl-btn"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="20 6 9 17 4 12"/></svg></div>
+                    <div class="tbl-btn danger"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/></svg></div>
+                  </div></td>
+                </tr>
+                <tr>
+                  <td><div style="width:16px;height:16px;border:1.5px solid var(--dim);border-radius:4px;cursor:pointer"></div></td>
+                  <td><div class="item-title">Brief Sarah on new hiring process</div><div class="item-sub">HR · Delegated</div></td>
+                  <td><span class="pill muted">Sarah K.</span></td>
+                  <td><span class="pill muted">Chat</span></td>
+                  <td style="color:var(--muted);font-size:12px">Wed 21</td>
+                  <td><div class="table-actions">
+                    <div class="tbl-btn"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="20 6 9 17 4 12"/></svg></div>
+                    <div class="tbl-btn danger"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/></svg></div>
+                  </div></td>
+                </tr>
+                <tr>
+                  <td><div style="width:16px;height:16px;border:1.5px solid var(--dim);border-radius:4px;cursor:pointer"></div></td>
+                  <td><div class="item-title">Approve AI platform contract</div><div class="item-sub">Legal · Awaiting review</div></td>
+                  <td><span class="pill blue">Michael</span></td>
+                  <td><span class="pill muted">Manual</span></td>
+                  <td style="color:var(--muted);font-size:12px">Fri 23</td>
+                  <td><div class="table-actions">
+                    <div class="tbl-btn"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="20 6 9 17 4 12"/></svg></div>
+                    <div class="tbl-btn danger"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/></svg></div>
+                  </div></td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <!-- Completed today -->
+        <div>
+          <div class="card">
+            <div class="card-header">
+              <div class="card-title">Completed today</div>
+              <span class="pill green">3 done</span>
+            </div>
+            <div style="padding:0 4px">
+              <table class="data-table">
+                <tbody>
+                  <tr>
+                    <td style="width:20px"><svg class="check-circle" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg></td>
+                    <td>
+                      <div class="item-title" style="text-decoration:line-through;color:var(--muted)">Send weekly update to team</div>
+                      <div class="item-sub">Completed 9:14 AM</div>
+                    </td>
+                  </tr>
+                  <tr>
+                    <td><svg class="check-circle" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg></td>
+                    <td>
+                      <div class="item-title" style="text-decoration:line-through;color:var(--muted)">Review engineering sprint backlog</div>
+                      <div class="item-sub">Completed 10:02 AM</div>
+                    </td>
+                  </tr>
+                  <tr>
+                    <td><svg class="check-circle" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg></td>
+                    <td>
+                      <div class="item-title" style="text-decoration:line-through;color:var(--muted)">Q2 board pack slides</div>
+                      <div class="item-sub">Completed 11:45 AM</div>
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ───────────── SCHEDULE ───────────── -->
+    <div class="page" id="page-schedule">
+      <div class="page-header">
+        <div>
+          <div class="page-title">Schedule</div>
+          <div class="page-sub">Week of 17 – 23 May 2026</div>
+        </div>
+        <div style="display:flex;gap:8px">
+          <button class="btn btn-ghost">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="15 18 9 12 15 6"/></svg>
+            Prev
+          </button>
+          <button class="btn btn-ghost">Today</button>
+          <button class="btn btn-ghost">
+            Next
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 18 15 12 9 6"/></svg>
+          </button>
+          <button class="btn btn-gold">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+            New event
+          </button>
+        </div>
+      </div>
+
+      <div class="schedule-day">
+        <div class="day-header">Sunday, 17 May — Today</div>
+        <div class="event-block">
+          <div class="event-time">9:00 AM<br><span style="color:var(--dim);font-size:9px">15 min</span></div>
+          <div class="event-details">
+            <div class="event-title">Engineering Standup</div>
+            <div class="event-meta">
+              <span>📹 Zoom</span>
+              <span>Recurring</span>
+            </div>
+          </div>
+          <div class="event-attendees">
+            <div class="avatar-chip">SR</div><div class="avatar-chip">TK</div><div class="avatar-chip">+4</div>
+          </div>
+          <span class="pill green" style="align-self:center">Done</span>
+        </div>
+        <div class="event-block blue" style="border-left-color:var(--blue)">
+          <div class="event-time">2:30 PM<br><span style="color:var(--dim);font-size:9px">60 min</span></div>
+          <div class="event-details">
+            <div class="event-title">Board Prep — Q2 Review</div>
+            <div class="event-meta">
+              <span>📹 Google Meet</span>
+              <span>6 attendees</span>
+            </div>
+          </div>
+          <div class="event-attendees">
+            <div class="avatar-chip">MC</div><div class="avatar-chip">JL</div><div class="avatar-chip">+4</div>
+          </div>
+          <div class="event-rsvp">
+            <span class="rsvp-btn rsvp-accept">✓ Accept</span>
+            <span class="rsvp-btn rsvp-decline">Decline</span>
+          </div>
+        </div>
+        <div class="event-block green">
+          <div class="event-time">5:00 PM<br><span style="color:var(--dim);font-size:9px">30 min</span></div>
+          <div class="event-details">
+            <div class="event-title">1:1 with Sarah Kingsley</div>
+            <div class="event-meta"><span>📹 Teams</span></div>
+          </div>
+          <div class="event-attendees">
+            <div class="avatar-chip">SK</div>
+          </div>
+          <span class="pill muted" style="align-self:center">Organiser</span>
+        </div>
+      </div>
+
+      <div class="schedule-day">
+        <div class="day-header">Monday, 18 May</div>
+        <div class="event-block dim">
+          <div class="event-time">10:00 AM<br><span style="color:var(--dim);font-size:9px">45 min</span></div>
+          <div class="event-details">
+            <div class="event-title">Product Review — AI Features</div>
+            <div class="event-meta"><span>📍 HQ · Boardroom 2</span><span>8 attendees</span></div>
+          </div>
+          <div class="event-attendees">
+            <div class="avatar-chip">PL</div><div class="avatar-chip">AM</div><div class="avatar-chip">+6</div>
+          </div>
+          <div class="event-rsvp">
+            <span class="rsvp-btn rsvp-accept">✓ Accept</span>
+            <span class="rsvp-btn rsvp-decline">Decline</span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ───────────── DECISIONS ───────────── -->
+    <div class="page" id="page-decisions">
+      <div class="page-header">
+        <div>
+          <div class="page-title">Decisions</div>
+          <div class="page-sub">5 active · 12 resolved this month</div>
+        </div>
+        <div style="display:flex;gap:8px;align-items:center">
+          <div class="search-bar">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+            <input placeholder="Search decisions…" />
+          </div>
+          <button class="btn btn-gold">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+            Log decision
+          </button>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-header">
+          <div class="card-title">Active decisions</div>
+          <span class="pill amber">5 open</span>
+        </div>
+        <div style="padding:0 4px">
+          <table class="data-table">
+            <thead>
+              <tr>
+                <th>Decision</th>
+                <th>Area</th>
+                <th>Decided by</th>
+                <th>Date</th>
+                <th>Status</th>
+                <th></th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr class="selected">
+                <td><div class="item-title">Hire senior AI engineer for Q3</div><div class="item-sub">Approved headcount for ML/AI specialist role</div></td>
+                <td><span class="pill blue">Engineering</span></td>
+                <td>Michael Cook</td>
+                <td style="color:var(--muted);font-size:12px">16 May</td>
+                <td><span class="pill green">Active</span></td>
+                <td><div class="table-actions">
+                  <div class="tbl-btn" title="Mark resolved"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="20 6 9 17 4 12"/></svg></div>
+                  <div class="tbl-btn danger"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/></svg></div>
+                </div></td>
+              </tr>
+              <tr>
+                <td><div class="item-title">Adopt Vercel AI Gateway for inference routing</div><div class="item-sub">Replace direct OpenAI calls with gateway layer</div></td>
+                <td><span class="pill blue">Platform</span></td>
+                <td>Michael Cook</td>
+                <td style="color:var(--muted);font-size:12px">14 May</td>
+                <td><span class="pill green">Active</span></td>
+                <td><div class="table-actions">
+                  <div class="tbl-btn"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="20 6 9 17 4 12"/></svg></div>
+                  <div class="tbl-btn danger"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/></svg></div>
+                </div></td>
+              </tr>
+              <tr>
+                <td><div class="item-title">Delay Series B roadshow to Q4</div><div class="item-sub">Align with product milestone before fundraise</div></td>
+                <td><span class="pill muted">Finance</span></td>
+                <td>Board</td>
+                <td style="color:var(--muted);font-size:12px">10 May</td>
+                <td><span class="pill amber">Review</span></td>
+                <td><div class="table-actions">
+                  <div class="tbl-btn"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="20 6 9 17 4 12"/></svg></div>
+                  <div class="tbl-btn danger"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/></svg></div>
+                </div></td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ── Command palette ── -->
+<div class="cmd-overlay" id="cmd-overlay" onclick="closeCmd(event)">
+  <div class="cmd-palette" onclick="event.stopPropagation()">
+    <div class="cmd-input-row">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+      <input class="cmd-input" placeholder="Search or run a command…" autofocus id="cmd-input" />
+    </div>
+    <div class="cmd-items">
+      <div class="cmd-section-label">Navigate</div>
+      <div class="cmd-item selected" onclick="nav('dashboard');closeCmd()">
+        <div class="cmd-item-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg></div>
+        <span class="cmd-item-label">Go to Dashboard</span>
+        <div class="cmd-item-kbd"><span class="kbd">G</span><span class="kbd">D</span></div>
+      </div>
+      <div class="cmd-item" onclick="nav('chat');closeCmd()">
+        <div class="cmd-item-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg></div>
+        <span class="cmd-item-label">Ask Basil</span>
+        <div class="cmd-item-kbd"><span class="kbd">G</span><span class="kbd">C</span></div>
+      </div>
+      <div class="cmd-item" onclick="nav('actions');closeCmd()">
+        <div class="cmd-item-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 11 12 14 22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg></div>
+        <span class="cmd-item-label">View Actions</span>
+      </div>
+      <div class="cmd-section-label" style="margin-top:8px">Actions</div>
+      <div class="cmd-item" onclick="closeCmd()">
+        <div class="cmd-item-icon" style="background:var(--gold-glow);color:var(--gold)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg></div>
+        <span class="cmd-item-label">Schedule a meeting</span>
+      </div>
+      <div class="cmd-item" onclick="closeCmd()">
+        <div class="cmd-item-icon" style="background:var(--gold-glow);color:var(--gold)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/><polyline points="22,6 12,13 2,6"/></svg></div>
+        <span class="cmd-item-label">Compose email</span>
+      </div>
+    </div>
+    <div class="cmd-footer">
+      <span class="cmd-hint"><span class="kbd">↑↓</span> Navigate</span>
+      <span class="cmd-hint"><span class="kbd">↵</span> Select</span>
+      <span class="cmd-hint"><span class="kbd">Esc</span> Close</span>
+    </div>
+  </div>
+</div>
+
+<script>
+  const pages = {
+    dashboard: { title: 'Dashboard', sub: 'Overview · Sunday, 17 May 2026' },
+    chat:      { title: 'Ask Basil', sub: 'AI executive assistant' },
+    schedule:  { title: 'Schedule', sub: 'Week of 17 – 23 May 2026' },
+    actions:   { title: 'Actions', sub: '7 pending · 3 completed today' },
+    decisions: { title: 'Decisions', sub: '5 active decisions' },
+  };
+
+  function nav(id) {
+    // Update nav
+    document.querySelectorAll('.nav-item').forEach((el, i) => {
+      el.classList.remove('active');
+    });
+    const navItems = document.querySelectorAll('.nav-item');
+    const navMap = { dashboard: 0, chat: 1, schedule: 2, actions: 3, decisions: 4 };
+    if (navMap[id] !== undefined) navItems[navMap[id]].classList.add('active');
+
+    // Update pages (normal and chat)
+    document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
+    document.querySelectorAll('.chat-page').forEach(p => p.classList.remove('active'));
+
+    const p = document.getElementById('page-' + id);
+    if (p) p.classList.add('active');
+
+    // Update topbar
+    const info = pages[id] || { title: id, sub: '' };
+    document.getElementById('topbar-title').textContent = info.title;
+    document.getElementById('topbar-sub').textContent = info.sub;
+  }
+
+  function toggleCmd() {
+    document.getElementById('cmd-overlay').classList.toggle('open');
+    if (document.getElementById('cmd-overlay').classList.contains('open')) {
+      setTimeout(() => document.getElementById('cmd-input').focus(), 50);
+    }
+  }
+  function closeCmd(e) {
+    if (!e || e.target === document.getElementById('cmd-overlay')) {
+      document.getElementById('cmd-overlay').classList.remove('open');
+    }
+  }
+
+  document.addEventListener('keydown', e => {
+    if ((e.metaKey || e.ctrlKey) && e.key === 'k') { e.preventDefault(); toggleCmd(); }
+    if (e.key === 'Escape') closeCmd();
+  });
+</script>
+</body>
+</html>
