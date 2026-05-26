@@ -4,13 +4,16 @@
  * Thread health visual system.
  *
  * Exports:
- *   ThreadHealthBadge     — compact state chip (thread list, contact cards)
- *   ThreadHealthPanel     — full multi-signal breakdown (thread detail)
- *   RelationshipAlerts    — operational alert list
- *   SilenceIndicator      — days-since-contact surface
- *   RelationshipTrendDot  — coloured trend dot for inline use
- *   RelationshipHealthRow — single contact health row (relationship grid)
+ *   ThreadHealthBadge      — compact state chip (thread list, contact cards)
+ *   ThreadHealthPanel      — full multi-signal breakdown (thread detail)
+ *   RelationshipAlerts     — operational alert list
+ *   SilenceIndicator       — days-since-contact surface
+ *   RelationshipTrendDot   — coloured trend dot for inline use
+ *   RelationshipHealthRow  — single contact health row (relationship grid)
  *   RelationshipHealthGrid — contact health overview (homepage widget)
+ *   HealthScoreArc         — SVG semicircle score gauge (scoring UI)
+ *   RelationshipPulseChart — 8-bar weekly signal sparkline (trend surface)
+ *   HealthStateCard        — assembled operational card (arc + signals + pulse + alerts)
  *
  * Design principles:
  *   - Operational language only. No scores, no social metaphors.
@@ -638,6 +641,424 @@ export function RelationshipHealthGrid({
           );
         })}
       </div>
+    </div>
+  );
+}
+
+// ── Arc fill colors (hex — SVG attributes can't use Tailwind classes) ─────────
+
+const ARC_FILL: Record<HealthState, string> = {
+  strengthening: "#10b981",
+  stable:        "#3b82f6",
+  cooling:       "#f59e0b",
+  critical:      "#ef4444",
+  disengaged:    "#6b7280",
+  unknown:       "#9ca3af",
+};
+
+/** Zone boundary scores where health state thresholds fall. */
+const ZONE_TICKS = [20, 35, 55, 75] as const;
+
+/**
+ * Maps a 0–100 health score to an (x, y) point on the upper semicircle.
+ * Circle centre = (50, 50), configurable radius r.
+ * Standard math angle convention: angle = π × (1 − score/100)
+ * Y is negated to convert from math-coords (Y-up) to SVG-coords (Y-down).
+ */
+function scoreToXY(score: number, r = 40): [number, number] {
+  const angle = Math.PI * (1 - score / 100);
+  return [
+    50 + r * Math.cos(angle),
+    50 - r * Math.sin(angle),
+  ];
+}
+
+// ── HealthScoreArc ────────────────────────────────────────────────────────────
+
+interface HealthScoreArcProps {
+  health: ThreadHealth;
+  /**
+   * Rendered pixel width. Height is automatically set to 56% of width.
+   * Default 120.
+   */
+  size?: number;
+  className?: string;
+}
+
+/**
+ * SVG semicircle gauge showing relationship health at a glance.
+ * The arc fills left-to-right as score increases (0 = far left, 100 = far right).
+ * Zone boundary ticks mark the four state thresholds.
+ */
+export function HealthScoreArc({ health, size = 120, className }: HealthScoreArcProps) {
+  const { state, score, trend, reliable } = health;
+  const fillColor = ARC_FILL[state];
+  const cfg = STATE_CONFIG[state];
+
+  // Clamp slightly away from endpoints to avoid degenerate arcs at 0 and 100.
+  const safeScore = reliable ? Math.max(0.5, Math.min(99.5, score)) : 0;
+  const [ix, iy] = scoreToXY(safeScore);
+
+  // Upper-arc fill from score=0 (10,50) to indicator position.
+  // sweep-flag=1 (CW in SVG screen coords) traces the upper semicircle.
+  // large-arc-flag=0 because all partial fills are < 180°.
+  const fillPath =
+    reliable && score > 0
+      ? `M 10 50 A 40 40 0 0 1 ${ix.toFixed(2)} ${iy.toFixed(2)}`
+      : "";
+
+  return (
+    <div className={cn("flex flex-col items-center gap-0.5", className)}>
+      <svg
+        viewBox="0 0 100 56"
+        width={size}
+        height={Math.round((size * 56) / 100)}
+        role="img"
+        aria-label={
+          reliable
+            ? `Relationship health: ${cfg.label}, score ${score}`
+            : "Relationship health: insufficient data"
+        }
+      >
+        {/* Background track — full upper semicircle */}
+        <path
+          d="M 10 50 A 40 40 0 0 1 90 50"
+          fill="none"
+          stroke="currentColor"
+          strokeOpacity={0.1}
+          strokeWidth={4.5}
+          strokeLinecap="round"
+          className="text-foreground"
+        />
+
+        {/* Zone boundary ticks — radial lines at state thresholds */}
+        {ZONE_TICKS.map((tickScore) => {
+          const [ox, oy] = scoreToXY(tickScore, 44);
+          const [tx, ty] = scoreToXY(tickScore, 36);
+          return (
+            <line
+              key={tickScore}
+              x1={tx.toFixed(2)}
+              y1={ty.toFixed(2)}
+              x2={ox.toFixed(2)}
+              y2={oy.toFixed(2)}
+              stroke="currentColor"
+              strokeOpacity={0.18}
+              strokeWidth={1}
+              className="text-foreground"
+            />
+          );
+        })}
+
+        {/* Filled arc — score progress */}
+        {fillPath ? (
+          <path
+            d={fillPath}
+            fill="none"
+            stroke={fillColor}
+            strokeWidth={4.5}
+            strokeLinecap="round"
+          />
+        ) : null}
+
+        {/* Indicator: halo + dot + inner highlight */}
+        {reliable ? (
+          <>
+            <circle
+              cx={ix.toFixed(2)}
+              cy={iy.toFixed(2)}
+              r={5.5}
+              fill={fillColor}
+              opacity={0.18}
+            />
+            <circle cx={ix.toFixed(2)} cy={iy.toFixed(2)} r={3.5} fill={fillColor} />
+            <circle cx={ix.toFixed(2)} cy={iy.toFixed(2)} r={1.5} fill="white" />
+          </>
+        ) : null}
+
+        {/* Baseline end-caps */}
+        <circle
+          cx="10"
+          cy="50"
+          r="1.5"
+          fill="currentColor"
+          fillOpacity={0.12}
+          className="text-foreground"
+        />
+        <circle
+          cx="90"
+          cy="50"
+          r="1.5"
+          fill="currentColor"
+          fillOpacity={0.12}
+          className="text-foreground"
+        />
+      </svg>
+
+      {/* State + trend labels */}
+      <div className="text-center leading-tight">
+        <p className={cn("text-[12px] font-semibold", cfg.colorClass)}>
+          {reliable ? cfg.shortLabel : "—"}
+        </p>
+        {reliable && trend !== "stable" ? (
+          <p
+            className={cn(
+              "text-[10px] flex items-center justify-center gap-0.5 mt-0.5",
+              trend === "improving"
+                ? "text-emerald-500"
+                : "text-amber-500"
+            )}
+          >
+            {TREND_ICON[trend]}
+            {trend === "improving" ? "Improving" : "Declining"}
+          </p>
+        ) : null}
+      </div>
+    </div>
+  );
+}
+
+// ── RelationshipPulseChart ────────────────────────────────────────────────────
+
+interface RelationshipPulseChartProps {
+  /**
+   * Weekly signal counts, oldest first.
+   * Will be zero-padded on the left and trimmed to exactly 8 bars.
+   */
+  weeklySignals: number[];
+  state: HealthState;
+  className?: string;
+}
+
+/**
+ * Compact 8-bar sparkline showing weekly signal volume over the past 8 weeks.
+ * The four most-recent bars render at full opacity; older bars are dimmed.
+ * Zero-signal bars display as a minimal baseline tick.
+ */
+export function RelationshipPulseChart({
+  weeklySignals,
+  state,
+  className,
+}: RelationshipPulseChartProps) {
+  const bars = useMemo(() => {
+    const raw = [...weeklySignals];
+    while (raw.length < 8) raw.unshift(0);   // pad left with zeros
+    return raw.slice(-8);                     // ensure exactly 8 bars
+  }, [weeklySignals]);
+
+  const maxVal = Math.max(...bars, 1);
+  const color = ARC_FILL[state];
+
+  return (
+    <div
+      className={cn("flex items-end gap-[2px]", className)}
+      role="img"
+      aria-label="8-week signal activity"
+    >
+      {bars.map((val, i) => {
+        const isRecent = i >= 4;
+        const barH = val === 0 ? 2 : Math.max(3, Math.round((val / maxVal) * 24));
+        return (
+          <div
+            key={i}
+            style={{
+              width: 6,
+              height: barH,
+              borderRadius: 2,
+              backgroundColor: val === 0 ? "currentColor" : color,
+              opacity: val === 0
+                ? (isRecent ? 0.1 : 0.06)
+                : (isRecent ? 1.0 : 0.4),
+            }}
+            className={val === 0 ? "text-foreground" : undefined}
+            title={`Week ${i + 1}: ${val} signal${val !== 1 ? "s" : ""}`}
+          />
+        );
+      })}
+    </div>
+  );
+}
+
+// ── HealthStateCard ───────────────────────────────────────────────────────────
+
+interface HealthStateCardProps {
+  health: ThreadHealth;
+  /** Contact or thread display name shown in the card header. */
+  name?: string;
+  /**
+   * Weekly signal counts (oldest first) for the pulse sparkline row.
+   * If omitted or empty, the pulse row is hidden.
+   */
+  weeklySignals?: number[];
+  /** Optional deep-link to the thread or contact detail page. */
+  href?: string;
+  className?: string;
+}
+
+/**
+ * Full assembled relationship health card.
+ *
+ * Layout:
+ *   ┌─────────────────────────────────────────┐
+ *   │  ● Name          State label   Trend →  │  ← header (tinted)
+ *   ├────────────┬────────────────────────────┤
+ *   │            │ Silence   ·  8d ago        │
+ *   │  Arc gauge │ Momentum  ·  Stable        │  ← body
+ *   │            │ …                          │
+ *   ├────────────┴────────────────────────────┤
+ *   │  8-week  ▄ ▄ █ █ ▄ ▅ █ ▂       now     │  ← pulse (optional)
+ *   ├─────────────────────────────────────────┤
+ *   │  ⚠ Alert message                        │  ← alerts / clear
+ *   └─────────────────────────────────────────┘
+ */
+export function HealthStateCard({
+  health,
+  name,
+  weeklySignals,
+  href,
+  className,
+}: HealthStateCardProps) {
+  const cfg = STATE_CONFIG[health.state];
+  const hasAlerts = health.alerts.length > 0;
+  const showPulse = weeklySignals && weeklySignals.length > 0;
+
+  return (
+    <div className={cn("rounded-lg border overflow-hidden", cfg.borderClass, className)}>
+
+      {/* ── Header ─────────────────────────────────────────────────── */}
+      <div
+        className={cn(
+          "px-3 py-2.5 flex items-center justify-between gap-2 border-b",
+          cfg.bgClass,
+          cfg.borderClass
+        )}
+      >
+        <div className="flex items-center gap-2 min-w-0">
+          <span
+            className={cn(
+              "h-2 w-2 rounded-full shrink-0",
+              cfg.dotClass,
+              health.state === "critical" && "animate-pulse"
+            )}
+          />
+          {name ? (
+            <span className="text-[13px] font-semibold text-foreground truncate">
+              {name}
+            </span>
+          ) : null}
+          <span className={cn("text-[11px] font-medium shrink-0", cfg.colorClass)}>
+            {health.reliable ? cfg.label : "Unknown"}
+          </span>
+        </div>
+
+        <div className="flex items-center gap-2 shrink-0">
+          {health.reliable && health.trend !== "stable" ? (
+            <span
+              className={cn(
+                "text-[11px] flex items-center gap-0.5 font-medium",
+                health.trend === "improving"
+                  ? "text-emerald-600 dark:text-emerald-400"
+                  : "text-amber-600 dark:text-amber-400"
+              )}
+            >
+              {TREND_ICON[health.trend]}
+              <span>{health.trend === "improving" ? "Improving" : "Declining"}</span>
+            </span>
+          ) : null}
+
+          {href ? (
+            <Link
+              href={href}
+              className="text-muted-foreground/40 hover:text-muted-foreground transition-colors"
+              aria-label="View full relationship details"
+            >
+              <ChevronRight className="h-4 w-4" />
+            </Link>
+          ) : null}
+        </div>
+      </div>
+
+      {/* ── Body: arc + signal dimension rows ──────────────────────── */}
+      <div className="p-3 bg-card/50 flex gap-4 items-start">
+        {/* Score gauge */}
+        <HealthScoreArc health={health} size={100} className="shrink-0" />
+
+        {/* Signal rows */}
+        <div className="flex-1 min-w-0">
+          {health.reliable && health.signals.length > 0 ? (
+            health.signals.map((signal) => (
+              <div
+                key={signal.dimension}
+                className="flex items-center gap-1.5 py-[5px] border-b border-border/25 last:border-0"
+              >
+                <span
+                  className={cn(
+                    "shrink-0",
+                    signal.status === "critical" ? "text-red-500" :
+                    signal.status === "warning"  ? "text-amber-500" :
+                    signal.status === "healthy"  ? "text-emerald-500" :
+                    "text-muted-foreground/40"
+                  )}
+                >
+                  {DIMENSION_ICON[signal.dimension]}
+                </span>
+                <span className="flex-1 min-w-0 text-[11px] text-muted-foreground/70 truncate">
+                  {signal.label}
+                </span>
+                <span
+                  className={cn(
+                    "text-[11px] tabular-nums shrink-0 font-medium",
+                    signal.status === "critical" ? "text-red-600 dark:text-red-400" :
+                    signal.status === "warning"  ? "text-amber-600 dark:text-amber-400" :
+                    signal.status === "healthy"  ? "text-emerald-600 dark:text-emerald-400" :
+                    "text-foreground/55"
+                  )}
+                >
+                  {signal.value}
+                </span>
+              </div>
+            ))
+          ) : (
+            <p className="text-[12px] text-muted-foreground/60 py-3">
+              Insufficient signal history for assessment
+            </p>
+          )}
+        </div>
+      </div>
+
+      {/* ── Weekly pulse sparkline ──────────────────────────────────── */}
+      {showPulse ? (
+        <div className="px-3 py-2.5 border-t border-border/30 bg-card/30 flex items-center gap-3">
+          <span className="text-[10px] uppercase tracking-wider text-muted-foreground/40 shrink-0 font-medium">
+            8-week
+          </span>
+          <RelationshipPulseChart
+            weeklySignals={weeklySignals!}
+            state={health.state}
+          />
+          <span className="text-[10px] text-muted-foreground/40 ml-auto">now</span>
+        </div>
+      ) : null}
+
+      {/* ── Alerts or clear-status footer ──────────────────────────── */}
+      {hasAlerts ? (
+        <div
+          className={cn(
+            "px-3 py-2.5 border-t space-y-1.5",
+            cfg.borderClass,
+            cfg.bgClass
+          )}
+        >
+          <RelationshipAlerts alerts={health.alerts} compact />
+        </div>
+      ) : health.reliable ? (
+        <div className="px-3 py-2 border-t border-border/25 bg-card/20">
+          <p className="text-[11px] text-muted-foreground/50 flex items-center gap-1.5">
+            <span className="h-1.5 w-1.5 rounded-full bg-emerald-500/50 shrink-0" />
+            No operational concerns
+          </p>
+        </div>
+      ) : null}
     </div>
   );
 }

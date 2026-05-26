@@ -84,18 +84,20 @@ const EXPLICIT_ONLY_ACTION_CATEGORIES = new Set<SlackSignalCategory>([
 ]);
 
 /**
- * Returns true if the action's owner field clearly refers to Michael Cook.
- * Blank/omitted owner is treated as "possibly Michael" (included).
+ * Returns true if the action's owner field clearly refers to the current user (self).
+ * Blank/omitted owner is treated as "possibly self" (included).
  * An owner that is clearly someone else → excluded.
  */
-function isOwnerMichaelOrUnknown(owner: string | undefined): boolean {
+function isOwnerSelfOrUnknown(owner: string | undefined, selfNames: string[]): boolean {
   if (!owner || !owner.trim()) return true; // unset → include (ambiguous)
   const o = owner.trim().toLowerCase();
-  // Accept variations of Michael's name
-  if (o.includes("michael") || o === "me" || o === "i") return true;
+  // Accept first-person references
+  if (o === "me" || o === "i") return true;
+  // Accept if owner matches any of the user's known names
+  if (selfNames.some((n) => o.includes(n) || n.includes(o))) return true;
   // Reject channel/team references (#dev-team, @team, "the team", "everyone", etc.)
   if (o.startsWith("#") || o.startsWith("@") || o.includes(" team") || o === "everyone" || o === "all") return false;
-  // Any other named person → not Michael
+  // Any other named person → not self
   return false;
 }
 
@@ -116,6 +118,8 @@ export async function materializeSlackIntelligence(
     console.error("[slack-materialize] username is required — refusing to write without owner", { sourceRef });
     return { actionsCreated: 0, decisionsCreated: 0, memoriesCreated: 0, auditEntries: [] };
   }
+
+  const selfIdentity = await getSelfIdentity(username).catch(() => ({ emails: [], names: [] }));
 
   const dateShort = date.slice(0, 10);
   const channelLabel = channelName.startsWith("#") || channelName.startsWith("DM")
@@ -148,10 +152,10 @@ export async function materializeSlackIntelligence(
       for (const item of intel.actions) {
         if (!item.text?.trim()) continue;
 
-        // Skip actions that belong to a named person who isn't Michael
-        if (!isOwnerMichaelOrUnknown(item.owner)) {
+        // Skip actions that belong to a named person who isn't the current user
+        if (!isOwnerSelfOrUnknown(item.owner, selfIdentity.names)) {
           console.log(
-            `[slack-materialize] skipping action owned by "${item.owner}" (not Michael): "${item.text.slice(0, 60)}"`
+            `[slack-materialize] skipping action owned by "${item.owner}" (not self): "${item.text.slice(0, 60)}"`
           );
           continue;
         }
