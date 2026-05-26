@@ -21,6 +21,7 @@ import {
   isOverdueStale,
   isGroupOwner,
 } from "./utils";
+import { getSelfIdentity } from "@/lib/self-identity";
 export {
   isActionStalled,
   isOverdueStale,
@@ -215,7 +216,6 @@ function mergeExistingDuplicates(items: ActionItem[]): { items: ActionItem[]; ch
       const b = merged[j];
       const ownerA = (a.owner ?? "").toLowerCase();
       const ownerB = (b.owner ?? "").toLowerCase();
-      if (ownerA !== ownerB || ownerA === "") continue;
 
       const ageA = new Date(a.createdAt).getTime();
       const ageB = new Date(b.createdAt).getTime();
@@ -226,7 +226,16 @@ function mergeExistingDuplicates(items: ActionItem[]): { items: ActionItem[]; ch
 
       const sim = jaccardSimilarity(a.text, b.text);
       const entityOverlap = sharedKeyEntityCount(a.text, b.text);
-      const isDup = sim >= 0.65 || (sim >= 0.55 && entityOverlap >= 2);
+
+      // For very high text similarity (≥0.85), merge regardless of owner
+      // so that approval / needsReview items with blank owner dedup correctly.
+      // For lower similarity, require matching non-empty owners as before.
+      const highConfidenceDup = sim >= 0.85;
+      if (!highConfidenceDup) {
+        if (ownerA !== ownerB || ownerA === "") continue;
+      }
+
+      const isDup = highConfidenceDup || sim >= 0.65 || (sim >= 0.55 && entityOverlap >= 2);
       if (!isDup) continue;
 
       // Keep older item (lower age ms = created earlier)
@@ -298,25 +307,50 @@ export async function listActions(username: string): Promise<ActionItem[]> {
     }).catch((err) => console.error("[actions] background category backfill failed:", err));
   }
 
-  // ── Group-owner filter ──────────────────────────────────────────────────────
-  // Remove actions whose owner field is a Slack channel, @mention, or team
-  // reference rather than a named individual.  These are group-scoped
-  // announcements that were mistakenly extracted as personal commitments.
-  // Persist the cleanup so they stop re-appearing.
-  const groupOwned = deduped.filter((a) => isGroupOwner(a.owner));
-  if (groupOwned.length > 0) {
+  // ── Owner filter — group refs and named third-parties ──────────────────────
+  // Remove actions whose owner field is:
+  //   (a) a Slack channel / @mention / team reference  (isGroupOwner)
+  //   (b) a named person who is clearly not the current user
+  //       e.g. "Christopher Walton" when the user is Michael Cook
+  //
+  // Pattern for (b): owner contains at least one space (looks like a name),
+  // does NOT match any of the user's known names or first-person pronouns,
+  // and is not blank / "unknown" / "me".
+  // Persist the cleanup so orphaned rows stop re-appearing across deploys.
+  const selfIdentity = await getSelfIdentity(username).catch(() => ({ emails: [], names: [] }));
+  const selfNameTokens = selfIdentity.names.map((n) => n.toLowerCase());
+
+  function isOtherPersonOwner(owner: string | undefined): boolean {
+    if (!owner?.trim()) return false;
+    const o = owner.trim().toLowerCase();
+    // First-person / ambiguous labels → keep
+    if (o === "me" || o === "i" || o === "unknown" || o === "self") return false;
+    // Group-style → handled by isGroupOwner
+    if (isGroupOwner(owner)) return false;
+    // Matches one of the user's known name tokens → keep
+    if (selfNameTokens.length > 0) {
+      if (selfNameTokens.some((n) => o.includes(n) || n.includes(o))) return false;
+    }
+    // Looks like a two-part personal name (First Last) → someone else → exclude
+    return /^[a-z]+ [a-z]/i.test(owner.trim());
+  }
+
+  const isNotMine = (a: ActionItem) => isGroupOwner(a.owner) || isOtherPersonOwner(a.owner);
+  const notMineItems = deduped.filter(isNotMine);
+
+  if (notMineItems.length > 0) {
     withLock(lockKey(username), async () => {
       const current = await readAll(username);
-      const cleaned = current.filter((a) => !isGroupOwner(a.owner));
+      const cleaned = current.filter((a) => !isGroupOwner(a.owner) && !isOtherPersonOwner(a.owner));
       if (cleaned.length !== current.length) {
         await writeAll(username, cleaned);
         console.log(
-          `[actions] purged ${current.length - cleaned.length} group-owned action(s) for ${username}`
+          `[actions] purged ${current.length - cleaned.length} non-personal action(s) for ${username}`
         );
       }
-    }).catch((err) => console.error("[actions] group-owner purge failed:", err));
+    }).catch((err) => console.error("[actions] owner purge failed:", err));
   }
-  const personalOnly = deduped.filter((a) => !isGroupOwner(a.owner));
+  const personalOnly = deduped.filter((a) => !isNotMine(a));
 
   const t = today();
   // Compute overdue on-the-fly (not persisted) so stale data files don't matter
