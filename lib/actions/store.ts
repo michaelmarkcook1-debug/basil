@@ -17,7 +17,17 @@ import type { ActionItem, ActionPriority } from "@/lib/types/action";
 import { withLock } from "@/lib/events/lock";
 import { readUserStore, writeUserStore } from "@/lib/storage/user-store";
 import { classifyAction } from "./classify";
-export { isActionStalled, STALE_THRESHOLD_DAYS } from "./utils";
+import {
+  isOverdueStale,
+  isGroupOwner,
+} from "./utils";
+export {
+  isActionStalled,
+  isOverdueStale,
+  isGroupOwner,
+  STALE_THRESHOLD_DAYS,
+  STALE_OVERDUE_THRESHOLD_DAYS,
+} from "./utils";
 
 const ACTIONS_FILE = "sage-actions.json";
 
@@ -288,14 +298,68 @@ export async function listActions(username: string): Promise<ActionItem[]> {
     }).catch((err) => console.error("[actions] background category backfill failed:", err));
   }
 
+  // ── Group-owner filter ──────────────────────────────────────────────────────
+  // Remove actions whose owner field is a Slack channel, @mention, or team
+  // reference rather than a named individual.  These are group-scoped
+  // announcements that were mistakenly extracted as personal commitments.
+  // Persist the cleanup so they stop re-appearing.
+  const groupOwned = deduped.filter((a) => isGroupOwner(a.owner));
+  if (groupOwned.length > 0) {
+    withLock(lockKey(username), async () => {
+      const current = await readAll(username);
+      const cleaned = current.filter((a) => !isGroupOwner(a.owner));
+      if (cleaned.length !== current.length) {
+        await writeAll(username, cleaned);
+        console.log(
+          `[actions] purged ${current.length - cleaned.length} group-owned action(s) for ${username}`
+        );
+      }
+    }).catch((err) => console.error("[actions] group-owner purge failed:", err));
+  }
+  const personalOnly = deduped.filter((a) => !isGroupOwner(a.owner));
+
   const t = today();
   // Compute overdue on-the-fly (not persisted) so stale data files don't matter
-  const patched = deduped.map((a) =>
+  const withOverdue = personalOnly.map((a) =>
     a.status === "open" && a.dueDate && a.dueDate < t
       ? { ...a, status: "overdue" as const }
       : a
   );
-  return patched.sort(
+
+  // ── Stale-overdue auto-archive ───────────────────────────────────────────────
+  // Auto-extracted commitments (Slack, email) with a specific due date that
+  // passed 14+ days ago and were never manually acknowledged are moved to
+  // "done".  The original window is long closed; showing them as critical
+  // indefinitely creates noise rather than signal.
+  const staleOverdue = withOverdue.filter((a) => isOverdueStale(a));
+  if (staleOverdue.length > 0) {
+    const staleIds = new Set(staleOverdue.map((a) => a.id));
+    withLock(lockKey(username), async () => {
+      const current = await readAll(username);
+      let changed = false;
+      const archived = current.map((a) => {
+        if (!staleIds.has(a.id) || a.status === "done") return a;
+        changed = true;
+        return {
+          ...a,
+          status: "done" as const,
+          updatedAt: new Date().toISOString(),
+        };
+      });
+      if (changed) {
+        await writeAll(username, archived);
+        console.log(
+          `[actions] auto-archived ${staleOverdue.length} stale-overdue action(s) for ${username}`
+        );
+      }
+    }).catch((err) => console.error("[actions] stale-overdue archive failed:", err));
+  }
+  const staleIds = new Set(staleOverdue.map((a) => a.id));
+  const live = withOverdue.map((a) =>
+    staleIds.has(a.id) ? { ...a, status: "done" as const } : a
+  );
+
+  return live.sort(
     (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
   );
 }

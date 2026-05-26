@@ -9,6 +9,13 @@ import type { ActionItem } from "@/lib/types/action";
 export const STALE_THRESHOLD_DAYS = 14;
 
 /**
+ * Days past due before an overdue item with no manual updates is auto-archived.
+ * These are typically auto-extracted Slack/email commitments that were never
+ * acted on and whose window has long closed.
+ */
+export const STALE_OVERDUE_THRESHOLD_DAYS = 14;
+
+/**
  * Returns true if the action has been open with no meaningful activity for
  * STALE_THRESHOLD_DAYS or more. Items with a dueDate are either "overdue" or
  * "upcoming" — stale only applies to undated open items that have gone quiet.
@@ -25,4 +32,59 @@ export function isActionStalled(action: ActionItem): boolean {
   // Both "last touched" AND "created" must be past the threshold — prevents
   // freshly created actions from appearing stalled on day one.
   return msElapsed(lastTouch) >= cutoff && msElapsed(created) >= cutoff;
+}
+
+/**
+ * Returns true if an overdue action has gone unacknowledged long enough that
+ * its original window has clearly closed.
+ *
+ * Criteria (all must be true):
+ *   - status is "overdue" (or open with a past dueDate)
+ *   - dueDate is more than STALE_OVERDUE_THRESHOLD_DAYS in the past
+ *   - the item was never manually updated after creation (≤1 hour diff)
+ *
+ * Auto-extracted Slack/email commitments with a specific dueDate that was
+ * never acknowledged qualify; manually created items that the user has
+ * touched do not.
+ */
+export function isOverdueStale(action: ActionItem): boolean {
+  const isOverdue =
+    action.status === "overdue" ||
+    (action.status === "open" && !!action.dueDate);
+  if (!isOverdue || !action.dueDate) return false;
+
+  const daysPastDue =
+    (Date.now() - new Date(action.dueDate).getTime()) / 86_400_000;
+  if (daysPastDue < STALE_OVERDUE_THRESHOLD_DAYS) return false;
+
+  // Item was never touched after initial creation (within 1 hour)
+  const lastTouch = action.lastActivityAt ?? action.updatedAt ?? action.createdAt;
+  const ageOfTouchMs =
+    new Date(lastTouch).getTime() - new Date(action.createdAt).getTime();
+  return ageOfTouchMs < 3_600_000; // < 1 hour → never manually updated
+}
+
+/**
+ * Returns true if the action's owner field is clearly a group, channel, or
+ * team rather than a named individual.
+ *
+ * Used to exclude auto-extracted group commitments that were mistakenly stored
+ * as personal actions (e.g., Slack channel-wide announcements).
+ */
+export function isGroupOwner(owner: string | undefined): boolean {
+  if (!owner?.trim()) return false;
+  const o = owner.trim().toLowerCase();
+  return (
+    o.startsWith("#") ||           // Slack channel: #dev-team, #general
+    o.startsWith("@") ||           // Mention: @team, @channel
+    o === "team" ||
+    o === "the team" ||
+    o.endsWith(" team") ||         // "dev team", "eng team", "product team"
+    o.includes(" team ") ||
+    o === "everyone" ||
+    o === "all" ||
+    o === "group" ||
+    o === "channel" ||
+    o === "the channel"
+  );
 }

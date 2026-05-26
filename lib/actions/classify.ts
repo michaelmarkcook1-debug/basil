@@ -42,7 +42,7 @@ const CRITICAL_MODERATE = [
   /\b(stakeholder|client|customer|partner)\b/i,
   /\b(present|presentation|demo|review)\b/i,
   /\b(report|analysis|analytics|metrics|KPI)\b/i,
-  /\b(team|engineer|developer|designer|product)\b/i,
+  /\b(engineer|developer|designer|product)\b/i,
   /\b(priority|urgent|important|critical)\b/i,
   /\b(plan|planning|implement|build|develop|create)\b/i,
 ];
