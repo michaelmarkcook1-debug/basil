@@ -17,8 +17,8 @@ export default function DashboardLayout({
 }: {
   children: React.ReactNode;
 }) {
-  const [mobileOpen, setMobileOpen] = useState(false);
-  const [isStandalone, setIsStandalone] = useState(false);
+  const [mobileOpen,     setMobileOpen]     = useState(false);
+  const [isStandalone,   setIsStandalone]   = useState(false);
   const [modeDialogOpen, setModeDialogOpen] = useState(false);
 
   // Detect PWA standalone mode
@@ -30,24 +30,12 @@ export default function DashboardLayout({
     return () => mq.removeEventListener("change", handler);
   }, []);
 
-  // Global keyboard shortcut: M → open mode switcher
-  // (skipped when focus is in an input or contenteditable)
+  // Global keyboard shortcut: M → mode switcher
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
-      const target = e.target as HTMLElement;
-      if (
-        target.tagName === "INPUT" ||
-        target.tagName === "TEXTAREA" ||
-        target.isContentEditable
-      )
-        return;
-      if (
-        e.key === "m" &&
-        !e.metaKey &&
-        !e.ctrlKey &&
-        !e.altKey &&
-        !e.shiftKey
-      ) {
+      const t = e.target as HTMLElement;
+      if (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.isContentEditable) return;
+      if (e.key === "m" && !e.metaKey && !e.ctrlKey && !e.altKey && !e.shiftKey) {
         setModeDialogOpen(true);
         e.preventDefault();
       }
@@ -68,87 +56,76 @@ export default function DashboardLayout({
         if (d.onboardingCompleted === false) window.location.replace("/onboarding");
       })
       .catch((e: unknown) => {
-        console.error("[basil-fetch] network_error", { route: "/api/settings", component: "DashboardLayout", error: e instanceof Error ? e.message : String(e) });
+        console.error("[basil-layout] fetch error", e instanceof Error ? e.message : String(e));
       });
   }, []);
 
   return (
     <ModeProvider>
-    <div className="flex h-screen overflow-hidden">
-      {/* Desktop sidebar — always visible on lg+ */}
-      <div className="hidden lg:flex">
+      {/* ── Desktop: side-by-side, no topbar ─────────────────────────────────── */}
+      <div className="hidden lg:flex h-screen overflow-hidden">
+        {/* Sidebar */}
         <AppSidebar />
+
+        {/* Main content */}
+        <main className="flex-1 overflow-y-auto basil-scroll bg-background">
+          <ModeStatusBar />
+          <ModeIntelligenceBar />
+          <ModeSwitcherDialog open={modeDialogOpen} onOpenChange={setModeDialogOpen} />
+          {children}
+        </main>
       </div>
 
-      {/* Mobile slide-out drawer (used by hamburger + "More" tab) */}
-      <Sheet open={mobileOpen} onOpenChange={setMobileOpen}>
-        <SheetContent
-          side="left"
-          className="p-0 w-64 bg-sidebar border-r border-sidebar-border/80 [&>button]:hidden"
-        >
-          <AppSidebar expanded onNavigate={() => setMobileOpen(false)} />
-        </SheetContent>
-      </Sheet>
+      {/* ── Mobile ───────────────────────────────────────────────────────────── */}
+      <div className="lg:hidden flex h-screen overflow-hidden flex-col">
+        {/* Mobile slide-out drawer */}
+        <Sheet open={mobileOpen} onOpenChange={setMobileOpen}>
+          <SheetContent
+            side="left"
+            className="p-0 w-64 bg-sidebar border-r border-sidebar-border [&>button]:hidden"
+          >
+            <AppSidebar expanded onNavigate={() => setMobileOpen(false)} />
+          </SheetContent>
+        </Sheet>
 
-      {/* Page area */}
-      <div className="flex flex-1 flex-col min-w-0 overflow-hidden">
-
-        {/* Mobile top bar — hidden in standalone PWA mode and on lg+ */}
+        {/* Mobile top bar */}
         {!isStandalone && (
-          <header className="lg:hidden flex items-center h-14 px-4 border-b border-sidebar-border/60 bg-sidebar shrink-0 pt-[env(safe-area-inset-top)]">
+          <header className="flex items-center h-14 px-4 bg-sidebar border-b border-sidebar-border shrink-0 pt-[env(safe-area-inset-top)]">
             <button
               onClick={() => setMobileOpen(true)}
-              className="rounded-md p-2 -ml-2 text-sidebar-foreground/70 hover:text-sidebar-foreground hover:bg-sidebar-accent/40 transition-colors"
+              className="rounded-md p-2 -ml-2 text-sidebar-foreground/60 hover:text-sidebar-foreground hover:bg-[#C8A96B]/[0.06] transition-colors"
               aria-label="Open navigation"
             >
               <Menu className="h-5 w-5" />
             </button>
             <div className="flex items-center gap-2 ml-2">
-              <img
-                src="/basil-logo.svg"
-                alt="Basil"
-                className="h-7 w-7 rounded-md ring-1 ring-[oklch(0.72_0.15_85)]/30"
-              />
-              <p className="basil-display text-base text-[oklch(0.72_0.15_85)]">Basil</p>
+              <img src="/basil-logo.svg" alt="Basil" className="h-7 w-7" />
+              <p className="basil-display text-base text-[#C8A96B]">Basil</p>
             </div>
-            <div className="ml-auto">
+            <div className="ml-auto flex items-center gap-1">
               <ThemeToggle />
             </div>
           </header>
         )}
 
-        {/* Standalone PWA: minimal status-bar spacer so content clears the notch */}
         {isStandalone && (
-          <div
-            className="lg:hidden shrink-0 bg-sidebar"
-            style={{ height: "env(safe-area-inset-top)" }}
-          />
+          <div className="shrink-0 bg-sidebar" style={{ height: "env(safe-area-inset-top)" }} />
         )}
 
-        {/* Scrollable content — add bottom padding on mobile to clear the tab bar */}
         <main
           className={cn(
-            "flex-1 overflow-y-auto basil-scroll",
-            // Extra bottom space so content isn't hidden behind the bottom nav
-            "lg:pb-0 pb-[calc(3.5rem+env(safe-area-inset-bottom))]"
+            "flex-1 overflow-y-auto basil-scroll bg-background",
+            "pb-[calc(3.5rem+env(safe-area-inset-bottom))]"
           )}
         >
-          {/* Mode status bar — renders only when a non-default mode is active */}
           <ModeStatusBar />
-          {/* Mode intelligence — contextual signals for the active mode */}
           <ModeIntelligenceBar />
-          {/* Global mode dialog — opened by M keyboard shortcut */}
-          <ModeSwitcherDialog
-            open={modeDialogOpen}
-            onOpenChange={setModeDialogOpen}
-          />
+          <ModeSwitcherDialog open={modeDialogOpen} onOpenChange={setModeDialogOpen} />
           {children}
         </main>
-      </div>
 
-      {/* Bottom tab bar — mobile only, above lg hidden via CSS in component */}
-      <MobileBottomNav onMoreClick={() => setMobileOpen(true)} />
-    </div>
+        <MobileBottomNav onMoreClick={() => setMobileOpen(true)} />
+      </div>
     </ModeProvider>
   );
 }

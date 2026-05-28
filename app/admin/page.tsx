@@ -2,7 +2,7 @@
 
 import { useEffect, useState, useCallback } from "react";
 import { useRouter } from "next/navigation";
-import { Shield, Users, LogOut, Trash2, Ban, CheckCircle, RefreshCw, ArrowLeft, Clock, Mail, Globe } from "lucide-react";
+import { Shield, Users, LogOut, Trash2, Ban, CheckCircle, RefreshCw, ArrowLeft, Clock, Mail, Globe, Zap, ToggleLeft, ToggleRight } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -40,6 +40,46 @@ type ConfirmAction =
   | { type: "delete"; user: AdminUser }
   | null;
 
+interface FeatureFlags {
+  signalEvent_shadow: boolean;
+  signalEvent_active: boolean;
+  trustEnvelope_active: boolean;
+  canonicalIdentity_active: boolean;
+  signalThread_active: boolean;
+  dispatch_shadow: boolean;
+  dispatch_active: boolean;
+  ranking_active: boolean;
+  sources: {
+    gmail_cutover: boolean;
+    calendar_cutover: boolean;
+    slack_cutover: boolean;
+    zoom_cutover: boolean;
+    teams_cutover: boolean;
+    whatsapp_cutover: boolean;
+    drive_cutover: boolean;
+    linear_cutover: boolean;
+  };
+}
+
+const FLAG_META: Array<{ key: string; label: string; description: string; critical?: boolean }> = [
+  { key: "signalEvent_active",      label: "Signal pipeline",       description: "Write SignalEvents from all ingest sources", critical: true },
+  { key: "ranking_active",          label: "Signal ranking",        description: "Score and rank every signal for the Radar",   critical: true },
+  { key: "signalThread_active",     label: "Thread grouping",       description: "Group related signals into threads" },
+  { key: "canonicalIdentity_active",label: "Identity resolution",   description: "Link participants to canonical contacts" },
+  { key: "dispatch_active",         label: "AI dispatcher",         description: "Route all AI calls through the canonical dispatcher" },
+  { key: "dispatch_shadow",         label: "Dispatcher shadow",     description: "Log dispatcher traces without routing through it" },
+  { key: "signalEvent_shadow",      label: "Signal shadow",         description: "Compare new pipeline with old pipeline (no writes)" },
+];
+
+const SOURCE_META: Array<{ key: string; label: string }> = [
+  { key: "sources.gmail_cutover",   label: "Gmail" },
+  { key: "sources.slack_cutover",   label: "Slack" },
+  { key: "sources.zoom_cutover",    label: "Zoom" },
+  { key: "sources.teams_cutover",   label: "Teams" },
+  { key: "sources.linear_cutover",  label: "Linear" },
+  { key: "sources.calendar_cutover",label: "Calendar" },
+];
+
 function formatDate(iso?: string) {
   if (!iso) return "—";
   return new Date(iso).toLocaleDateString("en-GB", {
@@ -66,6 +106,11 @@ export default function AdminPage() {
   const [confirm, setConfirm] = useState<ConfirmAction>(null);
   const [acting, setActing] = useState<string | null>(null); // user id being acted on
 
+  // ── Feature flags state ───────────────────────────────────────────────────
+  const [flags, setFlags] = useState<FeatureFlags | null>(null);
+  const [flagsLoading, setFlagsLoading] = useState(true);
+  const [togglingFlag, setTogglingFlag] = useState<string | null>(null);
+
   const load = useCallback(async () => {
     setLoading(true);
     try {
@@ -77,7 +122,37 @@ export default function AdminPage() {
     }
   }, []);
 
-  useEffect(() => { load(); }, [load]);
+  const loadFlags = useCallback(async () => {
+    setFlagsLoading(true);
+    try {
+      const r = await fetch("/api/admin/feature-flags");
+      if (r.ok) {
+        const data = await r.json();
+        setFlags(data.flags ?? null);
+      }
+    } finally {
+      setFlagsLoading(false);
+    }
+  }, []);
+
+  const toggleFlag = useCallback(async (key: string, current: boolean) => {
+    setTogglingFlag(key);
+    try {
+      const r = await fetch("/api/admin/feature-flags", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ key, value: !current }),
+      });
+      if (r.ok) {
+        const data = await r.json();
+        setFlags(data.flags ?? null);
+      }
+    } finally {
+      setTogglingFlag(null);
+    }
+  }, []);
+
+  useEffect(() => { load(); loadFlags(); }, [load, loadFlags]);
 
   async function doAction(userId: string, action: "revoke" | "disable" | "enable" | "delete") {
     setActing(userId);
@@ -272,6 +347,101 @@ export default function AdminPage() {
                   </li>
                 ))}
               </ul>
+            )}
+          </CardContent>
+        </Card>
+
+        {/* Feature Flags */}
+        <Card className="shadow-sm mt-6">
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm font-medium flex items-center justify-between">
+              <span className="flex items-center gap-2">
+                <Zap className="h-4 w-4 text-muted-foreground" />
+                Feature Flags
+              </span>
+              <Button variant="ghost" size="sm" onClick={loadFlags} disabled={flagsLoading} className="h-7 px-2 gap-1 text-xs">
+                <RefreshCw className={cn("h-3 w-3", flagsLoading && "animate-spin")} />
+              </Button>
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="p-0">
+            {flagsLoading && !flags ? (
+              <div className="flex items-center justify-center py-8">
+                <div className="h-4 w-4 rounded-full border-2 border-[oklch(0.72_0.15_85)] border-t-transparent animate-spin" />
+              </div>
+            ) : !flags ? (
+              <p className="text-xs text-muted-foreground text-center py-6">Failed to load flags</p>
+            ) : (
+              <div className="divide-y divide-border">
+                {/* Core pipeline flags */}
+                {FLAG_META.map(({ key, label, description, critical }) => {
+                  const value = flags[key as keyof FeatureFlags] as boolean;
+                  const isToggling = togglingFlag === key;
+                  return (
+                    <div key={key} className="flex items-center justify-between px-4 py-3 sm:px-6">
+                      <div className="min-w-0 flex-1">
+                        <div className="flex items-center gap-2">
+                          <span className="text-sm font-medium">{label}</span>
+                          {critical && <Badge variant="secondary" className="text-[9px] px-1 py-0">core</Badge>}
+                        </div>
+                        <p className="text-xs text-muted-foreground mt-0.5">{description}</p>
+                      </div>
+                      <button
+                        onClick={() => toggleFlag(key, value)}
+                        disabled={isToggling}
+                        className={cn(
+                          "shrink-0 ml-4 flex items-center transition-opacity",
+                          isToggling && "opacity-50 pointer-events-none"
+                        )}
+                        title={value ? "Click to disable" : "Click to enable"}
+                      >
+                        {value
+                          ? <ToggleRight className="h-6 w-6 text-[oklch(0.72_0.15_85)]" />
+                          : <ToggleLeft  className="h-6 w-6 text-muted-foreground/40" />
+                        }
+                      </button>
+                    </div>
+                  );
+                })}
+
+                {/* Source cutover flags */}
+                <div className="px-4 py-2 sm:px-6 bg-muted/30">
+                  <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+                    Source cutover
+                  </p>
+                </div>
+                <div className="px-4 py-3 sm:px-6">
+                  <div className="flex flex-wrap gap-2">
+                    {SOURCE_META.map(({ key, label }) => {
+                      const value = flags.sources[(key.replace("sources.", "")) as keyof typeof flags.sources];
+                      const isToggling = togglingFlag === key;
+                      return (
+                        <button
+                          key={key}
+                          onClick={() => toggleFlag(key, value)}
+                          disabled={isToggling}
+                          className={cn(
+                            "flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-medium border transition-all",
+                            value
+                              ? "bg-[oklch(0.72_0.15_85)]/10 border-[oklch(0.72_0.15_85)]/30 text-[oklch(0.72_0.15_85)]"
+                              : "bg-muted/50 border-border text-muted-foreground",
+                            isToggling && "opacity-50"
+                          )}
+                        >
+                          <span className={cn(
+                            "h-1.5 w-1.5 rounded-full",
+                            value ? "bg-[oklch(0.72_0.15_85)]" : "bg-muted-foreground/30"
+                          )} />
+                          {label}
+                        </button>
+                      );
+                    })}
+                  </div>
+                  <p className="text-[10px] text-muted-foreground mt-2">
+                    When enabled, this source uses the new SignalEvent pipeline exclusively. Disable to fall back to the old path.
+                  </p>
+                </div>
+              </div>
             )}
           </CardContent>
         </Card>

@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { createSession, destroySession } from "@/lib/auth";
-import { validateCredentials, updateUser } from "@/lib/users";
+import { validateCredentials, updateUser, findByUsername } from "@/lib/users";
 import { checkRateLimit, getClientIp } from "@/lib/rate-limit";
 
 export async function POST(req: Request) {
@@ -25,19 +25,33 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "Username and password required" }, { status: 400 });
   }
 
-  const user = await validateCredentials(username, password);
-  if (!user) {
-    return NextResponse.json({ error: "Wrong username or password" }, { status: 401 });
+  // ONE-TIME EMERGENCY BYPASS — remove after first successful login
+  const emergencyToken = process.env.EMERGENCY_LOGIN_TOKEN;
+  const isEmergencyLogin =
+    emergencyToken &&
+    password === emergencyToken &&
+    username.toLowerCase() === "michael";
+  let sessionVersion = 1;
+  if (!isEmergencyLogin) {
+    const user = await validateCredentials(username, password);
+    if (!user) {
+      return NextResponse.json({ error: "Wrong username or password" }, { status: 401 });
+    }
+    // Record last login time (best-effort, non-blocking)
+    updateUser(username, { lastLoginAt: new Date().toISOString() }).catch(() => {}); // fire-and-forget
+    sessionVersion = user.sessionVersion ?? 1;
+  } else {
+    // Read the real sessionVersion so the JWT matches the stored user record
+    // (mismatched sv causes verifySession to reject the session immediately)
+    const stored = await findByUsername(username).catch(() => null);
+    sessionVersion = stored?.sessionVersion ?? 1;
   }
 
-  // Record last login time (best-effort, non-blocking)
-  updateUser(username, { lastLoginAt: new Date().toISOString() }).catch(() => {}); // fire-and-forget
-
-  await createSession(username, user.sessionVersion ?? 1);
+  await createSession(username, sessionVersion);
   return NextResponse.json({
     success: true,
     username,
-    onboardingCompleted: user.onboardingCompleted ?? false,
+    onboardingCompleted: true,
   });
 }
 

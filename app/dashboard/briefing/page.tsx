@@ -22,6 +22,9 @@ import {
   MinusCircle,
   ChevronDown,
   ChevronUp,
+  Clock,
+  Brain,
+  Radio,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import {
@@ -239,9 +242,30 @@ interface SourceReadiness {
   meetings: number;
 }
 
+// ── Briefing type taxonomy ────────────────────────────────────────────────────
+
+type BriefingType = "morning" | "midday" | "evening" | "weekly" | "meeting";
+
+const BRIEFING_TYPES: Array<{ id: BriefingType; label: string; description: string; hours: [number, number] }> = [
+  { id: "morning",  label: "Morning Brief",    description: "Day ahead, commitments, meetings",   hours: [5,  12] },
+  { id: "midday",   label: "Midday Refresh",   description: "Progress, blockers, afternoon focus", hours: [12, 16] },
+  { id: "evening",  label: "Evening Wrap",     description: "What moved, tomorrow's setup",        hours: [16, 23] },
+  { id: "weekly",   label: "Weekly Digest",    description: "Trends, momentum, relationships",     hours: [0,  24] },
+  { id: "meeting",  label: "Meeting Prep",     description: "Next meeting context & prep",         hours: [0,  24] },
+];
+
+function defaultBriefingType(): BriefingType {
+  const h = new Date().getHours();
+  if (h < 12) return "morning";
+  if (h < 16) return "midday";
+  return "evening";
+}
+
 export default function BriefingPage() {
   const [briefing, setBriefing] = useState<Briefing | null>(null);
+  const [briefingType, setBriefingType] = useState<BriefingType>(defaultBriefingType);
   const [loading, setLoading] = useState(false);
+  const [loadingType, setLoadingType] = useState<BriefingType | null>(null);
   const [error, setError] = useState("");
   const [sources, setSources] = useState<unknown[]>([]);
   const [readiness, setReadiness] = useState<SourceReadiness | null>(null);
@@ -265,37 +289,61 @@ export default function BriefingPage() {
   // True when actions, decisions, or memory have changed since the briefing
   // was last generated — prompts the user to regenerate for fresh data.
   const [isStale, setIsStale] = useState(false);
+  // ── STIG live operational read ─────────────────────────────────────────────
+  const [stigRead, setStigRead] = useState<{ briefing: string; generatedAt: string } | null>(null);
+  const [stigLoading, setStigLoading] = useState(true);
+  const [stigExpanded, setStigExpanded] = useState(true);
+
+  useEffect(() => {
+    setStigLoading(true);
+    fetch("/api/stig/briefing", { cache: "no-store" })
+      .then((r) => r.ok ? r.json() : null)
+      .then((data) => { if (data?.briefing) setStigRead(data); })
+      .catch((e: unknown) => { console.warn("[stig] operational read failed:", e); })
+      .finally(() => setStigLoading(false));
+  }, []);
+  // ───────────────────────────────────────────────────────────────────────────
+
   // Ref so domain sync callbacks always see the latest briefing value
   // without needing to recreate the subscription on every render.
   const briefingRef = useRef<Briefing | null>(null);
   useEffect(() => { briefingRef.current = briefing; }, [briefing]);
 
   // Subscribe to actions, decisions, and memory domains. When any of these
-  // change after the briefing was generated, flag it as stale so Michael
+  // change after the briefing was generated, flag it as stale so the user
   // knows the briefing may no longer reflect the current state of his tracker.
   const markStale = () => { if (briefingRef.current) setIsStale(true); };
   useDomainSync("actions",   markStale);
   useDomainSync("decisions", markStale);
   useDomainSync("memory",    markStale);
 
+  // Per-type localStorage key so each briefing mode is cached independently
+  function cacheKeyForType(type: BriefingType) {
+    return scopedKey(`briefing-v2-${type}`);
+  }
+
+  function loadCachedBriefing(type: BriefingType): Briefing | null {
+    try {
+      const lsRaw = localStorage.getItem(cacheKeyForType(type));
+      if (!lsRaw) return null;
+      const parsed = JSON.parse(lsRaw);
+      const today = getNow().toLocaleDateString("en-CA", { timeZone: USER_TZ });
+      const parsedDate = parsed.generatedAt
+        ? new Date(parsed.generatedAt).toLocaleDateString("en-CA", { timeZone: USER_TZ })
+        : "";
+      if (parsedDate === today) return parsed;
+      localStorage.removeItem(cacheKeyForType(type));
+    } catch { /* ignore */ }
+    return null;
+  }
+
   // Load today's cached briefing from the server on mount so it persists
   // across tab navigation. localStorage is kept as a fast client-side fallback
   // to avoid a flash of the empty state while the fetch is in flight.
   useEffect(() => {
     // Optimistic restore from localStorage while the API call is in flight
-    const cacheKey = scopedKey("briefing-v2");
-    try {
-      const lsRaw = localStorage.getItem(cacheKey);
-      if (lsRaw) {
-        const lsParsed = JSON.parse(lsRaw);
-        const today = getNow().toLocaleDateString("en-CA", { timeZone: USER_TZ });
-        const lsDate = lsParsed.generatedAt
-          ? new Date(lsParsed.generatedAt).toLocaleDateString("en-CA", { timeZone: USER_TZ })
-          : "";
-        if (lsDate === today) setBriefing(lsParsed);
-        else localStorage.removeItem(cacheKey);
-      }
-    } catch { /* ignore */ }
+    const cached = loadCachedBriefing(briefingType);
+    if (cached) setBriefing(cached);
 
     // Load source readiness in parallel
     Promise.all([
@@ -322,47 +370,48 @@ export default function BriefingPage() {
       });
     }).catch((e: unknown) => { console.warn("[briefing] readiness load failed:", e); }); // ci-ok: readiness panel is decorative, null state handled in JSX
 
-    // Authoritative load from server — this is the source of truth
-    fetch("/api/generate/briefing", { cache: "no-store" })
-      .then((r) => (r.ok ? r.json() : null))
-      .then((data) => {
-        if (data) {
-          setBriefing(data);
-          try { localStorage.setItem(scopedKey("briefing-v2"), JSON.stringify(data)); } catch { /* ignore */ }
-        }
-      })
-      .catch((e: unknown) => {
-        // Network error — keep localStorage state as fallback
-        console.error("[basil-fetch] network_error", { route: "/api/generate/briefing", component: "BriefingPage", error: e instanceof Error ? e.message : String(e) });
-      });
-  }, []);
+    // Authoritative load from server — this is the source of truth (GET = cached today's briefing)
+    // Only load if no localStorage hit to avoid overwriting with a different type's cached result
+    if (!cached) {
+      fetch("/api/generate/briefing", { cache: "no-store" })
+        .then((r) => (r.ok ? r.json() : null))
+        .then((data) => {
+          if (data) {
+            setBriefing(data);
+            try { localStorage.setItem(cacheKeyForType(briefingType), JSON.stringify(data)); } catch { /* ignore */ }
+          }
+        })
+        .catch((e: unknown) => {
+          console.error("[basil-fetch] network_error", { route: "/api/generate/briefing", component: "BriefingPage", error: e instanceof Error ? e.message : String(e) });
+        });
+    }
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
-  async function generate() {
+  async function generate(typeOverride?: BriefingType) {
+    const type = typeOverride ?? briefingType;
     setLoading(true);
+    setLoadingType(type);
     setError("");
-    setIsStale(false); // clear stale flag on every regenerate
+    setIsStale(false);
     const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 60_000);
+    const timeoutId = setTimeout(() => controller.abort(), 270_000); // 270s — just under Vercel's 300s function limit
     try {
       const hasExtras =
         extraNotes.trim().length > 0 ||
         extraFiles.length > 0 ||
         extraUrls.length > 0;
-      const res = hasExtras
-        ? await fetch("/api/generate/briefing", {
-            method: "POST",
-            body: buildExtraContextFormData(
-              extraNotes,
-              extraFiles,
-              undefined,
-              extraUrls
-            ),
-            signal: controller.signal,
-          })
-        : await fetch("/api/generate/briefing", {
-            method: "POST",
-            signal: controller.signal,
-          });
+      const fd = buildExtraContextFormData(
+        extraNotes,
+        hasExtras ? extraFiles : [],
+        undefined,
+        hasExtras ? extraUrls : []
+      );
+      fd.append("briefingType", type);
+      const res = await fetch("/api/generate/briefing", {
+        method: "POST",
+        body: fd,
+        signal: controller.signal,
+      });
       if (!res.ok) {
         const body = await res.json().catch(() => ({})) as { error?: string };
         if (res.status === 503) {
@@ -379,11 +428,11 @@ export default function BriefingPage() {
       setBriefing(data);
       setSources(data.sources ?? []);
       clearExtraDraft();
-      try { localStorage.setItem(scopedKey("briefing-v2"), JSON.stringify(data)); } catch { /* ignore */ }
+      try { localStorage.setItem(cacheKeyForType(type), JSON.stringify(data)); } catch { /* ignore */ }
     } catch (e) {
       if (e instanceof Error && e.name === "AbortError") {
         setError(
-          "Briefing generation timed out after 60 seconds. The AI is still processing — try again."
+          "Briefing generation timed out. The request took too long — please try again."
         );
       } else {
         setError(e instanceof Error ? e.message : "Something went wrong");
@@ -391,6 +440,22 @@ export default function BriefingPage() {
     } finally {
       clearTimeout(timeoutId);
       setLoading(false);
+      setLoadingType(null);
+    }
+  }
+
+  // Switch briefing type: load cached version if available, otherwise auto-generate
+  function handleTypeChange(type: BriefingType) {
+    if (loading) return; // don't switch while generating
+    setBriefingType(type);
+    const cached = loadCachedBriefing(type);
+    if (cached) {
+      setBriefing(cached);
+      setError("");
+    } else {
+      setBriefing(null);
+      setError("");
+      generate(type);
     }
   }
 
@@ -402,13 +467,36 @@ export default function BriefingPage() {
     year: "numeric",
   });
 
+  const loadingLabel = BRIEFING_TYPES.find(t => t.id === (loadingType ?? briefingType))?.label ?? "briefing";
+
   return (
     <div className="p-4 sm:p-6 lg:p-8 space-y-8 max-w-5xl mx-auto">
+
+      {/* ── Sticky generation banner ─────────────────────────────────────────── */}
+      {loading && (
+        <div className="fixed top-0 left-0 right-0 z-50 flex items-center justify-center gap-3 px-4 py-3"
+          style={{
+            background: "rgba(10, 20, 42, 0.96)",
+            backdropFilter: "blur(16px)",
+            borderBottom: "1px solid rgba(200,169,107,0.20)",
+            boxShadow: "0 2px 20px rgba(0,0,0,0.4)",
+          }}>
+          <Loader2 className="h-3.5 w-3.5 animate-spin shrink-0" style={{ color: "#C8A96B" }} />
+          <span className="text-[13px] font-medium" style={{ color: "rgba(243,239,231,0.85)" }}>
+            Writing your {loadingLabel}
+          </span>
+          <span className="text-[11px]" style={{ color: "rgba(170,179,197,0.45)" }}>
+            · takes about 30 seconds
+          </span>
+        </div>
+      )}
+
       {/* Hero header */}
       <header className="flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
         <div className="space-y-2">
           <p className="basil-eyebrow flex items-center gap-2 text-[13px]">
-            <Newspaper className="h-3.5 w-3.5" /> Daily Briefing
+            <Newspaper className="h-3.5 w-3.5" />
+            {BRIEFING_TYPES.find((t) => t.id === briefingType)?.label ?? "Briefing"}
           </p>
           <h1 className="basil-display text-3xl sm:text-5xl lg:text-6xl leading-[1.05] text-foreground">
             {today.split(",")[0]}
@@ -419,7 +507,7 @@ export default function BriefingPage() {
           </p>
         </div>
         <Button
-          onClick={generate}
+          onClick={() => generate()}
           disabled={loading}
           size="lg"
           className="bg-[oklch(0.72_0.15_85)] text-[oklch(0.18_0.04_250)] hover:bg-[oklch(0.78_0.12_85)] gap-2 shadow-md shadow-[oklch(0.72_0.15_85)]/20 h-11 px-5"
@@ -437,6 +525,36 @@ export default function BriefingPage() {
           )}
         </Button>
       </header>
+
+      {/* ── Briefing type selector ──────────────────────────────────────
+           Five operational briefing modes. Auto-selected by time of day.
+           User can override to generate any type on demand.
+      ──────────────────────────────────────────────────────────────── */}
+      <div className="flex items-center gap-1.5 flex-wrap -mt-2">
+        {BRIEFING_TYPES.map((t) => {
+          const active = briefingType === t.id;
+          return (
+            <button
+              key={t.id}
+              onClick={() => handleTypeChange(t.id)}
+              disabled={loading}
+              title={t.description}
+              className={cn(
+                "inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[12px] font-medium",
+                "transition-all duration-150 border",
+                active
+                  ? "bg-[oklch(0.72_0.15_85)]/[0.12] text-[oklch(0.72_0.15_85)] border-[oklch(0.72_0.15_85)]/25"
+                  : "bg-transparent text-muted-foreground/60 border-border/30 hover:border-border/60 hover:text-muted-foreground"
+              )}
+            >
+              {active && (
+                <span className="h-1.5 w-1.5 rounded-full bg-[oklch(0.72_0.15_85)] shrink-0" />
+              )}
+              {t.label}
+            </button>
+          );
+        })}
+      </div>
 
       {/* Source readiness panel */}
       {readiness && (
@@ -523,6 +641,93 @@ export default function BriefingPage() {
         disabled={loading}
       />
 
+      {/* ── Basil's Operational Read (STIG) ───────────────────────────────────
+           Always-fresh live source pack summarised by Basil. Separate from the
+           main briefing — this is a passive "what's happening right now" read
+           pulled from calendar, email, Slack, actions, decisions, and projects.
+      ──────────────────────────────────────────────────────────────────────── */}
+      {(stigLoading || stigRead) && (
+        <div className="rounded-2xl border border-[oklch(0.72_0.15_85)]/20 bg-[oklch(0.72_0.15_85)]/[0.03] overflow-hidden">
+          {/* Header row */}
+          <button
+            onClick={() => setStigExpanded((v) => !v)}
+            className="w-full flex items-center justify-between gap-3 px-5 py-3.5 hover:bg-[oklch(0.72_0.15_85)]/[0.04] transition-colors"
+          >
+            <span className="flex items-center gap-2.5">
+              {stigLoading ? (
+                <Radio className="h-3.5 w-3.5 animate-pulse text-[oklch(0.72_0.15_85)]" />
+              ) : (
+                <Brain className="h-3.5 w-3.5 text-[oklch(0.72_0.15_85)]" />
+              )}
+              <span className="text-[12px] font-semibold tracking-wide uppercase text-[oklch(0.72_0.15_85)]">
+                Basil&apos;s Operational Read
+              </span>
+              {stigLoading && (
+                <span className="text-[11px] text-muted-foreground/50">scanning sources…</span>
+              )}
+              {stigRead && !stigLoading && (
+                <span className="text-[11px] text-muted-foreground/40 font-mono">
+                  {new Date(stigRead.generatedAt).toLocaleTimeString("en-GB", {
+                    hour: "2-digit",
+                    minute: "2-digit",
+                  })}
+                </span>
+              )}
+            </span>
+            <span className="text-muted-foreground/40">
+              {stigExpanded ? <ChevronUp className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}
+            </span>
+          </button>
+
+          {/* Body */}
+          {stigExpanded && (
+            <div className="px-5 pb-5 pt-1">
+              {stigLoading && !stigRead && (
+                <div className="space-y-2 pt-2">
+                  <div className="h-4 bg-muted/40 rounded animate-pulse w-full" />
+                  <div className="h-4 bg-muted/40 rounded animate-pulse w-11/12" />
+                  <div className="h-4 bg-muted/40 rounded animate-pulse w-4/5" />
+                </div>
+              )}
+              {stigRead && (
+                <div className="prose prose-sm max-w-none text-[13px] text-foreground/80 leading-relaxed [&_h2]:text-[11px] [&_h2]:font-semibold [&_h2]:uppercase [&_h2]:tracking-wider [&_h2]:text-[oklch(0.72_0.15_85)] [&_h2]:mt-4 [&_h2]:mb-1 [&_ul]:pl-4 [&_li]:my-0.5">
+                  {stigRead.briefing.split("\n").map((line, i) => {
+                    const trimmed = line.trim();
+                    if (!trimmed) return <br key={i} />;
+                    if (trimmed.startsWith("## ")) {
+                      return (
+                        <h2 key={i} className="text-[11px] font-semibold uppercase tracking-wider text-[oklch(0.72_0.15_85)] mt-4 mb-1 first:mt-0">
+                          {trimmed.replace(/^## /, "")}
+                        </h2>
+                      );
+                    }
+                    if (trimmed.startsWith("# ")) {
+                      return (
+                        <p key={i} className="text-[11px] font-semibold text-muted-foreground/50 mb-3">
+                          {trimmed.replace(/^# /, "")}
+                        </p>
+                      );
+                    }
+                    if (trimmed.startsWith("- ")) {
+                      return (
+                        <p key={i} className="pl-3 border-l border-border/30 text-[12px] text-foreground/70 my-0.5">
+                          {trimmed.replace(/^- /, "")}
+                        </p>
+                      );
+                    }
+                    return (
+                      <p key={i} className="text-[12px] text-foreground/70 my-1">
+                        {trimmed}
+                      </p>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      )}
+
       {/* Staleness banner — shown when actions/decisions/memory changed after
           this briefing was generated. Does not auto-regenerate (too expensive). */}
       {isStale && briefing && !loading && (
@@ -532,7 +737,7 @@ export default function BriefingPage() {
             Actions or decisions have changed since this briefing was generated.
             {" "}
             <button
-              onClick={generate}
+              onClick={() => generate()}
               className="font-semibold underline underline-offset-2 hover:text-amber-900 transition-colors"
             >
               Regenerate
@@ -549,7 +754,7 @@ export default function BriefingPage() {
             <p className="text-sm text-destructive leading-relaxed">{error}</p>
           </div>
           <button
-            onClick={generate}
+            onClick={() => generate()}
             className="text-xs font-semibold underline underline-offset-2 text-destructive hover:text-destructive/80 transition-colors ml-6"
           >
             Try again
@@ -579,6 +784,29 @@ export default function BriefingPage() {
 
       {!loading && briefing && (
         <div className="space-y-5">
+          {/* Provenance line — generated at + source attribution */}
+          <div className="flex items-center gap-2 text-[11px] text-muted-foreground/50 font-mono">
+            <Clock className="h-3 w-3 shrink-0" />
+            <span>Generated {new Date(briefing.generatedAt).toLocaleString("en-GB", {
+              timeZone: USER_TZ,
+              weekday: "short",
+              hour: "2-digit",
+              minute: "2-digit",
+            })}</span>
+            {briefing.sourceAttribution?.connected && briefing.sourceAttribution.connected.length > 0 && (
+              <>
+                <span className="text-border/40">·</span>
+                <span>{briefing.sourceAttribution.connected.join(" · ")}</span>
+              </>
+            )}
+            {isStale && (
+              <>
+                <span className="text-border/40">·</span>
+                <span className="text-amber-500/70">data changed since generation</span>
+              </>
+            )}
+          </div>
+
           {sections.map((s) => {
             const content = briefing[s.key];
             if (!content) return null;
@@ -615,9 +843,7 @@ export default function BriefingPage() {
                     </h2>
                   </header>
 
-                  <div className={cn(s.fg)}>
-                    <RichContent text={content} />
-                  </div>
+                  <RichContent text={content} />
                 </div>
               </article>
             );
@@ -679,13 +905,33 @@ export default function BriefingPage() {
       )}
 
       {!loading && !briefing && !error && (
-        <div className="rounded-2xl basil-card ring-1 ring-foreground/[0.06] p-12 text-center">
-          <Newspaper className="h-12 w-12 text-muted-foreground/30 mx-auto mb-4" />
-          <h2 className="basil-display text-2xl mb-2">No briefing yet today</h2>
-          <p className="text-sm text-muted-foreground max-w-md mx-auto">
-            Generate your executive briefing from today&apos;s calendar, inbox,
-            Slack activity, open tasks, and pending decisions.
-          </p>
+        <div className="relative overflow-hidden rounded-2xl basil-card ring-1 ring-foreground/[0.06] p-12 text-center">
+          {/* Atmospheric glow */}
+          <div
+            aria-hidden
+            className="pointer-events-none absolute inset-0"
+            style={{
+              background: "radial-gradient(600px 300px at 50% 0%, oklch(0.72 0.15 85 / 0.04), transparent 70%)",
+            }}
+          />
+          <div className="relative">
+            <div className="h-14 w-14 rounded-xl bg-[oklch(0.72_0.15_85)]/10 flex items-center justify-center mx-auto mb-5 ring-1 ring-[oklch(0.72_0.15_85)]/20">
+              <Newspaper className="h-6 w-6 text-[oklch(0.72_0.15_85)]/70" />
+            </div>
+            <h2 className="basil-display text-2xl mb-2">Ready for your briefing</h2>
+            <p className="text-sm text-muted-foreground max-w-xs mx-auto leading-relaxed">
+              Basil will synthesise today&apos;s calendar, inbox, open actions,
+              and key decisions into a concise operational brief.
+            </p>
+            <div className="flex items-center justify-center gap-3 mt-6 text-[11px] text-muted-foreground/50 font-mono uppercase tracking-wider">
+              {["Calendar", "Inbox", "Actions", "Decisions"].map((src, i) => (
+                <span key={src} className="flex items-center gap-1.5">
+                  {i > 0 && <span className="text-border/40">·</span>}
+                  {src}
+                </span>
+              ))}
+            </div>
+          </div>
         </div>
       )}
     </div>

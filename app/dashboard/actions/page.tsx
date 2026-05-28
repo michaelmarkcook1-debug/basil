@@ -605,20 +605,27 @@ export default function ActionsPage() {
 
   async function handleAdd() {
     if (!form.text.trim()) return;
-    await fetch("/api/actions", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        text: form.text,
-        owner: form.owner || undefined,
-        ownerId: findContactByName(form.owner)?.id,
-        dueDate: form.due || undefined,
-        source: form.source,
-        priority: form.priority,
-      }),
-    });
-    clearForm();
-    notify();
+    try {
+      const res = await fetch("/api/actions", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          text: form.text,
+          owner: form.owner || undefined,
+          ownerId: findContactByName(form.owner)?.id,
+          dueDate: form.due || undefined,
+          source: form.source,
+          priority: form.priority,
+        }),
+      });
+      if (!res.ok) throw new Error(`Save failed: ${res.status}`);
+      clearForm();
+      notify();
+      await refresh();
+    } catch (err) {
+      console.error("[actions] handleAdd failed:", err);
+      // Keep form text so user doesn't lose their input
+    }
   }
 
   async function toggleDone(id: string) {
@@ -647,6 +654,7 @@ export default function ActionsPage() {
       body: JSON.stringify({ status: next }),
     });
     notify();
+    await refresh();
   }
 
   async function handleDelete(id: string) {
@@ -703,6 +711,7 @@ export default function ActionsPage() {
       }),
     });
     notify();
+    await refresh();
   }
 
   const todayStr = new Date().toISOString().split("T")[0];

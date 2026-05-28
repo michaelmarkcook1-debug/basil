@@ -4,6 +4,199 @@
 
 @custom-variant dark (&:is(.dark *));
 
+/* ─── Auth shell — cinematic persistent background ────────────────────────────
+   These rules fire before React hydrates so there is NEVER a white flash on
+   auth pages. The .auth-shell class is added by app/(auth)/layout.tsx and
+   persists across all client-side navigations within the auth route group.
+   ─────────────────────────────────────────────────────────────────────────── */
+
+/* Prevent white flash — auth pages need a dark baseline from first paint */
+html:has(.auth-shell) {
+  background-color: #07111F;
+  color-scheme: dark;
+}
+
+/* CSS custom properties — auth colour system */
+:root {
+  --c-auth-bg:       #07111F;   /* deep midnight */
+  --c-auth-raised:   #0B1730;   /* elevated surfaces */
+  --c-auth-surface:  #0F1D36;   /* card fill */
+  --c-auth-border:   rgba(255 255 255 / 0.07);
+  --c-auth-text:     #F3EFE7;   /* warm ivory */
+  --c-auth-muted:    #AAB3C5;   /* secondary text */
+  --c-auth-gold:     #C8A96B;   /* accent */
+  --c-auth-gold-dim: rgba(200 169 107 / 0.18);
+}
+
+/* ── Shell ── */
+.auth-shell {
+  position: relative;
+  min-height: 100svh;
+  background: var(--c-auth-bg);
+  isolation: isolate;
+}
+
+/* ── Fixed atmospheric background ── */
+.auth-bg {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 0;
+  overflow: hidden;
+}
+
+.auth-orb {
+  position: absolute;
+  border-radius: 50%;
+  filter: blur(100px);
+  will-change: transform;
+}
+.auth-orb-1 {
+  width: 680px; height: 680px;
+  top: -260px; right: -80px;
+  background: radial-gradient(circle, rgba(200,169,107,0.06) 0%, transparent 65%);
+  animation: auth-orb-drift-1 24s ease-in-out infinite;
+}
+.auth-orb-2 {
+  width: 560px; height: 560px;
+  bottom: -180px; left: -120px;
+  background: radial-gradient(circle, rgba(11,23,48,0.9) 0%, rgba(7,17,31,0.3) 70%);
+  animation: auth-orb-drift-2 30s ease-in-out infinite;
+}
+.auth-orb-3 {
+  width: 420px; height: 420px;
+  top: 38%; left: 38%;
+  background: radial-gradient(circle, rgba(28,52,100,0.13) 0%, transparent 70%);
+  animation: auth-orb-drift-3 20s ease-in-out infinite;
+}
+
+/* Basil leaf — subtle watermark centred in the viewport */
+.auth-leaf-wm {
+  position: absolute;
+  width: min(68vw, 580px);
+  height: auto;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  opacity: 0.065;
+  pointer-events: none;
+  user-select: none;
+}
+
+/* ── Content layer sits above the fixed background ── */
+.auth-content {
+  position: relative;
+  z-index: 1;
+}
+
+/* ── Glass card ── */
+.auth-card {
+  background: linear-gradient(
+    160deg,
+    rgba(15, 29, 54, 0.82) 0%,
+    rgba(11, 23, 48, 0.78) 100%
+  );
+  border: 1px solid rgba(255 255 255 / 0.065);
+  border-top: 1px solid rgba(255 255 255 / 0.11);
+  backdrop-filter: blur(28px);
+  -webkit-backdrop-filter: blur(28px);
+  border-radius: 1.25rem;
+  box-shadow:
+    0 40px 80px rgba(0,0,0,0.45),
+    0 1px 0 rgba(255,255,255,0.04) inset;
+}
+
+/* ── Inputs ── */
+.auth-input {
+  width: 100%;
+  border-radius: 0.5rem;
+  border: 1px solid rgba(255 255 255 / 0.09);
+  background: rgba(7, 17, 31, 0.55);
+  padding: 0.625rem 0.875rem;
+  font-size: 1rem;       /* 16px — prevents iOS zoom */
+  color: #F3EFE7;
+  transition: border-color 0.15s, box-shadow 0.15s;
+  outline: none;
+}
+@media (min-width: 640px) { .auth-input { font-size: 0.875rem; } }
+.auth-input::placeholder { color: rgba(170,179,197,0.35); }
+.auth-input:focus {
+  border-color: rgba(200,169,107,0.45);
+  box-shadow: 0 0 0 3px rgba(200,169,107,0.08);
+}
+.auth-input option { background: #0F1D36; }
+
+/* ── Primary button ── */
+.auth-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  border-radius: 0.625rem;
+  padding: 0.65rem 1rem;
+  font-size: 0.875rem;
+  font-weight: 600;
+  cursor: pointer;
+  border: none;
+  transition: filter 0.15s, transform 0.1s, box-shadow 0.15s;
+}
+.auth-btn-gold {
+  background: linear-gradient(135deg, #C8A96B 0%, #A88B4A 100%);
+  color: #07111F;
+  box-shadow: 0 4px 24px rgba(200,169,107,0.22);
+}
+.auth-btn-gold:hover  { filter: brightness(1.09); }
+.auth-btn-gold:active { transform: translateY(1px); }
+.auth-btn-gold:disabled { opacity: 0.45; cursor: not-allowed; transform: none; filter: none; }
+
+/* Ghost secondary button */
+.auth-btn-ghost {
+  background: transparent;
+  border: 1px solid rgba(255 255 255 / 0.12);
+  color: rgba(243 239 231 / 0.65);
+}
+.auth-btn-ghost:hover { border-color: rgba(255 255 255 / 0.22); color: #F3EFE7; }
+
+/* ── Step progress bar ── */
+.auth-step-track {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.375rem;
+  margin-bottom: 2rem;
+}
+.auth-step-pip {
+  height: 3px;
+  border-radius: 99px;
+  transition: width 0.35s cubic-bezier(0.4,0,0.2,1), background 0.25s;
+}
+.auth-step-done    { width: 14px; background: var(--c-auth-gold); opacity: 0.55; }
+.auth-step-active  { width: 28px; background: var(--c-auth-gold); opacity: 1; }
+.auth-step-future  { width: 14px; background: rgba(255 255 255 / 0.15); }
+
+/* ── Fade-in for page content ── */
+@keyframes auth-fade-up {
+  from { opacity: 0; transform: translateY(10px); }
+  to   { opacity: 1; transform: translateY(0);    }
+}
+.auth-animate { animation: auth-fade-up 0.38s cubic-bezier(0.4,0,0.2,1) both; }
+
+/* ── Keyframe animations ── */
+@keyframes auth-orb-drift-1 {
+  0%,100% { transform: translate(0,0)        scale(1);    }
+  33%     { transform: translate(-45px,35px)  scale(1.04); }
+  66%     { transform: translate(28px,-22px)  scale(0.97); }
+}
+@keyframes auth-orb-drift-2 {
+  0%,100% { transform: translate(0,0); }
+  50%     { transform: translate(70px,-45px); }
+}
+@keyframes auth-orb-drift-3 {
+  0%,100% { transform: translate(-50%,-50%) scale(1);    }
+  33%     { transform: translate(calc(-50% + 38px),calc(-50% - 22px)) scale(1.08); }
+  66%     { transform: translate(calc(-50% - 22px),calc(-50% + 18px)) scale(0.92); }
+}
+
 /**
  * ─────────────────────────────────────────────────────────────────────────────
  * BASIL DESIGN SYSTEM v2
@@ -67,52 +260,52 @@
   --radius-4xl: calc(var(--radius) * 2.6);
 }
 
-/* ─── Light mode ──────────────────────────────────────────────────────────── */
+/* ─── Light mode — warm stone / cream ────────────────────────────────────── */
 :root {
   /* Core palette */
-  --background:          oklch(0.965 0.004 245);
-  --foreground:          oklch(0.16 0.042 252);
-  --card:                oklch(0.995 0.001 240);
-  --card-foreground:     oklch(0.16 0.042 252);
-  --popover:             oklch(0.995 0.001 240);
-  --popover-foreground:  oklch(0.16 0.042 252);
-  --primary:             oklch(0.26 0.062 252);
-  --primary-foreground:  oklch(0.97 0.003 240);
-  --secondary:           oklch(0.94 0.006 245);
-  --secondary-foreground:oklch(0.26 0.062 252);
-  --muted:               oklch(0.93 0.006 245);
-  --muted-foreground:    oklch(0.46 0.028 252);
-  --accent:              oklch(0.93 0.006 245);
-  --accent-foreground:   oklch(0.20 0.050 252);
+  --background:          #f5f4f0;
+  --foreground:          #1e1c18;
+  --card:                #fafaf8;
+  --card-foreground:     #1e1c18;
+  --popover:             #fafaf8;
+  --popover-foreground:  #1e1c18;
+  --primary:             #1a5c5f;
+  --primary-foreground:  #ffffff;
+  --secondary:           #e8e6e1;
+  --secondary-foreground:#1e1c18;
+  --muted:               #e8e6e1;
+  --muted-foreground:    #706e69;
+  --accent:              #f0ede8;
+  --accent-foreground:   #1e1c18;
   --destructive:         oklch(0.52 0.18 24);
-  --border:              oklch(0.88 0.010 245);
-  --input:               oklch(0.93 0.006 245);
-  --ring:                oklch(0.72 0.15 85);
+  --border:              rgba(30, 28, 24, 0.12);
+  --input:               #e8e6e1;
+  --ring:                #c17d2a;
   --radius:              0.5rem;
 
   /* Surface elevation (light) */
-  --surface-0:   oklch(0.965 0.004 245);   /* page background  */
-  --surface-1:   oklch(0.995 0.001 240);   /* cards            */
-  --surface-2:   oklch(0.985 0.003 242);   /* raised panels    */
-  --surface-3:   oklch(0.975 0.004 244);   /* dialogs          */
-  --surface-border: oklch(0.88 0.010 245);
+  --surface-0:   #f5f4f0;
+  --surface-1:   #fafaf8;
+  --surface-2:   #f0ede8;
+  --surface-3:   #eceae4;
+  --surface-border: rgba(30, 28, 24, 0.1);
 
-  /* Sidebar */
-  --sidebar:                oklch(0.22 0.050 252);
-  --sidebar-foreground:     oklch(0.90 0.010 242);
-  --sidebar-primary:        oklch(0.72 0.15 85);
-  --sidebar-primary-foreground: oklch(0.18 0.04 250);
-  --sidebar-accent:         oklch(0.28 0.058 252);
-  --sidebar-accent-foreground: oklch(0.93 0.006 242);
-  --sidebar-border:         oklch(0.30 0.050 252);
-  --sidebar-ring:           oklch(0.72 0.15 85);
+  /* Sidebar — warm stone, slightly darker than bg */
+  --sidebar:                #eeece7;
+  --sidebar-foreground:     #1e1c18;
+  --sidebar-primary:        #1a5c5f;
+  --sidebar-primary-foreground: #ffffff;
+  --sidebar-accent:         #e4e1db;
+  --sidebar-accent-foreground: #1e1c18;
+  --sidebar-border:         rgba(30, 28, 24, 0.1);
+  --sidebar-ring:           #c17d2a;
 
   /* Charts */
-  --chart-1: oklch(0.28 0.062 252);
-  --chart-2: oklch(0.72 0.150 85);
-  --chart-3: oklch(0.52 0.050 252);
-  --chart-4: oklch(0.82 0.100 85);
-  --chart-5: oklch(0.40 0.050 252);
+  --chart-1: #1a5c5f;
+  --chart-2: #c17d2a;
+  --chart-3: #4c9297;
+  --chart-4: #d49347;
+  --chart-5: #706e69;
 
   /* Signal palette — desaturated for calm, reserved for meaning */
   --signal-critical:         oklch(0.50 0.17 24);
@@ -127,81 +320,102 @@
   --signal-info:             oklch(0.52 0.10 232);
   --signal-info-subtle:      oklch(0.96 0.02 232);
   --signal-info-border:      oklch(0.85 0.06 232);
-  --signal-neutral:          oklch(0.46 0.028 252);
-  --signal-neutral-subtle:   oklch(0.93 0.006 245);
+  --signal-neutral:          #706e69;
+  --signal-neutral-subtle:   #e8e6e1;
 
-  /* Gold accent — identity colour, use sparingly */
-  --gold:         oklch(0.72 0.15 85);
-  --gold-muted:   oklch(0.82 0.10 85);
-  --gold-subtle:  oklch(0.95 0.03 85);
+  /* Warm amber accent — identity colour, use sparingly */
+  --gold:         #c17d2a;
+  --gold-muted:   #d49347;
+  --gold-subtle:  #f5ede0;
 }
 
-/* ─── Dark mode — deep navy, gold preserved ───────────────────────────────── */
+/* ─── Dark mode — Basil deep navy / gold ─────────────────────────────────── */
 .dark {
   /* Core palette */
-  --background:          oklch(0.105 0.024 252);
-  --foreground:          oklch(0.918 0.007 242);
-  --card:                oklch(0.145 0.030 252);
-  --card-foreground:     oklch(0.918 0.007 242);
-  --popover:             oklch(0.158 0.032 252);
-  --popover-foreground:  oklch(0.918 0.007 242);
-  --primary:             oklch(0.72 0.15 85);
-  --primary-foreground:  oklch(0.105 0.024 252);
-  --secondary:           oklch(0.192 0.038 252);
-  --secondary-foreground:oklch(0.880 0.008 242);
-  --muted:               oklch(0.182 0.036 252);
-  --muted-foreground:    oklch(0.545 0.018 252);
-  --accent:              oklch(0.192 0.038 252);
-  --accent-foreground:   oklch(0.900 0.007 242);
-  --destructive:         oklch(0.56 0.20 24);
-  --border:              oklch(0.224 0.042 252);
-  --input:               oklch(0.182 0.036 252);
-  --ring:                oklch(0.72 0.15 85);
+  --background:          #07111F;
+  --foreground:          #F3EFE7;
+  --card:                #0B1730;
+  --card-foreground:     #F3EFE7;
+  --popover:             #111C2E;
+  --popover-foreground:  #F3EFE7;
+  --primary:             #C8A96B;
+  --primary-foreground:  #07111F;
+  --secondary:           #111C2E;
+  --secondary-foreground: #F3EFE7;
+  --muted:               #111C2E;
+  --muted-foreground:    #AAB3C5;
+  --accent:              #0B1730;
+  --accent-foreground:   #F3EFE7;
+  --destructive:         #D96C5F;
+  --border:              rgba(200, 169, 107, 0.16);
+  --input:               #111C2E;
+  --ring:                #C8A96B;
 
-  /* Surface elevation (dark) — subtle stacking */
-  --surface-0:   oklch(0.105 0.024 252);   /* page background  */
-  --surface-1:   oklch(0.145 0.030 252);   /* cards            */
-  --surface-2:   oklch(0.168 0.034 252);   /* raised panels    */
-  --surface-3:   oklch(0.188 0.038 252);   /* dialogs          */
-  --surface-border: oklch(0.224 0.042 252);
+  /* Surface elevation (dark) */
+  --surface-0:   #07111F;
+  --surface-1:   #0B1730;
+  --surface-2:   #111C2E;
+  --surface-3:   #16233B;
+  --surface-border: rgba(200, 169, 107, 0.14);
 
-  /* Sidebar — deepest surface */
-  --sidebar:                oklch(0.088 0.020 252);
-  --sidebar-foreground:     oklch(0.878 0.008 242);
-  --sidebar-primary:        oklch(0.72 0.15 85);
-  --sidebar-primary-foreground: oklch(0.105 0.024 252);
-  --sidebar-accent:         oklch(0.155 0.034 252);
-  --sidebar-accent-foreground: oklch(0.920 0.007 242);
-  --sidebar-border:         oklch(0.195 0.038 252);
-  --sidebar-ring:           oklch(0.72 0.15 85);
+  /* Sidebar — darkest navy */
+  --sidebar:                #060E1A;
+  --sidebar-foreground:     #F3EFE7;
+  --sidebar-primary:        #C8A96B;
+  --sidebar-primary-foreground: #07111F;
+  --sidebar-accent:         #0B1730;
+  --sidebar-accent-foreground: #F3EFE7;
+  --sidebar-border:         rgba(200, 169, 107, 0.10);
+  --sidebar-ring:           #C8A96B;
 
   /* Charts */
-  --chart-1: oklch(0.72 0.15 85);
-  --chart-2: oklch(0.52 0.09 252);
-  --chart-3: oklch(0.62 0.11 200);
-  --chart-4: oklch(0.82 0.10 85);
-  --chart-5: oklch(0.44 0.08 252);
+  --chart-1: #C8A96B;
+  --chart-2: #1F8A70;
+  --chart-3: #5CB8FF;
+  --chart-4: #D9A441;
+  --chart-5: #D96C5F;
 
-  /* Signal palette — dark mode, slightly higher lightness for readability */
-  --signal-critical:         oklch(0.62 0.18 24);
-  --signal-critical-subtle:  oklch(0.16 0.04 24);
-  --signal-critical-border:  oklch(0.28 0.08 24);
-  --signal-warning:          oklch(0.68 0.14 68);
-  --signal-warning-subtle:   oklch(0.16 0.04 68);
-  --signal-warning-border:   oklch(0.30 0.08 68);
-  --signal-positive:         oklch(0.64 0.11 158);
-  --signal-positive-subtle:  oklch(0.15 0.04 158);
-  --signal-positive-border:  oklch(0.28 0.08 158);
-  --signal-info:             oklch(0.62 0.11 232);
-  --signal-info-subtle:      oklch(0.15 0.04 232);
-  --signal-info-border:      oklch(0.28 0.08 232);
-  --signal-neutral:          oklch(0.545 0.018 252);
-  --signal-neutral-subtle:   oklch(0.182 0.036 252);
+  /* Signal palette */
+  --signal-critical:         #D96C5F;
+  --signal-critical-subtle:  rgba(217, 108, 95, 0.10);
+  --signal-critical-border:  rgba(217, 108, 95, 0.30);
+  --signal-warning:          #D9A441;
+  --signal-warning-subtle:   rgba(217, 164, 65, 0.10);
+  --signal-warning-border:   rgba(217, 164, 65, 0.30);
+  --signal-positive:         #1F8A70;
+  --signal-positive-subtle:  rgba(31, 138, 112, 0.10);
+  --signal-positive-border:  rgba(31, 138, 112, 0.30);
+  --signal-info:             #5CB8FF;
+  --signal-info-subtle:      rgba(92, 184, 255, 0.10);
+  --signal-info-border:      rgba(92, 184, 255, 0.30);
+  --signal-neutral:          #AAB3C5;
+  --signal-neutral-subtle:   rgba(170, 179, 197, 0.08);
 
-  /* Gold */
-  --gold:         oklch(0.72 0.15 85);
-  --gold-muted:   oklch(0.62 0.10 85);
-  --gold-subtle:  oklch(0.18 0.04 85);
+  /* Basil gold identity */
+  --gold:         #C8A96B;
+  --gold-muted:   #D9A441;
+  --gold-subtle:  rgba(200, 169, 107, 0.12);
+}
+
+/* ── Basil token aliases (named constants from design system) ────────────── */
+:root,
+.dark {
+  --basil-bg:           #07111F;
+  --basil-panel:        #0B1730;
+  --basil-panel-2:      #111C2E;
+  --basil-panel-3:      #16233B;
+  --basil-text:         #F3EFE7;
+  --basil-muted:        #AAB3C5;
+  --basil-muted-soft:   rgba(170,179,197,0.65);
+  --basil-gold:         #C8A96B;
+  --basil-amber:        #D9A441;
+  --basil-emerald:      #1F8A70;
+  --basil-coral:        #D96C5F;
+  --basil-cyan:         #5CB8FF;
+  --basil-border:       rgba(200,169,107,0.16);
+  --basil-border-soft:  rgba(243,239,231,0.08);
+  --basil-glow-gold:    rgba(200,169,107,0.25);
+  --basil-glow-blue:    rgba(92,184,255,0.18);
 }
 
 @layer base {
@@ -269,18 +483,53 @@
    Flat surfaces = operational. Floating cards = consumer SaaS.
    ─────────────────────────────────────────────────────────────────────────── */
 
-/* Page background with a whisper of gold in the upper right.
-   Ambient, not decorative — disappears under content. */
+/* Page background */
 .basil-surface {
-  background:
-    radial-gradient(900px 400px at 85% -80px, var(--gold) / 0.06, transparent 55%),
-    var(--background);
+  background: var(--background);
 }
-.dark .basil-surface {
-  background:
-    radial-gradient(900px 400px at 85% -80px, var(--gold) / 0.04, transparent 55%),
-    var(--background);
+
+/* Panel utilities — deep navy stacking */
+.basil-panel   { background: var(--basil-panel);   border: 1px solid var(--basil-border); border-radius: var(--radius); }
+.basil-panel-2 { background: var(--basil-panel-2); border: 1px solid var(--basil-border); border-radius: var(--radius); }
+
+/* Atmospheric glow behind greeting header */
+.basil-hero-glow {
+  position: absolute;
+  top: -40px; right: -60px;
+  width: 600px; height: 320px;
+  border-radius: 50%;
+  background: radial-gradient(ellipse at 60% 40%, rgba(200,169,107,0.22) 0%, rgba(217,164,65,0.12) 30%, transparent 65%);
+  filter: blur(40px);
+  pointer-events: none;
 }
+
+/* Gold text utility */
+.text-gold { color: var(--basil-gold); }
+
+/* Signal-source colour chips */
+.chip-gold    { background: rgba(200,169,107,0.12); color: #C8A96B; border: 1px solid rgba(200,169,107,0.25); }
+.chip-emerald { background: rgba(31,138,112,0.12);  color: #1F8A70; border: 1px solid rgba(31,138,112,0.25); }
+.chip-coral   { background: rgba(217,108,95,0.12);  color: #D96C5F; border: 1px solid rgba(217,108,95,0.25); }
+.chip-cyan    { background: rgba(92,184,255,0.12);  color: #5CB8FF; border: 1px solid rgba(92,184,255,0.25); }
+.chip-amber   { background: rgba(217,164,65,0.12);  color: #D9A441; border: 1px solid rgba(217,164,65,0.25); }
+
+/* Instrument Serif italic — display headings on dashboard */
+.display-serif {
+  font-family: var(--font-instrument-serif), "Georgia", serif;
+  font-style: italic;
+  font-weight: 400;
+}
+
+/* Dashboard layout grid */
+.dash-grid {
+  display: grid;
+  grid-template-columns: 220px 1fr;
+  grid-template-rows: 56px 1fr;
+  height: 100dvh;
+}
+.dash-sidebar { grid-row: 1 / -1; grid-column: 1; }
+.dash-topbar  { grid-column: 2; grid-row: 1; }
+.dash-main    { grid-column: 2; grid-row: 2; overflow-y: auto; }
 
 /* Level 1 — primary card surface */
 .basil-card {

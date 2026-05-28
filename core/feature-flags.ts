@@ -60,13 +60,13 @@ export interface FeatureFlags {
 
 const DEFAULTS: FeatureFlags = {
   signalEvent_shadow: false,
-  signalEvent_active: false,
+  signalEvent_active: true,   // on by default — signal pipeline is production-ready
   trustEnvelope_active: false,
   canonicalIdentity_active: false,
   signalThread_active: false,
   dispatch_shadow: false,
   dispatch_active: false,
-  ranking_active: false,
+  ranking_active: true,       // on by default — ranking required for Signal Radar
   sources: {
     gmail_cutover: false,
     calendar_cutover: false,
@@ -85,6 +85,19 @@ const cache = new Map<string, { flags: FeatureFlags; expiresAt: number }>();
 
 const CACHE_TTL_MS = 60_000;
 
+/** Current schema version. Bump when flag defaults change. */
+const SCHEMA_VERSION = 2;
+
+/**
+ * V2 migrations — flags whose defaults changed from false → true in v2.
+ * These are *forced* onto pre-v2 stored files so existing users automatically
+ * inherit the new defaults without needing an admin toggle.
+ */
+const V2_FORCED: Partial<FeatureFlags> = {
+  signalEvent_active: true,
+  ranking_active: true,
+};
+
 function bust(username: string): void {
   cache.delete(username);
 }
@@ -94,24 +107,48 @@ function bust(username: string): void {
 /**
  * Read feature flags for a user. Returns defaults if no flags file exists.
  * Cached for 60 seconds to avoid Blob reads on every ingest event.
+ *
+ * Schema migration: files written before v2 (no _v field) automatically get
+ * signalEvent_active and ranking_active forced to true. The migrated file is
+ * written back so the migration only runs once.
  */
 export async function getFlags(username: string): Promise<FeatureFlags> {
   const cached = cache.get(username);
   if (cached && Date.now() < cached.expiresAt) return cached.flags;
 
-  const stored = await readUserStore<Partial<FeatureFlags>>(
+  const stored = await readUserStore<Partial<FeatureFlags> & { _v?: number }>(
     username,
     FLAG_FILE,
     {}
   );
 
+  const isPreV2 = !stored._v || stored._v < SCHEMA_VERSION;
+  const hasStoredData = Object.keys(stored).length > 0;
+
+  // For pre-v2 files that have been explicitly stored, force the new true-defaults
+  // onto the flags that changed. This ensures existing users with old stored values
+  // automatically get the signal pipeline enabled without manual admin intervention.
+  // Spread order: stored first, then V2_FORCED on top (so migration wins).
+  const effective: Partial<FeatureFlags> = isPreV2 && hasStoredData
+    ? { ...stored, ...V2_FORCED }
+    : stored;
+
   const flags: FeatureFlags = {
     ...DEFAULTS,
-    ...stored,
-    sources: { ...DEFAULTS.sources, ...(stored.sources ?? {}) },
+    ...effective,
+    sources: { ...DEFAULTS.sources, ...(effective.sources ?? {}) },
   };
 
   cache.set(username, { flags, expiresAt: Date.now() + CACHE_TTL_MS });
+
+  // Write back migrated file so next read skips this migration (best-effort, no throw).
+  if (isPreV2 && hasStoredData) {
+    const migratedStore = { ...flags, _v: SCHEMA_VERSION };
+    writeUserStore(username, FLAG_FILE, migratedStore).catch((e: unknown) => {
+      console.warn("[feature-flags] migration write-back failed:", e instanceof Error ? e.message : e);
+    });
+  }
+
   return flags;
 }
 
@@ -150,7 +187,8 @@ export async function setFlag(
     updated = { ...current, [key]: value };
   }
 
-  await writeUserStore(username, FLAG_FILE, updated);
+  // Always stamp current schema version on manual writes
+  await writeUserStore(username, FLAG_FILE, { ...updated, _v: SCHEMA_VERSION });
   // Re-populate cache with the written value so next read is fast
   cache.set(username, { flags: updated, expiresAt: Date.now() + CACHE_TTL_MS });
 }

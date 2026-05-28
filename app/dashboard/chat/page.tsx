@@ -103,6 +103,7 @@ function ChatPageInner() {
   const [stagedFiles, setStagedFiles] = useState<StagedFile[]>([]);
   const [brainReady, setBrainReady] = useState<boolean | null>(null);
   const [brainModel, setBrainModel] = useState<string | null>(null);
+  const [firstName, setFirstName] = useState<string | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const hydrated = useRef(false);
@@ -123,6 +124,16 @@ function ChatPageInner() {
     useChat();
 
   const isActive = status === "streaming" || status === "submitted";
+
+  // Load user's first name from settings once on mount
+  useEffect(() => {
+    fetch("/api/settings", { cache: "no-store" })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d: { name?: string } | null) => {
+        if (d?.name) setFirstName(d.name.split(" ")[0]);
+      })
+      .catch(() => {});
+  }, []);
 
   // Check brain status once on mount
   useEffect(() => {
@@ -798,7 +809,7 @@ function ChatPageInner() {
                     <div className="h-12 w-12 rounded-xl bg-gradient-to-br from-[oklch(0.72_0.15_85)] to-[oklch(0.78_0.12_85)] flex items-center justify-center mb-4 mx-auto">
                       <Bot className="h-6 w-6 text-white" />
                     </div>
-                    <h2 className="text-lg font-medium">Hey, Michael</h2>
+                    <h2 className="text-lg font-medium">{firstName ? `Hey, ${firstName}` : "Hey"}</h2>
                     <p className="text-sm text-muted-foreground mt-1 max-w-sm">
                       What do you need? I can check your calendar, search emails,
                       draft messages, or just chat.

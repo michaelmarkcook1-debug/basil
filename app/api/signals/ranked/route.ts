@@ -36,18 +36,11 @@ export async function GET(req: NextRequest) {
 
   const flags = await getFlags(username);
 
-  // Early return if primitives aren't active yet — don't 404, just explain
+  // Note: we always serve whatever signals exist in the store. The write flags
+  // (signalEvent_active, ranking_active) only gate *ingestion* — they should not
+  // prevent *reading* existing signals. Removing the old early-exit guard.
   if (!flags.signalEvent_active || !flags.ranking_active) {
-    return NextResponse.json({
-      signals: [],
-      total: 0,
-      thresholds: { surface: SURFACE_THRESHOLD, digest: DIGEST_THRESHOLD },
-      flagsActive: {
-        signalEvent_active: flags.signalEvent_active,
-        ranking_active: flags.ranking_active,
-      },
-      hint: "Enable signalEvent_active and ranking_active flags to populate ranked signals.",
-    });
+    console.warn(`[signals/ranked] ${username}: signal flags off — serving existing signals but no new ones will be ingested`);
   }
 
   const searchParams = req.nextUrl.searchParams;

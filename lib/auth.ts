@@ -113,3 +113,28 @@ export async function getSessionUser(): Promise<string | null> {
 export async function destroySession() {
   (await cookies()).delete(COOKIE_NAME);
 }
+
+/**
+ * Return the username from the current session JWT without hitting the user store.
+ *
+ * Use this in OAuth initiation routes where the full user-record lookup
+ * (`getSessionUser`) would fail if the encryption key is unavailable in the
+ * current environment — but we still need to know *which* user is connecting.
+ *
+ * Does NOT validate sessionVersion or check whether the account is disabled.
+ * Only verifies the JWT signature and expiry.
+ */
+export async function getSessionUserLite(): Promise<string | null> {
+  if (SKIP_AUTH) return SKIP_AUTH_USER || null;
+  const cookieStore = await cookies();
+  const token = cookieStore.get(COOKIE_NAME)?.value;
+  if (!token) return null;
+
+  try {
+    const { payload } = await jwtVerify(token, secret);
+    const username = payload.username as string | undefined;
+    return username ?? null;
+  } catch {
+    return null;
+  }
+}

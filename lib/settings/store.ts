@@ -40,6 +40,15 @@ export interface UserSettings {
   anthropicApiKey?: string;
   /** Gemini API key. Legacy storage — new saves use secure-token-store. */
   geminiApiKey?: string;
+  /**
+   * Slack contacts / channels to pin at the top of the signals feed.
+   * Each entry is a name string:
+   *  - Single name (e.g. "Alice") → DM with that person
+   *  - "+" separated (e.g. "Alice + Bob") → group DM with those people
+   *  - "#channel" → pin a Slack channel
+   * Defaults to empty (no pins) so new users don't see someone else's contacts.
+   */
+  pinnedSlackContacts?: string[];
 }
 
 /** Base defaults — used as fallback for any unset field. */
@@ -113,7 +122,7 @@ export async function patchSettings(
 
   const safe: Partial<UserSettings> = {};
   const keys: Array<keyof UserSettings> = [
-    "name", "timezone", "workStart", "workEnd", "videoTool", "meetingUrl", "useIpTimezone", "githubToken", "openaiApiKey", "anthropicApiKey", "geminiApiKey",
+    "name", "timezone", "workStart", "workEnd", "videoTool", "meetingUrl", "useIpTimezone", "githubToken", "openaiApiKey", "anthropicApiKey", "geminiApiKey", "pinnedSlackContacts",
   ];
   for (const k of keys) {
     if (patch[k] !== undefined) {

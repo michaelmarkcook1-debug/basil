@@ -2,6 +2,7 @@ import "server-only";
 
 import { getTodayEvents } from "@/lib/google/calendar";
 import { getRecentEmails } from "@/lib/google/gmail";
+import { getRecentLinearActivity } from "@/lib/linear/client";
 import { listActions } from "@/lib/actions/store";
 import { listDecisions } from "@/lib/decisions/store";
 import { listMemories } from "@/lib/memory/store";
@@ -84,6 +85,7 @@ export async function buildStigContext(username: string, timezone?: string): Pro
     memoriesRes,
     projectsRes,
     aiProjectsRes,
+    linearRes,
   ] = await Promise.all([
     capture("calendar", () => getTodayEvents(username, tz), (v) => v.length),
     capture("gmail", () => getRecentEmails(username, SOURCE_CAPS.emails, 3), (v) => v.length),
@@ -93,6 +95,7 @@ export async function buildStigContext(username: string, timezone?: string): Pro
     capture("memory", () => listMemories(username), (v) => v.length),
     capture("projects", () => buildProjectTruth(username), (v) => v.projects.length),
     capture("ai-work", () => readProjectsStore(username).then((d) => d.projects.filter((p) => !p.hidden)), (v) => v.length),
+    capture("linear", () => getRecentLinearActivity(username, 14).then((items) => items.slice(0, 10)), (v) => v.length),
   ]);
 
   return {
@@ -107,6 +110,7 @@ export async function buildStigContext(username: string, timezone?: string): Pro
       memoriesRes.status,
       projectsRes.status,
       aiProjectsRes.status,
+      linearRes.status,
     ],
     calendar: calendarRes.value ?? [],
     emails: emailRes.value ?? [],
@@ -117,6 +121,7 @@ export async function buildStigContext(username: string, timezone?: string): Pro
     projectTruth: projectsRes.value,
     aiProjects: aiProjectsRes.value ?? [],
     whatsAppSummary: await readWhatsAppSummary(username),
+    linearActivity: linearRes.value ?? [],
   };
 }
 
@@ -155,6 +160,13 @@ function formatMemory(bundle: StigContextBundle): string {
   if (bundle.memories.length === 0) return "## Relevant memory\nNo signal.";
   return "## Relevant memory\n" + bundle.memories.slice(0, SOURCE_CAPS.memory).map((m) => {
     return `- ${m.kind}${m.entity ? ` · ${m.entity}` : ""}: ${m.content}`;
+  }).join("\n");
+}
+
+function formatLinear(bundle: StigContextBundle): string {
+  if (!bundle.linearActivity || bundle.linearActivity.length === 0) return "";
+  return "## Linear (recent activity)\n" + bundle.linearActivity.map((a) => {
+    return `- ${a.updatedAt.slice(0, 10)} · ${a.personName}: ${a.description}`;
   }).join("\n");
 }
 
@@ -241,6 +253,11 @@ export function formatStigContextBudgeted(
 
   if (bundle.whatsAppSummary) {
     sections.push({ label: "whatsapp", content: bundle.whatsAppSummary, priority: 9 });
+  }
+
+  const linearContent = formatLinear(bundle);
+  if (linearContent) {
+    sections.push({ label: "linear", content: linearContent, priority: 10 });
   }
 
   return truncateSectionsTobudget(sections, tokenBudget);

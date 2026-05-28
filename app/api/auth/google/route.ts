@@ -1,24 +1,35 @@
 import { NextResponse } from "next/server";
 import { getAuthUrl } from "@/lib/google/auth";
-import { getSessionUser } from "@/lib/auth";
+import { getSessionUser, getSessionUserLite } from "@/lib/auth";
 import { deleteIntegrationToken } from "@/lib/storage/secure-token-store";
 import { forceFlushSnapshot } from "@/lib/storage/persistent";
 
 // GET /api/auth/google — redirects to Google OAuth consent screen
 export async function GET(req: Request) {
   // Require an active session before starting the OAuth flow.
-  // Without this guard, the callback cannot save tokens (no username).
-  const username = await getSessionUser();
+  // Use the lite check (JWT-only) so this works even when the encrypted user
+  // store is unavailable (e.g. BASIL_TOKEN_ENCRYPTION_KEY not set in this env).
+  const username = await getSessionUserLite();
   if (!username) {
+    const loginUrl = new URL("/login", req.url);
+    loginUrl.searchParams.set("return", "/onboarding");
     console.warn("[google/connect] Unauthenticated connect attempt — redirecting to login.");
-    return NextResponse.redirect(new URL("/login", req.url));
+    return NextResponse.redirect(loginUrl);
   }
 
   const from = new URL(req.url).searchParams.get("from") ?? "";
   const url = getAuthUrl();
   console.log(`[google/connect] Starting OAuth flow for user ${username}.`);
   const res = NextResponse.redirect(url);
-  if (from) res.cookies.set("basil_auth_from", from, { path: "/", httpOnly: true, maxAge: 600 });
+  if (from) {
+    res.cookies.set("basil_auth_from", from, {
+      path: "/",
+      httpOnly: true,
+      sameSite: "lax",
+      secure: process.env.NODE_ENV === "production",
+      maxAge: 600,
+    });
+  }
   return res;
 }
 

@@ -137,7 +137,7 @@ function formatSlackBlock(messages: SlackMessage[]): string {
   return messages
     .map((m) => {
       const isDM = !!m.channelId?.startsWith("D");
-      const mention = m.isMention ? " [@MICHAEL]" : "";
+      const mention = m.isMention ? " [@MENTION]" : "";
       const dm = isDM ? " [DM]" : "";
       const text =
         m.text.length > 200 ? m.text.slice(0, 200) + "…" : m.text;
@@ -226,11 +226,17 @@ export async function POST(req: Request) {
     skipped: [],
     summary: "no extra context",
   };
+  type BriefingType = "morning" | "midday" | "evening" | "weekly" | "meeting";
+  let briefingType: BriefingType = "morning";
   const contentType = req.headers.get("content-type") || "";
   if (contentType.includes("multipart/form-data")) {
     try {
       const form = await req.formData();
       extra = await parseExtraContext(form);
+      const rawType = form.get("briefingType");
+      if (rawType && ["morning","midday","evening","weekly","meeting"].includes(String(rawType))) {
+        briefingType = String(rawType) as BriefingType;
+      }
     } catch (e) {
       console.error("Failed to parse extra context:", e);
     }
@@ -248,7 +254,7 @@ export async function POST(req: Request) {
     memoriesResult,
     projectTruthResult,
   ] = await Promise.all([
-    getTodayEvents(username).catch((err) => {
+    getTodayEvents(username, tz).catch((err) => {
       console.error("Calendar fetch failed:", err);
       return null;
     }),
@@ -619,8 +625,33 @@ export async function POST(req: Request) {
       : "",
   ].filter(Boolean).join("\n");
 
-  const promptText = `Generate Michael's daily briefing for ${today}.
-Goal: 3-minute executive read. Not a log — intelligence. Tell Michael what to do today, who to respond to, what to watch, and what to prepare for.
+  const BRIEFING_TYPE_FRAMING: Record<BriefingType, string> = {
+    morning: `MODE: MORNING BRIEF
+Focus: What's ahead today. Prioritise calendar prep, outstanding commitments from yesterday, and anything that needs action before 10am.
+Tone: Forward-looking. "Here's what you're walking into."`,
+    midday: `MODE: MIDDAY REFRESH
+Focus: What's happened so far, what's blocked, and what needs attention this afternoon. De-emphasise morning prep — it's already happened.
+Tone: In-flight check-in. "Here's where things stand at midday."
+Adjust sections: criticalToday = afternoon priorities only. meetingsNeedingPrep = afternoon meetings only. followUps = what hasn't moved since this morning. projectRadar = what's actively running right now. Skip or minimise anything already handled this morning.`,
+    evening: `MODE: EVENING WRAP
+Focus: What moved today, what's unresolved, and what to set up for tomorrow.
+Tone: Reflective but action-oriented. "Here's what happened and what to do before you close."
+Adjust sections: criticalToday = anything unresolved that must not carry overnight. followUps = what needs a note or reply before EOD. meetingsNeedingPrep = tomorrow's first meetings. projectRadar = what advanced today vs what stalled. peopleAndAccounts = who you need to follow up with before tomorrow.`,
+    weekly: `MODE: WEEKLY DIGEST
+Focus: Cross-week patterns, momentum, and relationship trends — not today's to-dos.
+Tone: Zoomed out. "Here's what the week looked like and where the momentum is."
+Adjust sections: criticalToday = top 3 priorities for the week ahead. projectRadar = projects that gained momentum vs stalled this week. followUps = relationships or threads that have gone quiet for 5+ days. decisionsToWatch = decisions made this week and their downstream implications. peopleAndAccounts = people who showed up across multiple touchpoints this week — are any relationships drifting? inboxSlack = weekly patterns in inbox and Slack, not individual messages. meetingsNeedingPrep = key meetings in the next 7 days.`,
+    meeting: `MODE: MEETING PREP
+Focus: Prep for the next significant meeting or first meeting today. Single-meeting depth over breadth.
+Tone: Tactical. "Here's everything you need to walk into this meeting sharp."
+Adjust sections: meetingsNeedingPrep = the PRIMARY section — go deep on the next meeting: who's attending, what the relationship history is, what's been discussed in email/Slack/Zoom, open actions tied to those people, what outcome to aim for, and any risks to flag. criticalToday = only items that could derail or affect this meeting. All other sections can be brief or null unless they directly relate to meeting attendees.`,
+  };
+
+  const firstName = settings?.name?.split(" ")[0] ?? "the user";
+  const promptText = `Generate ${firstName}'s ${briefingType} briefing for ${today}.
+Goal: 3-minute executive read. Not a log — intelligence. Tell ${firstName} what to do today, who to respond to, what to watch, and what to prepare for.
+
+${BRIEFING_TYPE_FRAMING[briefingType]}
 
 ---
 

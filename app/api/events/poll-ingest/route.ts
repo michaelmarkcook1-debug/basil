@@ -518,6 +518,52 @@ export async function POST(req: Request) {
           });
           void appendAuditEntries(username, result.auditEntries);
 
+          // ── SignalEvent write (mirrors ingestSlackWorkflow) ─────────────────
+          // poll-ingest is the primary data path (cron every 15 min). Without
+          // this, signals only populate via webhook push (which may not be
+          // registered). The normalizer + enrichAndWriteSignal are idempotent.
+          try {
+            const { getFlags: getPollFlags } = await import("@/core/feature-flags");
+            const pollFlags = await getPollFlags(username);
+            if (pollFlags.signalEvent_active) {
+              const { normalizeSlackSignal } = await import("@/core/signals/normalizers/slack.normalizer");
+              const { enrichAndWriteSignal } = await import("@/core/ingestion/signal-pipeline");
+              const normPayload = {
+                channelId,
+                messageTs,
+                externalId: slackSourceRef,
+                eventId,
+                channelName,
+                from: payload.from || "Unknown",
+                date: payload.date || new Date().toISOString(),
+                isDM: !!payload.hints?.isDM,
+                isGroupDM: !!payload.hints?.isGroupDM,
+                isMention: !!payload.hints?.isMention,
+                bodyFallback: payload.body,
+              };
+              const signal = normalizeSlackSignal({
+                payload: normPayload,
+                transcript,
+                senderIsKnown: !!payload.hints?.isFromKeyPerson,
+              });
+              signal.actionIds  = slackActionIds;
+              signal.decisionIds = slackDecisionIds;
+              signal.memoryIds  = slackMemoryIds;
+              signal.category   = (intel.category as typeof signal.category) ?? "unknown";
+              signal.actions    = (intel.actions ?? []).map((a) => ({
+                text: a.text, dueDate: a.dueDate, priority: a.priority,
+              }));
+              signal.decisions  = (intel.decisions ?? []).map((d) => ({
+                text: d.text, title: d.title, decidedBy: d.decidedBy,
+                rationale: d.rationale, alternatives: d.alternatives, consequences: d.consequences,
+              }));
+              await enrichAndWriteSignal(username, signal, pollFlags);
+            }
+          } catch (signalErr) {
+            console.error(`[poll-ingest] slack signalEvent write failed for ${slackSourceRef}:`,
+              signalErr instanceof Error ? signalErr.message : signalErr);
+          }
+
           // Write back-links on the originating BasilEvent so the Events feed
           // can show how many items were spawned from this Slack message.
           if (slackActionIds.length > 0 || slackDecisionIds.length > 0 || slackMemoryIds.length > 0) {

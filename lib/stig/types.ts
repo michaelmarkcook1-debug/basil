@@ -38,6 +38,8 @@ export interface StigContextBundle {
   aiProjects: AIProject[];
   /** Compact WhatsApp signal summary — null if no index exists or index is >90 days old. */
   whatsAppSummary?: string | null;
+  /** Recent Linear issues (assigned or created) — capped at 10, last 14 days. */
+  linearActivity: Array<{ personName: string; personEmail?: string; updatedAt: string; description: string }>;
 }
 
 export interface StigAskResult {

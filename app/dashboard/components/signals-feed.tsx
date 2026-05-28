@@ -126,7 +126,7 @@ interface UnifiedSignal {
   unread?: boolean;
   /** Raw slack channel kind for icon/badge rendering */
   channelKind?: SlackChannelKind;
-  /** Pinned slot label (e.g. "Malcolm", "Ed", "#exec") */
+  /** Pinned slot label from user settings (e.g. "Alice", "Alice + Bob", "#announcements") */
   pinnedLabel?: string;
   pinned?: boolean;
   /** Slack channel id — for click-to-expand history */
@@ -143,47 +143,37 @@ interface UnifiedSignal {
   linearUrl?: string;
 }
 
-// Top-of-feed slots: always surface latest message from each, regardless of age.
-// Matching prefers `channelMembers` (resolved names) over fuzzy text so the
-// "Michael + Malcolm + Ed" group DM can be uniquely identified.
-const PINNED_SLOTS: Array<{
-  label: string;
-  matches: (m: SlackMessage) => boolean;
-}> = [
-  {
-    label: "Malcolm",
-    matches: (m) => {
-      if (!m.channel.startsWith("DM:")) return false;
-      if (m.channelMembers?.length === 1) {
-        return m.channelMembers[0].includes("malcolm");
-      }
-      return /malcolm/i.test(m.channel);
-    },
-  },
-  {
-    label: "Ed",
-    matches: (m) => {
-      if (!m.channel.startsWith("DM:")) return false;
-      if (m.channelMembers?.length === 1) {
-        return m.channelMembers[0] === "ed" || m.channelMembers[0].startsWith("ed");
-      }
-      return /\bed\b/i.test(m.channel);
-    },
-  },
-  {
-    label: "Malcolm + Ed",
-    matches: (m) => {
-      // Group DM with both Malcolm and Ed (2 others = 3-way with Michael)
-      if (!m.channelMembers || m.channelMembers.length !== 2) return false;
-      const joined = m.channelMembers.join(" ");
-      return /malcolm/i.test(joined) && /\bed\b/i.test(joined);
-    },
-  },
-  {
-    label: "#exec",
-    matches: (m) => /^#exec\b/i.test(m.channel),
-  },
-];
+// ── Pinned-slot matcher builder ───────────────────────────────────────────────
+// Builds a matcher function from a plain-text name string stored in user settings.
+// Supported formats:
+//   "Alice"           → DM with that person
+//   "Alice + Bob"     → group DM containing all listed names
+//   "#general"        → Slack channel reference
+function buildPinnedSlotMatcher(name: string): (m: SlackMessage) => boolean {
+  // Channel reference (e.g. "#exec")
+  if (name.startsWith("#")) {
+    const ch = name.slice(1).trim();
+    return (m) => new RegExp(`^#${ch}\\b`, "i").test(m.channel);
+  }
+  // Group DM (e.g. "Alice + Bob")
+  if (name.includes("+")) {
+    const parts = name.split("+").map((p) => p.trim().toLowerCase()).filter(Boolean);
+    return (m) => {
+      if (!m.channelMembers || m.channelMembers.length !== parts.length) return false;
+      const joined = m.channelMembers.join(" ").toLowerCase();
+      return parts.every((p) => joined.includes(p));
+    };
+  }
+  // Single DM — match channelMembers first (more reliable), then fall back to channel text
+  const lower = name.trim().toLowerCase();
+  return (m) => {
+    if (!m.channel.startsWith("DM:")) return false;
+    if (m.channelMembers?.length === 1) {
+      return m.channelMembers[0].toLowerCase().includes(lower);
+    }
+    return new RegExp(`\\b${lower}\\b`, "i").test(m.channel);
+  };
+}
 
 /**
  * Strip Slack's mrkdwn formatting codes so raw API text is readable in the feed.
@@ -306,6 +296,21 @@ export function SignalsFeed() {
   const [tab, setTab] = useState<Tab>("priority");
   const [loading, setLoading] = useState(true);
   const [fetchError, setFetchError] = useState<BasilFetchError | Error | null>(null);
+  /** Pinned-slot config built from user settings. Empty by default — no hardcoded contacts. */
+  const [pinnedSlots, setPinnedSlots] = useState<Array<{ label: string; matches: (m: SlackMessage) => boolean }>>([]);
+
+  // Fetch settings once to build pinned slots from the user's configured contact names
+  useEffect(() => {
+    fetch("/api/settings")
+      .then((r) => r.ok ? r.json() : null)
+      .then((s: { pinnedSlackContacts?: string[] } | null) => {
+        const names = s?.pinnedSlackContacts ?? [];
+        setPinnedSlots(
+          names.map((name) => ({ label: name, matches: buildPinnedSlotMatcher(name) }))
+        );
+      })
+      .catch(() => { /* silently ignore — feed still works without pins */ });
+  }, []);
 
   useEffect(() => {
     setLoading(true);
@@ -428,16 +433,16 @@ export function SignalsFeed() {
   // Surfaced at top of Priority and Slack tabs regardless of age.
   const pinnedSignals: UnifiedSignal[] = useMemo(() => {
     const all = slack?.messages ?? [];
-    if (all.length === 0) return [];
-    const mpimSlots = new Set(["Malcolm + Ed"]);
-    return PINNED_SLOTS.flatMap(({ label, matches }) => {
+    if (all.length === 0 || pinnedSlots.length === 0) return [];
+    return pinnedSlots.flatMap(({ label, matches }) => {
       const latest = all
         .filter(matches)
         .sort(
           (a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()
         )[0];
       if (!latest) return [];
-      const isGroup = mpimSlots.has(label) || latest.channel.startsWith("Group DM");
+      // A slot label containing "+" indicates a group DM (e.g. "Alice + Bob")
+      const isGroup = label.includes("+") || latest.channel.startsWith("Group DM");
       const isDM = latest.channel.startsWith("DM:") && !isGroup;
       const channelKind: SlackChannelKind = isGroup
         ? "group"
@@ -468,7 +473,7 @@ export function SignalsFeed() {
         },
       ];
     });
-  }, [slack, lastSeenByChannel]);
+  }, [slack, lastSeenByChannel, pinnedSlots]);
 
   const priority = signals.filter((s) => s.priority);
   const mailOnly = signals.filter((s) => s.kind === "mail");

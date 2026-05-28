@@ -1,6 +1,7 @@
 "use client";
 
-import React from "react";
+import React, { useEffect } from "react";
+import { useRouter } from "next/navigation";
 
 /**
  * Trust UI Showcase
@@ -195,6 +196,15 @@ function Row({
 // ── Page ───────────────────────────────────────────────────────────────────────
 
 export default function TrustShowcasePage() {
+  const router = useRouter();
+  useEffect(() => {
+    if (process.env.NODE_ENV === "production") {
+      router.replace("/dashboard");
+    }
+  }, [router]);
+
+  if (process.env.NODE_ENV === "production") return null;
+
   return (
     <div className="max-w-2xl mx-auto px-6 py-10 space-y-12">
 

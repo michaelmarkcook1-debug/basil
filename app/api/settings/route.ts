@@ -13,6 +13,7 @@ export async function GET() {
   return NextResponse.json({
     ...settings,
     username,
+    email: user?.email ?? "",
     onboardingCompleted: SKIP_AUTH ? true : (user?.onboardingCompleted ?? false),
     profile: user?.profile ?? {},
   });

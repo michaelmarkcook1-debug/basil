@@ -1,0 +1,22 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" role="presentation">
+  <!-- Filled gold leaf shapes for background use -->
+  <g fill="#C9A227" opacity="0.92">
+    <!-- Upper-right leaf (filled) -->
+    <path d="M127 91C143 49 181 35 211 43C204 83 170 112 127 91Z"/>
+    <!-- Left leaf (filled) -->
+    <path d="M109 121C73 119 49 99 43 66C78 62 107 83 109 121Z"/>
+    <!-- Lower leaf (filled) -->
+    <path d="M99 145C130 122 174 129 201 161C166 185 126 176 99 145Z"/>
+  </g>
+  <!-- Veins / stem on top -->
+  <g fill="none" stroke="#E8C84A" stroke-width="8" stroke-linecap="round" stroke-linejoin="round" opacity="0.7">
+    <path d="M74 210C88 164 104 126 132 88"/>
+    <path d="M127 91C143 49 181 35 211 43"/>
+    <path d="M109 121C88 101 65 80 43 66"/>
+    <path d="M99 145C132 151 166 158 201 161"/>
+    <!-- Leaf centre veins -->
+    <path d="M127 91C152 70 182 52 211 43" stroke-width="4" opacity="0.5"/>
+    <path d="M109 121C87 101 64 81 43 66" stroke-width="4" opacity="0.5"/>
+    <path d="M99 145C133 151 167 157 201 161" stroke-width="4" opacity="0.5"/>
+  </g>
+</svg>

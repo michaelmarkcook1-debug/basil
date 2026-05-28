@@ -144,9 +144,13 @@ function sharedKeyEntityCount(a: string, b: string): number {
 /**
  * Find an existing action that is a near-duplicate of the proposed one.
  *
- * Three-layer check:
+ * Four-layer check:
  *   Layer 1 — same-source idempotency
  *     sourceRef matches AND text Jaccard ≥ 0.55 → skip re-import
+ *   Layer 1.5 — high-confidence text match regardless of owner
+ *     Jaccard ≥ 0.85, within 7 days → catches approval/needsReview items
+ *     with empty owners that would otherwise slip through layers 2+3.
+ *     e.g. three identical "Drafted reply — Slack in #dev" items.
  *   Layer 2 — cross-source text overlap
  *     Jaccard ≥ 0.65, within 7 days, same owner → merge source refs
  *   Layer 3 — entity-aware semantic match
@@ -174,9 +178,16 @@ function findDuplicate(
     }
 
     const itemAge = new Date(item.createdAt).getTime();
-    if (itemAge < sevenDaysAgo) continue; // layers 2+3 are time-bounded
+    if (itemAge < sevenDaysAgo) continue; // layers 1.5+2+3 are time-bounded
 
     const sim = jaccardSimilarity(text, item.text);
+
+    // Layer 1.5 — high-confidence text match, owner-agnostic
+    // Approval/needsReview items often have empty owners; without this layer
+    // repeated syncs create N identical rows because sameOwner is always false
+    // for empty-owner pairs. sim ≥ 0.85 is safe to merge unconditionally.
+    if (sim >= 0.85) return item;
+
     const itemOwner = (item.owner ?? "").toLowerCase();
     const sameOwner = itemOwner === candidateOwner && candidateOwner !== "";
 
@@ -335,13 +346,30 @@ export async function listActions(username: string): Promise<ActionItem[]> {
     return /^[a-z]+ [a-z]/i.test(owner.trim());
   }
 
-  const isNotMine = (a: ActionItem) => isGroupOwner(a.owner) || isOtherPersonOwner(a.owner);
+  // Auto-extracted items (slack, email, calendar) whose owner could not be
+  // identified are inherently ambiguous — they might belong to anyone in the
+  // conversation.  Once overdue they become permanent noise: we surfaced them,
+  // the window passed, and we still don't know if they were even the user's.
+  // Drop them rather than keep escalating them as critical/overdue.
+  function isUnknownOwnerOverdue(a: ActionItem): boolean {
+    if ((a.source ?? "manual") === "manual") return false; // user-created → always keep
+    const owner = (a.owner ?? "").trim().toLowerCase();
+    if (owner !== "" && owner !== "unknown") return false; // has an identified owner
+    // No identified owner + overdue → unverifiable, surface as noise → drop
+    const t2 = today();
+    return a.status === "overdue" || (a.status === "open" && !!a.dueDate && a.dueDate < t2);
+  }
+
+  const isNotMine = (a: ActionItem) =>
+    isGroupOwner(a.owner) || isOtherPersonOwner(a.owner) || isUnknownOwnerOverdue(a);
   const notMineItems = deduped.filter(isNotMine);
 
   if (notMineItems.length > 0) {
     withLock(lockKey(username), async () => {
       const current = await readAll(username);
-      const cleaned = current.filter((a) => !isGroupOwner(a.owner) && !isOtherPersonOwner(a.owner));
+      const cleaned = current.filter(
+        (a) => !isGroupOwner(a.owner) && !isOtherPersonOwner(a.owner) && !isUnknownOwnerOverdue(a)
+      );
       if (cleaned.length !== current.length) {
         await writeAll(username, cleaned);
         console.log(

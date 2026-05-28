@@ -18,7 +18,15 @@ export async function GET(req: Request) {
   const from = reqUrl.searchParams.get("from") ?? "";
   const url = getMicrosoftAuthUrl(reqUrl.origin);
   const res = NextResponse.redirect(url);
-  if (from) res.cookies.set("basil_auth_from", from, { path: "/", httpOnly: true, maxAge: 600 });
+  if (from) {
+    res.cookies.set("basil_auth_from", from, {
+      path: "/",
+      httpOnly: true,
+      sameSite: "lax",
+      secure: process.env.NODE_ENV === "production",
+      maxAge: 600,
+    });
+  }
   return res;
 }
 

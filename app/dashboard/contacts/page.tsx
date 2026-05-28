@@ -248,7 +248,7 @@ function ContactDetail({
       if (!res.ok) throw new Error(`Request failed (${res.status})`);
       const data = (await res.json()) as ProfileOverride & {
         error?: string;
-        /** Structured fields explicitly stated in Michael's notes. */
+        /** Structured fields explicitly stated in the user's notes. */
         canonicalFields?: Partial<Contact>;
       };
       if (data.error) throw new Error(data.error);
@@ -843,6 +843,9 @@ export default function ContactsPage() {
   const [mobileView, setMobileView] = useState<"list" | "detail">("list");
   const [tagFilter, setTagFilter] = useState<string>("all");
   const [activeDirectory, setActiveDirectory] = useState<ContactDirectory>("work");
+  /** Domain extracted from the authenticated user's own email address (e.g. "acme.com").
+   *  Used to classify suggested contacts as internal vs external without hardcoding a domain. */
+  const [selfEmailDomain, setSelfEmailDomain] = useState("");
   const [liveActivity, setLiveActivity] = useState<ContactActivityItem[]>([]);
   const [activityLoading, setActivityLoading] = useState(false);
   const [isLive, setIsLive] = useState(false);
@@ -963,6 +966,18 @@ export default function ContactsPage() {
     loadUserContactsFromServer().then(setUserContacts);
     loadOverridesFromServer().then(setOverrides);
 
+    // Fetch the authenticated user's own email so we can derive their org domain
+    // for internal/external contact classification — no hardcoded domain needed.
+    fetch("/api/settings")
+      .then((r) => r.ok ? r.json() : null)
+      .then((s: { email?: string } | null) => {
+        if (s?.email) {
+          const domain = s.email.split("@")[1]?.toLowerCase() ?? "";
+          if (domain) setSelfEmailDomain(domain);
+        }
+      })
+      .catch(() => { /* silently ignore — classification falls back to "external" */ });
+
     // Also auto-load a cached suggestion set so the strip doesn't come up empty.
     const cachedSugg = localStorage.getItem(scopedKey("contact-suggestions"));
     if (cachedSugg) {
@@ -997,9 +1012,9 @@ export default function ContactsPage() {
       email: s.email,
       tags: ["auto-added"],
       status: "pending",
-      type: s.email?.includes("@talentgenius.io") ? "internal" : "external",
+      type: (selfEmailDomain && s.email?.toLowerCase().endsWith(`@${selfEmailDomain}`)) ? "internal" : "external",
       // Suggestions come from Gmail/Slack signal — always work by default.
-      // Michael can re-assign via the "Move to Personal" action on the detail.
+      // User can re-assign via the "Move to Personal" action on the detail.
       directory: "work",
       relationship: `Added from recent ${s.signalSources.join(" + ")} signal. Fill in context.`,
       companyContext: "—",
@@ -1016,7 +1031,7 @@ export default function ContactsPage() {
     setUserContacts(getUserContacts());
     notifyContacts();
     handleMobileSelect(stub.id);
-  }, [notifyContacts]);
+  }, [notifyContacts, selfEmailDomain]);
 
   const handleMoveDirectory = useCallback(
     async (id: string, target: ContactDirectory) => {

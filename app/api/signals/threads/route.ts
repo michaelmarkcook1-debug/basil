@@ -32,16 +32,14 @@ export async function GET(req: NextRequest) {
 
   const flags = await getFlags(username);
 
+  // When flag is off, still serve any stored threads (passive-serve).
+  // New thread ingestion is disabled, but existing data remains visible.
+  // This matches the ranked-signals route behaviour.
   if (!flags.signalThread_active) {
-    return NextResponse.json({
-      threads: [],
-      total: 0,
-      flagsActive: { signalThread_active: false },
-      hint: "Enable signalThread_active flag to populate signal threads.",
-    });
+    console.warn("[signals/threads] signalThread_active flag is off — serving stored threads passively");
   }
 
-  const { searchParams } = req.nextUrl;
+  const searchParams = await Promise.resolve(req.nextUrl.searchParams);
   const status     = searchParams.get("status") ?? undefined;
   const source     = searchParams.get("source") ?? undefined;
   const limitParam  = parseInt(searchParams.get("limit") ?? "50", 10);

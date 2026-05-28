@@ -2,77 +2,59 @@ import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 import { jwtVerify } from "jose";
 
+
+/**
+ * Route protection middleware.
+ *
+ * Protects /dashboard/* and /onboarding routes — redirects unauthenticated
+ * visitors to /login with a ?return= param so they land back where they
+ * started after signing in.
+ *
+ * Uses JWT-only validation (no user-store lookup) so it works in any
+ * environment regardless of whether BASIL_TOKEN_ENCRYPTION_KEY is set.
+ * Full session validation (including sessionVersion and disabled check)
+ * is done in individual API routes and server components.
+ */
+
 const COOKIE_NAME = "execauto_session";
 
-// Routes that don't require a session
-const PUBLIC_PATHS = new Set(["/login", "/register", "/privacy", "/terms", "/reset-password"]);
-// API prefixes that don't require a session (OAuth callbacks must work unauthenticated)
-const PUBLIC_API_PREFIXES = [
-  "/api/auth",           // login, logout
-  "/api/auth/google",    // Google OAuth callback
-  "/api/auth/microsoft", // Microsoft OAuth callback
-  "/api/webhooks",       // Inbound webhooks (signed by provider, not session-authed)
-  "/api/health",         // Liveness check — must be reachable without a session for CI and uptime monitors
-];
+// Paths that require a valid session JWT
+const PROTECTED_PREFIXES = ["/dashboard", "/onboarding"];
 
-function isPublic(pathname: string): boolean {
-  if (PUBLIC_PATHS.has(pathname)) return true;
-  return PUBLIC_API_PREFIXES.some((p) => pathname.startsWith(p));
-}
+export async function proxy(req: NextRequest) {
+  const { pathname } = req.nextUrl;
 
-async function isAuthenticated(request: NextRequest): Promise<boolean> {
-  const token = request.cookies.get(COOKIE_NAME)?.value;
-  if (!token) return false;
-  try {
-    const secret = new TextEncoder().encode(
-      process.env.AUTH_SECRET || "dev-secret-change-me"
-    );
-    await jwtVerify(token, secret);
-    return true;
-  } catch {
-    return false;
-  }
-}
+  const isProtected = PROTECTED_PREFIXES.some(
+    (p) => pathname === p || pathname.startsWith(p + "/")
+  );
 
-export async function proxy(request: NextRequest) {
-  const { pathname } = request.nextUrl;
+  // Only intercept protected routes — do NOT redirect authenticated users away
+  // from /login. The dashboard layout has its own 401-handler that calls
+  // window.location.replace("/login"); if we then bounce them back to /dashboard
+  // we get an infinite redirect loop when the session is valid as a JWT but
+  // stale in the user store (e.g. after a password change or session version bump).
+  if (!isProtected) return NextResponse.next();
 
-  // Dev bypass — SKIP_AUTH=true lets all requests through without a session.
-  if (process.env.SKIP_AUTH === "true") {
-    return NextResponse.next();
-  }
+  // ── Validate session JWT ────────────────────────────────────────────────────
+  const token = req.cookies.get(COOKIE_NAME)?.value;
+  let authenticated = false;
 
-  // Always pass static assets and Next.js internals through — never auth-gate them.
-  // The proxyConfig matcher should already exclude these, but we guard here too
-  // because the matcher regex may not be applied in all Next.js 16 edge cases.
-  if (
-    pathname.startsWith("/_next/") ||
-    pathname === "/favicon.ico" ||
-    /\.(?:svg|png|jpg|jpeg|gif|webp|ico|woff2?|ttf|otf)$/.test(pathname)
-  ) {
-    return NextResponse.next();
-  }
-
-  // Always allow public routes through immediately.
-  // NOTE: We intentionally do NOT redirect authenticated users away from /login.
-  // Doing so would create an infinite loop when the session JWT is signature-valid
-  // but the sessionVersion is stale (e.g. after a password reset): DashboardLayout
-  // gets a 401 from /api/settings and sends the user to /login, then this proxy
-  // would see a valid JWT and send them back to /dashboard, and so on forever.
-  // The full sessionVersion check only happens inside API route handlers.
-  if (isPublic(pathname)) {
-    return NextResponse.next();
-  }
-
-  // For all other routes, require a valid session
-  if (!(await isAuthenticated(request))) {
-    // API routes → 401 JSON (client can handle gracefully)
-    if (pathname.startsWith("/api/")) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  if (token) {
+    try {
+      const rawSecret = process.env.AUTH_SECRET || "dev-secret-change-me";
+      const secret    = new TextEncoder().encode(rawSecret);
+      const { payload } = await jwtVerify(token, secret);
+      authenticated = !!(payload.username && payload.authenticated);
+    } catch {
+      // Invalid / expired JWT — treat as unauthenticated
     }
-    // UI routes → redirect to login
-    const loginUrl = new URL("/login", request.url);
-    loginUrl.searchParams.set("next", pathname);
+  }
+
+  // ── Redirect unauthenticated users to login ─────────────────────────────────
+  if (!authenticated) {
+    const loginUrl = req.nextUrl.clone();
+    loginUrl.pathname = "/login";
+    loginUrl.searchParams.set("return", pathname);
     return NextResponse.redirect(loginUrl);
   }
 
@@ -80,8 +62,15 @@ export async function proxy(request: NextRequest) {
 }
 
 export const proxyConfig = {
-  runtime: "nodejs",
   matcher: [
-    "/((?!_next/static|_next/image|favicon.ico|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)",
+    /*
+     * Match all request paths EXCEPT:
+     * - _next/static  (static files)
+     * - _next/image   (image optimisation)
+     * - favicon.ico, robots.txt, sitemap.xml, manifest.json
+     * - /api/*        (API routes handle their own auth)
+     * - Public assets (*.svg, *.png, *.jpg, *.ico, *.webp)
+     */
+    "/((?!_next/static|_next/image|favicon\\.ico|robots\\.txt|sitemap\\.xml|manifest\\.json|api/|.*\\.(?:svg|png|jpg|jpeg|ico|webp|woff2?|ttf|otf)).*)",
   ],
 };

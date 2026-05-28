@@ -22,8 +22,10 @@ function lockKey(username: string): string {
 
 // ── Normaliser ───────────────────────────────────────────────────────────────
 // 1. Back-compat: older records may be missing `directory` → default "work".
-// 2. Domain tagging: @talentgenius.io email → force internal/work.
-// 3. Name guard: never persist a blank name — fall back to phone or id.
+// 2. Name guard: never persist a blank name — fall back to phone or id.
+// Note: internal/external classification (type field) is set at add-time from the
+// authenticated user's own email domain — no hardcoded domain needed here.
+// Historical contacts can be re-tagged via the /api/contacts/backfill-domain route.
 function normalize(c: Contact): Contact {
   // 1. Directory back-compat
   let out: Contact = c.directory ? c : { ...c, directory: "work" as const };
@@ -33,16 +35,6 @@ function normalize(c: Contact): Contact {
   const name = out.name?.trim();
   if (!name) {
     out = { ...out, name: out.phone?.trim() || out.id };
-  }
-
-  // 3. TalentGenius domain tagging
-  if (out.email && out.email.toLowerCase().endsWith("@talentgenius.io")) {
-    out = {
-      ...out,
-      type: "internal",
-      company: out.company && out.company !== "—" ? out.company : "TalentGenius",
-      directory: "work",
-    };
   }
 
   return out;
