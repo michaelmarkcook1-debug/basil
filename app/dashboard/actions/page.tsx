@@ -32,6 +32,12 @@ import {
   CheckCircle2,
   RefreshCw,
   RotateCcw,
+  LayoutGrid,
+  Zap,
+  Calendar,
+  ArrowRight,
+  Minus,
+  Loader2,
 } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { findContactByName } from "@/lib/contacts-lookup";
@@ -483,6 +489,255 @@ function CompletedActionsPanel({ items, todayStr }: { items: ActionItem[]; today
   );
 }
 
+// ── Eisenhower Matrix view ─────────────────────────────────────────────────────
+
+type EisenhowerQuadrant = "Q1" | "Q2" | "Q3" | "Q4";
+
+const QUADRANTS: Array<{
+  id: EisenhowerQuadrant;
+  label: string;
+  sublabel: string;
+  verb: string;
+  urgent: boolean;
+  important: boolean;
+  bg: string;
+  border: string;
+  headerBg: string;
+  headerText: string;
+  badgeBg: string;
+  Icon: React.ComponentType<{ className?: string }>;
+}> = [
+  {
+    id: "Q1",
+    label: "Do First",
+    sublabel: "Urgent + Important",
+    verb: "DO",
+    urgent: true,
+    important: true,
+    bg: "bg-red-500/[0.03]",
+    border: "border-red-400/30",
+    headerBg: "bg-red-500/[0.07]",
+    headerText: "text-red-600",
+    badgeBg: "bg-red-100 text-red-700",
+    Icon: Zap,
+  },
+  {
+    id: "Q2",
+    label: "Schedule",
+    sublabel: "Not Urgent + Important",
+    verb: "PLAN",
+    urgent: false,
+    important: true,
+    bg: "bg-emerald-500/[0.03]",
+    border: "border-emerald-400/30",
+    headerBg: "bg-emerald-500/[0.07]",
+    headerText: "text-emerald-600",
+    badgeBg: "bg-emerald-100 text-emerald-700",
+    Icon: Calendar,
+  },
+  {
+    id: "Q3",
+    label: "Delegate",
+    sublabel: "Urgent + Not Important",
+    verb: "DELEGATE",
+    urgent: true,
+    important: false,
+    bg: "bg-amber-500/[0.03]",
+    border: "border-amber-400/30",
+    headerBg: "bg-amber-500/[0.07]",
+    headerText: "text-amber-600",
+    badgeBg: "bg-amber-100 text-amber-700",
+    Icon: ArrowRight,
+  },
+  {
+    id: "Q4",
+    label: "Eliminate",
+    sublabel: "Not Urgent + Not Important",
+    verb: "DROP",
+    urgent: false,
+    important: false,
+    bg: "bg-slate-500/[0.03]",
+    border: "border-slate-300/40",
+    headerBg: "bg-slate-100/60",
+    headerText: "text-slate-500",
+    badgeBg: "bg-slate-100 text-slate-500",
+    Icon: Minus,
+  },
+];
+
+/** Compact action row inside a matrix quadrant */
+function MatrixActionRow({
+  action,
+  onToggle,
+  onDelete,
+  todayStr,
+}: {
+  action: ActionItem;
+  onToggle: (id: string) => void;
+  onDelete: (id: string) => void;
+  todayStr: string;
+}) {
+  const isOverdue = action.dueDate && action.dueDate < todayStr && action.status !== "done";
+  return (
+    <div className="flex items-start gap-2 py-2 border-b border-border/25 last:border-0 group">
+      <button
+        onClick={() => onToggle(action.id)}
+        className="mt-0.5 shrink-0 h-4 w-4 rounded border border-border/60 flex items-center justify-center hover:border-emerald-500 transition-colors"
+        title="Mark done"
+      >
+        {action.status === "done" && <Check className="h-2.5 w-2.5 text-emerald-500" />}
+      </button>
+      <div className="flex-1 min-w-0">
+        <p className={`text-[12px] leading-snug ${action.status === "done" ? "line-through text-muted-foreground/50" : "text-foreground/85"}`}>
+          {action.text}
+        </p>
+        <div className="flex items-center gap-2 mt-0.5 flex-wrap">
+          {action.dueDate && (
+            <span className={`text-[10px] font-medium ${isOverdue ? "text-red-500" : "text-muted-foreground/60"}`}>
+              {isOverdue ? "⚠ " : ""}{action.dueDate}
+            </span>
+          )}
+          {action.owner && action.owner.toLowerCase() !== "me" && (
+            <span className="text-[10px] text-muted-foreground/50">→ {action.owner}</span>
+          )}
+          {action.eisenhowerReason && (
+            <span className="text-[10px] text-muted-foreground/40 italic">{action.eisenhowerReason}</span>
+          )}
+        </div>
+      </div>
+      <button
+        onClick={() => onDelete(action.id)}
+        className="shrink-0 opacity-0 group-hover:opacity-100 transition-opacity p-0.5 hover:text-red-500"
+        title="Delete"
+      >
+        <Trash2 className="h-3 w-3" />
+      </button>
+    </div>
+  );
+}
+
+function MatrixView({
+  actions,
+  classifying,
+  onClassify,
+  onToggle,
+  onDelete,
+  todayStr,
+}: {
+  actions: ActionItem[];
+  classifying: boolean;
+  onClassify: () => void;
+  onToggle: (id: string) => void;
+  onDelete: (id: string) => void;
+  todayStr: string;
+}) {
+  const open = actions.filter((a) => a.status !== "done");
+  const byQuadrant = (q: EisenhowerQuadrant) => open.filter((a) => a.eisenhower === q);
+  const unclassified = open.filter((a) => !a.eisenhower);
+  const classifiedCount = open.filter((a) => !!a.eisenhower).length;
+
+  return (
+    <div className="space-y-4">
+      {/* Axis labels + classify button */}
+      <div className="flex items-center justify-between gap-3 flex-wrap">
+        <div className="flex items-center gap-4 text-[11px] text-muted-foreground/60 font-medium">
+          <span className="flex items-center gap-1">
+            <span className="w-2 h-2 rounded-full bg-red-400 inline-block" /> Urgent
+          </span>
+          <span className="flex items-center gap-1">
+            <span className="w-2 h-2 rounded-full bg-emerald-400 inline-block" /> Important
+          </span>
+          {classifiedCount > 0 && (
+            <span className="text-muted-foreground/40">{classifiedCount}/{open.length} classified</span>
+          )}
+        </div>
+        <button
+          onClick={onClassify}
+          disabled={classifying || open.length === 0}
+          className="inline-flex items-center gap-1.5 text-[11px] font-semibold px-3 py-1.5 rounded-lg bg-[oklch(0.72_0.15_85)]/[0.10] text-[oklch(0.58_0.15_85)] hover:bg-[oklch(0.72_0.15_85)]/[0.18] border border-[oklch(0.72_0.15_85)]/20 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+        >
+          {classifying ? (
+            <><Loader2 className="h-3 w-3 animate-spin" />Classifying…</>
+          ) : (
+            <><Zap className="h-3 w-3" />{classifiedCount > 0 ? "Re-classify" : "Classify with Basil"}</>
+          )}
+        </button>
+      </div>
+
+      {/* The 2×2 grid */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+        {QUADRANTS.map((q) => {
+          const items = byQuadrant(q.id);
+          const Icon = q.Icon;
+          return (
+            <div
+              key={q.id}
+              className={`rounded-xl border ${q.border} ${q.bg} overflow-hidden`}
+            >
+              {/* Quadrant header */}
+              <div className={`px-4 py-2.5 ${q.headerBg} flex items-center justify-between`}>
+                <div className="flex items-center gap-2">
+                  <Icon className={`h-3.5 w-3.5 ${q.headerText}`} />
+                  <span className={`text-[11px] font-bold uppercase tracking-wider ${q.headerText}`}>
+                    {q.verb}
+                  </span>
+                  <span className="text-[11px] text-muted-foreground/60">{q.sublabel}</span>
+                </div>
+                {items.length > 0 && (
+                  <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded-full ${q.badgeBg}`}>
+                    {items.length}
+                  </span>
+                )}
+              </div>
+              {/* Items */}
+              <div className="px-4 py-1 min-h-[80px]">
+                {items.length === 0 ? (
+                  <p className="text-[11px] text-muted-foreground/30 py-3 italic">
+                    {classifiedCount === 0 ? "Run classify to populate" : "Nothing here"}
+                  </p>
+                ) : (
+                  items.map((a) => (
+                    <MatrixActionRow
+                      key={a.id}
+                      action={a}
+                      onToggle={onToggle}
+                      onDelete={onDelete}
+                      todayStr={todayStr}
+                    />
+                  ))
+                )}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+
+      {/* Unclassified overflow */}
+      {unclassified.length > 0 && (
+        <div className="rounded-xl border border-border/30 bg-muted/20 overflow-hidden">
+          <div className="px-4 py-2.5 bg-muted/30 flex items-center justify-between">
+            <span className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground/70">
+              Unclassified
+            </span>
+            <span className="text-[10px] text-muted-foreground/50">{unclassified.length} item{unclassified.length !== 1 ? "s" : ""} · run classify to sort</span>
+          </div>
+          <div className="px-4 py-1">
+            {unclassified.map((a) => (
+              <MatrixActionRow
+                key={a.id}
+                action={a}
+                onToggle={onToggle}
+                onDelete={onDelete}
+                todayStr={todayStr}
+              />
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ── Page ───────────────────────────────────────────────────────────────────────
 
 export default function ActionsPage() {
@@ -492,8 +747,9 @@ export default function ActionsPage() {
   const [fetchError, setFetchError] = useState<Error | null>(null);
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState<string>("all");
-  // "timeline" (default) vs "category" view
-  const [viewMode, setViewMode] = useState<"timeline" | "category">("timeline");
+  // "timeline" (default) | "category" | "matrix" view
+  const [viewMode, setViewMode] = useState<"timeline" | "category" | "matrix">("timeline");
+  const [classifying, setClassifying] = useState(false);
   // Form draft — survives tab switches; cleared on save or explicit cancel.
   const { draft: form, setDraft: setForm, clearDraft: clearForm, draftSaved: formDraftSaved } =
     usePersistentDraft<ActionFormDraft>("draft-action", { defaultValue: ACTION_DRAFT_DEFAULT });
@@ -714,6 +970,18 @@ export default function ActionsPage() {
     await refresh();
   }
 
+  async function handleClassify() {
+    setClassifying(true);
+    try {
+      await fetch("/api/actions/classify", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({}) });
+      await refresh();
+    } catch (e) {
+      console.error("[classify] failed:", e);
+    } finally {
+      setClassifying(false);
+    }
+  }
+
   const todayStr = new Date().toISOString().split("T")[0];
 
   // Batch-fetch headshots for all action owners that map to known contacts
@@ -813,6 +1081,13 @@ export default function ActionsPage() {
               className={`px-3 py-1.5 font-medium transition-colors ${viewMode === "category" ? "bg-[oklch(0.72_0.15_85)] text-[oklch(0.18_0.04_250)]" : "bg-background text-muted-foreground hover:text-foreground"}`}
               onClick={() => setViewMode("category")}
             >By Category</button>
+            <button
+              className={`px-3 py-1.5 font-medium transition-colors flex items-center gap-1 ${viewMode === "matrix" ? "bg-[oklch(0.72_0.15_85)] text-[oklch(0.18_0.04_250)]" : "bg-background text-muted-foreground hover:text-foreground"}`}
+              onClick={() => setViewMode("matrix")}
+            >
+              <LayoutGrid className="h-3 w-3" />
+              Matrix
+            </button>
           </div>
           <Button
             size="sm"
@@ -1053,6 +1328,17 @@ export default function ActionsPage() {
             photos={photos}
           />
         </div>
+
+      ) : viewMode === "matrix" ? (
+        /* ── Eisenhower Matrix view ──────────────────────────────────── */
+        <MatrixView
+          actions={filtered}
+          classifying={classifying}
+          onClassify={handleClassify}
+          onToggle={toggleDone}
+          onDelete={handleDelete}
+          todayStr={todayStr}
+        />
 
       ) : showGrouped ? (
         /* ── Timeline view (default) ──────────────────────────────────── */

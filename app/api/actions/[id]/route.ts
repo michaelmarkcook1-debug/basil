@@ -28,6 +28,9 @@ export async function PATCH(
         | "linkedDecisionIds"
         | "followUpDate"
         | "lastActivityAt"
+        | "eisenhower"
+        | "eisenhowerReason"
+        | "eisenhowerClassifiedAt"
       >
     >;
     const updated = await updateAction(username, id, patch);

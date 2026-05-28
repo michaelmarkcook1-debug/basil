@@ -545,6 +545,9 @@ export async function updateAction(
       | "category"
       | "decisionRequired"
       | "linkedDecisionId"
+      | "eisenhower"
+      | "eisenhowerReason"
+      | "eisenhowerClassifiedAt"
     >
   >
 ): Promise<ActionItem | null> {

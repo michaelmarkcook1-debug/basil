@@ -72,6 +72,21 @@ export interface ActionItem {
   /** ID of a decision the user created in response to the decisionRequired flag. */
   linkedDecisionId?: string;
 
+  // ── Eisenhower classification ────────────────────────────────────────────────
+  /**
+   * Eisenhower Matrix quadrant — classified by AI from action text + context.
+   *
+   * Q1 — Urgent + Important      → Do first
+   * Q2 — Not Urgent + Important  → Schedule
+   * Q3 — Urgent + Not Important  → Delegate
+   * Q4 — Not Urgent + Not Important → Eliminate
+   */
+  eisenhower?: "Q1" | "Q2" | "Q3" | "Q4";
+  /** One-line AI rationale for the quadrant assignment (≤15 words). */
+  eisenhowerReason?: string;
+  /** ISO timestamp when the Eisenhower classification was last computed. */
+  eisenhowerClassifiedAt?: string;
+
   // ── Provenance ───────────────────────────────────────────────────────────────
   /** ID of the BasilEvent that produced this item, if created via the event pipeline. */
   eventId?: string;
