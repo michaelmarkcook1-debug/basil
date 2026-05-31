@@ -1,14 +1,17 @@
 /**
  * POST /api/actions/classify
  *
- * AI-powered Eisenhower Matrix classification for open actions.
+ * Eisenhower Matrix classification for open actions.
  *
- * Uses the "fast" model (Haiku) — classification is cheap, single-pass.
- * Accepts an optional body `{ ids?: string[] }` to classify a subset.
- * Without ids, classifies all open actions that lack an eisenhower field
- * or whose eisenhowerClassifiedAt is >7 days old.
+ * Primary:  AI (Haiku) — semantic classification with rationale.
+ * Fallback: Heuristic — rule-based from priority + due date + text signals.
+ *           Used automatically when the AI brain is unavailable.
  *
- * Returns: { classified: Array<{ id, eisenhower, eisenhowerReason }> }
+ * Body: `{ ids?: string[], force?: boolean }`
+ *   ids   — classify only these IDs (default: all unclassified / stale)
+ *   force — re-classify even if recently classified
+ *
+ * Returns: { classified, total, method: "ai" | "heuristic" }
  */
 
 import { NextResponse } from "next/server";
@@ -30,50 +33,91 @@ interface ClassifyResult {
 
 const RECLASSIFY_AFTER_MS = 7 * 24 * 60 * 60 * 1000; // 7 days
 
-// ── Prompt ────────────────────────────────────────────────────────────────────
+// ── Helpers ───────────────────────────────────────────────────────────────────
+
+function addDays(dateStr: string, days: number): string {
+  const d = new Date(dateStr + "T12:00:00");
+  d.setDate(d.getDate() + days);
+  return d.toISOString().split("T")[0];
+}
+
+// ── Heuristic fallback ────────────────────────────────────────────────────────
+// Used when AI is unavailable. Pure rule-based — no LLM calls.
+
+const Q1_KEYWORDS = /\b(approve|approval|sign|legal|contract|launch|investor|blocked|blocker|deadline|urgent|critical|asap|today|decision required|go.live)\b/i;
+const Q2_KEYWORDS = /\b(plan|strategy|strategic|design|research|prepare|proposal|roadmap|review|process|improve|learning|mentor|relationship|meeting prep|document)\b/i;
+const Q3_KEYWORDS = /\b(schedule|book|confirm|admin|expense|logistics|invoice|receipt|reminder|follow.up|coordinate|arrange|organize)\b/i;
+const Q4_KEYWORDS = /\b(maybe|someday|nice.to.have|explore|consider|idea|draft|think about|could|potential|wish)\b/i;
+
+function heuristicClassify(action: ActionItem, todayStr: string): { q: Quadrant; reason: string } {
+  const text = action.text.toLowerCase();
+  const isOverdue = !!action.dueDate && action.dueDate < todayStr;
+  const dueSoon = !!action.dueDate && action.dueDate <= addDays(todayStr, 2) && !isOverdue;
+  const dueThisWeek = !!action.dueDate && action.dueDate <= addDays(todayStr, 7) && !dueSoon;
+  const noDue = !action.dueDate;
+  const prio = action.priority ?? "medium";
+  const isHighPrio = prio === "high";
+  const isLowPrio = prio === "low";
+  const otherOwner = !!action.owner && action.owner.toLowerCase() !== "me" && action.owner.trim().length > 0;
+
+  // Q1: Urgent + Important
+  if (isOverdue && !isLowPrio) return { q: "Q1", reason: "overdue and important" };
+  if ((isOverdue || dueSoon) && isHighPrio) return { q: "Q1", reason: "high priority, deadline imminent" };
+  if (Q1_KEYWORDS.test(text) && !isLowPrio) return { q: "Q1", reason: "critical keyword, needs action now" };
+  if (dueSoon && !isLowPrio && !otherOwner) return { q: "Q1", reason: "due soon, your responsibility" };
+
+  // Q3: Urgent + Not Important
+  if ((isOverdue || dueSoon) && (isLowPrio || otherOwner)) return { q: "Q3", reason: otherOwner ? "delegate — someone else owns this" : "urgent but low value" };
+  if (otherOwner && (isOverdue || dueSoon)) return { q: "Q3", reason: "delegate — not yours to own" };
+  if (Q3_KEYWORDS.test(text) && (isOverdue || dueSoon)) return { q: "Q3", reason: "admin task with deadline — delegate" };
+
+  // Q2: Not Urgent + Important
+  if (isHighPrio && noDue) return { q: "Q2", reason: "important, schedule dedicated time" };
+  if (Q2_KEYWORDS.test(text) && !isOverdue && !dueSoon) return { q: "Q2", reason: "strategic — block time this week" };
+  if (dueThisWeek && isHighPrio) return { q: "Q2", reason: "important, plan your approach" };
+  if (otherOwner && isHighPrio) return { q: "Q2", reason: "important but needs delegation" };
+
+  // Q4: Not Urgent + Not Important
+  if (Q4_KEYWORDS.test(text)) return { q: "Q4", reason: "speculative — defer or drop" };
+  if (noDue && isLowPrio) return { q: "Q4", reason: "low priority, no deadline — defer" };
+
+  // Default fallback
+  if (isHighPrio) return { q: "Q2", reason: "important — schedule time for this" };
+  if (isLowPrio) return { q: "Q4", reason: "low priority — review before acting" };
+  return { q: "Q2", reason: "no deadline — plan when to address" };
+}
+
+// ── AI prompt ─────────────────────────────────────────────────────────────────
 
 function buildPrompt(actions: ActionItem[], todayStr: string): string {
-  const actionLines = actions.map((a) => {
+  const lines = actions.map((a) => {
     const due = a.dueDate
-      ? a.dueDate <= todayStr
-        ? `due TODAY or OVERDUE (${a.dueDate})`
+      ? a.dueDate < todayStr
+        ? `OVERDUE (${a.dueDate})`
         : a.dueDate <= addDays(todayStr, 2)
           ? `due soon (${a.dueDate})`
           : `due ${a.dueDate}`
       : "no due date";
     const owner = a.owner && a.owner.toLowerCase() !== "me" ? `owner: ${a.owner}` : "owner: me";
     const prio = a.priority ? `priority: ${a.priority}` : "";
-    const src = `from: ${a.source}`;
-    const meta = [due, owner, prio, src].filter(Boolean).join(" | ");
+    const meta = [due, owner, prio, `from: ${a.source}`].filter(Boolean).join(" | ");
     return `- id:${a.id} | ${a.text} [${meta}]`;
   }).join("\n");
 
-  return `You are classifying action items using the Eisenhower Matrix.
+  return `Classify these actions using the Eisenhower Matrix. Today: ${todayStr}
 
-QUADRANT RULES:
-Q1 = Urgent + Important: deadline today/tomorrow, or critical blockers, or high-stakes commitments with real consequences if missed
-Q2 = Not Urgent + Important: strategic work, relationship-building, planning, learning — no immediate deadline but high long-term value
-Q3 = Urgent + Not Important: low-value requests with time pressure, administrative tasks with deadlines, things to delegate
-Q4 = Not Urgent + Not Important: nice-to-haves, speculative work, low-value tasks with no deadline — eliminate or defer
+Q1 = Urgent + Important: deadline today/tomorrow, critical blockers, high-stakes commitments
+Q2 = Not Urgent + Important: strategic work, planning, relationship-building, no immediate deadline
+Q3 = Urgent + Not Important: low-value tasks with time pressure, things to delegate
+Q4 = Not Urgent + Not Important: nice-to-haves, speculative, low-value with no deadline
 
-DELEGATE SIGNAL: if the owner is someone other than "me", lean toward Q3 (delegate).
-STRATEGIC SIGNAL: words like "plan", "review strategy", "prepare proposal", "research", "design" lean Q2.
-CRITICAL SIGNAL: "approve", "sign", "respond to investor", "contract", "legal", "launch", "decision required" lean Q1.
-LOW VALUE SIGNAL: "maybe", "someday", "nice to have", "explore" lean Q4.
+Signals: other owner → Q3. "plan/strategy/design/research" → Q2. "approve/sign/legal/launch" → Q1. "maybe/someday" → Q4.
 
-Today: ${todayStr}
+Actions:
+${lines}
 
-Actions to classify:
-${actionLines}
-
-Return a JSON array ONLY — no prose, no markdown fences:
-[{"id":"<id>","q":"Q1|Q2|Q3|Q4","reason":"<≤12 word rationale>"},...]`;
-}
-
-function addDays(dateStr: string, days: number): string {
-  const d = new Date(dateStr + "T12:00:00");
-  d.setDate(d.getDate() + days);
-  return d.toISOString().split("T")[0];
+Return JSON array ONLY (no prose, no fences):
+[{"id":"<id>","q":"Q1|Q2|Q3|Q4","reason":"<≤10 word rationale>"},...]`;
 }
 
 // ── Handler ───────────────────────────────────────────────────────────────────
@@ -83,68 +127,87 @@ export async function POST(req: Request) {
     const username = await getSessionUser();
     if (!username) return NextResponse.json({ error: "Unauthorised" }, { status: 401 });
 
-    const body = await req.json().catch(() => ({})) as { ids?: string[] };
+    const body = await req.json().catch(() => ({})) as { ids?: string[]; force?: boolean };
     const todayStr = new Date().toISOString().split("T")[0];
 
-    // Load all open actions
     const all = await listActions(username);
     const open = all.filter((a) => a.status !== "done");
 
-    // Filter to requested IDs, or unclassified / stale
     const toClassify = open.filter((a) => {
       if (body.ids?.length) return body.ids.includes(a.id);
+      if (body.force) return true;
       if (!a.eisenhower) return true;
       if (!a.eisenhowerClassifiedAt) return true;
-      const age = Date.now() - new Date(a.eisenhowerClassifiedAt).getTime();
-      return age > RECLASSIFY_AFTER_MS;
+      return Date.now() - new Date(a.eisenhowerClassifiedAt).getTime() > RECLASSIFY_AFTER_MS;
     });
 
     if (toClassify.length === 0) {
-      return NextResponse.json({ classified: [], message: "All actions already classified" });
+      return NextResponse.json({ classified: [], total: 0, message: "All actions already classified", method: "none" });
     }
 
-    // Cap at 30 actions per call to keep latency low
     const batch = toClassify.slice(0, 30);
+    const now = new Date().toISOString();
+    const classified: ClassifyResult[] = [];
+    let method: "ai" | "heuristic" = "heuristic";
 
-    // Call the fast model
-    const { text } = await generateText({
-      model: getTextModel("fast"),
-      maxOutputTokens: 1024,
-      temperature: 0,
-      prompt: buildPrompt(batch, todayStr),
-    });
-
-    // Parse JSON response
-    let raw: Array<{ id: string; q: string; reason: string }> = [];
+    // ── Try AI first ──────────────────────────────────────────────────────────
     try {
+      const { text } = await generateText({
+        model: getTextModel("fast"),
+        maxOutputTokens: 1024,
+        temperature: 0,
+        prompt: buildPrompt(batch, todayStr),
+      });
+
       const cleaned = text.trim().replace(/^```json?\n?/, "").replace(/\n?```$/, "");
-      raw = JSON.parse(cleaned) as typeof raw;
-    } catch {
-      console.error("[classify] Failed to parse AI response:", text);
-      return NextResponse.json({ error: "AI response parse failed" }, { status: 502 });
+      const raw = JSON.parse(cleaned) as Array<{ id: string; q: string; reason: string }>;
+      const validQ = new Set(["Q1", "Q2", "Q3", "Q4"]);
+
+      await Promise.all(
+        raw.map(async (item) => {
+          if (!item.id || !validQ.has(item.q)) return;
+          const q = item.q as Quadrant;
+          await updateAction(username, item.id, {
+            eisenhower: q,
+            eisenhowerReason: (item.reason ?? "").slice(0, 120),
+            eisenhowerClassifiedAt: now,
+          });
+          classified.push({ id: item.id, eisenhower: q, eisenhowerReason: item.reason ?? "" });
+        })
+      );
+
+      method = "ai";
+    } catch (aiErr) {
+      // AI unavailable — fall through to heuristic
+      console.warn("[classify] AI unavailable, using heuristic fallback:", aiErr instanceof Error ? aiErr.message : String(aiErr));
     }
 
-    // Validate and persist
-    const classified: ClassifyResult[] = [];
-    const validQuadrants = new Set(["Q1", "Q2", "Q3", "Q4"]);
-    const now = new Date().toISOString();
+    // ── Heuristic fallback for anything AI didn't classify ────────────────────
+    if (method === "heuristic" || classified.length < batch.length) {
+      const aiClassifiedIds = new Set(classified.map((c) => c.id));
+      const remaining = batch.filter((a) => !aiClassifiedIds.has(a.id));
 
-    await Promise.all(
-      raw.map(async (item) => {
-        if (!item.id || !validQuadrants.has(item.q)) return;
-        const quadrant = item.q as Quadrant;
-        await updateAction(username, item.id, {
-          eisenhower: quadrant,
-          eisenhowerReason: (item.reason ?? "").slice(0, 120),
-          eisenhowerClassifiedAt: now,
-        });
-        classified.push({ id: item.id, eisenhower: quadrant, eisenhowerReason: item.reason ?? "" });
-      })
-    );
+      await Promise.all(
+        remaining.map(async (a) => {
+          const { q, reason } = heuristicClassify(a, todayStr);
+          await updateAction(username, a.id, {
+            eisenhower: q,
+            eisenhowerReason: reason,
+            eisenhowerClassifiedAt: now,
+          });
+          classified.push({ id: a.id, eisenhower: q, eisenhowerReason: reason });
+        })
+      );
+    }
 
-    return NextResponse.json({ classified, total: toClassify.length });
+    return NextResponse.json({
+      classified,
+      total: toClassify.length,
+      method,
+      ...(method === "heuristic" ? { warning: "AI brain unavailable — used rule-based classification" } : {}),
+    });
   } catch (e) {
     console.error("[classify] error:", e);
-    return NextResponse.json({ error: "Classification failed" }, { status: 500 });
+    return NextResponse.json({ error: "Classification failed", detail: e instanceof Error ? e.message : String(e) }, { status: 500 });
   }
 }

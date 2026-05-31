@@ -619,6 +619,7 @@ function MatrixActionRow({
 function MatrixView({
   actions,
   classifying,
+  classifyStatus,
   onClassify,
   onToggle,
   onDelete,
@@ -626,6 +627,7 @@ function MatrixView({
 }: {
   actions: ActionItem[];
   classifying: boolean;
+  classifyStatus: { type: "error" | "warning" | "success"; message: string } | null;
   onClassify: () => void;
   onToggle: (id: string) => void;
   onDelete: (id: string) => void;
@@ -663,6 +665,25 @@ function MatrixView({
           )}
         </button>
       </div>
+
+      {/* Status banner — error or heuristic-fallback notice */}
+      {classifyStatus && (
+        <div className={`flex items-start gap-2 rounded-lg px-3 py-2.5 text-[12px] ${
+          classifyStatus.type === "error"
+            ? "bg-red-50 border border-red-200 text-red-700"
+            : classifyStatus.type === "warning"
+              ? "bg-amber-50 border border-amber-200 text-amber-700"
+              : "bg-emerald-50 border border-emerald-200 text-emerald-700"
+        }`}>
+          <span>{classifyStatus.type === "error" ? "⚠ " : classifyStatus.type === "warning" ? "ℹ " : "✓ "}</span>
+          <span>{classifyStatus.message}</span>
+          {classifyStatus.type === "error" && (
+            <a href="/dashboard/settings?tab=brain" className="ml-auto font-semibold underline shrink-0">
+              Configure brain →
+            </a>
+          )}
+        </div>
+      )}
 
       {/* The 2×2 grid */}
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
@@ -750,6 +771,7 @@ export default function ActionsPage() {
   // "timeline" (default) | "category" | "matrix" view
   const [viewMode, setViewMode] = useState<"timeline" | "category" | "matrix">("timeline");
   const [classifying, setClassifying] = useState(false);
+  const [classifyStatus, setClassifyStatus] = useState<{ type: "error" | "warning" | "success"; message: string } | null>(null);
   // Form draft — survives tab switches; cleared on save or explicit cancel.
   const { draft: form, setDraft: setForm, clearDraft: clearForm, draftSaved: formDraftSaved } =
     usePersistentDraft<ActionFormDraft>("draft-action", { defaultValue: ACTION_DRAFT_DEFAULT });
@@ -972,11 +994,41 @@ export default function ActionsPage() {
 
   async function handleClassify() {
     setClassifying(true);
+    setClassifyStatus(null);
     try {
-      await fetch("/api/actions/classify", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({}) });
+      const res = await fetch("/api/actions/classify", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ force: true }),
+      });
+      const data = await res.json().catch(() => ({})) as {
+        classified?: Array<unknown>;
+        method?: string;
+        warning?: string;
+        error?: string;
+      };
+      if (!res.ok) {
+        setClassifyStatus({
+          type: "error",
+          message: data.error ?? `Classification failed (${res.status}). Check your AI brain configuration.`,
+        });
+        return;
+      }
+      if (data.method === "heuristic") {
+        setClassifyStatus({
+          type: "warning",
+          message: "AI brain offline — classified using rules (priority + due date). Results will improve when brain is back.",
+        });
+      } else if (data.classified && data.classified.length > 0) {
+        setClassifyStatus({
+          type: "success",
+          message: `Classified ${data.classified.length} action${data.classified.length !== 1 ? "s" : ""} with AI.`,
+        });
+      }
       await refresh();
     } catch (e) {
       console.error("[classify] failed:", e);
+      setClassifyStatus({ type: "error", message: "Network error — could not reach classify endpoint." });
     } finally {
       setClassifying(false);
     }
@@ -1334,6 +1386,7 @@ export default function ActionsPage() {
         <MatrixView
           actions={filtered}
           classifying={classifying}
+          classifyStatus={classifyStatus}
           onClassify={handleClassify}
           onToggle={toggleDone}
           onDelete={handleDelete}
