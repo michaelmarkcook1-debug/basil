@@ -5,7 +5,7 @@ import { eventFromIngest } from "@/lib/events/rules";
 import { publish } from "@/lib/events/bus";
 import type { IngestPayload } from "@/lib/events/types";
 import { shouldClassifySlack } from "@/lib/slack/classify-slack";
-import { resolveSlackUserByTeam } from "@/lib/webhooks/resolve-user";
+import { resolveSlackUserByTeam, resolveSlackUser } from "@/lib/webhooks/resolve-user";
 import { writeDeadLetter } from "@/lib/webhooks/dead-letter";
 import { start } from "workflow/api";
 import { ingestSlackWorkflow } from "@/lib/jobs/workflows/ingest-slack";
@@ -66,15 +66,25 @@ export async function POST(req: Request) {
       return NextResponse.json({ ok: true });
     }
 
-    const resolved = await resolveSlackUserByTeam(teamId, parsed.enterprise_id);
+    let resolved = await resolveSlackUserByTeam(teamId, parsed.enterprise_id);
+
+    // Fallback: Slack was connected via env-var tokens (SLACK_BOT_TOKEN) rather
+    // than OAuth, so no teamId is stored in the persistent config. In a
+    // single-user deployment this is safe — just use the first Slack-connected user.
     if (resolved === null) {
-      await writeDeadLetter(
-        "slack",
-        { type: inner.type, channel: inner.channel, team_id: teamId },
-        `No user has Slack workspace ${teamId} connected`
-      );
-      return NextResponse.json({ ok: true });
+      const fallback = await resolveSlackUser();
+      if (!fallback) {
+        await writeDeadLetter(
+          "slack",
+          { type: inner.type, channel: inner.channel, team_id: teamId },
+          `No user has Slack workspace ${teamId} connected`
+        );
+        return NextResponse.json({ ok: true });
+      }
+      console.warn(`[slack-webhook] teamId ${teamId} not stored; using first-match fallback user (env-var tokens). Re-connect Slack via OAuth to eliminate this warning.`);
+      resolved = fallback;
     }
+
     if (resolved === "ambiguous") {
       await writeDeadLetter(
         "slack",

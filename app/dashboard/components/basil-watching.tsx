@@ -30,6 +30,7 @@ const SOURCE_ICON: Record<BasilEvent["source"], typeof Mail> = {
   drive: FileText,
   manual: Sparkles,
   zoom_email: Video,
+  zoom: Video,
 };
 
 const DISPOSITION_STYLE: Record<
