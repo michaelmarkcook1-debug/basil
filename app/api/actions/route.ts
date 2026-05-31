@@ -8,10 +8,15 @@ import type { ActionItem } from "@/lib/types/action";
 import { getSessionUser } from "@/lib/auth";
 import { getSettings } from "@/lib/settings/store";
 
-export async function GET() {
+export async function GET(req: Request) {
   const username = await getSessionUser();
   if (!username) return NextResponse.json({ error: "Unauthorised" }, { status: 401 });
-  const actions = await listActions(username);
+  // ?fresh=true bypasses the /tmp write-through cache and reads directly from
+  // Blob. Used by the classify flow to guarantee the caller sees the latest
+  // data even when the write landed on a different Fluid Compute instance.
+  const { searchParams } = new URL(req.url);
+  const fresh = searchParams.get("fresh") === "true";
+  const actions = await listActions(username, { fresh });
   return NextResponse.json({ actions });
 }
 

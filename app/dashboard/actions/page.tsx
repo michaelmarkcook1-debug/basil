@@ -1035,7 +1035,23 @@ export default function ActionsPage() {
           message: `Classified ${data.classified.length} action${data.classified.length !== 1 ? "s" : ""} with AI.`,
         });
       }
-      await refresh();
+      // Bypass /tmp cache — classify may have run on a different Fluid Compute
+      // instance whose /tmp update won't be visible to this instance's cache.
+      // ?fresh=true forces a direct Blob read so we always see the new eisenhower fields.
+      try {
+        const freshRes = await fetch("/api/actions?fresh=true", { cache: "no-store" });
+        if (freshRes.ok) {
+          const freshData = await freshRes.json() as { actions?: ActionItem[] };
+          const fresh = freshData.actions ?? [];
+          dashboardCache.set("actions", fresh);
+          setActions(fresh);
+          setFetchError(null);
+        } else {
+          await refresh();
+        }
+      } catch {
+        await refresh();
+      }
     } catch (e) {
       console.error("[classify] failed:", e);
       setClassifyStatus({ type: "error", message: "Network error — could not reach classify endpoint." });

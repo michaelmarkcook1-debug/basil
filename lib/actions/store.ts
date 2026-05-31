@@ -36,8 +36,8 @@ function lockKey(username: string): string {
   return `actions:${username}`;
 }
 
-async function readAll(username: string): Promise<ActionItem[]> {
-  return readUserStore<ActionItem[]>(username, ACTIONS_FILE, []);
+async function readAll(username: string, options?: { fresh?: boolean }): Promise<ActionItem[]> {
+  return readUserStore<ActionItem[]>(username, ACTIONS_FILE, [], options);
 }
 
 async function writeAll(username: string, items: ActionItem[]): Promise<void> {
@@ -279,8 +279,8 @@ function mergeExistingDuplicates(items: ActionItem[]): { items: ActionItem[]; ch
 
 // ── Public interface ───────────────────────────────────────────────────────────
 
-export async function listActions(username: string): Promise<ActionItem[]> {
-  const items = await readAll(username);
+export async function listActions(username: string, options?: { fresh?: boolean }): Promise<ActionItem[]> {
+  const items = await readAll(username, options);
 
   // ── Dedup cleanup pass ──────────────────────────────────────────────────────
   // Catches duplicates that slipped through before the improved dedup logic.
