@@ -1,8 +1,6 @@
 import { NextResponse } from "next/server";
-import { google } from "googleapis";
-import { getAuthedClient } from "@/lib/google/auth";
-import { updateGmail } from "@/lib/google/watch-state";
 import { verifySession, getSessionUser } from "@/lib/auth";
+import { registerGmailPush } from "@/lib/google/register-webhooks";
 
 /**
  * POST /api/webhooks/gmail/register — one-shot registration for Gmail push.
@@ -30,51 +28,15 @@ export async function POST() {
     return NextResponse.json({ error: "forbidden" }, { status: 403 });
   }
 
-  const topic = process.env.GMAIL_PUBSUB_TOPIC;
-  if (!topic) {
-    return NextResponse.json(
-      { error: "GMAIL_PUBSUB_TOPIC not configured" },
-      { status: 400 }
-    );
-  }
-
-  const auth = await getAuthedClient(username);
-  if (!auth) {
-    return NextResponse.json({ error: "Gmail not connected" }, { status: 400 });
-  }
-
-  const gmail = google.gmail({ version: "v1", auth });
   try {
-    // Fetch the authenticated account's email address so we can resolve
-    // future push notifications back to this username.
-    const profile = await gmail.users.getProfile({ userId: "me" });
-    const watchedEmail = profile.data.emailAddress || undefined;
-
-    const res = await gmail.users.watch({
-      userId: "me",
-      requestBody: {
-        topicName: topic,
-        labelIds: ["INBOX"],
-        labelFilterBehavior: "INCLUDE",
-      },
-    });
-    const { historyId, expiration } = res.data;
-    await updateGmail(username, {
-      historyId: historyId || undefined,
-      expiration: expiration ? Number(expiration) : undefined,
-      watchedEmail,
-    });
-    return NextResponse.json({
-      ok: true,
-      historyId,
-      watchedEmail,
-      expiresAt: expiration ? new Date(Number(expiration)).toISOString() : null,
-    });
+    const result = await registerGmailPush(username);
+    return NextResponse.json(result);
   } catch (e) {
-    console.error("[gmail-register] failed:", e instanceof Error ? e.message : e);
-    return NextResponse.json(
-      { error: "Registration failed" },
-      { status: 500 }
-    );
+    const msg = e instanceof Error ? e.message : String(e);
+    if (msg.includes("not configured") || msg.includes("not connected")) {
+      return NextResponse.json({ error: msg }, { status: 400 });
+    }
+    console.error("[gmail-register] failed:", msg);
+    return NextResponse.json({ error: "Registration failed" }, { status: 500 });
   }
 }

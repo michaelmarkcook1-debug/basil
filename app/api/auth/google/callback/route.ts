@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { exchangeCode } from "@/lib/google/auth";
 import { getSessionUser } from "@/lib/auth";
 import { forceFlushSnapshot } from "@/lib/storage/persistent";
+import { autoRegisterGoogleWebhooks } from "@/lib/google/register-webhooks";
 
 // GET /api/auth/google/callback — handles Google OAuth callback
 export async function GET(req: Request) {
@@ -47,6 +48,17 @@ export async function GET(req: Request) {
     // Force-flush so tokens survive a cold start on the very next request.
     await forceFlushSnapshot();
     console.log(`[google/callback] Tokens saved for user ${username}. Redirecting to ${successDest}`);
+
+    // ── Auto-register push webhooks ──────────────────────────────────────────
+    // Fire-and-forget — do not block the redirect. Errors are logged but never
+    // surface to the user. If env vars aren't configured (e.g. GMAIL_PUBSUB_TOPIC
+    // missing), the call is a silent no-op.
+    autoRegisterGoogleWebhooks(username).then(({ gmail, calendar }) => {
+      console.log(`[google/callback] Webhook auto-registration: gmail=${gmail} calendar=${calendar}`);
+    }).catch((err) => {
+      console.error("[google/callback] Webhook auto-registration threw:", err instanceof Error ? err.message : err);
+    });
+
     return redirect(successDest);
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
