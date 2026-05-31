@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
-import { generateText } from "ai";
 import { getTextModel } from "@/lib/ai/model-config";
+import { generateTextSafe } from "@/lib/ai/generate";
 import { getSessionUser } from "@/lib/auth";
 import { checkRateLimit, getClientIp } from "@/lib/rate-limit";
 
@@ -52,7 +52,7 @@ Return only the email body text, nothing else.`;
     : prompt;
 
   try {
-    const { text } = await generateText({
+    const { text } = await generateTextSafe({
       model: getTextModel("fast"),
       system: systemPrompt,
       prompt: userPrompt,

@@ -1,4 +1,5 @@
-import { generateText, type ModelMessage } from "ai";
+import { type ModelMessage } from "ai";
+import { generateTextSafe } from "@/lib/ai/generate";
 import { getTextModel, MAX_TOKENS } from "@/lib/ai/model-config";
 
 export const maxDuration = 300;
@@ -618,9 +619,9 @@ Return ONLY valid JSON, no markdown code fences:
     return Response.json({ error: "AI generation failed. Please try again in a moment." }, { status: 503 });
   }
 
-  let result: Awaited<ReturnType<typeof generateText>>;
+  let result: Awaited<ReturnType<typeof generateTextSafe>>;
   try {
-    result = await generateText({
+    result = await generateTextSafe({
       model: getTextModel("long"),
       maxOutputTokens: MAX_TOKENS.long,
       system: systemPrompt,

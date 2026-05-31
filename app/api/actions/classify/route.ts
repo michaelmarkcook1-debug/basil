@@ -15,8 +15,8 @@
  */
 
 import { NextResponse } from "next/server";
-import { generateText } from "ai";
 import { getTextModel } from "@/lib/ai/model-config";
+import { generateTextSafe } from "@/lib/ai/generate";
 import { listActions, updateAction } from "@/lib/actions/store";
 import { getSessionUser } from "@/lib/auth";
 import type { ActionItem } from "@/lib/types/action";
@@ -152,7 +152,7 @@ export async function POST(req: Request) {
 
     // ── Try AI first ──────────────────────────────────────────────────────────
     try {
-      const { text } = await generateText({
+      const { text } = await generateTextSafe({
         model: getTextModel("fast"),
         maxOutputTokens: 1024,
         temperature: 0,

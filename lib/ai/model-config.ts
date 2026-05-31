@@ -57,7 +57,7 @@ export const GATEWAY_MODEL_IDS = {
 } as const satisfies Record<ModelKind, string>;
 
 /** Anthropic direct model IDs — dot notation matches @ai-sdk/anthropic conventions. */
-const ANTHROPIC_MODEL_IDS: Record<ModelKind, string> = {
+export const ANTHROPIC_MODEL_IDS: Record<ModelKind, string> = {
   fast:    "claude-haiku-4.5",
   default: "claude-sonnet-4.6",
   long:    "claude-sonnet-4.6",

@@ -15,7 +15,8 @@ export const maxDuration = 300;
  * raw source text (email, Slack, Zoom) as supporting evidence.
  */
 
-import { generateText, type ModelMessage } from "ai";
+import { type ModelMessage } from "ai";
+import { generateTextSafe } from "@/lib/ai/generate";
 import { getTextModel, MAX_TOKENS } from "@/lib/ai/model-config";
 import { getSystemPrompt } from "@/lib/ai/system-prompt";
 import { parseAndValidate } from "@/lib/ai/parse-json";
@@ -763,9 +764,9 @@ Return ONLY valid JSON, no markdown code fences:
         ]
       : undefined;
 
-  let result: Awaited<ReturnType<typeof generateText>>;
+  let result: Awaited<ReturnType<typeof generateTextSafe>>;
   try {
-    result = await generateText({
+    result = await generateTextSafe({
       model: getTextModel("long"),
       maxOutputTokens: MAX_TOKENS.long,
       system: await getSystemPrompt(username, tz),

@@ -11,7 +11,8 @@
 
 export const maxDuration = 300;
 
-import { generateText, stepCountIs, type ModelMessage } from "ai";
+import { stepCountIs, type ModelMessage } from "ai";
+import { generateTextSafe } from "@/lib/ai/generate";
 import { getTextModel, MAX_TOKENS, PROVIDER_MODE } from "@/lib/ai/model-config";
 import { getSystemPrompt } from "@/lib/ai/system-prompt";
 import { buildAssistantTools } from "@/lib/ai/tools";
@@ -62,7 +63,7 @@ export async function POST(req: Request) {
     const firstName = settings.name.split(" ")[0] ?? settings.name;
     const system = await getSystemPrompt(username, timezone);
 
-    const result = await generateText({
+    const result = await generateTextSafe({
       model: getTextModel(),
       maxOutputTokens: MAX_TOKENS.default,
       system,
