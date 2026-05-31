@@ -151,6 +151,7 @@ export async function POST(req: Request) {
     let method: "ai" | "heuristic" = "heuristic";
 
     // ── Try AI first ──────────────────────────────────────────────────────────
+    let aiText: string | null = null;
     try {
       const { text } = await generateTextSafe({
         model: getTextModel("fast"),
@@ -158,28 +159,44 @@ export async function POST(req: Request) {
         temperature: 0,
         prompt: buildPrompt(batch, todayStr),
       });
-
-      const cleaned = text.trim().replace(/^```json?\n?/, "").replace(/\n?```$/, "");
-      const raw = JSON.parse(cleaned) as Array<{ id: string; q: string; reason: string }>;
-      const validQ = new Set(["Q1", "Q2", "Q3", "Q4"]);
-
-      await Promise.all(
-        raw.map(async (item) => {
-          if (!item.id || !validQ.has(item.q)) return;
-          const q = item.q as Quadrant;
-          await updateAction(username, item.id, {
-            eisenhower: q,
-            eisenhowerReason: (item.reason ?? "").slice(0, 120),
-            eisenhowerClassifiedAt: now,
-          });
-          classified.push({ id: item.id, eisenhower: q, eisenhowerReason: item.reason ?? "" });
-        })
-      );
-
-      method = "ai";
+      aiText = text;
     } catch (aiErr) {
-      // AI unavailable — fall through to heuristic
-      console.warn("[classify] AI unavailable, using heuristic fallback:", aiErr instanceof Error ? aiErr.message : String(aiErr));
+      // AI call failed — fall through to heuristic
+      console.warn("[classify] AI call failed, using heuristic fallback:", aiErr instanceof Error ? aiErr.message : String(aiErr));
+    }
+
+    if (aiText !== null) {
+      // Extract the JSON array from wherever it appears in the response.
+      // Models sometimes add prose or code fences despite instructions — strip
+      // everything outside the outermost [...] to get parseable JSON.
+      let raw: Array<{ id: string; q: string; reason: string }> | null = null;
+      try {
+        const match = aiText.match(/\[[\s\S]*\]/);
+        if (match) {
+          raw = JSON.parse(match[0]) as Array<{ id: string; q: string; reason: string }>;
+        } else {
+          console.warn("[classify] AI returned no JSON array — raw text:", aiText.slice(0, 300));
+        }
+      } catch (parseErr) {
+        console.warn("[classify] JSON parse failed, using heuristic fallback:", parseErr instanceof Error ? parseErr.message : String(parseErr), "| raw:", aiText.slice(0, 300));
+      }
+
+      if (raw) {
+        const validQ = new Set(["Q1", "Q2", "Q3", "Q4"]);
+        await Promise.all(
+          raw.map(async (item) => {
+            if (!item.id || !validQ.has(item.q)) return;
+            const q = item.q as Quadrant;
+            await updateAction(username, item.id, {
+              eisenhower: q,
+              eisenhowerReason: (item.reason ?? "").slice(0, 120),
+              eisenhowerClassifiedAt: now,
+            });
+            classified.push({ id: item.id, eisenhower: q, eisenhowerReason: item.reason ?? "" });
+          })
+        );
+        method = "ai";
+      }
     }
 
     // ── Heuristic fallback for anything AI didn't classify ────────────────────
