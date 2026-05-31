@@ -895,6 +895,15 @@ export default function SignalsPage() {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [showDetail, setShowDetail] = useState(false);
   const [activeFilter, setActiveFilter] = useState<FilterId>("all");
+  const [sourceFilter, setSourceFilter] = useState<string | null>(null);
+
+  // Sync filter from URL params on mount (?source=slack, ?source=email)
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const p = new URLSearchParams(window.location.search);
+    const src = p.get("source");
+    if (src) setSourceFilter(src);
+  }, []);
 
   // Calendar state — loaded once on mount, used for linked-meeting matching
   const [calendarEvents, setCalendarEvents] = useState<CalendarEvent[] | null>(null);
@@ -959,9 +968,9 @@ export default function SignalsPage() {
 
   const selectedThread = threads.find((t) => t.id === selectedId) ?? null;
 
-  const filteredThreads = activeFilter === "all"
-    ? threads
-    : threads.filter((t) => t.category === activeFilter);
+  const filteredThreads = threads
+    .filter((t) => activeFilter === "all" || t.category === activeFilter)
+    .filter((t) => !sourceFilter || t.primarySource === (sourceFilter as import("@/core/primitives/signal-event").SignalSource) || t.sources?.includes(sourceFilter as import("@/core/primitives/signal-event").SignalSource));
 
   // Category counts for filter pills
   const categoryCounts = threads.reduce<Partial<Record<string, number>>>((acc, t) => {
@@ -1060,6 +1069,15 @@ export default function SignalsPage() {
         <div className="px-3 py-2.5 border-b border-border/40 shrink-0 overflow-x-auto">
           <div className="flex items-center gap-1 min-w-max">
             <Filter className="h-3 w-3 text-muted-foreground/40 mr-0.5 shrink-0" />
+            {sourceFilter && (
+              <button
+                onClick={() => setSourceFilter(null)}
+                className="inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-[11px] font-medium bg-blue-500/10 text-blue-600 ring-1 ring-blue-500/20 shrink-0 mr-1"
+                title="Clear source filter"
+              >
+                {sourceFilter} ×
+              </button>
+            )}
             {FILTER_OPTIONS.map((opt) => {
               const count = opt.id === "all" ? total : (categoryCounts[opt.id] ?? 0);
               if (opt.id !== "all" && count === 0) return null;

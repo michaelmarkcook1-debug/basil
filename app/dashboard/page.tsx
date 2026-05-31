@@ -1064,13 +1064,17 @@ function IntelligencePanel({ signals, actions, loading, onExpand }: {
           </div>
         ) : (
           insights.map((ins, i) => (
-            <div key={i} className="flex items-start gap-2.5">
+            <Link
+              key={i}
+              href={ins.href}
+              className="flex items-start gap-2.5 rounded-lg px-2 py-1 -mx-2 hover:bg-white/[0.04] transition-colors group"
+            >
               <div
-                className="h-1.5 w-1.5 rounded-full mt-1.5 shrink-0"
+                className="h-1.5 w-1.5 rounded-full mt-1.5 shrink-0 transition-transform group-hover:scale-125"
                 style={{ background: typeColor[ins.type], boxShadow: `0 0 4px ${typeColor[ins.type]}50` }}
               />
-              <p className="text-[11.5px] text-[#F3EFE7]/65 leading-snug">{ins.text}</p>
-            </div>
+              <p className="text-[11.5px] text-[#F3EFE7]/65 leading-snug group-hover:text-[#F3EFE7]/90 transition-colors">{ins.text}</p>
+            </Link>
           ))
         )}
       </div>
@@ -1081,32 +1085,32 @@ function IntelligencePanel({ signals, actions, loading, onExpand }: {
 // ── Shared helpers ────────────────────────────────────────────────────────────
 
 type InsightType = "warning" | "info" | "positive" | "neutral";
-interface Insight { text: string; type: InsightType; }
+interface Insight { text: string; type: InsightType; href: string; }
 
 function computeInsights(signals: RankedSignal[], actions: ActionItem[], limit?: number): Insight[] {
   const items: Insight[] = [];
   const overdue = actions.filter(a => a.status !== "done" && a.dueDate && new Date(a.dueDate) < new Date());
   if (overdue.length > 0)
-    items.push({ text: `${overdue.length} action${overdue.length > 1 ? "s are" : " is"} overdue — review now`, type: "warning" });
+    items.push({ text: `${overdue.length} action${overdue.length > 1 ? "s are" : " is"} overdue — review now`, type: "warning", href: "/dashboard/actions?filter=overdue" });
   const highSignals = signals.filter(s => s.ranking?.score > 0.7);
   if (highSignals.length > 0)
-    items.push({ text: `${highSignals.length} high-priority signal${highSignals.length > 1 ? "s need" : " needs"} attention`, type: "warning" });
+    items.push({ text: `${highSignals.length} high-priority signal${highSignals.length > 1 ? "s need" : " needs"} attention`, type: "warning", href: "/dashboard/signals" });
   if (signals.some(s => s.source === "email"))
-    items.push({ text: "Email activity detected across active threads", type: "info" });
+    items.push({ text: "Email activity detected across active threads", type: "info", href: "/dashboard/signals?source=email" });
   if (signals.some(s => s.source === "slack"))
-    items.push({ text: "Slack conversations with open items", type: "info" });
+    items.push({ text: "Slack conversations with open items", type: "info", href: "/dashboard/signals?source=slack" });
   const waiting = actions.filter(a => a.status === "waiting" || a.status === "blocked");
   if (waiting.length > 0)
-    items.push({ text: `Waiting on ${waiting.length} response${waiting.length > 1 ? "s" : ""}`, type: "neutral" });
+    items.push({ text: `Waiting on ${waiting.length} response${waiting.length > 1 ? "s" : ""}`, type: "neutral", href: "/dashboard/actions?filter=open" });
   const done = actions.filter(a => a.status === "done" || a.status === "completed");
   if (done.length > 0)
-    items.push({ text: `${done.length} action${done.length > 1 ? "s" : ""} completed this period`, type: "positive" });
+    items.push({ text: `${done.length} action${done.length > 1 ? "s" : ""} completed this period`, type: "positive", href: "/dashboard/actions?filter=done" });
   const urgent = actions.filter(a => a.priority === "urgent" && a.status !== "done");
   if (urgent.length > 0)
-    items.push({ text: `${urgent.length} urgent action${urgent.length > 1 ? "s" : ""} require immediate attention`, type: "warning" });
+    items.push({ text: `${urgent.length} urgent action${urgent.length > 1 ? "s" : ""} require immediate attention`, type: "warning", href: "/dashboard/actions?filter=open" });
   const actionsDue = actions.filter(a => a.status !== "done" && a.dueDate && new Date(a.dueDate) <= new Date(Date.now() + 86400000));
   if (actionsDue.length > 0)
-    items.push({ text: `${actionsDue.length} action${actionsDue.length > 1 ? "s" : ""} due in the next 24 hours`, type: "info" });
+    items.push({ text: `${actionsDue.length} action${actionsDue.length > 1 ? "s" : ""} due in the next 24 hours`, type: "info", href: "/dashboard/actions?filter=open" });
   return limit ? items.slice(0, limit) : items;
 }
 
@@ -1481,13 +1485,23 @@ function ExpandedIntelligenceContent({ signals, actions }: { signals: RankedSign
   return (
     <div className="px-6 py-5 space-y-3">
       {insights.map((ins, i) => (
-        <div key={i} className="flex items-start gap-4 rounded-xl px-4 py-3.5"
-          style={{ background: `${typeColor[ins.type]}0A`, border: `1px solid ${typeColor[ins.type]}18` }}>
-          <div className="shrink-0 mt-0.5" style={{ color: typeColor[ins.type] }}>
-            {typeIcon[ins.type]}
+        <Link
+          key={i}
+          href={ins.href}
+          className="flex items-start gap-4 rounded-xl px-4 py-3.5 transition-all hover:brightness-125 active:scale-[0.99] block"
+          style={{ background: `${typeColor[ins.type]}0A`, border: `1px solid ${typeColor[ins.type]}18` }}
+        >
+          <div className="flex items-start gap-4">
+            <div className="shrink-0 mt-0.5" style={{ color: typeColor[ins.type] }}>
+              {typeIcon[ins.type]}
+            </div>
+            <div className="flex-1 min-w-0">
+              <p className="text-[13px] text-[#F3EFE7]/75 leading-snug">{ins.text}</p>
+              <p className="text-[10px] text-[#AAB3C5]/35 mt-1 font-mono">{ins.href}</p>
+            </div>
+            <ArrowRight size={12} className="shrink-0 mt-1 text-[#AAB3C5]/30" />
           </div>
-          <p className="text-[13px] text-[#F3EFE7]/75 leading-snug">{ins.text}</p>
-        </div>
+        </Link>
       ))}
     </div>
   );

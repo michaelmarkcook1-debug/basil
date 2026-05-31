@@ -770,6 +770,16 @@ export default function ActionsPage() {
   const [statusFilter, setStatusFilter] = useState<string>("all");
   // "timeline" (default) | "category" | "matrix" view
   const [viewMode, setViewMode] = useState<"timeline" | "category" | "matrix">("timeline");
+
+  // Sync filter + view from URL params on mount (?filter=overdue, ?view=matrix)
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const p = new URLSearchParams(window.location.search);
+    const f = p.get("filter");
+    if (f) setStatusFilter(f);
+    const v = p.get("view") as "timeline" | "category" | "matrix" | null;
+    if (v && ["timeline", "category", "matrix"].includes(v)) setViewMode(v);
+  }, []);
   const [classifying, setClassifying] = useState(false);
   const [classifyStatus, setClassifyStatus] = useState<{ type: "error" | "warning" | "success"; message: string } | null>(null);
   // Form draft — survives tab switches; cleared on save or explicit cancel.
