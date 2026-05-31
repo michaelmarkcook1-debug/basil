@@ -452,6 +452,64 @@ export async function processZoomEmail(opts: ProcessZoomEmailOpts): Promise<void
       );
     }
 
+    // ── Blockers → high-priority actions ────────────────────────────────────
+    // Blockers are things explicitly flagged as blocking progress. Surface them
+    // as high-priority action items so they don't get buried in meeting notes.
+    if (extract.blockers?.length > 0 && zoomATier !== "skip") {
+      for (const blocker of extract.blockers) {
+        if (!blocker.trim()) continue;
+        try {
+          const blockerText = blocker.trim().startsWith("Blocker:")
+            ? blocker.trim()
+            : `Blocker: ${blocker.trim()}`;
+          const { item: action, created } = await createActionTracked(username, {
+            text: blockerText,
+            source: "meeting",
+            eventId,
+            sourceRef,
+            priority: "high",
+            confidence: extract.confidence,
+            needsReview: needsReviewFlag(zoomATier),
+          });
+          if (created) {
+            actionsCreated++;
+            zoomAuditEntries.push(auditCreated(sourceRef, "action", action.id, blockerText.slice(0, 80)));
+          }
+        } catch (e) {
+          console.error("[zoom-process] failed to create blocker action:", e);
+        }
+      }
+    }
+
+    // ── Follow-ups → medium-priority actions ──────────────────────────────────
+    // Follow-ups are deferred items, next-steps, or pending threads. Surface
+    // them as actions so nothing slips through after the meeting.
+    if (extract.followUps?.length > 0 && zoomATier !== "skip") {
+      for (const followUp of extract.followUps) {
+        if (!followUp.trim()) continue;
+        try {
+          const followUpText = followUp.trim().startsWith("Follow up:")
+            ? followUp.trim()
+            : `Follow up: ${followUp.trim()}`;
+          const { item: action, created } = await createActionTracked(username, {
+            text: followUpText,
+            source: "meeting",
+            eventId,
+            sourceRef,
+            priority: "medium",
+            confidence: extract.confidence,
+            needsReview: needsReviewFlag(zoomATier),
+          });
+          if (created) {
+            actionsCreated++;
+            zoomAuditEntries.push(auditCreated(sourceRef, "action", action.id, followUpText.slice(0, 80)));
+          }
+        } catch (e) {
+          console.error("[zoom-process] failed to create follow-up action:", e);
+        }
+      }
+    }
+
     if (actionsCreated > 0) {
       console.log(`[zoom-process] materialized ${actionsCreated} action(s) for ${externalId}`);
     }
@@ -461,14 +519,24 @@ export async function processZoomEmail(opts: ProcessZoomEmailOpts): Promise<void
 
     // ── Meeting summary memory ────────────────────────────────────────────────
     if (extract.summary?.trim() && zoomMTier !== "skip") {
+      // Build a rich memory record that includes topics covered so the briefing
+      // and chat can surface relevant meeting context by topic.
       const attendeeNote =
         extract.attendees.length > 0
           ? ` Attendees: ${extract.attendees.slice(0, 6).join(", ")}.`
           : "";
+      const topicNote =
+        extract.topics?.length > 0
+          ? ` Topics covered: ${extract.topics.slice(0, 5).join("; ")}.`
+          : "";
+      const blockerNote =
+        extract.blockers?.length > 0
+          ? ` Open blockers: ${extract.blockers.slice(0, 3).join("; ")}.`
+          : "";
       try {
         const { item: memory, created } = await createMemoryTracked(username, {
           kind: "context",
-          content: `[Zoom meeting — ${extract.meetingTitle}]${attendeeNote} ${extract.summary.trim()}`,
+          content: `[Zoom meeting — ${extract.meetingTitle}]${attendeeNote}${topicNote}${blockerNote} ${extract.summary.trim()}`,
           source: "inferred",
           confidence: extract.confidence,
           needsReview: needsReviewFlag(zoomMTier),

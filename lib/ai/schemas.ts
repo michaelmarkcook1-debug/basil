@@ -146,6 +146,8 @@ export const ZoomMeetingExtractSchema = z.object({
   decisions:    z.array(ZoomDecisionSchema).default([]),
   blockers:     z.array(z.string()).default([]),
   followUps:    z.array(z.string()).default([]),
+  /** Key topics and themes discussed — not decisions, not action items, just what was covered. */
+  topics:       z.array(z.string()).default([]),
   confidence:   confidenceSchema,
 });
 

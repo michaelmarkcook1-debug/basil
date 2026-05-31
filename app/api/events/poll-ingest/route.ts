@@ -160,7 +160,7 @@ export async function POST(req: Request) {
     getRecentEmails(username, 20).catch(() => []),
     getRecentSlackMessages(username, 30).catch(() => []),
     getTodayEvents(username).catch(() => []),
-    searchEmails(username, ZOOM_GMAIL_QUERY, 8).catch(() => []),
+    searchEmails(username, ZOOM_GMAIL_QUERY, 25).catch(() => []),
     getRecentOutlookMessages(username, 20, 2).catch(() => []),
     getRecentTeamsMessages(username, 30, 3).catch(() => []),
     getSelfIdentity(username),

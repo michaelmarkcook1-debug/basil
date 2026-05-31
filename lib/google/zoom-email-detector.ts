@@ -19,11 +19,14 @@
  */
 export const ZOOM_GMAIL_QUERY =
   "from:(zoom.us OR no-reply@zoom.us OR meeting-summary@zoom.us OR " +
-  "notify.zoom.us OR zoomgov.com OR noreply@zoom.us) " +
+  "notify.zoom.us OR zoomgov.com OR noreply@zoom.us OR donotreply@zoom.us) " +
   '(subject:"meeting summary" OR subject:"AI Companion" OR subject:"Smart Summary" OR ' +
   'subject:"Zoom AI Companion" OR subject:"recording available" OR ' +
   'subject:"transcript available" OR subject:"post-meeting" OR ' +
-  'subject:"meeting notes" OR subject:"Zoom Meeting")';
+  'subject:"meeting notes" OR subject:"Zoom Meeting" OR ' +
+  'subject:"cloud recording" OR subject:"action items" OR ' +
+  'subject:"meeting recap" OR subject:"meeting highlights" OR ' +
+  'subject:"your Zoom meeting" OR subject:"meeting ended")';
 
 // Known Zoom sender display name patterns (for detection when domain is stripped)
 const ZOOM_SENDER_NAME_PATTERNS = [
