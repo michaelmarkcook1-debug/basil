@@ -556,7 +556,7 @@ export default function DecisionsPage() {
   // returns; domain-emit can only fire from the browser. Without this interval
   // newly-materialized decisions never appear when the user is on this page.
   useEffect(() => {
-    const interval = setInterval(() => { void refresh(); }, 45_000);
+    const interval = setInterval(() => { void refresh(); }, 120_000);
     return () => clearInterval(interval);
   }, [refresh]);
 

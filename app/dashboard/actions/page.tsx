@@ -880,7 +880,7 @@ export default function ActionsPage() {
   // (BroadcastChannel). If the user is on this page rather than the main dashboard where
   // BasilWatching triggers emits, new actions would never appear without this interval.
   useEffect(() => {
-    const interval = setInterval(() => { void refresh(); }, 45_000);
+    const interval = setInterval(() => { void refresh(); }, 120_000);
     return () => clearInterval(interval);
   }, [refresh]);
 

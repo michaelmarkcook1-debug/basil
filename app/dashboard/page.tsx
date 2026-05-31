@@ -1517,7 +1517,7 @@ const swrFetch = (url: string) =>
 // so navigating between pages doesn't trigger unnecessary refetches.
 const SWR_OPTS = {
   revalidateOnFocus:    false,
-  dedupingInterval:     120_000, // 2 min
+  dedupingInterval:     300_000, // 5 min
   revalidateIfStale:    true,    // silently refresh stale data in background
 } as const;
 

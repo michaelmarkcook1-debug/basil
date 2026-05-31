@@ -153,7 +153,7 @@ export function BasilWatching() {
 
   // Periodic poll — cross-instance / tab-backgrounded fallback (see comment above).
   useEffect(() => {
-    const interval = setInterval(() => { void load(); }, 30_000);
+    const interval = setInterval(() => { void load(); }, 90_000);
     return () => clearInterval(interval);
   }, [load]);
 

@@ -30,8 +30,12 @@ import { getSessionUser } from "@/lib/auth";
  */
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
+// Keep connection lifetime short — EventSource auto-reconnects with Last-Event-ID,
+// so no data is lost.  55 s releases the Fluid Compute slot ~5× more often than
+// the 300 s platform default, significantly reducing active-CPU billing.
+export const maxDuration = 55;
 
-const POLL_MS      = 5_000;   // check for new/updated events every 5 s
+const POLL_MS      = 30_000;  // check for new/updated events every 30 s (was 5 s)
 const HEARTBEAT_MS = 20_000;  // SSE comment to keep proxies alive
 
 export async function GET(req: Request) {
