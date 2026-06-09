@@ -43,6 +43,8 @@ export interface EmailPerson {
 export interface EmailAction {
   text: string;
   dueDate?: string;
+  /** ISO timestamp when this action automatically expires (time-relative messages only). */
+  expiresAt?: string;
   /** Urgency of this specific action item. */
   priority?: "high" | "medium" | "low";
 }
@@ -62,12 +64,21 @@ export interface EmailDecision {
 
 // ── Intelligence output ────────────────────────────────────────────────────────
 
+export interface ToneShift {
+  /** Name of the person whose tone shifted. */
+  person: string;
+  /** Direction relative to typical communication with this person. */
+  direction: "warming" | "cooling" | "neutral";
+  /** 1-sentence description of the observed shift. */
+  summary: string;
+}
+
 export interface EmailIntelligence {
   category: EmailCategory;
   /** 0–1 — confidence in the category and extracted items. */
   confidence: number;
   urgency: EmailUrgency;
-  /** Explicit action items addressable to Michael. */
+  /** Explicit action items addressable to the user. */
   actions: EmailAction[];
   /** Explicit decisions reported in the email. */
   decisions: EmailDecision[];
@@ -84,6 +95,12 @@ export interface EmailIntelligence {
    * Empty string if the email is too sparse or low-value.
    */
   keyContext: string;
+  /**
+   * Detected tone/attitude shifts. Only set for relationship_signal emails
+   * where a notable change in warmth, engagement, or disposition is clearly
+   * observable from the message language. Omit for routine communication.
+   */
+  toneShifts?: ToneShift[];
 }
 
 // ── Threshold constants ────────────────────────────────────────────────────────
@@ -164,7 +181,7 @@ export async function classifyEmail(
     console.error("[email-classify] username is required — refusing to classify without owner");
     return emptyIntelligence();
   }
-  const userName = (await getSettings(username).catch(() => null))?.name ?? username;
+  const userName = (await getSettings(username).catch((err) => { console.error("[email-classify] settings load failed:", err); return null; }))?.name ?? username;
   const userFirstName = userName.split(" ")[0];
 
   // Clip to 4 000 chars — enough for rich emails, bounded AI cost
@@ -207,6 +224,7 @@ Classification rules — follow these strictly:
 
 4. actions: only explicitly assigned or implied tasks for ${userFirstName} — not vague suggestions.
    Each action: text (required), dueDate (omit if none), priority ("high"/"medium"/"low" — high if urgent/deadline-driven, low if no urgency)
+   expiresAt: ISO timestamp when this action becomes irrelevant. ONLY set when the message contains time-relative language tied to a moment that will pass — e.g. "before the meeting in 30 minutes", "by end of day today", "this afternoon", "before the 2pm call", "in the next hour". Compute relative to the email DATE (${date}). Examples: "meeting in 30 mins" → DATE + 30 min; "by EOD" → DATEdate at T23:59:00Z; "before the 2pm call" → DATEdate at T14:00:00Z. Omit for vague or date-only deadlines (those go in dueDate instead).
 5. decisions: for confirmed/announced decisions, extract:
    - text: the full decision as a sentence
    - title: short (≤8 word) scannable headline, only if you can form one cleanly — omit key otherwise
@@ -220,6 +238,17 @@ Classification rules — follow these strictly:
 9. blockers: risks, problems, or concerns explicitly raised in the email
 10. keyContext: 1–2 sentences capturing what matters, or "" if low_value_noise
 
+11. toneShifts: ONLY for relationship_signal emails. Omit entirely for other categories.
+    Detect a shift when the sender's language reveals a notable change in warmth, engagement,
+    or disposition compared to what would be expected in a normal professional exchange.
+    Signals of WARMING: unexpectedly warm opener/closer, enthusiasm, praise, gratitude beyond routine,
+    offers of help unprompted, personal detail shared voluntarily.
+    Signals of COOLING: unusually terse, curt, formal where informal was expected, lack of greeting,
+    passive-aggressive language, withdrawal of previously offered help, notably shorter than usual.
+    DO NOT flag routine professional emails as a tone shift. Only flag when the language clearly
+    departs from baseline professional norms in one direction or the other.
+    Each entry: person (the sender's name), direction ("warming"/"cooling"/"neutral"), summary (1 sentence).
+
 Extract ONLY what is explicitly present. Never fabricate or infer.
 
 Respond with ONLY valid JSON — no markdown fences, no explanation:
@@ -227,17 +256,18 @@ Respond with ONLY valid JSON — no markdown fences, no explanation:
   "category": "action_required",
   "confidence": 0.85,
   "urgency": "medium",
-  "actions": [{"text": "string", "dueDate": "string or omit", "priority": "high|medium|low"}],
+  "actions": [{"text": "string", "dueDate": "string or omit", "priority": "high|medium|low", "expiresAt": "ISO timestamp or omit"}],
   "decisions": [{"text": "string", "title": "string or omit", "decidedBy": "string or omit", "rationale": "string or omit", "alternatives": ["string"] or omit, "consequences": ["string"] or omit}],
   "people": [{"name": "string", "role": "string or omit"}],
   "companies": ["string"],
   "deadlines": ["string"],
   "blockers": ["string"],
-  "keyContext": "1-2 sentences or empty string"
+  "keyContext": "1-2 sentences or empty string",
+  "toneShifts": [{"person": "string", "direction": "warming|cooling|neutral", "summary": "string"}] or omit
 }`;
 
   // Read flags outside the try block — failure to fetch flags must not block classification
-  const flags = await getFlags(username).catch(() => null);
+  const flags = await getFlags(username).catch((err) => { console.error("[email-classify] flags load failed:", err); return null; });
 
   // ── dispatch_active: dispatcher is the authoritative AI call path (Week 7) ──
   // When enabled, dispatch() replaces generateText() as the primary call and

@@ -18,7 +18,7 @@ export async function POST(req: Request) {
 
   try {
     const body = await req.json();
-    const { title, attendees, date, startTime, duration } = body;
+    const { title, attendees, date, startTime, duration, zoomLink, addVideoCall } = body;
 
     if (!title || !date || !startTime) {
       return NextResponse.json(
@@ -33,6 +33,8 @@ export async function POST(req: Request) {
       date,
       startTime,
       duration: duration || 30,
+      ...(zoomLink ? { zoomLink: String(zoomLink) } : {}),
+      ...(addVideoCall ? { addVideoCall: true } : {}),
     });
 
     await emitAuditEvent({

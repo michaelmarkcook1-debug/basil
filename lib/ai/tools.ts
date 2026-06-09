@@ -24,6 +24,13 @@ import {
   updateDecision,
 } from "@/lib/decisions/store";
 import { emitAuditEvent } from "@/lib/events/audit";
+import { syncLinearActionStates } from "@/lib/linear/sync-actions";
+import {
+  isLinearConnected,
+  getAllIssues,
+  getWorkflowStates,
+  updateIssue as updateLinearIssue,
+} from "@/lib/linear/client";
 import { findContactByName, timezoneFromLocation } from "@/lib/contacts-lookup";
 import { listUserContacts } from "@/lib/contacts/user-store";
 // NOTE: domain sync (emitChange) is NOT called here — tools.ts runs server-side
@@ -462,7 +469,7 @@ export function buildAssistantTools(username: string, firstName?: string, timezo
           .string()
           .optional()
           .describe(
-            "Optional entity the memory is about (e.g. 'Isaac Frank', 'AnalystGenius', 'Series A')."
+            "Optional entity the memory is about (e.g. a person, a company, or a project)."
           ),
       }),
       execute: async ({ kind, content, entity }) => {
@@ -492,7 +499,7 @@ export function buildAssistantTools(username: string, firstName?: string, timezo
           .string()
           .optional()
           .describe(
-            "Filter memories to this entity (e.g. 'Ed Baum', 'Series A'). Leave empty to retrieve all memories."
+            "Filter memories to this entity (e.g. a person or a project). Leave empty to retrieve all memories."
           ),
       }),
       execute: async ({ entity }) => {
@@ -546,6 +553,11 @@ export function buildAssistantTools(username: string, firstName?: string, timezo
           .describe("Filter by status. Defaults to all."),
       }),
       execute: async ({ status }) => {
+        // Reconcile linear-sourced actions with live Linear state before
+        // listing, so closed/cancelled/reassigned issues don't masquerade as
+        // open commitments. TTL-cached to keep tool latency low.
+        await syncLinearActionStates(username).catch(() => { /* non-fatal */ });
+
         const all = await listActions(username);
         const filter = status ?? "all";
         const items = filter === "all" ? all : all.filter((a) => a.status === filter);
@@ -832,6 +844,108 @@ export function buildAssistantTools(username: string, firstName?: string, timezo
           return { status: "message_sent", channel, preview: message.substring(0, 100) };
         }
         return { status: "failed", error: result.error };
+      },
+    }),
+
+    // ── LINEAR TOOLS ─────────────────────────────────────────────────────────
+
+    listLinearIssues: tool({
+      description: `List Linear issues across ${name}'s workspace. Use when ${name} asks about Linear issues, tickets, what's in progress, what's blocked, or the status of work. Returns each issue's identifier (e.g. "ANA-135"), title, status, assignee, team, and priority. By default returns NOT-done issues (the actionable ones); pass includeCompleted to also list done/cancelled.`,
+      inputSchema: z.object({
+        statusType: z
+          .enum(["all", "started", "unstarted", "triage", "completed"])
+          .optional()
+          .describe('Filter by Linear state type: "started" (In Progress), "unstarted" (Todo), "triage" (Backlog), "completed" (Done). Omit for all not-done issues.'),
+        assignedToMe: z.boolean().optional().describe(`Only ${name}'s assigned issues. Defaults to false (whole workspace).`),
+        includeCompleted: z.boolean().optional().describe("Include done/cancelled issues. Defaults to false."),
+      }),
+      execute: async ({ statusType, assignedToMe, includeCompleted }) => {
+        if (!(await isLinearConnected(username))) {
+          return { error: "Linear not connected. Connect it in Settings to manage issues." };
+        }
+        const all = await getAllIssues(username, {
+          ...(statusType && statusType !== "all" ? { stateType: statusType } : {}),
+          ...(assignedToMe ? { assigneeIsMe: true } : {}),
+        });
+        const visible = includeCompleted
+          ? all
+          : all.filter((i) => i.state.type !== "completed" && i.state.type !== "cancelled");
+        return {
+          count: visible.length,
+          issues: visible.slice(0, 40).map((i) => ({
+            identifier: i.identifier,
+            title: i.title,
+            status: i.state.name,
+            statusType: i.state.type,
+            assignee: i.assignee?.name ?? "Unassigned",
+            team: i.team.name,
+            priority: i.priority,
+            url: i.url,
+          })),
+        };
+      },
+    }),
+
+    updateLinearIssueStatus: tool({
+      description: `Change the status of a Linear issue. Use when ${name} asks to move, close, reopen, or update the status of a Linear issue — e.g. "mark ANA-135 done", "move the sentiment graph bug to In Progress". Identify the issue by its identifier (e.g. "ANA-135"). Shows the change for approval before applying.`,
+      inputSchema: z.object({
+        identifier: z.string().describe('The Linear issue identifier, e.g. "ANA-135".'),
+        targetStatus: z.string().describe('The status to move it to, e.g. "Done", "In Progress", "Todo", "Backlog", "Cancelled". Matched against the team\'s workflow states.'),
+      }),
+      needsApproval: true,
+      execute: async ({ identifier, targetStatus }) => {
+        if (!(await isLinearConnected(username))) {
+          return { error: "Linear not connected." };
+        }
+        // 1. Find the issue by identifier across the workspace.
+        const all = await getAllIssues(username);
+        const issue = all.find((i) => i.identifier.toLowerCase() === identifier.toLowerCase());
+        if (!issue) {
+          return { status: "not_found", error: `No Linear issue found with identifier "${identifier}".` };
+        }
+        // 2. Resolve the target state for the issue's team.
+        const states = await getWorkflowStates(username, issue.team.id);
+        const want = targetStatus.trim().toLowerCase();
+        // Match by name first, then by common synonyms → state type.
+        const synonymType: Record<string, string> = {
+          done: "completed", complete: "completed", completed: "completed", closed: "completed",
+          "in progress": "started", started: "started", doing: "started", "in-progress": "started",
+          todo: "unstarted", "to do": "unstarted", unstarted: "unstarted",
+          backlog: "triage", triage: "triage",
+          cancelled: "cancelled", canceled: "cancelled",
+        };
+        const target =
+          states.find((s) => s.name.toLowerCase() === want) ??
+          states.find((s) => s.type === synonymType[want]);
+        if (!target) {
+          return {
+            status: "invalid_status",
+            error: `Could not find a "${targetStatus}" state for team ${issue.team.name}.`,
+            availableStates: states.map((s) => s.name),
+          };
+        }
+        // 3. Apply the change.
+        try {
+          const updated = await updateLinearIssue(username, issue.id, { stateId: target.id });
+          await emitAuditEvent({
+            username,
+            source: "manual",
+            headline: `Moved ${issue.identifier} to ${target.name}`,
+            context: `${issue.title}\nFrom: ${issue.state.name} → ${target.name}`,
+            rationale: `${name} approved the Linear status change in chat.`,
+            entityName: issue.identifier,
+            tags: ["linear", "status-change", target.type],
+          });
+          return {
+            status: "updated",
+            identifier: updated.identifier,
+            title: updated.title,
+            newStatus: target.name,
+            url: updated.url,
+          };
+        } catch (e) {
+          return { status: "failed", error: e instanceof Error ? e.message : String(e) };
+        }
       },
     }),
 

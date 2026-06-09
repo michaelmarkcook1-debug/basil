@@ -117,9 +117,9 @@ export async function fetchSlackThread(
  *   [You]: Agreed — let's go with REST. I'll update the spec.
  *   Alice: Thanks!
  *
- * When `selfName` is provided, messages whose author matches Michael's display
- * name are rendered as "[You]: text" instead of "Michael Cook: text". This
- * lets the classifier distinguish messages Michael sent from messages he received.
+ * When `selfName` is provided, messages whose author matches the current user's
+ * display name are rendered as "[You]: text" instead of "Their Name: text". This
+ * lets the classifier distinguish messages the user sent from messages they received.
  */
 export function formatThreadTranscript(
   messages: SlackThreadMessage[],

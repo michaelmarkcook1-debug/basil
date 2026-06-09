@@ -112,8 +112,8 @@ export async function dispatch<T>(
   let output: T;
   let status: DispatchTrace["status"] = "success";
   let errorMessage: string | null = null;
-  let inputTokens = 0;
-  let outputTokens = 0;
+  const inputTokens = 0;
+  const outputTokens = 0;
 
   try {
     output = await generateValidated({

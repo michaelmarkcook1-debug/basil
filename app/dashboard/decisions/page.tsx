@@ -35,6 +35,7 @@ import type { Decision } from "@/lib/types/decision";
 import { DataState } from "@/components/ui/data-state";
 import { EvidencePanel } from "@/components/ui/trust-badge";
 import { TrustReviewPrompt } from "@/components/ui/trust-ui";
+import { ExplorePanel } from "@/components/explore-panel";
 
 const LEGACY_STORAGE_KEY = "sage-decisions";
 
@@ -90,7 +91,7 @@ function ConfidenceDot({ confidence }: { confidence?: number }) {
 
 function NeedsReviewBadge() {
   return (
-    <span className="inline-flex items-center gap-1 rounded-full bg-amber-100 border border-amber-200 px-2 py-0.5 text-[11px] font-medium text-amber-700">
+    <span className="inline-flex items-center gap-1 rounded-full bg-amber-100 border border-amber-200 px-2 py-0.5 text-xs font-medium text-amber-700">
       <ShieldQuestion className="h-3 w-3" />
       Needs review
     </span>
@@ -102,12 +103,14 @@ function DecisionCard({
   onToggleSuperseded,
   onConfirmReview,
   onDelete,
+  onNotes,
   photos = {},
 }: {
   d: Decision;
   onToggleSuperseded: (id: string) => void;
   onConfirmReview?: (id: string) => void;
   onDelete?: (id: string) => void;
+  onNotes?: (id: string, notes: string) => Promise<void>;
   photos?: Record<string, string>;
 }) {
   const [expanded, setExpanded] = useState(false);
@@ -181,14 +184,14 @@ function DecisionCard({
                 {onDelete && (
                   confirmingDelete ? (
                     <div className="flex items-center gap-1 ml-1">
-                      <span className="text-[10px] text-destructive font-medium">Delete?</span>
+                      <span className="text-xs text-destructive font-medium">Delete?</span>
                       <button
                         onClick={() => { onDelete(d.id); setConfirmingDelete(false); }}
-                        className="text-[10px] font-semibold text-destructive hover:underline"
+                        className="text-xs font-semibold text-destructive hover:underline"
                       >Yes</button>
                       <button
                         onClick={() => setConfirmingDelete(false)}
-                        className="text-[10px] text-muted-foreground hover:underline"
+                        className="text-xs text-muted-foreground hover:underline"
                       >No</button>
                     </div>
                   ) : (
@@ -213,7 +216,7 @@ function DecisionCard({
                     color={contact.color}
                     photoUrl={photos[contact.email?.toLowerCase() ?? ""]}
                     className="h-4 w-4"
-                    fallbackClassName="text-[10px]"
+                    fallbackClassName="text-xs"
                   />
                 )}
                 <span className="text-xs text-muted-foreground">{d.decidedBy}</span>
@@ -223,8 +226,8 @@ function DecisionCard({
                 variant="outline"
                 className={
                   d.status === "active"
-                    ? "border-emerald-400 text-emerald-600 text-[11px] h-4 px-1.5"
-                    : "text-[11px] h-4 px-1.5"
+                    ? "border-emerald-400 text-emerald-600 text-xs h-4 px-1.5"
+                    : "text-xs h-4 px-1.5"
                 }
               >
                 {d.status}
@@ -232,7 +235,7 @@ function DecisionCard({
               {sourceLabel && (
                 <Badge
                   variant="outline"
-                  className={`text-[11px] h-4 px-1.5 ${sourceCls}`}
+                  className={`text-xs h-4 px-1.5 ${sourceCls}`}
                 >
                   {sourceLabel}
                 </Badge>
@@ -349,6 +352,14 @@ function DecisionCard({
                 context={expanded ? d.context : undefined}
               />
             )}
+
+            {/* Explore further — inline notes */}
+            {onNotes && d.status === "active" && (
+              <ExplorePanel
+                notes={d.notes}
+                onSave={(notes) => onNotes(d.id, notes)}
+              />
+            )}
           </div>
         </div>
       </CardContent>
@@ -417,7 +428,7 @@ function ResolvedDecisionsPanel({ items, todayStr }: { items: Decision[]; todayS
       <div className="space-y-4 max-h-[70vh] overflow-y-auto pr-1">
         {dates.map((date) => (
           <div key={date}>
-            <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground mb-1.5">
+            <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-1.5">
               {dateLabel(date)}
             </p>
             <div>
@@ -431,7 +442,7 @@ function ResolvedDecisionsPanel({ items, todayStr }: { items: Decision[]; todayS
                     <p className="text-xs text-muted-foreground leading-snug line-clamp-2">
                       {d.title || d.text}
                     </p>
-                    <p className="text-[10px] text-muted-foreground/60 mt-0.5">{d.decidedBy}</p>
+                    <p className="text-xs text-muted-foreground/60 mt-0.5">{d.decidedBy}</p>
                   </div>
                 </div>
               ))}
@@ -611,6 +622,13 @@ export default function DecisionsPage() {
   }
 
   async function handleConfirmReview(id: string) {
+    // Optimistic update — bust cache before notify() re-renders from it
+    const patched = decisions.map((d) =>
+      d.id === id ? { ...d, needsReview: false } : d
+    );
+    setDecisions(patched);
+    dashboardCache.set("decisions", patched);
+
     await fetch(`/api/decisions/${id}`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
@@ -620,14 +638,39 @@ export default function DecisionsPage() {
   }
 
   async function handleDelete(id: string) {
+    // Optimistic removal — remove from local state and cache immediately
+    // so notify()'s refresh() doesn't resurrect the item from stale cache
+    const filtered = decisions.filter((d) => d.id !== id);
+    setDecisions(filtered);
+    dashboardCache.set("decisions", filtered);
+
     await fetch(`/api/decisions/${id}`, { method: "DELETE" });
     notify();
+  }
+
+  async function handleNotes(id: string, notes: string) {
+    const patched = decisions.map((d) => (d.id === id ? { ...d, notes } : d));
+    setDecisions(patched);
+    dashboardCache.set("decisions", patched);
+    await fetch(`/api/decisions/${id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ notes }),
+    });
   }
 
   async function toggleSuperseded(id: string) {
     const current = decisions.find((d) => d.id === id);
     if (!current) return;
     const next = current.status === "active" ? "superseded" : "active";
+
+    // Optimistic update
+    const patched = decisions.map((d) =>
+      d.id === id ? { ...d, status: next as "active" | "superseded" } : d
+    );
+    setDecisions(patched);
+    dashboardCache.set("decisions", patched);
+
     await fetch(`/api/decisions/${id}`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
@@ -768,6 +811,7 @@ export default function DecisionsPage() {
               onToggleSuperseded={toggleSuperseded}
               onConfirmReview={handleConfirmReview}
               onDelete={handleDelete}
+              onNotes={handleNotes}
               photos={photos}
             />
           ))}
@@ -821,7 +865,7 @@ export default function DecisionsPage() {
           </Card>
         )}
         {confirmedDecisions.map((d) => (
-          <DecisionCard key={d.id} d={d} onToggleSuperseded={toggleSuperseded} onDelete={handleDelete} photos={photos} />
+          <DecisionCard key={d.id} d={d} onToggleSuperseded={toggleSuperseded} onDelete={handleDelete} onNotes={handleNotes} photos={photos} />
         ))}
       </div>
 

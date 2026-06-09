@@ -19,6 +19,19 @@ import { z } from "zod";
 const prioritySchema = z.enum(["high", "medium", "low"]);
 const confidenceSchema = z.number().min(0).max(1).catch(0.5);
 
+/**
+ * A single detected tone/attitude shift in a relationship_signal message.
+ * Only present when the AI observes a notable change — not for routine messages.
+ */
+const ToneShiftSchema = z.object({
+  /** Name of the person whose tone shifted (should match a known contact). */
+  person: z.string(),
+  /** Direction relative to what's typical for this relationship. */
+  direction: z.enum(["warming", "cooling", "neutral"]),
+  /** 1-sentence description of the observed shift. */
+  summary: z.string(),
+});
+
 // ── Email Intelligence ─────────────────────────────────────────────────────────
 
 export const EmailCategorySchema = z.enum([
@@ -33,9 +46,11 @@ export const EmailCategorySchema = z.enum([
 ]);
 
 const EmailActionSchema = z.object({
-  text:     z.string(),
-  dueDate:  z.string().optional(),
-  priority: prioritySchema.optional(),
+  text:      z.string(),
+  dueDate:   z.string().optional(),
+  priority:  prioritySchema.optional(),
+  /** ISO timestamp when this action auto-expires — only for time-bounded actions. */
+  expiresAt: z.string().optional(),
 });
 
 const EmailDecisionSchema = z.object({
@@ -63,6 +78,12 @@ export const EmailIntelligenceSchema = z.object({
   deadlines:  z.array(z.string()).default([]),
   blockers:   z.array(z.string()).default([]),
   keyContext: z.string().default(""),
+  /**
+   * Detected tone/attitude shifts — only present for relationship_signal
+   * messages where a notable change in warmth, engagement, or disposition
+   * is explicitly observable. Omit for routine professional communication.
+   */
+  toneShifts: z.array(ToneShiftSchema).optional(),
 });
 
 export type EmailIntelligenceOutput = z.infer<typeof EmailIntelligenceSchema>;
@@ -83,10 +104,12 @@ export const SlackSignalCategorySchema = z.enum([
 ]);
 
 const SlackActionSchema = z.object({
-  text:     z.string(),
-  owner:    z.string().optional(),
-  dueDate:  z.string().optional(),
-  priority: prioritySchema.optional(),
+  text:      z.string(),
+  owner:     z.string().optional(),
+  dueDate:   z.string().optional(),
+  priority:  prioritySchema.optional(),
+  /** ISO timestamp when this action auto-expires — only for time-bounded actions. */
+  expiresAt: z.string().optional(),
 });
 
 const SlackDecisionSchema = z.object({
@@ -114,6 +137,12 @@ export const SlackIntelligenceSchema = z.object({
   people:             z.array(SlackPersonSchema).default([]),
   companies:          z.array(z.string()).default([]),
   keyContext:         z.string().default(""),
+  /**
+   * Detected tone/attitude shifts — only for relationship_signal messages
+   * where a notable change in warmth, engagement, or disposition is
+   * explicitly observable. Omit for routine professional communication.
+   */
+  toneShifts:         z.array(ToneShiftSchema).optional(),
 });
 
 export type SlackIntelligenceOutput = z.infer<typeof SlackIntelligenceSchema>;

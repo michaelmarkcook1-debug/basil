@@ -28,10 +28,10 @@ export function mapProviderError(err: unknown): SafeError {
       userMessage:
         "Basil tried to analyse too much context at once. Narrow the request by date, source, or project.",
       narrowingOptions: [
-        "AG updates from the last 7 days",
-        "AG blockers only",
-        "AG Slack updates this week",
-        "AG decisions and actions only",
+        "Example Analytics updates from the last 7 days",
+        "Example Analytics blockers only",
+        "Example Analytics Slack updates this week",
+        "Example Analytics decisions and actions only",
       ],
     };
   }

@@ -72,6 +72,15 @@ export interface ActionItem {
   /** ID of a decision the user created in response to the decisionRequired flag. */
   linkedDecisionId?: string;
 
+  /**
+   * ISO timestamp at which this action automatically expires and is silently
+   * archived. Set by the AI when the source message contains time-relative
+   * language that makes the action meaningless after a specific moment —
+   * e.g. "can we change X before the meeting in 30 minutes" or "reply by EOD".
+   * Once `expiresAt < now` the action is auto-archived in `listActions`.
+   */
+  expiresAt?: string;
+
   // ── Eisenhower classification ────────────────────────────────────────────────
   /**
    * Eisenhower Matrix quadrant — classified by AI from action text + context.
@@ -86,6 +95,13 @@ export interface ActionItem {
   eisenhowerReason?: string;
   /** ISO timestamp when the Eisenhower classification was last computed. */
   eisenhowerClassifiedAt?: string;
+
+  // ── User annotations ────────────────────────────────────────────────────────
+  /**
+   * Freeform notes added by the user via "Explore further".
+   * Never overwritten by AI pipeline runs — user-owned only.
+   */
+  notes?: string;
 
   // ── Provenance ───────────────────────────────────────────────────────────────
   /** ID of the BasilEvent that produced this item, if created via the event pipeline. */

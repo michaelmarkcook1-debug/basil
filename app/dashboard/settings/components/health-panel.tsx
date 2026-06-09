@@ -109,7 +109,7 @@ function SummaryBanner({
         <span className="text-[13px] font-medium">{summaryText}</span>
       </div>
       <div className="flex items-center gap-3">
-        <span className="text-[11px] opacity-70 tabular-nums">
+        <span className="text-xs opacity-70 tabular-nums">
           {relAgo(checkedAt)}
         </span>
         <Button
@@ -117,7 +117,7 @@ function SummaryBanner({
           size="sm"
           onClick={onRefresh}
           disabled={loading}
-          className="gap-1 h-6 px-2 text-[11px] opacity-70 hover:opacity-100"
+          className="gap-1 h-6 px-2 text-xs opacity-70 hover:opacity-100"
           title="Refresh health check"
         >
           <RefreshCw className={`h-3 w-3 ${loading ? "animate-spin" : ""}`} />
@@ -154,7 +154,7 @@ function TileRow({ tile }: { tile: HealthTile }) {
 
         {/* Status badge */}
         <span
-          className={`inline-flex items-center rounded-md px-2 py-0.5 text-[11px] font-medium leading-tight tabular-nums ${BADGE_CLASS[tile.color]}`}
+          className={`inline-flex items-center rounded-md px-2 py-0.5 text-xs font-medium leading-tight tabular-nums ${BADGE_CLASS[tile.color]}`}
         >
           {tile.statusText}
         </span>
@@ -163,7 +163,7 @@ function TileRow({ tile }: { tile: HealthTile }) {
         <span className="flex-1" />
 
         {/* Last checked */}
-        <span className="text-[11px] text-muted-foreground tabular-nums shrink-0 hidden sm:block">
+        <span className="text-xs text-muted-foreground tabular-nums shrink-0 hidden sm:block">
           {relAgo(tile.lastCheckedAt)}
         </span>
 
@@ -186,7 +186,7 @@ function TileRow({ tile }: { tile: HealthTile }) {
               {tile.sub!.map((s) => (
                 <span
                   key={s.label}
-                  className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-medium ${
+                  className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-medium ${
                     s.ok
                       ? "bg-emerald-50 text-emerald-700 border border-emerald-200"
                       : "bg-zinc-100 text-zinc-500 border border-zinc-200"
@@ -242,7 +242,7 @@ function Section({
         onClick={() => setOpen((p) => !p)}
         aria-expanded={open}
       >
-        <span className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground group-hover:text-foreground transition-colors">
+        <span className="text-xs font-semibold uppercase tracking-wider text-muted-foreground group-hover:text-foreground transition-colors">
           {title}
         </span>
         {open
@@ -250,13 +250,13 @@ function Section({
           : <ChevronRight className="h-3 w-3 text-muted-foreground" />}
         {/* Issue count pill */}
         {tiles.filter((t) => t.color === "red").length > 0 && (
-          <span className="ml-1 inline-flex items-center rounded-full bg-red-100 text-red-700 text-[10px] font-semibold px-1.5 py-0.5">
+          <span className="ml-1 inline-flex items-center rounded-full bg-red-100 text-red-700 text-xs font-semibold px-1.5 py-0.5">
             {tiles.filter((t) => t.color === "red").length}
           </span>
         )}
         {tiles.filter((t) => t.color === "red").length === 0 &&
           tiles.filter((t) => t.color === "amber").length > 0 && (
-          <span className="ml-1 inline-flex items-center rounded-full bg-amber-100 text-amber-700 text-[10px] font-semibold px-1.5 py-0.5">
+          <span className="ml-1 inline-flex items-center rounded-full bg-amber-100 text-amber-700 text-xs font-semibold px-1.5 py-0.5">
             {tiles.filter((t) => t.color === "amber").length}
           </span>
         )}
@@ -356,7 +356,7 @@ function SyncButton({
         {state === "running" ? "Syncing…" : label}
       </Button>
       {msg && (
-        <span className={`text-[11px] ${state === "error" ? "text-red-500" : "text-muted-foreground"}`}>
+        <span className={`text-xs ${state === "error" ? "text-red-500" : "text-muted-foreground"}`}>
           {msg}
         </span>
       )}
@@ -367,7 +367,7 @@ function SyncButton({
 function SyncNowStrip({ onSynced }: { onSynced: () => void }) {
   return (
     <div className="rounded-lg border border-dashed border-border bg-muted/30 px-3 py-3 space-y-2">
-      <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+      <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
         Sync now
       </p>
       <div className="flex flex-wrap gap-2">
@@ -376,7 +376,7 @@ function SyncNowStrip({ onSynced }: { onSynced: () => void }) {
         <SyncButton icon={CalendarCheck} label="Register calendar webhook" job="calendar" onComplete={onSynced} />
         <SyncButton icon={Brain}         label="Generate briefing" job="briefing" onComplete={onSynced} />
       </div>
-      <p className="text-[11px] text-muted-foreground">
+      <p className="text-xs text-muted-foreground">
         Slack syncs hourly · Ingest runs every 6 hours · Calendar webhook auto-renews monthly · or trigger manually here
       </p>
     </div>
@@ -491,7 +491,7 @@ export function HealthPanel() {
                 grey:  "Not connected",
               };
               return (
-                <span key={c} className="flex items-center gap-1 text-[11px] text-muted-foreground">
+                <span key={c} className="flex items-center gap-1 text-xs text-muted-foreground">
                   <span className={`h-2 w-2 rounded-full ${DOT_CLASS[c]}`} />
                   {labels[c]}
                 </span>

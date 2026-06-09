@@ -97,7 +97,7 @@ function projectNamesFromText(text: string, fallback?: string): string[] {
     if (pattern.test(haystack)) candidates.add(normaliseName(known));
   }
 
-  // Pull compact product-style names: AnalystGenius, Stig Cloud, Vercel Deploy, etc.
+  // Pull compact product-style names: Example Analytics, Stig Cloud, Vercel Deploy, etc.
   for (const match of haystack.matchAll(/\b([A-Z][A-Za-z0-9]+(?:\s+[A-Z][A-Za-z0-9]+){0,3})\b/g)) {
     const phrase = match[1].trim();
     const words = phrase.split(/\s+/);

@@ -1,6 +1,7 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useMemo } from "react";
+import { useRouter } from "next/navigation";
 import { Card, CardContent } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Button } from "@/components/ui/button";
@@ -8,14 +9,17 @@ import {
   CalendarCheck,
   Video,
   Users,
-  ChevronRight,
-  Unplug,
   ChevronDown,
   ChevronUp,
   Plus,
+  Sparkles,
+  Unplug,
+  Search,
 } from "lucide-react";
 import { formatTime } from "@/lib/utils";
 import Link from "next/link";
+
+// ── Types ──────────────────────────────────────────────────────────────────────
 
 interface CalEvent {
   id: string;
@@ -38,6 +42,117 @@ interface ManualPrep {
   outcome: string;
   createdAt: string;
 }
+
+interface PastMeetingMemory {
+  id: string;
+  content: string;
+  entity?: string;
+  createdAt?: string;
+  sourceRef?: string;
+  eventId?: string;
+}
+
+// ── Meeting picker (calendar-linked) ─────────────────────────────────────────
+
+/**
+ * When calendar is connected, lets the user jump directly to any upcoming
+ * meeting's prep page without scrolling through the grouped list.
+ */
+function CalendarMeetingPicker({ events }: { events: CalEvent[] }) {
+  const router = useRouter();
+  const [open, setOpen] = useState(false);
+  const [query, setQuery] = useState("");
+
+  const filtered = useMemo(() => {
+    if (!query.trim()) return events;
+    const q = query.toLowerCase();
+    return events.filter(
+      (e) =>
+        e.summary.toLowerCase().includes(q) ||
+        (e.attendees ?? []).some((a) => a.toLowerCase().includes(q)) ||
+        (e.dateLabel ?? "").toLowerCase().includes(q)
+    );
+  }, [events, query]);
+
+  return (
+    <div className="mb-2">
+      <button
+        onClick={() => setOpen((v) => !v)}
+        className="flex items-center gap-2 text-sm font-medium text-[oklch(0.72_0.15_85)] hover:underline"
+      >
+        <Search className="h-4 w-4" />
+        Prep a specific meeting
+        {open ? <ChevronUp className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}
+      </button>
+
+      {open && (
+        <Card className="mt-3 border-[oklch(0.72_0.15_85)]/30">
+          <CardContent className="p-4 space-y-3">
+            <p className="text-xs text-muted-foreground">
+              Select any upcoming calendar event to generate a prep cheatsheet.
+            </p>
+
+            {/* Search */}
+            <input
+              type="text"
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              placeholder="Search by title, attendee, or day…"
+              autoFocus
+              className="w-full rounded-md border border-border bg-background px-3 py-1.5 text-sm outline-none focus:ring-2 focus:ring-[oklch(0.72_0.15_85)]/40"
+            />
+
+            {/* Event list */}
+            <div className="max-h-72 overflow-y-auto space-y-1.5 pr-1">
+              {filtered.length === 0 ? (
+                <p className="text-xs text-muted-foreground py-2 text-center">No meetings match.</p>
+              ) : (
+                filtered.map((event) => (
+                  <button
+                    key={event.id}
+                    onClick={() => router.push(`/dashboard/meetings/${event.id}`)}
+                    className="w-full flex items-center gap-3 rounded-lg px-3 py-2 text-left text-sm hover:bg-accent/50 transition-colors"
+                  >
+                    {/* Time block */}
+                    <div className="flex flex-col items-center justify-center rounded bg-muted px-2 py-1 min-w-[60px] text-center shrink-0">
+                      <span className="text-xs font-mono font-medium">{formatTime(event.start)}</span>
+                      {event.dateLabel && (
+                        <span className="text-xs text-muted-foreground leading-tight">
+                          {event.dateLabel === "Today" || event.dateLabel === "Tomorrow"
+                            ? event.dateLabel
+                            : event.dateLabel.split(",")[0]}
+                        </span>
+                      )}
+                    </div>
+
+                    {/* Title + attendees */}
+                    <div className="flex-1 min-w-0">
+                      <p className="font-medium truncate">{event.summary}</p>
+                      {event.attendees && event.attendees.length > 0 && (
+                        <p className="text-xs text-muted-foreground truncate">
+                          {event.attendees.slice(0, 3).join(", ")}
+                          {event.attendees.length > 3 ? ` +${event.attendees.length - 3}` : ""}
+                        </p>
+                      )}
+                    </div>
+
+                    {/* Indicators */}
+                    <div className="flex items-center gap-1.5 shrink-0">
+                      {event.hasVideo && <Video className="h-3.5 w-3.5 text-muted-foreground" />}
+                      <Sparkles className="h-3.5 w-3.5 text-[oklch(0.72_0.15_85)]" />
+                    </div>
+                  </button>
+                ))
+              )}
+            </div>
+          </CardContent>
+        </Card>
+      )}
+    </div>
+  );
+}
+
+// ── Manual prep form (fallback when not connected) ────────────────────────────
 
 function ManualPrepForm({ onSaved }: { onSaved: (prep: ManualPrep) => void }) {
   const [open, setOpen] = useState(false);
@@ -89,12 +204,8 @@ function ManualPrepForm({ onSaved }: { onSaved: (prep: ManualPrep) => void }) {
         className="flex items-center gap-2 text-sm font-medium text-[oklch(0.72_0.15_85)] hover:underline"
       >
         <Plus className="h-4 w-4" />
-        Manual Meeting Prep
-        {open ? (
-          <ChevronUp className="h-3.5 w-3.5" />
-        ) : (
-          <ChevronDown className="h-3.5 w-3.5" />
-        )}
+        Manual meeting note
+        {open ? <ChevronUp className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}
       </button>
 
       {open && (
@@ -157,14 +268,9 @@ function ManualPrepForm({ onSaved }: { onSaved: (prep: ManualPrep) => void }) {
               </div>
               <div className="flex gap-2 pt-1">
                 <Button type="submit" size="sm" disabled={saving}>
-                  {saving ? "Saving…" : "Save prep"}
+                  {saving ? "Saving…" : "Save note"}
                 </Button>
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="sm"
-                  onClick={() => setOpen(false)}
-                >
+                <Button type="button" variant="ghost" size="sm" onClick={() => setOpen(false)}>
                   Cancel
                 </Button>
               </div>
@@ -181,7 +287,7 @@ function ManualPrepList({ preps }: { preps: ManualPrep[] }) {
   return (
     <div className="space-y-3 mt-4">
       <h3 className="text-xs font-bold uppercase tracking-wider text-muted-foreground">
-        Saved manual preps
+        Saved notes
       </h3>
       {preps.map((prep) => (
         <Card key={prep.id} className="border-border/60">
@@ -218,26 +324,88 @@ function ManualPrepList({ preps }: { preps: ManualPrep[] }) {
   );
 }
 
-interface PastMeetingMemory {
-  id: string;
-  content: string;
-  entity?: string;
-  createdAt?: string;
-  sourceRef?: string;
-  eventId?: string;
+// ── Past meeting memory helpers ───────────────────────────────────────────────
+
+/**
+ * Pulls structured fields out of a free-text meeting memory.
+ *
+ * Memory content typically follows one of two patterns:
+ *   1. `[Zoom meeting — TOPIC] YYYY-MM-DD. Attendees: a, b. Summary…`  (direct Zoom API)
+ *   2. `Topic plain text. Attendees: a, b. Summary…`                   (Gmail-detected)
+ *
+ * Best-effort: returns sensible defaults rather than throwing.
+ */
+function parseMeetingMemory(content: string): {
+  title: string;
+  summary: string;
+  date: string;
+  attendees: string[];
+} {
+  const bracketMatch = content.match(/\[(?:Zoom meeting\s*[—–-]\s*)?([^\]]+)\]/);
+  const dateMatch = content.match(/\d{4}-\d{2}-\d{2}/);
+  const attendeesMatch = content.match(/Attendees:\s*([^.]+?)\./i);
+
+  // Title: bracketed topic > first sentence before "Topics covered" > first 60 chars.
+  let title: string;
+  if (bracketMatch) {
+    title = bracketMatch[1].trim();
+  } else {
+    const firstSentence = content.split(/[.:]/)[0]?.trim() ?? "";
+    title = firstSentence && firstSentence.length < 80
+      ? firstSentence
+      : content.slice(0, 60).trim() + (content.length > 60 ? "…" : "");
+  }
+
+  const attendees = attendeesMatch
+    ? attendeesMatch[1]
+        .split(",")
+        .map((s) => s.trim())
+        .filter((s) => s && s.toLowerCase() !== "none listed" && s.toLowerCase() !== "unknown")
+    : [];
+
+  // Summary: strip the bracket header, the Attendees clause, and any leading
+  // date so the body reads cleanly as the meeting recap.
+  const summary = content
+    .replace(/\[[^\]]+\]/, "")
+    .replace(/Attendees:\s*[^.]+\.\s*/i, "")
+    .replace(/^\s*\d{4}-\d{2}-\d{2}\.\s*/, "")
+    .trim();
+
+  return {
+    title,
+    summary,
+    date: dateMatch ? dateMatch[0] : "",
+    attendees,
+  };
 }
 
-/** Extracts the meeting title from a Zoom memory content string. */
-function parseMeetingMemory(content: string): { title: string; summary: string; date: string } {
-  // Format: "[Zoom meeting — Title] Attendees: … Summary text."
-  const titleMatch = content.match(/\[Zoom meeting\s*[—–-]\s*([^\]]+)\]/);
-  const title = titleMatch ? titleMatch[1].trim() : "Zoom meeting";
-  const summary = content.replace(/\[Zoom meeting[^\]]*\]/, "").replace(/Attendees:[^.]*\./, "").trim();
-  // Try to extract date from content pattern like "[Zoom meeting — Title (YYYY-MM-DD)]"
-  const dateMatch = content.match(/\d{4}-\d{2}-\d{2}/);
-  const date = dateMatch ? dateMatch[0] : "";
-  return { title, summary, date };
+/** Format an ISO timestamp as "12 Apr · 14:30" for compact display. */
+function formatIngested(iso?: string): string {
+  if (!iso) return "";
+  const d = new Date(iso);
+  if (isNaN(d.getTime())) return "";
+  return d.toLocaleString(undefined, {
+    day: "numeric",
+    month: "short",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
 }
+
+/** Format a YYYY-MM-DD date as a readable day label. */
+function formatMeetingDate(iso: string): string {
+  if (!iso) return "";
+  const d = new Date(iso + "T12:00:00");
+  if (isNaN(d.getTime())) return iso;
+  return d.toLocaleDateString(undefined, {
+    weekday: "short",
+    day: "numeric",
+    month: "short",
+    year: "numeric",
+  });
+}
+
+// ── Page ───────────────────────────────────────────────────────────────────────
 
 export default function MeetingsPage() {
   const [events, setEvents] = useState<CalEvent[]>([]);
@@ -275,9 +443,20 @@ export default function MeetingsPage() {
   }
   const dayOrder = Object.keys(grouped);
 
+  // Build a human-readable range label for the subtitle (e.g. "7 days" / "14 days")
+  const daySpan = events.length > 0
+    ? Math.ceil(
+        (new Date(events[events.length - 1].start).getTime() - Date.now()) / 86_400_000
+      )
+    : 14;
+  const rangeLabel = daySpan <= 2 ? "today & tomorrow" : `next ${Math.min(daySpan + 1, 14)} days`;
+
   const handleManualSaved = (prep: ManualPrep) => {
     setManualPreps((prev) => [prep, ...prev]);
   };
+
+  // Tab state — defaults to upcoming. Past intelligence is the second tab.
+  const [activeTab, setActiveTab] = useState<"upcoming" | "past">("upcoming");
 
   return (
     <div className="p-4 sm:p-6 lg:p-8 space-y-6 pb-8">
@@ -287,13 +466,145 @@ export default function MeetingsPage() {
           Meeting Prep
         </h1>
         <p className="text-sm text-muted-foreground mt-1">
-          {connected
-            ? "Next 2 days. Click any meeting to generate a cheatsheet."
-            : "Connect Google Calendar to see upcoming meetings."}
+          {activeTab === "upcoming"
+            ? connected
+              ? `Showing ${rangeLabel}. Click any meeting to generate a prep cheatsheet.`
+              : "Connect Google Calendar to see upcoming meetings."
+            : "Recaps of meetings Basil has analysed."}
         </p>
       </header>
 
-      {loading ? (
+      {/* ── Tab strip ─────────────────────────────────────────────────────── */}
+      <div className="border-b border-border/60 -mx-4 sm:-mx-6 lg:-mx-8 px-4 sm:px-6 lg:px-8">
+        <div className="flex gap-1 -mb-px">
+          {([
+            { id: "upcoming", label: "Upcoming meetings", count: events.length },
+            { id: "past",     label: "Past intelligence",  count: pastMeetings.length },
+          ] as const).map((tab) => {
+            const active = activeTab === tab.id;
+            return (
+              <button
+                key={tab.id}
+                onClick={() => setActiveTab(tab.id)}
+                className={`relative flex items-center gap-2 px-4 py-2.5 text-sm font-medium transition-colors
+                  ${active
+                    ? "text-[oklch(0.72_0.15_85)]"
+                    : "text-muted-foreground hover:text-foreground"}`}
+              >
+                {tab.label}
+                {tab.count > 0 && (
+                  <span className={`inline-flex items-center justify-center min-w-[20px] h-5 px-1.5 rounded-full text-xs font-semibold
+                    ${active
+                      ? "bg-[oklch(0.72_0.15_85)]/15 text-[oklch(0.55_0.12_85)]"
+                      : "bg-muted text-muted-foreground"}`}>
+                    {tab.count}
+                  </span>
+                )}
+                {active && (
+                  <span className="absolute -bottom-px left-2 right-2 h-0.5 rounded-t-full bg-[oklch(0.72_0.15_85)]" />
+                )}
+              </button>
+            );
+          })}
+        </div>
+      </div>
+
+      {/* ── PAST INTELLIGENCE TAB ───────────────────────────────────────── */}
+      {activeTab === "past" && (
+        <div>
+          {pastLoading ? (
+            <div className="space-y-3">
+              {[0, 1, 2].map((i) => (
+                <Card key={i}>
+                  <CardContent className="p-4">
+                    <Skeleton className="h-4 w-2/3 mb-2" />
+                    <Skeleton className="h-3 w-full" />
+                    <Skeleton className="h-3 w-3/4 mt-1" />
+                  </CardContent>
+                </Card>
+              ))}
+            </div>
+          ) : pastMeetings.length === 0 ? (
+            <Card>
+              <CardContent className="py-12 text-center">
+                <Video className="h-10 w-10 mx-auto text-muted-foreground/30 mb-2" />
+                <p className="text-muted-foreground">No past meeting intelligence yet.</p>
+                <p className="text-xs text-muted-foreground/70 mt-1">
+                  Basil surfaces recaps automatically when Zoom emails arrive.
+                </p>
+              </CardContent>
+            </Card>
+          ) : (
+            <div className="space-y-3">
+              {pastMeetings.map((mem) => {
+                const { title, summary, date, attendees } = parseMeetingMemory(mem.content);
+                const meetingDate = date ? formatMeetingDate(date) : "";
+                const ingested = formatIngested(mem.createdAt);
+                return (
+                  <Card key={mem.id} className="border-border/60 hover:border-border transition-colors">
+                    <CardContent className="p-4">
+                      <div className="flex items-start gap-3">
+                        <Video className="h-4 w-4 text-[oklch(0.72_0.15_85)] mt-1 shrink-0" />
+                        <div className="min-w-0 flex-1 space-y-2">
+                          {/* Title row */}
+                          <p className="font-medium text-sm leading-snug">{title}</p>
+
+                          {/* Date / time row */}
+                          {(meetingDate || ingested) && (
+                            <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
+                              {meetingDate && (
+                                <span className="inline-flex items-center gap-1">
+                                  <CalendarCheck className="h-3 w-3" />
+                                  {meetingDate}
+                                </span>
+                              )}
+                              {ingested && (
+                                <span className="inline-flex items-center gap-1 text-muted-foreground/70">
+                                  · captured {ingested}
+                                </span>
+                              )}
+                            </div>
+                          )}
+
+                          {/* Attendees pills */}
+                          {attendees.length > 0 && (
+                            <div className="flex flex-wrap items-center gap-1.5">
+                              <Users className="h-3 w-3 text-muted-foreground/70" />
+                              {attendees.slice(0, 6).map((name, i) => (
+                                <span
+                                  key={i}
+                                  className="inline-block rounded-full bg-muted/60 px-2 py-0.5 text-xs text-foreground/80"
+                                >
+                                  {name}
+                                </span>
+                              ))}
+                              {attendees.length > 6 && (
+                                <span className="text-xs text-muted-foreground">
+                                  +{attendees.length - 6} more
+                                </span>
+                              )}
+                            </div>
+                          )}
+
+                          {/* Summary */}
+                          {summary && (
+                            <p className="text-sm text-muted-foreground leading-relaxed line-clamp-4">
+                              {summary}
+                            </p>
+                          )}
+                        </div>
+                      </div>
+                    </CardContent>
+                  </Card>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* ── UPCOMING MEETINGS TAB ───────────────────────────────────────── */}
+      {activeTab === "upcoming" && (loading ? (
         <div className="space-y-3">
           {Array.from({ length: 4 }).map((_, i) => (
             <Card key={i}>
@@ -310,6 +621,7 @@ export default function MeetingsPage() {
           ))}
         </div>
       ) : !connected ? (
+        /* ── Not connected ───────────────────────────────────────────────────── */
         <div className="space-y-6">
           <Card className="border-[oklch(0.72_0.15_85)]/30">
             <CardContent className="py-10 text-center">
@@ -328,127 +640,94 @@ export default function MeetingsPage() {
 
           <div>
             <p className="text-sm text-muted-foreground">
-              Or create a manual meeting prep:
+              Or save a manual meeting note:
             </p>
             <ManualPrepForm onSaved={handleManualSaved} />
             <ManualPrepList preps={manualPreps} />
           </div>
         </div>
-      ) : events.length === 0 ? (
-
-        <Card>
-          <CardContent className="py-12 text-center">
-            <p className="text-muted-foreground">No meetings in the next 2 days.</p>
-          </CardContent>
-        </Card>
       ) : (
+        /* ── Connected ───────────────────────────────────────────────────────── */
         <div className="space-y-6">
-          {dayOrder.map((dayLabel) => (
-            <div key={dayLabel}>
-              <div className="flex items-center gap-2 mb-3">
-                <h2 className="text-sm font-bold uppercase tracking-wider text-[oklch(0.72_0.15_85)]">
-                  {dayLabel}
-                </h2>
-                <div className="flex-1 h-px bg-border" />
-                <span className="text-xs text-muted-foreground">
-                  {grouped[dayLabel].length} meeting{grouped[dayLabel].length !== 1 ? "s" : ""}
-                </span>
-              </div>
-              <div className="space-y-3">
-                {grouped[dayLabel].map((event) => (
-                  <Link key={event.id} href={`/dashboard/meetings/${event.id}`}>
-                    <Card className="transition-colors hover:bg-accent/30 cursor-pointer mb-3">
-                      <CardContent className="p-4">
-                        <div className="flex items-center gap-4">
-                          <div className="flex flex-col items-center justify-center rounded-lg bg-muted px-3 py-2 text-center min-w-[72px]">
-                            <span className="text-sm font-mono font-medium">
-                              {formatTime(event.start)}
-                            </span>
-                            <span className="text-xs text-muted-foreground font-mono">
-                              {formatTime(event.end)}
-                            </span>
-                          </div>
-                          <div className="flex-1 min-w-0">
-                            <h3 className="font-medium">{event.summary}</h3>
-                            <div className="flex items-center gap-3 mt-1 text-sm text-muted-foreground flex-wrap">
-                              {event.hasVideo && (
-                                <span className="flex items-center gap-1">
-                                  <Video className="h-3.5 w-3.5" /> Zoom
-                                </span>
-                              )}
-                              {event.attendees && event.attendees.length > 0 && (
-                                <span className="flex items-center gap-1 truncate">
-                                  <Users className="h-3.5 w-3.5 shrink-0" />{" "}
-                                  {event.attendees.slice(0, 4).join(", ")}
-                                  {event.attendees.length > 4
-                                    ? ` +${event.attendees.length - 4}`
-                                    : ""}
-                                </span>
-                              )}
+
+          {/* Quick picker — jump to any meeting's prep page directly */}
+          {events.length > 0 && <CalendarMeetingPicker events={events} />}
+
+          {/* Grouped meeting list */}
+          {events.length === 0 ? (
+            <Card>
+              <CardContent className="py-12 text-center">
+                <p className="text-muted-foreground">No upcoming meetings in the next 14 days.</p>
+              </CardContent>
+            </Card>
+          ) : (
+            dayOrder.map((dayLabel) => (
+              <div key={dayLabel}>
+                <div className="flex items-center gap-2 mb-3">
+                  <h2 className="text-sm font-bold uppercase tracking-wider text-[oklch(0.72_0.15_85)]">
+                    {dayLabel}
+                  </h2>
+                  <div className="flex-1 h-px bg-border" />
+                  <span className="text-xs text-muted-foreground">
+                    {grouped[dayLabel].length} meeting
+                    {grouped[dayLabel].length !== 1 ? "s" : ""}
+                  </span>
+                </div>
+
+                <div className="space-y-3">
+                  {grouped[dayLabel].map((event) => (
+                    <Link key={event.id} href={`/dashboard/meetings/${event.id}`}>
+                      <Card className="transition-colors hover:bg-accent/30 cursor-pointer mb-3">
+                        <CardContent className="p-4">
+                          <div className="flex items-center gap-4">
+                            {/* Time block */}
+                            <div className="flex flex-col items-center justify-center rounded-lg bg-muted px-3 py-2 text-center min-w-[72px]">
+                              <span className="text-sm font-mono font-medium">
+                                {formatTime(event.start)}
+                              </span>
+                              <span className="text-xs text-muted-foreground font-mono">
+                                {formatTime(event.end)}
+                              </span>
+                            </div>
+
+                            {/* Title + meta */}
+                            <div className="flex-1 min-w-0">
+                              <h3 className="font-medium">{event.summary}</h3>
+                              <div className="flex items-center gap-3 mt-1 text-sm text-muted-foreground flex-wrap">
+                                {event.hasVideo && (
+                                  <span className="flex items-center gap-1">
+                                    <Video className="h-3.5 w-3.5" /> Zoom
+                                  </span>
+                                )}
+                                {event.attendees && event.attendees.length > 0 && (
+                                  <span className="flex items-center gap-1 truncate">
+                                    <Users className="h-3.5 w-3.5 shrink-0" />{" "}
+                                    {event.attendees.slice(0, 4).join(", ")}
+                                    {event.attendees.length > 4
+                                      ? ` +${event.attendees.length - 4}`
+                                      : ""}
+                                  </span>
+                                )}
+                              </div>
+                            </div>
+
+                            {/* Prep CTA */}
+                            <div className="flex items-center gap-1.5 rounded-full bg-[oklch(0.72_0.15_85)]/10 text-[oklch(0.55_0.15_85)] px-3 py-1.5 text-xs font-semibold shrink-0 transition-colors hover:bg-[oklch(0.72_0.15_85)]/20">
+                              <Sparkles className="h-3.5 w-3.5" />
+                              Prep
                             </div>
                           </div>
-                          <ChevronRight className="h-4 w-4 text-muted-foreground shrink-0" />
-                        </div>
-                      </CardContent>
-                    </Card>
-                  </Link>
-                ))}
+                        </CardContent>
+                      </Card>
+                    </Link>
+                  ))}
+                </div>
               </div>
-            </div>
-          ))}
-        </div>
-      )}
-
-      {/* ── Past meeting intelligence (from Zoom email summaries) ──────────── */}
-      {(pastLoading || pastMeetings.length > 0) && (
-        <div className="mt-8">
-          <div className="flex items-center gap-2 mb-4">
-            <h2 className="text-sm font-bold uppercase tracking-wider text-muted-foreground">
-              Past meeting intelligence
-            </h2>
-            <div className="flex-1 h-px bg-border" />
-          </div>
-          {pastLoading ? (
-            <div className="space-y-3">
-              {[0, 1].map((i) => (
-                <Card key={i}>
-                  <CardContent className="p-4">
-                    <Skeleton className="h-4 w-2/3 mb-2" />
-                    <Skeleton className="h-3 w-full" />
-                    <Skeleton className="h-3 w-3/4 mt-1" />
-                  </CardContent>
-                </Card>
-              ))}
-            </div>
-          ) : (
-            <div className="space-y-3">
-              {pastMeetings.map((mem) => {
-                const { title, summary, date } = parseMeetingMemory(mem.content);
-                return (
-                  <Card key={mem.id} className="border-border/60">
-                    <CardContent className="p-4">
-                      <div className="flex items-start gap-3">
-                        <Video className="h-4 w-4 text-[oklch(0.72_0.15_85)] mt-0.5 shrink-0" />
-                        <div className="min-w-0 flex-1">
-                          <p className="font-medium text-sm truncate">{title}</p>
-                          {date && (
-                            <p className="text-xs text-muted-foreground mt-0.5">{date}</p>
-                          )}
-                          {summary && (
-                            <p className="text-xs text-muted-foreground mt-1 line-clamp-3">
-                              {summary}
-                            </p>
-                          )}
-                        </div>
-                      </div>
-                    </CardContent>
-                  </Card>
-                );
-              })}
-            </div>
+            ))
           )}
         </div>
-      )}
+      ))}
+      {/* end of UPCOMING TAB — closes `{activeTab === "upcoming" && (…)}` */}
     </div>
   );
 }

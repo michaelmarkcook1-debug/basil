@@ -177,7 +177,7 @@ function EnvPill({ value, copied, setCopied }: { value: string; copied: boolean;
     <button
       type="button"
       onClick={() => copyText(value, setCopied)}
-      className="inline-flex items-center gap-1 rounded-md bg-muted px-2 py-1 font-mono text-[11px] hover:bg-muted/80"
+      className="inline-flex items-center gap-1 rounded-md bg-muted px-2 py-1 font-mono text-xs hover:bg-muted/80"
       title="Click to copy"
     >
       {value}
@@ -295,10 +295,10 @@ function ReadinessTab() {
                   <Badge
                     className={
                       check.severity === "blocker"
-                        ? "bg-red-100 text-red-700 border-red-300 text-[11px] font-semibold"
+                        ? "bg-red-100 text-red-700 border-red-300 text-xs font-semibold"
                         : check.severity === "warning"
-                        ? "bg-amber-100 text-amber-800 border-amber-300 text-[11px] font-semibold"
-                        : "bg-muted text-muted-foreground text-[11px]"
+                        ? "bg-amber-100 text-amber-800 border-amber-300 text-xs font-semibold"
+                        : "bg-muted text-muted-foreground text-xs"
                     }
                   >
                     {check.severity}
@@ -463,7 +463,7 @@ function StigApiTab({
                 type="button"
                 onClick={() => void testBrain()}
                 disabled={testing}
-                className="shrink-0 rounded-md border border-emerald-300 bg-white/60 px-2.5 py-1 text-[11px] font-medium text-emerald-800 hover:bg-white disabled:opacity-50"
+                className="shrink-0 rounded-md border border-emerald-300 bg-white/60 px-2.5 py-1 text-xs font-medium text-emerald-800 hover:bg-white disabled:opacity-50"
               >
                 {testing ? "Testing…" : "Test brain →"}
               </button>
@@ -488,14 +488,14 @@ function StigApiTab({
 
           <div className="grid gap-3 md:grid-cols-2">
             <div className="rounded-xl border bg-card p-3">
-              <p className="text-[11px] uppercase tracking-[0.18em] text-muted-foreground">Endpoints</p>
+              <p className="text-xs uppercase tracking-[0.18em] text-muted-foreground">Endpoints</p>
               <div className="mt-2 flex flex-wrap gap-2">
                 {Object.values(endpoints).map((endpoint) => (
                   <button
                     key={endpoint}
                     type="button"
                     onClick={() => copyText(endpoint, setCopied)}
-                    className="rounded-md bg-muted px-2 py-1 font-mono text-[11px] hover:bg-muted/80"
+                    className="rounded-md bg-muted px-2 py-1 font-mono text-xs hover:bg-muted/80"
                   >
                     {endpoint} {copied === endpoint ? "✓" : ""}
                   </button>
@@ -504,7 +504,7 @@ function StigApiTab({
             </div>
 
             <div className="rounded-xl border bg-card p-3">
-              <p className="text-[11px] uppercase tracking-[0.18em] text-muted-foreground">Model</p>
+              <p className="text-xs uppercase tracking-[0.18em] text-muted-foreground">Model</p>
               <p className="mt-2 text-sm font-medium">{status?.model?.default ?? "checking"}</p>
               <p className="text-xs text-muted-foreground">Mode: {status?.model?.providerMode ?? "unknown"}</p>
             </div>
@@ -512,12 +512,12 @@ function StigApiTab({
 
           <div className="grid gap-3 md:grid-cols-3">
             <div className="rounded-xl border bg-card p-3">
-              <p className="text-[11px] uppercase tracking-[0.18em] text-muted-foreground">Project truth</p>
+              <p className="text-xs uppercase tracking-[0.18em] text-muted-foreground">Project truth</p>
               <p className="mt-2 text-2xl font-semibold">{status?.projectTruth?.projects ?? 0}</p>
               <p className="text-xs text-muted-foreground">{status?.projectTruth?.blocked ?? 0} blocked · {status?.projectTruth?.aiWork ?? 0} AI work</p>
             </div>
             <div className="rounded-xl border bg-card p-3 md:col-span-2">
-              <p className="text-[11px] uppercase tracking-[0.18em] text-muted-foreground">Source state</p>
+              <p className="text-xs uppercase tracking-[0.18em] text-muted-foreground">Source state</p>
               <div className="mt-2 flex flex-wrap gap-1.5">
                 {sourceStates.map(([key, value]) => (
                   <Badge key={key} variant={value.state === "connected" ? "default" : "secondary"} className="text-xs">
@@ -535,7 +535,7 @@ function StigApiTab({
           </div>
 
           {env && !env.STIG_API_TOKEN && (
-            <p className="text-[11px] text-muted-foreground">
+            <p className="text-xs text-muted-foreground">
               STIG_API_TOKEN is optional but recommended before exposing Siri or external API access. Sensible. Unfashionably secure.
             </p>
           )}
@@ -559,8 +559,8 @@ function StigApiTab({
                   <CardTitle className="text-sm font-semibold flex items-center gap-2">
                     Siri Shortcut setup
                     {tokenReady
-                      ? <Badge className="bg-emerald-100 text-emerald-700 border-emerald-200 text-[11px]">Token ready</Badge>
-                      : <Badge className="bg-amber-100 text-amber-800 border-amber-200 text-[11px]">Token needed</Badge>}
+                      ? <Badge className="bg-emerald-100 text-emerald-700 border-emerald-200 text-xs">Token ready</Badge>
+                      : <Badge className="bg-amber-100 text-amber-800 border-amber-200 text-xs">Token needed</Badge>}
                   </CardTitle>
                   <p className="mt-0.5 text-xs text-muted-foreground">
                     Say &ldquo;Hey Siri, ask Basil&rdquo; — Basil answers out loud in 3–5 seconds.
@@ -591,7 +591,7 @@ function StigApiTab({
             {/* Step 1: Token */}
             <div className="space-y-2">
               <div className="flex items-center gap-2">
-                <span className={`flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-[11px] font-bold ${tokenReady ? "bg-emerald-500 text-white" : "bg-slate-200 text-slate-700"}`}>1</span>
+                <span className={`flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-xs font-bold ${tokenReady ? "bg-emerald-500 text-white" : "bg-slate-200 text-slate-700"}`}>1</span>
                 <p className="text-sm font-semibold">Configure token auth</p>
                 {tokenReady && <CheckCircle2 className="h-3.5 w-3.5 text-emerald-500" />}
               </div>
@@ -620,20 +620,20 @@ function StigApiTab({
             {/* Step 2: Endpoint URL */}
             <div className="space-y-2">
               <div className="flex items-center gap-2">
-                <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-slate-200 text-[11px] font-bold text-slate-700">2</span>
+                <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-slate-200 text-xs font-bold text-slate-700">2</span>
                 <p className="text-sm font-semibold">Copy your Siri endpoint</p>
               </div>
               <div className="ml-7 space-y-2">
                 <p className="text-xs text-muted-foreground">This is the URL you&apos;ll paste into the Shortcut.</p>
                 <div className="flex items-center gap-2 flex-wrap">
-                  <code className="flex-1 min-w-0 rounded-md bg-muted px-2.5 py-1.5 font-mono text-[11px] break-all">
+                  <code className="flex-1 min-w-0 rounded-md bg-muted px-2.5 py-1.5 font-mono text-xs break-all">
                     {siriEndpoint || "Loading…"}
                   </code>
                   {appUrl && (
                     <button
                       type="button"
                       onClick={() => copyText(siriEndpoint, setCopied)}
-                      className="shrink-0 inline-flex items-center gap-1 rounded-md border px-2.5 py-1.5 text-[11px] font-medium hover:bg-muted/60"
+                      className="shrink-0 inline-flex items-center gap-1 rounded-md border px-2.5 py-1.5 text-xs font-medium hover:bg-muted/60"
                     >
                       {copied === siriEndpoint ? <ClipboardCheck className="h-3 w-3 text-emerald-600" /> : <Copy className="h-3 w-3" />}
                       {copied === siriEndpoint ? "Copied" : "Copy URL"}
@@ -646,7 +646,7 @@ function StigApiTab({
             {/* Step 3: Build the Shortcut */}
             <div className="space-y-3">
               <div className="flex items-center gap-2">
-                <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-slate-200 text-[11px] font-bold text-slate-700">3</span>
+                <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-slate-200 text-xs font-bold text-slate-700">3</span>
                 <p className="text-sm font-semibold">Build the Shortcut in the iOS Shortcuts app</p>
               </div>
               <div className="ml-7 space-y-2">
@@ -717,16 +717,16 @@ function StigApiTab({
             {/* curl reference */}
             <div className="space-y-2">
               <div className="flex items-center gap-2">
-                <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-slate-200 text-[11px] font-bold text-slate-700">4</span>
+                <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-slate-200 text-xs font-bold text-slate-700">4</span>
                 <p className="text-sm font-semibold">Test from terminal (optional)</p>
               </div>
               <div className="ml-7 space-y-2">
                 <div className="relative rounded-md bg-slate-900 p-3">
-                  <pre className="font-mono text-[11px] text-slate-100 whitespace-pre-wrap break-all">{curlSnippet}</pre>
+                  <pre className="font-mono text-xs text-slate-100 whitespace-pre-wrap break-all">{curlSnippet}</pre>
                   <button
                     type="button"
                     onClick={() => copyText(curlSnippet, setCopied)}
-                    className="absolute top-2 right-2 rounded bg-slate-700 px-1.5 py-1 text-[11px] text-slate-200 hover:bg-slate-600"
+                    className="absolute top-2 right-2 rounded bg-slate-700 px-1.5 py-1 text-xs text-slate-200 hover:bg-slate-600"
                   >
                     {copied === curlSnippet ? "Copied ✓" : "Copy"}
                   </button>
@@ -798,7 +798,7 @@ function ConnectionCard({
             <div>
               <CardTitle className="text-sm font-semibold flex flex-wrap items-center gap-2">
                 {app.name}
-                {app.priority === "primary" && <Badge className="bg-emerald-700 text-white border-0 text-[11px]">Primary</Badge>}
+                {app.priority === "primary" && <Badge className="bg-emerald-700 text-white border-0 text-xs">Primary</Badge>}
               </CardTitle>
               <p className="mt-1 text-xs text-muted-foreground leading-snug">{app.role}</p>
             </div>
@@ -876,7 +876,7 @@ function ConnectionCard({
         )}
 
         {app.scopes && app.scopes.length > 0 && (
-          <p className="text-[11px] text-muted-foreground">Scopes: {app.scopes.slice(0, 5).join(", ")}{app.scopes.length > 5 ? "…" : ""}</p>
+          <p className="text-xs text-muted-foreground">Scopes: {app.scopes.slice(0, 5).join(", ")}{app.scopes.length > 5 ? "…" : ""}</p>
         )}
       </CardContent>
     </Card>

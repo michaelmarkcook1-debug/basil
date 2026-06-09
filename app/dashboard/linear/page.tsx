@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useMemo } from "react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -25,9 +25,12 @@ import {
   Check,
   CheckCheck,
   Bell,
+  Search,
+  User,
+  Tag,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
-import type { LinearIssue, LinearTeam, LinearWorkflowState, LinearComment, LinearNotification } from "@/lib/linear/client";
+import type { LinearIssue, LinearTeam, LinearWorkflowState, LinearComment, LinearNotification, LinearUser, LinearLabel } from "@/lib/linear/client";
 
 // ── Priority helpers ───────────────────────────────────────────────────────
 
@@ -67,7 +70,7 @@ function StateChip({ state }: { state: { name: string; type: string } }) {
       ? "text-purple-600 bg-purple-50 border-purple-200"
       : "text-slate-600 bg-slate-100 border-slate-200";
   return (
-    <span className={cn("inline-flex items-center rounded-full border px-2 py-0.5 text-[11px] font-medium", cls)}>
+    <span className={cn("inline-flex items-center rounded-full border px-2 py-0.5 text-xs font-medium", cls)}>
       {state.name}
     </span>
   );
@@ -94,6 +97,9 @@ interface NewIssueForm {
   stateId: string;
   priority: number;
   dueDate: string;
+  /** Empty string = unassigned. */
+  assigneeId: string;
+  labelIds: string[];
 }
 
 const EMPTY_NEW_ISSUE: NewIssueForm = {
@@ -103,6 +109,8 @@ const EMPTY_NEW_ISSUE: NewIssueForm = {
   stateId: "",
   priority: 0,
   dueDate: "",
+  assigneeId: "",
+  labelIds: [],
 };
 
 // ── Edit panel state ───────────────────────────────────────────────────────
@@ -113,6 +121,10 @@ interface EditForm {
   stateId: string;
   priority: number;
   dueDate: string;
+  /** Empty string = unassigned. */
+  assigneeId: string;
+  /** Selected label IDs. */
+  labelIds: string[];
 }
 
 // ── Issue list item ────────────────────────────────────────────────────────
@@ -126,37 +138,76 @@ function IssueCard({
   onSelect: (issue: LinearIssue) => void;
   selected: boolean;
 }) {
+  // "Done" = completed or cancelled. These are no longer actionable, so we
+  // visually recede them: dim the whole card, strike the title, drop the
+  // priority dot. Only NOT-done issues stay at full contrast so the feed
+  // flags exactly what still needs attention.
+  const isDone = issue.state.type === "completed" || issue.state.type === "cancelled";
+
   return (
     <Card
       className={cn(
         "rounded-lg border border-border/60 cursor-pointer transition-all hover:border-border group",
-        selected && "border-[oklch(0.72_0.15_85)]/40 bg-[oklch(0.72_0.15_85)]/[0.03]"
+        selected && "border-[oklch(0.72_0.15_85)]/40 bg-[oklch(0.72_0.15_85)]/[0.03]",
+        isDone && "opacity-55 hover:opacity-80"
       )}
       onClick={() => onSelect(issue)}
     >
       <CardContent className="p-3 flex items-center gap-3">
-        {/* Priority dot */}
-        <PriorityDot priority={issue.priority} className="shrink-0" />
+        {/* Priority dot — hidden for done issues (priority is moot once closed) */}
+        {isDone ? (
+          <span className="h-2.5 w-2.5 shrink-0" />
+        ) : (
+          <PriorityDot priority={issue.priority} className="shrink-0" />
+        )}
 
         {/* Identifier */}
-        <span className="font-mono text-[11px] text-muted-foreground shrink-0 min-w-[52px]">
+        <span className="font-mono text-xs text-muted-foreground shrink-0 min-w-[52px]">
           {issue.identifier}
         </span>
 
-        {/* Title */}
-        <span className="flex-1 text-sm text-foreground truncate leading-snug">
+        {/* Title — struck through when done */}
+        <span
+          className={cn(
+            "flex-1 text-sm truncate leading-snug",
+            isDone ? "text-muted-foreground line-through" : "text-foreground"
+          )}
+        >
           {issue.title}
         </span>
 
+        {/* Label dots — visible at-a-glance label colours, capped at 3 */}
+        {issue.labels?.nodes && issue.labels.nodes.length > 0 && (
+          <div className="hidden sm:flex items-center gap-0.5 shrink-0">
+            {issue.labels.nodes.slice(0, 3).map((l) => (
+              <span
+                key={l.id}
+                title={l.name}
+                className="h-2 w-2 rounded-full"
+                style={{ backgroundColor: l.color }}
+              />
+            ))}
+          </div>
+        )}
+
         {/* Right side */}
         <div className="flex items-center gap-2 shrink-0">
+          {/* Assignee initial — quick visual signal of who owns the issue */}
+          {issue.assignee && (
+            <span
+              title={`Assigned to ${issue.assignee.name}`}
+              className="hidden sm:inline-flex h-5 w-5 items-center justify-center rounded-full bg-[oklch(0.72_0.15_85)]/15 text-[10px] font-semibold text-[oklch(0.55_0.12_85)]"
+            >
+              {issue.assignee.name.split(" ").map((w) => w[0]).join("").slice(0, 2).toUpperCase()}
+            </span>
+          )}
           {issue.dueDate && (
-            <span className="hidden sm:flex items-center gap-1 text-[11px] text-muted-foreground">
+            <span className="hidden sm:flex items-center gap-1 text-xs text-muted-foreground">
               <Clock className="h-3 w-3" />
               {issue.dueDate}
             </span>
           )}
-          <span className="hidden md:block text-[11px] text-muted-foreground">
+          <span className="hidden md:block text-xs text-muted-foreground">
             {issue.team.name}
           </span>
           <StateChip state={issue.state} />
@@ -254,15 +305,15 @@ function NotificationCard({
           <div className="flex-1 min-w-0 space-y-0.5">
             {/* Type badge + time */}
             <div className="flex items-center gap-2 flex-wrap">
-              <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground/70">
+              <span className="text-xs font-semibold uppercase tracking-wider text-muted-foreground/70">
                 {notifLabel(notif.type)}
               </span>
               {notif.actor && (
-                <span className="text-[10px] text-muted-foreground/60">
+                <span className="text-xs text-muted-foreground/60">
                   by {notif.actor.name}
                 </span>
               )}
-              <span className="ml-auto text-[10px] text-muted-foreground/50 shrink-0">
+              <span className="ml-auto text-xs text-muted-foreground/50 shrink-0">
                 {timeAgo(notif.createdAt)}
               </span>
             </div>
@@ -274,7 +325,7 @@ function NotificationCard({
                 rel="noopener noreferrer"
                 className="block text-sm font-medium text-foreground hover:text-[oklch(0.72_0.15_85)] transition-colors truncate"
               >
-                <span className="font-mono text-[11px] text-muted-foreground mr-1.5">
+                <span className="font-mono text-xs text-muted-foreground mr-1.5">
                   {notif.issue.identifier}
                 </span>
                 {notif.issue.title}
@@ -295,7 +346,7 @@ function NotificationCard({
           {notif.issue && (
             <button
               onClick={() => onReply(notif)}
-              className="flex items-center gap-1 rounded px-2 py-1 text-[11px] text-muted-foreground/70 hover:text-foreground hover:bg-accent/40 transition-colors"
+              className="flex items-center gap-1 rounded px-2 py-1 text-xs text-muted-foreground/70 hover:text-foreground hover:bg-accent/40 transition-colors"
               title="Reply"
             >
               <MessageSquare className="h-3 w-3" />
@@ -306,7 +357,7 @@ function NotificationCard({
           {notif.issue && (
             <button
               onClick={() => onForward(notif)}
-              className="flex items-center gap-1 rounded px-2 py-1 text-[11px] text-muted-foreground/70 hover:text-foreground hover:bg-accent/40 transition-colors"
+              className="flex items-center gap-1 rounded px-2 py-1 text-xs text-muted-foreground/70 hover:text-foreground hover:bg-accent/40 transition-colors"
               title="Copy link"
             >
               <Forward className="h-3 w-3" />
@@ -317,7 +368,7 @@ function NotificationCard({
           {!isRead && (
             <button
               onClick={() => onMarkRead(notif.id)}
-              className="flex items-center gap-1 rounded px-2 py-1 text-[11px] text-muted-foreground/70 hover:text-foreground hover:bg-accent/40 transition-colors"
+              className="flex items-center gap-1 rounded px-2 py-1 text-xs text-muted-foreground/70 hover:text-foreground hover:bg-accent/40 transition-colors"
               title="Mark as read"
             >
               <Check className="h-3 w-3" />
@@ -327,7 +378,7 @@ function NotificationCard({
           {/* Delete / archive */}
           <button
             onClick={() => onDelete(notif.id)}
-            className="ml-auto flex items-center gap-1 rounded px-2 py-1 text-[11px] text-muted-foreground/50 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-950/20 transition-colors"
+            className="ml-auto flex items-center gap-1 rounded px-2 py-1 text-xs text-muted-foreground/50 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-950/20 transition-colors"
             title="Archive notification"
           >
             <Trash2 className="h-3 w-3" />
@@ -376,7 +427,7 @@ function InboxReplyPanel({
         <div className="flex items-center justify-between">
           <p className="text-xs font-medium text-muted-foreground">
             Replying to{" "}
-            <span className="font-mono text-[10px]">{notif.issue?.identifier}</span>
+            <span className="font-mono text-xs">{notif.issue?.identifier}</span>
           </p>
           <button onClick={onClose} className="text-muted-foreground/50 hover:text-muted-foreground">
             <X className="h-3.5 w-3.5" />
@@ -458,7 +509,17 @@ export default function LinearPage() {
   // Filters
   const [teamFilter, setTeamFilter] = useState<string>("all");
   const [statusFilter, setStatusFilter] = useState<StatusFilterValue>("all");
-  const [assigneeIsMe, setAssigneeIsMe] = useState(true);
+  // Default to the broad workspace view — defaulting to "assigned to me"
+  // hid important issues from other teams (tickets where the user is mentioned,
+  // active blockers on adjacent work, etc.). The "Assigned to me" toggle is
+  // still one click away when the user wants the personal-queue view.
+  const [assigneeIsMe, setAssigneeIsMe] = useState(false);
+  // Free-text search over the issue list — applied client-side after fetch.
+  const [search, setSearch] = useState("");
+
+  // Workspace members + labels — loaded once and reused by both forms.
+  const [workspaceUsers, setWorkspaceUsers] = useState<LinearUser[]>([]);
+  const [labels, setLabels] = useState<LinearLabel[]>([]);
 
   // Detail/edit panel
   const [selectedIssue, setSelectedIssue] = useState<LinearIssue | null>(null);
@@ -468,6 +529,8 @@ export default function LinearPage() {
     stateId: "",
     priority: 0,
     dueDate: "",
+    assigneeId: "",
+    labelIds: [],
   });
   const [saving, setSaving] = useState(false);
   const [editingTitle, setEditingTitle] = useState(false);
@@ -495,7 +558,7 @@ export default function LinearPage() {
         const data = (await res.json()) as { teams: LinearTeam[] };
         setTeams(data.teams);
       })
-      .catch(() => {});
+      .catch((err) => { console.warn("[linear] background load failed:", err); });
   }, []);
 
   // Load workflow states (all) on mount
@@ -506,7 +569,29 @@ export default function LinearPage() {
         const data = (await res.json()) as { states: LinearWorkflowState[] };
         setStates(data.states);
       })
-      .catch(() => {});
+      .catch((err) => { console.warn("[linear] background load failed:", err); });
+  }, []);
+
+  // Load workspace members for the assignee picker.
+  useEffect(() => {
+    fetch("/api/linear/users")
+      .then(async (res) => {
+        if (!res.ok) return;
+        const data = (await res.json()) as { users: LinearUser[] };
+        setWorkspaceUsers(data.users || []);
+      })
+      .catch((err) => { console.warn("[linear] background load failed:", err); });
+  }, []);
+
+  // Load labels (all teams) once — filtered in the UI per team when needed.
+  useEffect(() => {
+    fetch("/api/linear/labels")
+      .then(async (res) => {
+        if (!res.ok) return;
+        const data = (await res.json()) as { labels: LinearLabel[] };
+        setLabels(data.labels || []);
+      })
+      .catch((err) => { console.warn("[linear] background load failed:", err); });
   }, []);
 
   // Load issues when filters change
@@ -574,6 +659,8 @@ export default function LinearPage() {
       stateId: currentState?.id ?? "",
       priority: issue.priority,
       dueDate: issue.dueDate ?? "",
+      assigneeId: issue.assignee?.id ?? "",
+      labelIds: (issue.labels?.nodes ?? []).map((l) => l.id),
     });
     setEditingTitle(false);
     setComments([]);
@@ -618,6 +705,10 @@ export default function LinearPage() {
         description: editForm.description || undefined,
         priority: editForm.priority,
         dueDate: editForm.dueDate || null,
+        // Assignee: empty string = explicitly unassign (Linear accepts null).
+        assigneeId: editForm.assigneeId || null,
+        // Labels: empty array clears all labels.
+        labelIds: editForm.labelIds,
       };
       if (editForm.stateId) body.stateId = editForm.stateId;
 
@@ -655,6 +746,8 @@ export default function LinearPage() {
         dueDate: newForm.dueDate || null,
       };
       if (newForm.stateId) body.stateId = newForm.stateId;
+      if (newForm.assigneeId) body.assigneeId = newForm.assigneeId;
+      if (newForm.labelIds.length > 0) body.labelIds = newForm.labelIds;
 
       const res = await fetch("/api/linear/issues", {
         method: "POST",
@@ -743,6 +836,29 @@ export default function LinearPage() {
   const newFormStates = newForm.teamId
     ? states.filter((s) => s.team.id === newForm.teamId)
     : states;
+
+  // ── HOOKS MUST RUN UNCONDITIONALLY ─────────────────────────────────────────
+  // Compute filteredIssues before the early-return below — otherwise the hook
+  // order changes when notConnected flips and React throws "rendered fewer
+  // hooks than expected". `unreadCount` doesn't need a hook so it stays where
+  // it makes sense (after the early return).
+  const filteredIssues = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    const matched = !q
+      ? issues
+      : issues.filter((i) =>
+          i.identifier.toLowerCase().includes(q) ||
+          i.title.toLowerCase().includes(q) ||
+          i.team.name.toLowerCase().includes(q) ||
+          (i.assignee?.name ?? "").toLowerCase().includes(q)
+        );
+    // Sink "done" (completed/cancelled) issues to the bottom so the feed leads
+    // with what still needs action. Stable within each group (preserves the
+    // server's priority ordering).
+    const isDone = (i: LinearIssue) =>
+      i.state.type === "completed" || i.state.type === "cancelled";
+    return [...matched].sort((a, b) => Number(isDone(a)) - Number(isDone(b)));
+  }, [issues, search]);
 
   if (notConnected) {
     return (
@@ -970,7 +1086,54 @@ export default function LinearPage() {
                 onChange={(e) => setNewForm((f) => ({ ...f, dueDate: e.target.value }))}
                 className="h-9 w-auto"
               />
+              <select
+                value={newForm.assigneeId}
+                onChange={(e) => setNewForm((f) => ({ ...f, assigneeId: e.target.value }))}
+                className="h-9 rounded-md border border-border bg-background px-3 text-sm"
+              >
+                <option value="">Unassigned</option>
+                {workspaceUsers.map((u) => (
+                  <option key={u.id} value={u.id}>{u.displayName ?? u.name}</option>
+                ))}
+              </select>
             </div>
+
+            {/* Label picker — only when a team is selected (labels are team-scoped) */}
+            {newForm.teamId && labels.filter((l) => !l.team?.id || l.team.id === newForm.teamId).length > 0 && (
+              <div className="flex flex-wrap gap-1.5">
+                <span className="text-xs text-muted-foreground self-center mr-1">Labels:</span>
+                {labels
+                  .filter((l) => !l.team?.id || l.team.id === newForm.teamId)
+                  .map((label) => {
+                    const active = newForm.labelIds.includes(label.id);
+                    return (
+                      <button
+                        key={label.id}
+                        type="button"
+                        onClick={() =>
+                          setNewForm((f) => ({
+                            ...f,
+                            labelIds: active
+                              ? f.labelIds.filter((id) => id !== label.id)
+                              : [...f.labelIds, label.id],
+                          }))
+                        }
+                        className={cn(
+                          "inline-flex items-center gap-1.5 rounded-full border px-2 py-0.5 text-xs font-medium transition-colors",
+                          active
+                            ? "bg-foreground/5 border-foreground/30"
+                            : "border-border text-muted-foreground hover:text-foreground hover:border-border/80"
+                        )}
+                        style={active ? { borderColor: label.color, color: label.color } : undefined}
+                      >
+                        <span className="h-2 w-2 rounded-full" style={{ backgroundColor: label.color }} />
+                        {label.name}
+                      </button>
+                    );
+                  })}
+              </div>
+            )}
+
             <Input
               placeholder="Issue title…"
               value={newForm.title}
@@ -1004,6 +1167,27 @@ export default function LinearPage() {
         </Card>
       )}
 
+      {/* Search bar */}
+      <div className="relative">
+        <Search className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground/60" />
+        <input
+          type="text"
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          placeholder="Search issues by title, identifier, team, or assignee…"
+          className="w-full h-10 rounded-md border border-border bg-background pl-10 pr-3 text-sm outline-none focus:ring-2 focus:ring-[oklch(0.72_0.15_85)]/40"
+        />
+        {search && (
+          <button
+            onClick={() => setSearch("")}
+            className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground p-1"
+            title="Clear search"
+          >
+            <X className="h-3.5 w-3.5" />
+          </button>
+        )}
+      </div>
+
       {/* Filter bar */}
       <div className="flex flex-wrap gap-2 items-center">
         {/* Team selector */}
@@ -1035,9 +1219,12 @@ export default function LinearPage() {
           <ChevronDown className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
         </div>
 
-        {/* Assigned to me toggle */}
+        {/* "Assigned to me" — filters the broad workspace view down to the
+            user's personal queue. Off by default so the feed shows what's
+            important across all teams (mentions, blockers on adjacent work). */}
         <button
           onClick={() => setAssigneeIsMe((v) => !v)}
+          title={assigneeIsMe ? "Showing only your assigned issues — click to see all teams" : "Filter down to just your assigned issues"}
           className={cn(
             "h-9 rounded-md border px-3 text-sm font-medium transition-colors",
             assigneeIsMe
@@ -1045,13 +1232,16 @@ export default function LinearPage() {
               : "border-border bg-background text-muted-foreground hover:text-foreground"
           )}
         >
-          Assigned to me
+          {assigneeIsMe ? "Showing: mine" : "Only mine"}
         </button>
 
         {/* Issue count */}
         {!loading && (
           <span className="ml-auto text-xs text-muted-foreground">
-            {issues.length} {issues.length === 1 ? "issue" : "issues"}
+            {filteredIssues.length} {filteredIssues.length === 1 ? "issue" : "issues"}
+            {search && issues.length !== filteredIssues.length && (
+              <span className="text-muted-foreground/70"> · of {issues.length}</span>
+            )}
           </span>
         )}
       </div>
@@ -1062,15 +1252,25 @@ export default function LinearPage() {
         <div className="flex-1 min-w-0 space-y-2">
           {loading ? (
             <SkeletonCards />
-          ) : issues.length === 0 ? (
+          ) : filteredIssues.length === 0 ? (
             <Card className="rounded-lg border border-border/60">
               <CardContent className="py-12 text-center space-y-2">
                 <Triangle className="h-8 w-8 mx-auto text-muted-foreground/20" />
-                <p className="text-sm text-muted-foreground">No issues match these filters</p>
+                <p className="text-sm text-muted-foreground">
+                  {search ? `No issues match "${search}"` : "No issues match these filters"}
+                </p>
+                {search && (
+                  <button
+                    onClick={() => setSearch("")}
+                    className="text-xs text-[oklch(0.55_0.12_85)] hover:underline"
+                  >
+                    Clear search
+                  </button>
+                )}
               </CardContent>
             </Card>
           ) : (
-            issues.map((issue) => (
+            filteredIssues.map((issue) => (
               <IssueCard
                 key={issue.id}
                 issue={issue}
@@ -1146,7 +1346,7 @@ export default function LinearPage() {
 
               {/* Description */}
               <div className="space-y-1">
-                <label className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+                <label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
                   Description
                 </label>
                 <Textarea
@@ -1160,7 +1360,7 @@ export default function LinearPage() {
 
               {/* Status */}
               <div className="space-y-1">
-                <label className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+                <label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
                   Status
                 </label>
                 <div className="relative">
@@ -1182,7 +1382,7 @@ export default function LinearPage() {
 
               {/* Priority */}
               <div className="space-y-1">
-                <label className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+                <label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
                   Priority
                 </label>
                 <div className="flex gap-1.5 flex-wrap">
@@ -1208,9 +1408,75 @@ export default function LinearPage() {
                 </div>
               </div>
 
+              {/* Assignee */}
+              <div className="space-y-1">
+                <label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground flex items-center gap-1.5">
+                  <User className="h-3 w-3" />
+                  Assignee
+                </label>
+                <div className="relative">
+                  <select
+                    value={editForm.assigneeId}
+                    onChange={(e) => setEditForm((f) => ({ ...f, assigneeId: e.target.value }))}
+                    className="w-full h-9 rounded-md border border-border bg-background pl-3 pr-8 text-sm appearance-none"
+                  >
+                    <option value="">Unassigned</option>
+                    {workspaceUsers.map((u) => (
+                      <option key={u.id} value={u.id}>{u.displayName ?? u.name}</option>
+                    ))}
+                  </select>
+                  <ChevronDown className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
+                </div>
+              </div>
+
+              {/* Labels — multi-select pill toggles */}
+              <div className="space-y-1">
+                <label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground flex items-center gap-1.5">
+                  <Tag className="h-3 w-3" />
+                  Labels
+                </label>
+                <div className="flex gap-1.5 flex-wrap">
+                  {labels
+                    // Show workspace-wide labels + labels belonging to this issue's team.
+                    .filter((l) => !l.team?.id || l.team.id === selectedIssue.team.id)
+                    .map((label) => {
+                      const active = editForm.labelIds.includes(label.id);
+                      return (
+                        <button
+                          key={label.id}
+                          onClick={() =>
+                            setEditForm((f) => ({
+                              ...f,
+                              labelIds: active
+                                ? f.labelIds.filter((id) => id !== label.id)
+                                : [...f.labelIds, label.id],
+                            }))
+                          }
+                          className={cn(
+                            "inline-flex items-center gap-1.5 rounded-full border px-2.5 py-0.5 text-xs font-medium transition-colors",
+                            active
+                              ? "bg-foreground/5 border-foreground/30 text-foreground"
+                              : "border-border text-muted-foreground hover:text-foreground hover:border-border/80"
+                          )}
+                          style={active ? { borderColor: label.color, color: label.color } : undefined}
+                        >
+                          <span
+                            className="h-2 w-2 rounded-full"
+                            style={{ backgroundColor: label.color }}
+                          />
+                          {label.name}
+                        </button>
+                      );
+                    })}
+                  {labels.length === 0 && (
+                    <span className="text-xs text-muted-foreground italic">No labels available</span>
+                  )}
+                </div>
+              </div>
+
               {/* Due date */}
               <div className="space-y-1">
-                <label className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+                <label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
                   Due Date
                 </label>
                 <Input
@@ -1271,7 +1537,7 @@ export default function LinearPage() {
               <div className="pt-3 border-t border-border/50 space-y-3">
                 <div className="flex items-center gap-2">
                   <MessageSquare className="h-3.5 w-3.5 text-muted-foreground" />
-                  <label className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+                  <label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
                     Comments
                     {comments.length > 0 && (
                       <span className="ml-1.5 text-muted-foreground/60 normal-case font-normal">
@@ -1299,11 +1565,11 @@ export default function LinearPage() {
                       <div key={c.id} className="space-y-1">
                         <div className="flex items-center gap-2">
                           {/* Avatar initial */}
-                          <span className="inline-flex h-5 w-5 items-center justify-center rounded-full bg-[oklch(0.72_0.15_85)]/15 text-[10px] font-semibold text-[oklch(0.55_0.15_85)] shrink-0">
+                          <span className="inline-flex h-5 w-5 items-center justify-center rounded-full bg-[oklch(0.72_0.15_85)]/15 text-xs font-semibold text-[oklch(0.55_0.15_85)] shrink-0">
                             {c.user.name.charAt(0).toUpperCase()}
                           </span>
                           <span className="text-xs font-medium text-foreground">{c.user.name}</span>
-                          <span className="text-[10px] text-muted-foreground/60 ml-auto shrink-0">
+                          <span className="text-xs text-muted-foreground/60 ml-auto shrink-0">
                             {new Date(c.createdAt).toLocaleDateString(undefined, {
                               month: "short",
                               day: "numeric",

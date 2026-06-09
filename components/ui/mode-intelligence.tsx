@@ -88,7 +88,7 @@ function FocusModeIntel() {
           overdue: actions.filter((a) => a.status === "overdue").length,
         });
       })
-      .catch(() => null)
+      .catch((err) => { console.warn("[mode-intel] background fetch failed:", err); return null; })
       .finally(() => setLoading(false));
   }, []);
 
@@ -138,7 +138,7 @@ function CoordinationModeIntel() {
         ).length;
         setStats({ quietCount, pendingCount: 0 });
       })
-      .catch(() => null)
+      .catch((err) => { console.warn("[mode-intel] background fetch failed:", err); return null; })
       .finally(() => setLoading(false));
   }, []);
 
@@ -190,7 +190,7 @@ function MeetingModeIntel() {
           }
         }
       )
-      .catch(() => null)
+      .catch((err) => { console.warn("[mode-intel] background fetch failed:", err); return null; })
       .finally(() => setLoading(false));
   }, []);
 
@@ -237,7 +237,7 @@ function InboxRecoveryIntel() {
           review: open.filter((a) => a.needsReview).length,
         });
       })
-      .catch(() => null)
+      .catch((err) => { console.warn("[mode-intel] background fetch failed:", err); return null; })
       .finally(() => setLoading(false));
   }, []);
 
@@ -321,7 +321,7 @@ function DailyBriefingIntel() {
           });
         }
       )
-      .catch(() => null)
+      .catch((err) => { console.warn("[mode-intel] background fetch failed:", err); return null; })
       .finally(() => setLoading(false));
   }, []);
 
@@ -470,7 +470,7 @@ export function ModeFilterHint({
   return (
     <p
       className={cn(
-        "flex items-center gap-1.5 text-[11px] text-muted-foreground/60",
+        "flex items-center gap-1.5 text-xs text-muted-foreground/60",
         className
       )}
     >

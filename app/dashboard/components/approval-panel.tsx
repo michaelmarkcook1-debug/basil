@@ -519,7 +519,7 @@ function EventDetail({
             <button
               onClick={handleRegenerate}
               disabled={regenerating}
-              className="inline-flex items-center gap-1 text-[11px] text-muted-foreground hover:text-foreground disabled:opacity-50 transition"
+              className="inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground disabled:opacity-50 transition"
               title="Re-generate draft with AI"
             >
               <RefreshCw className={`h-3 w-3 ${regenerating ? "animate-spin" : ""}`} />
@@ -579,11 +579,11 @@ function EventDetail({
           </div>
 
           <div className="flex items-center justify-between">
-            <p className="text-[11px] text-muted-foreground">
+            <p className="text-xs text-muted-foreground">
               Edit above before sending. Changes are used as-is.
             </p>
             {liveDraft.generatedAt && (
-              <p className="text-[11px] text-muted-foreground shrink-0">
+              <p className="text-xs text-muted-foreground shrink-0">
                 AI draft ·{" "}
                 {new Date(liveDraft.generatedAt).toLocaleTimeString("en-GB", {
                   hour: "2-digit",

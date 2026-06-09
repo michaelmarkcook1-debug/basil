@@ -106,7 +106,7 @@ function DeltaChip({ delta }: { delta: ChangeEvent["delta"] }) {
   const { from, to } = delta;
   if (!from && !to) return null;
   return (
-    <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-muted/60 text-[11px] font-mono text-muted-foreground">
+    <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-muted/60 text-xs font-mono text-muted-foreground">
       {from && <span className="opacity-60">{from}</span>}
       {from && to && (
         <ArrowRight className="h-2.5 w-2.5 opacity-40 shrink-0" />
@@ -120,7 +120,7 @@ function CategoryBadge({ category }: { category: ChangeCategory }) {
   const cfg = CATEGORY_CONFIG[category];
   return (
     <span
-      className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[11px] font-medium ${cfg.bgClass} ${cfg.colorClass}`}
+      className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-xs font-medium ${cfg.bgClass} ${cfg.colorClass}`}
     >
       {CATEGORY_ICON_EL[category]}
       {cfg.label}
@@ -165,7 +165,7 @@ function ChangeCard({ event }: { event: ChangeEvent }) {
           <p className="text-sm font-medium text-foreground leading-snug pr-4">
             {event.title}
           </p>
-          <span className="shrink-0 text-[11px] text-muted-foreground whitespace-nowrap flex items-center gap-1 mt-0.5">
+          <span className="shrink-0 text-xs text-muted-foreground whitespace-nowrap flex items-center gap-1 mt-0.5">
             <Clock className="h-2.5 w-2.5" />
             {relTime(event.occurredAt)}
           </span>
@@ -190,7 +190,7 @@ function ChangeCard({ event }: { event: ChangeEvent }) {
           <DeltaChip delta={event.delta} />
           <CategoryBadge category={event.category} />
           {event.entityHref ? (
-            <span className="ml-auto inline-flex items-center gap-0.5 text-[11px] text-muted-foreground/50 group-hover:text-primary transition-colors">
+            <span className="ml-auto inline-flex items-center gap-0.5 text-xs text-muted-foreground/50 group-hover:text-primary transition-colors">
               View
               <ChevronRight className="h-3 w-3" />
             </span>
@@ -243,7 +243,7 @@ function CategoryFilterBar({
       >
         All
         {totalUnseen > 0 && active === null ? (
-          <span className="h-4 min-w-4 flex items-center justify-center rounded-full bg-primary text-primary-foreground text-[10px] font-bold px-1">
+          <span className="h-4 min-w-4 flex items-center justify-center rounded-full bg-primary text-primary-foreground text-xs font-bold px-1">
             {totalUnseen}
           </span>
         ) : null}
@@ -302,14 +302,14 @@ function BucketSection({
       <div className="flex items-center gap-2.5 px-0.5 pb-1">
         <div className="h-px flex-1 bg-border/40" />
         <div className="flex items-center gap-2 shrink-0">
-          <span className="text-[11px] font-semibold uppercase tracking-[0.15em] text-muted-foreground/70">
+          <span className="text-xs font-semibold uppercase tracking-[0.15em] text-muted-foreground/70">
             {label}
           </span>
-          <span className="text-[11px] text-muted-foreground/50">
+          <span className="text-xs text-muted-foreground/50">
             {events.length} change{events.length !== 1 ? "s" : ""}
           </span>
           {criticalCount > 0 ? (
-            <span className="inline-flex items-center gap-1 text-[10px] font-medium text-red-500">
+            <span className="inline-flex items-center gap-1 text-xs font-medium text-red-500">
               <Circle className="h-1.5 w-1.5 fill-current" />
               {criticalCount} critical
             </span>
@@ -430,7 +430,7 @@ export default function WhatChangedPage() {
             </h1>
             {!isDefault ? (
               <span
-                className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-medium border ${mode.bgClass} ${mode.colorClass} ${mode.borderClass}`}
+                className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium border ${mode.bgClass} ${mode.colorClass} ${mode.borderClass}`}
               >
                 <span className="h-1.5 w-1.5 rounded-full bg-current" />
                 {mode.shortLabel}

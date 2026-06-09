@@ -382,7 +382,7 @@ export function RelationshipCard() {
                       {c.title ? ` · ${c.title}` : ""}
                     </p>
                     {c.liveActivity?.recentItems[0] && (
-                      <p className="text-[11px] text-muted-foreground/70 truncate mt-0.5">
+                      <p className="text-xs text-muted-foreground/70 truncate mt-0.5">
                         {c.liveActivity.recentItems[0]}
                       </p>
                     )}

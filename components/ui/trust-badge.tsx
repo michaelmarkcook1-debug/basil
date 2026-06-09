@@ -88,7 +88,7 @@ export function SourceChip({ source, className }: SourceChipProps) {
   return (
     <span
       className={cn(
-        "inline-flex items-center rounded border px-1.5 py-0 text-[11px] font-medium",
+        "inline-flex items-center rounded border px-1.5 py-0 text-xs font-medium",
         style,
         className,
       )}
@@ -162,7 +162,7 @@ export function FreshnessLine({ generatedAt, lastSignalAt, timezone = "Europe/Lo
     });
 
   return (
-    <span className={cn("text-[11px] text-muted-foreground", className)}>
+    <span className={cn("text-xs text-muted-foreground", className)}>
       {generatedAt && <>Generated {fmtDateTime(generatedAt)}</>}
       {lastSignalAt && generatedAt && <span className="mx-1">·</span>}
       {lastSignalAt && <>Last signal {fmtDateTime(lastSignalAt)}</>}
@@ -188,7 +188,7 @@ interface ConfidenceLabelProps {
 export function ConfidenceLabel({ confidence, signalCount, className }: ConfidenceLabelProps) {
   if (signalCount !== undefined && signalCount === 0) {
     return (
-      <span className={cn("text-[11px] text-muted-foreground italic", className)}>
+      <span className={cn("text-xs text-muted-foreground italic", className)}>
         No signal
       </span>
     );
@@ -204,7 +204,7 @@ export function ConfidenceLabel({ confidence, signalCount, className }: Confiden
         : { label: "Low confidence",    cls: "text-red-500"     };
 
   return (
-    <span className={cn("text-[11px] font-medium", cls, className)}>
+    <span className={cn("text-xs font-medium", cls, className)}>
       {label}
     </span>
   );
@@ -245,14 +245,14 @@ export function SignalSummary({ counts, className }: SignalSummaryProps) {
 
   if (parts.length === 0) {
     return (
-      <span className={cn("text-[11px] text-muted-foreground italic", className)}>
+      <span className={cn("text-xs text-muted-foreground italic", className)}>
         No signal sources — regenerate after connecting your tools
       </span>
     );
   }
 
   return (
-    <span className={cn("text-[11px] text-muted-foreground", className)}>
+    <span className={cn("text-xs text-muted-foreground", className)}>
       Based on: {parts.join(" · ")}
     </span>
   );
@@ -324,7 +324,7 @@ export function EvidencePanel({
       {triggerInline && (
         <button
           onClick={() => setOpen((o) => !o)}
-          className="inline-flex items-center gap-1 text-[11px] text-muted-foreground hover:text-foreground transition-colors"
+          className="inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors"
           aria-expanded={open}
         >
           <Info className="h-3 w-3" />
@@ -334,7 +334,7 @@ export function EvidencePanel({
       )}
 
       {(open || !triggerInline) && (
-        <div className="mt-1 rounded-md border border-border/50 bg-muted/30 px-3 py-2 text-[11px] space-y-1.5">
+        <div className="mt-1 rounded-md border border-border/50 bg-muted/30 px-3 py-2 text-xs space-y-1.5">
           {allRefs.length > 0 && (
             <div className="flex items-center gap-1.5 flex-wrap">
               <span className="text-muted-foreground">Sources:</span>

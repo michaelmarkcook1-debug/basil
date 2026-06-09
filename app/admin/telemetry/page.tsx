@@ -182,7 +182,7 @@ function FlagToggle({
       <div className="flex items-center gap-2">
         <span className="text-sm font-mono">{label}</span>
         {isActive && (
-          <span className="text-[10px] font-medium px-1.5 py-0.5 rounded bg-amber-500/10 text-amber-600">
+          <span className="text-xs font-medium px-1.5 py-0.5 rounded bg-amber-500/10 text-amber-600">
             pipeline
           </span>
         )}
@@ -485,12 +485,12 @@ export default function TelemetryPage() {
                     ].map(({ label, value }) => (
                       <div key={label} className="rounded-md bg-muted/50 p-2.5 text-center">
                         <p className="text-lg font-mono font-semibold tabular-nums">{value}</p>
-                        <p className="text-[11px] text-muted-foreground mt-0.5">{label}</p>
+                        <p className="text-xs text-muted-foreground mt-0.5">{label}</p>
                       </div>
                     ))}
                   </div>
                   <div className="rounded-md border border-border p-2.5 space-y-1.5">
-                    <p className="text-[10px] text-muted-foreground/60 mb-1.5">flags at context-build time (60s cache)</p>
+                    <p className="text-xs text-muted-foreground/60 mb-1.5">flags at context-build time (60s cache)</p>
                     {Object.entries(context.flagsActive).map(([key, val]) => (
                       <div key={key} className="flex items-center justify-between text-xs">
                         <span className="font-mono text-muted-foreground">{key}</span>
@@ -500,7 +500,7 @@ export default function TelemetryPage() {
                       </div>
                     ))}
                   </div>
-                  <div className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
+                  <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
                     <Clock className="h-3 w-3" />
                     assembled {context.context.assembledAt
                       ? new Date(context.context.assembledAt).toLocaleTimeString()

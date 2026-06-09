@@ -65,6 +65,58 @@ export function isOverdueStale(action: ActionItem): boolean {
 }
 
 /**
+ * Hours after a meeting's scheduled time before a meeting-attendance action
+ * is auto-archived. Chosen to be larger than any realistic meeting duration
+ * while still retiring the action on the same calendar day.
+ */
+export const MEETING_ATTENDANCE_GRACE_HOURS = 6;
+
+/**
+ * Patterns that identify a "meeting attendance" action — an action whose only
+ * purpose is to show up to a specific event. Once the meeting time has passed
+ * (+ grace period) these are meaningless regardless of whether the user
+ * checked them off. They are distinct from pre-meeting prep actions
+ * ("prepare for…", "send agenda for…") or post-meeting follow-ups.
+ */
+const MEETING_ATTENDANCE_PATTERNS = [
+  /^attend\b/i,
+  /^join\b.*(meeting|call|standup|stand-up|sync|check-in|1:1|one-on-one)/i,
+  /^(be at|show up to|dial.?into)\b/i,
+  /\bmeet(ing)?\s+with\b/i,
+  /\b(call|sync|standup|stand-up|check-in|1:1|one-on-one|catch-?up)\s+with\b/i,
+];
+
+/**
+ * Returns true if the action text looks like a "show up to this meeting" type
+ * of action — one that becomes irrelevant as soon as the scheduled time passes.
+ *
+ * Deliberately conservative: prep actions ("prepare for", "send agenda"),
+ * outcome actions ("follow up after"), and general meeting references are
+ * NOT flagged.
+ */
+export function isMeetingAttendanceAction(text: string): boolean {
+  const t = text.trim();
+  return MEETING_ATTENDANCE_PATTERNS.some((re) => re.test(t));
+}
+
+/**
+ * Returns true if this is a meeting-attendance action whose scheduled time has
+ * passed by more than MEETING_ATTENDANCE_GRACE_HOURS.
+ *
+ * Only fires when the action has a dueDate — undated meeting mentions are not
+ * auto-archived because we can't determine when (or if) the meeting occurred.
+ */
+export function isMeetingAttendancePast(action: ActionItem): boolean {
+  if (action.status === "done") return false;
+  if (!action.dueDate) return false;
+  if (!isMeetingAttendanceAction(action.text)) return false;
+
+  const dueMs = new Date(action.dueDate).getTime();
+  const graceMs = MEETING_ATTENDANCE_GRACE_HOURS * 3_600_000;
+  return Date.now() > dueMs + graceMs;
+}
+
+/**
  * Returns true if the action's owner field is clearly a group, channel, or
  * team rather than a named individual.
  *

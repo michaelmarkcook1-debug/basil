@@ -58,7 +58,7 @@ export interface BasilEvent {
   payload?: Record<string, unknown>;
 
   // ── Content ───────────────────────────────────────────────────────────────
-  /** Short headline Basil would say out loud: "New email from Malcolm about AG v1" */
+  /** Short headline Basil would say out loud: "New email from Jordan about Example Analytics v1" */
   headline: string;
   /** Full context Basil used to decide — shown verbatim in the approval card. */
   context: string;

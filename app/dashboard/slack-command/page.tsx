@@ -184,17 +184,17 @@ function SignalCard({ signal }: { signal: Signal }) {
         <div className="flex items-start justify-between gap-3">
           <div className="flex items-center gap-2 min-w-0">
             <Icon className={`h-4 w-4 shrink-0 ${meta.colour}`} />
-            <span className={`text-[11px] font-semibold uppercase tracking-[0.15em] ${meta.colour}`}>
+            <span className={`text-xs font-semibold uppercase tracking-[0.15em] ${meta.colour}`}>
               {meta.label}
             </span>
           </div>
           <div className="flex items-center gap-2 shrink-0">
             <span
-              className={`text-[10px] font-semibold uppercase tracking-[0.1em] px-2 py-0.5 rounded-full border ${URGENCY_BADGE[signal.urgency]}`}
+              className={`text-xs font-semibold uppercase tracking-[0.1em] px-2 py-0.5 rounded-full border ${URGENCY_BADGE[signal.urgency]}`}
             >
               {signal.urgency}
             </span>
-            <span className="text-[11px] text-muted-foreground">{relativeTime(signal.createdAt)}</span>
+            <span className="text-xs text-muted-foreground">{relativeTime(signal.createdAt)}</span>
           </div>
         </div>
 
@@ -215,7 +215,7 @@ function SignalCard({ signal }: { signal: Signal }) {
         {/* Why it matters */}
         {signal.whyItMatters && (
           <div className="rounded-lg bg-white/70 border border-black/5 px-3 py-2">
-            <p className="text-[11px] text-muted-foreground uppercase tracking-[0.12em] mb-0.5">
+            <p className="text-xs text-muted-foreground uppercase tracking-[0.12em] mb-0.5">
               Why it matters
             </p>
             <p className="text-xs text-foreground/80">{signal.whyItMatters}</p>
@@ -234,7 +234,7 @@ function SignalCard({ signal }: { signal: Signal }) {
               key={target}
               onClick={() => void handleConvert(target)}
               disabled={converting !== null || done !== null}
-              className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-md text-[11px] font-medium border transition-all
+              className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-md text-xs font-medium border transition-all
                 ${done === target
                   ? "bg-emerald-50 border-emerald-200 text-emerald-700"
                   : "bg-white/80 border-black/10 text-muted-foreground hover:text-foreground hover:border-black/20 disabled:opacity-50 disabled:cursor-not-allowed"
@@ -251,7 +251,7 @@ function SignalCard({ signal }: { signal: Signal }) {
         </div>
 
         {convError && (
-          <p className="text-[11px] text-red-600">{convError}</p>
+          <p className="text-xs text-red-600">{convError}</p>
         )}
       </CardContent>
     </Card>
@@ -449,7 +449,7 @@ export default function SlackCommandPage() {
                 >
                   <div className="flex items-center gap-1.5 mb-1">
                     <Icon className={`h-3.5 w-3.5 ${meta.colour}`} />
-                    <p className="text-[11px] uppercase tracking-[0.15em] text-muted-foreground">
+                    <p className="text-xs uppercase tracking-[0.15em] text-muted-foreground">
                       {meta.label}
                     </p>
                   </div>
@@ -521,7 +521,7 @@ export default function SlackCommandPage() {
           )}
 
           {/* Footer */}
-          <footer className="text-[11px] text-muted-foreground flex items-center justify-between">
+          <footer className="text-xs text-muted-foreground flex items-center justify-between">
             {response.window ? (
               <span>Window: {relativeTime(response.window.from)} → now</span>
             ) : (

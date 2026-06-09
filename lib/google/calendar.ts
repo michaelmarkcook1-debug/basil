@@ -101,16 +101,23 @@ export async function createCalendarEvent(username: string, params: {
   date: string;       // YYYY-MM-DD
   startTime: string;  // HH:MM
   duration: number;   // minutes
+  /**
+   * Optional explicit conference URL (e.g. a personal Zoom room) the user
+   * pasted into the New Event form. When set, it is used verbatim as the
+   * event location + description prefix.
+   */
   zoomLink?: string;
+  /**
+   * When true and no zoomLink is provided, Google Calendar auto-generates a
+   * Google Meet link for the event via conferenceData. When false (the
+   * default) the event has no video call attached.
+   */
+  addVideoCall?: boolean;
 }): Promise<{ id: string; htmlLink: string }> {
   const auth = await getAuthedClient(username);
   if (!auth) throw new Error("Google Calendar not connected");
 
   const calendar = google.calendar({ version: "v3", auth });
-
-  const zoom =
-    params.zoomLink ||
-    "https://us06web.zoom.us/j/8588489477?pwd=p5SrgLfrDLBXKCvbFOFGGfMaoQ1MkI.1";
 
   // Compute start + end as naive wall-clock strings and let Google interpret
   // them in Europe/London (handles BST/GMT transitions correctly).
@@ -130,22 +137,36 @@ export async function createCalendarEvent(username: string, params: {
   const endDateStr = endDate.toISOString().slice(0, 10);
   const endDateTime = `${endDateStr}T${String(endHourInDay).padStart(2, "0")}:${String(endMins).padStart(2, "0")}:00`;
 
+  // ── Video conferencing decision tree ────────────────────────────────────────
+  // 1. Explicit zoomLink → use it verbatim (location + description prefix).
+  // 2. addVideoCall = true → ask Google Calendar to auto-create a Google Meet
+  //    link via conferenceData. The link surfaces on the returned event.
+  // 3. Otherwise → no video call attached.
+  const requestBody: Record<string, unknown> = {
+    summary: params.title,
+    start: { dateTime: startDateTime, timeZone: "Europe/London" },
+    end:   { dateTime: endDateTime,   timeZone: "Europe/London" },
+    attendees: params.attendees.map((email) => ({ email })),
+  };
+
+  if (params.zoomLink) {
+    requestBody.location = params.zoomLink;
+    requestBody.description = `Join: ${params.zoomLink}`;
+  } else if (params.addVideoCall) {
+    requestBody.conferenceData = {
+      createRequest: {
+        // Random ID per request — Google ignores duplicates.
+        requestId: `basil-${Date.now()}-${Math.floor(Math.random() * 1e6)}`,
+        conferenceSolutionKey: { type: "hangoutsMeet" },
+      },
+    };
+  }
+
   const res = await calendar.events.insert({
     calendarId: "primary",
-    requestBody: {
-      summary: params.title,
-      location: zoom,
-      description: `Zoom: ${zoom}`,
-      start: {
-        dateTime: startDateTime,
-        timeZone: "Europe/London",
-      },
-      end: {
-        dateTime: endDateTime,
-        timeZone: "Europe/London",
-      },
-      attendees: params.attendees.map((email) => ({ email })),
-    },
+    // conferenceDataVersion=1 is required for Meet auto-generation to take effect.
+    conferenceDataVersion: params.addVideoCall && !params.zoomLink ? 1 : 0,
+    requestBody,
   });
 
   return {

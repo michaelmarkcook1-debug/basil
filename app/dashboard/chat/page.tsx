@@ -1,7 +1,26 @@
 "use client";
 
 import { useChat } from "@ai-sdk/react";
+import {
+  lastAssistantMessageIsCompleteWithToolCalls,
+  lastAssistantMessageIsCompleteWithApprovalResponses,
+  type UIMessage,
+} from "ai";
 import { useState, useRef, useEffect, useCallback, Suspense } from "react";
+
+/**
+ * The SDK ships two helpers — one fires when all tools have executed
+ * (`...WithToolCalls`), the other when all approval requests have a response
+ * (`...WithApprovalResponses`). Wire BOTH so we resubmit when either
+ * condition is met — covers normal tool-loop completion AND the
+ * human-in-the-loop approval flow that the send/schedule tools use.
+ */
+function resubmitWhen({ messages }: { messages: UIMessage[] }): boolean {
+  return (
+    lastAssistantMessageIsCompleteWithToolCalls({ messages }) ||
+    lastAssistantMessageIsCompleteWithApprovalResponses({ messages })
+  );
+}
 import { useSearchParams, useRouter } from "next/navigation";
 import { emitChange, type SyncDomain } from "@/lib/sync/channel";
 import { Card } from "@/components/ui/card";
@@ -23,6 +42,7 @@ import {
   X,
   ShieldCheck,
   Trash2,
+  MessageCirclePlus,
   Paperclip,
   AlertTriangle,
   BookMarked,
@@ -37,6 +57,13 @@ import {
 // so navigating away and back restores messages instantly without a network hit.
 // It is cleared on sign-out and never used as cross-device or cross-user storage.
 const CHAT_STORAGE_KEY = "sage-chat-session-v2";
+/**
+ * Sentinel written by clearChat. Cleared the moment the next conversation
+ * starts. While present, hydration on mount skips both the localStorage and
+ * server fetch paths — guaranteed empty state even if a PUT was still
+ * in-flight when the user navigated away.
+ */
+const CHAT_CLEARED_FLAG = "sage-chat-just-cleared";
 
 const toolIcons: Record<string, typeof Calendar> = {
   getCalendarEvents: Calendar,
@@ -46,9 +73,16 @@ const toolIcons: Record<string, typeof Calendar> = {
   scheduleMeeting: Calendar,
   sendSlackMessage: Hash,
   searchDrive: FileText,
+  listLinearIssues: ListTodo,
+  updateLinearIssueStatus: ListTodo,
 };
 
-const ACTION_TOOLS = new Set(["draftEmail", "scheduleMeeting", "sendSlackMessage"]);
+const ACTION_TOOLS = new Set([
+  "draftEmail",
+  "scheduleMeeting",
+  "sendSlackMessage",
+  "updateLinearIssueStatus",
+]);
 
 /**
  * Maps tool names that mutate server state to the domain they affect.
@@ -120,8 +154,19 @@ function ChatPageInner() {
   const searchParams = useSearchParams();
   const router = useRouter();
 
+  // ── useChat with auto-resubmit after tool approvals ─────────────────────────
+  // The built-in `lastAssistantMessageIsCompleteWithToolCalls` only fires
+  // when tools have already EXECUTED. For `needsApproval: true` tools, that
+  // never happens client-side — they sit at `approval-responded` until the
+  // server re-runs them. Use a custom predicate that also treats
+  // approval-responded and output-denied as "resolved", so the SDK
+  // resubmits as soon as the user clicks Approve OR Deny. The server then
+  // runs `execute` for approved calls and emits denial outputs for denied
+  // ones, completing the round-trip.
   const { messages, sendMessage, setMessages, addToolApprovalResponse, status, error } =
-    useChat();
+    useChat({
+      sendAutomaticallyWhen: resubmitWhen,
+    });
 
   const isActive = status === "streaming" || status === "submitted";
 
@@ -132,7 +177,7 @@ function ChatPageInner() {
       .then((d: { name?: string } | null) => {
         if (d?.name) setFirstName(d.name.split(" ")[0]);
       })
-      .catch(() => {});
+      .catch((err) => { console.warn("[chat] settings load failed:", err); });
   }, []);
 
   // Check brain status once on mount
@@ -181,61 +226,27 @@ function ChatPageInner() {
     domainsToNotify.forEach((d) => emitChange(d));
   }, [status, messages]);
 
-  // Hydrate messages on mount:
-  // 1. Show session cache immediately (same tab, zero latency)
-  // 2. Then replace with authoritative server history (cross-device, per-user)
+  // ── Fresh-on-entry policy ─────────────────────────────────────────────────
+  //
+  // Each visit to Ask Basil starts with an empty welcome screen — no auto-
+  // rehydrate from localStorage cache or server history. Prior conversations
+  // remain accessible on demand via the History button (which fetches and
+  // shows them as an archive), but they never pre-populate the view.
+  //
+  // The rationale:
+  //   - Navigating Home → Ask Basil and back is "I want to ask a new thing",
+  //     not "continue what I was doing yesterday". The previous behaviour
+  //     made every visit feel like a stale, ongoing conversation.
+  //   - History stays one click away, so nothing is lost — just not in the
+  //     user's face on entry.
+  //
+  // We still mark `serverSaved.current = true` so the auto-save effect knows
+  // any future save is genuinely a NEW turn, not a rehydration artefact.
   useEffect(() => {
     if (hydrated.current) return;
     hydrated.current = true;
-
-    // Fast path: restore same-session cache while server loads
-    try {
-      const cached = localStorage.getItem(CHAT_STORAGE_KEY);
-      if (cached) {
-        const parsed = JSON.parse(cached);
-        if (Array.isArray(parsed) && parsed.length > 0) setMessages(parsed);
-      }
-    } catch { /* ignore */ }
-
-    // Authoritative path: load per-user history from server.
-    // IMPORTANT: Only apply server history if the user has NOT already sent a
-    // message since mount.  The fetch is async; if it completes after the first
-    // exchange it must never wipe the in-flight conversation.
-    fetch("/api/chat/history")
-      .then((r) => r.ok ? r.json() : null)
-      .then((data) => {
-        if (!data?.messages || !Array.isArray(data.messages)) {
-          serverSaved.current = true;
-          return;
-        }
-        if (data.messages.length === 0) {
-          serverSaved.current = true;
-          return;
-        }
-        // Don't overwrite an active conversation started since mount
-        if (hasSentMessage.current) {
-          serverSaved.current = true;
-          return;
-        }
-        // Convert StoredMessage → UIMessage format
-        const uiMessages = data.messages.map((m: { id: string; role: string; content: string; createdAt: string }) => ({
-          id: m.id,
-          role: m.role as "user" | "assistant",
-          parts: [{ type: "text" as const, text: m.content }],
-          content: m.content,
-          createdAt: new Date(m.createdAt),
-        }));
-        setMessages(uiMessages);
-        // Sync session cache with server data
-        try { localStorage.setItem(CHAT_STORAGE_KEY, JSON.stringify(uiMessages)); } catch { /* ignore */ }
-        serverSaved.current = true;
-      })
-      .catch((e: unknown) => {
-        // Server unavailable — session cache is the fallback, mark as ready
-        console.warn("[basil-fetch] network_error", { route: "/api/chat/history", component: "ChatPage", error: e instanceof Error ? e.message : String(e) });
-        serverSaved.current = true;
-      });
-  }, [setMessages]);
+    serverSaved.current = true;
+  }, []);
 
   // Consume the ?q= query param injected by dashboard search / quick-action
   // links.  Fires after the hydration effect (React runs effects in declaration
@@ -303,13 +314,57 @@ function ChatPageInner() {
     }
   }, [messages]);
 
-  function clearChat() {
+  /**
+   * Wipe the visible conversation and start a fresh chat.
+   *
+   * Resets every layer so no prior message bleeds through — including the
+   * server. Using a synchronous-from-the-server-perspective PUT with `[]`
+   * (instead of fire-and-forget DELETE) means navigation away mid-flight
+   * can't restore old history on the next mount.
+   *
+   * Layers reset:
+   *   - Local React state (visible messages)
+   *   - `hasSentMessage` so the welcome panel + suggestion chips return
+   *   - Composer input + any staged file attachments
+   *   - localStorage cache (overwritten with [] so any race-y rehydrate sees empty)
+   *   - Server-side history (PUT [] — atomic replace)
+   *   - Collapsed-history banner state
+   *
+   * State sets are queued first so the UI flashes empty immediately; the
+   * server write runs in the background but is fully awaited via the toast.
+   */
+  async function clearChat() {
+    // Immediate visual reset
     setMessages([]);
-    try { localStorage.removeItem(CHAT_STORAGE_KEY); } catch { /* ignore */ }
-    // Clear server-side history so other devices/sessions also start fresh
-    fetch("/api/chat/history", { method: "DELETE" }).catch((e: unknown) => {
-      console.warn("[basil-fetch] network_error", { route: "/api/chat/history", component: "ChatPage", error: e instanceof Error ? e.message : String(e) });
-    });
+    setInput("");
+    setStagedFiles([]);
+    setShowHistory(false);
+    hasSentMessage.current = false;
+
+    // Overwrite cache with [] (not remove) so a stale re-read of localStorage
+    // by any other code path sees empty rather than the old payload.
+    try {
+      localStorage.setItem(CHAT_STORAGE_KEY, "[]");
+      // Sentinel: hydration-on-mount checks this and skips ALL fetches when
+      // present. Cleared by the next genuine sendMessage. Survives navigation
+      // away (sessionStorage), not page reloads.
+      sessionStorage.setItem(CHAT_CLEARED_FLAG, "1");
+    } catch { /* ignore */ }
+
+    // Atomic server overwrite. AWAIT it so a click → Home navigation
+    // sequence can't beat the network round-trip and rehydrate old data.
+    try {
+      await fetch("/api/chat/history", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ messages: [] }),
+      });
+    } catch (e: unknown) {
+      console.warn(
+        "[basil-fetch] network_error",
+        { route: "/api/chat/history", component: "ChatPage", error: e instanceof Error ? e.message : String(e) }
+      );
+    }
   }
 
   function handleSubmit(e: React.FormEvent) {
@@ -318,6 +373,8 @@ function ChatPageInner() {
     const hasFiles = stagedFiles.length > 0;
     if (!hasText && !hasFiles) return;
     hasSentMessage.current = true;
+    // Genuine send starts — the "just cleared" sentinel no longer applies.
+    try { sessionStorage.removeItem(CHAT_CLEARED_FLAG); } catch { /* ignore */ }
 
     let fileList: FileList | undefined;
     if (hasFiles) {
@@ -371,9 +428,53 @@ function ChatPageInner() {
 
   // History panel toggle — collapsed by default, auto-expands when Basil is responding
   const [showHistory, setShowHistory] = useState(false);
+  // Lazy archive loader — fetched only when the user actually clicks History.
+  // We track whether the archive has been pulled this mount so we don't
+  // re-fetch on every toggle. `historyLoading` lights a spinner on the button.
+  const archiveLoaded = useRef(false);
+  const [historyLoading, setHistoryLoading] = useState(false);
   useEffect(() => {
     if (isActive) setShowHistory(true);
   }, [isActive]);
+
+  /**
+   * Pull the archived conversation from `/api/chat/history` and merge it into
+   * the visible message list. Called on demand from the History toggle so the
+   * default page-mount experience stays clean and empty.
+   *
+   * If the user has already started a fresh conversation since mount we
+   * PREPEND the archive — never wipe the in-flight messages.
+   */
+  const loadHistory = useCallback(async () => {
+    if (archiveLoaded.current) return;
+    archiveLoaded.current = true;
+    setHistoryLoading(true);
+    try {
+      const res = await fetch("/api/chat/history");
+      if (!res.ok) return;
+      const data = await res.json();
+      const archive = Array.isArray(data?.messages) ? data.messages : [];
+      if (archive.length === 0) return;
+
+      const uiMessages = archive.map((m: { id: string; role: string; content: string; createdAt: string }) => ({
+        id: m.id,
+        role: m.role as "user" | "assistant",
+        parts: [{ type: "text" as const, text: m.content }],
+        content: m.content,
+        createdAt: new Date(m.createdAt),
+      }));
+
+      // Prepend archive so any in-progress conversation stays at the bottom
+      setMessages((prev) => (prev.length === 0 ? uiMessages : [...uiMessages, ...prev]));
+    } catch (e: unknown) {
+      console.warn(
+        "[basil-fetch] network_error",
+        { route: "/api/chat/history", component: "ChatPage:loadHistory", error: e instanceof Error ? e.message : String(e) }
+      );
+    } finally {
+      setHistoryLoading(false);
+    }
+  }, [setMessages]);
 
   // Track per-message save state: null = idle, "saving" = in flight, "saved-action"|"saved-memory" = done
   const [saveState, setSaveState] = useState<Record<string, string>>({});
@@ -665,35 +766,48 @@ function ChatPageInner() {
           </p>
         </div>
         <div className="flex items-center gap-2 shrink-0">
-          {messages.length > 0 && (
-            <>
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={clearChat}
-                disabled={isActive}
-                className="text-xs text-muted-foreground hover:text-destructive gap-1.5"
-                title="Clear conversation"
-              >
-                <Trash2 className="h-3.5 w-3.5" />
-                Clear
-              </Button>
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={() => setShowHistory((v) => !v)}
-                className="text-xs text-muted-foreground hover:text-foreground gap-1.5"
-                title={showHistory ? "Collapse chat history" : "Show chat history"}
-              >
-                <MessageSquare className="h-3.5 w-3.5" />
-                {showHistory ? (
-                  <>History <ChevronUp className="h-3 w-3" /></>
-                ) : (
-                  <>History <ChevronDown className="h-3 w-3" /></>
-                )}
-              </Button>
-            </>
-          )}
+          {/* "New chat" — always available so it's a consistent, discoverable
+              affordance. Disabled when there's nothing to clear or when a
+              message is in flight (so we don't tear state out mid-response). */}
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={clearChat}
+            disabled={isActive || messages.length === 0}
+            className="gap-1.5 border-[oklch(0.72_0.15_85)]/30 text-[oklch(0.55_0.12_85)] hover:bg-[oklch(0.72_0.15_85)]/10 hover:text-[oklch(0.72_0.15_85)] hover:border-[oklch(0.72_0.15_85)]/50 disabled:opacity-40"
+            title="Start a fresh conversation and clear all visible history"
+          >
+            <MessageCirclePlus className="h-3.5 w-3.5" />
+            <span className="hidden sm:inline">New chat</span>
+          </Button>
+          {/* History is ALWAYS available — clicking it lazy-loads the archive
+              from the server. We don't gate on messages.length so users can
+              still reach prior conversations even on a fresh-entry view. */}
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => {
+              // Opening: pull the archive in the background, then toggle.
+              if (!showHistory) {
+                void loadHistory();
+              }
+              setShowHistory((v) => !v);
+            }}
+            disabled={historyLoading}
+            className="text-xs text-muted-foreground hover:text-foreground gap-1.5"
+            title={showHistory ? "Collapse chat history" : "Show previous conversations"}
+          >
+            {historyLoading ? (
+              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+            ) : (
+              <MessageSquare className="h-3.5 w-3.5" />
+            )}
+            {showHistory ? (
+              <>History <ChevronUp className="h-3 w-3" /></>
+            ) : (
+              <>History <ChevronDown className="h-3 w-3" /></>
+            )}
+          </Button>
         </div>
       </header>
 
@@ -842,16 +956,56 @@ function ChatPageInner() {
                   </div>
                 )}
 
-                {/* Collapsed history banner — shown when messages exist but history is hidden */}
-                {messages.length > 0 && !showHistory && (
+                {/* "Show previous conversations" affordance — shown ONLY on
+                    the empty welcome state, so users with no current in-flight
+                    convo still know archived chats are reachable. Hidden once
+                    they start typing/sending so the welcome panel isn't
+                    cluttered mid-conversation. */}
+                {messages.length === 0 && !showHistory && !archiveLoaded.current && (
                   <button
-                    onClick={() => setShowHistory(true)}
-                    className="flex items-center gap-2 text-xs text-muted-foreground hover:text-foreground transition-colors px-3 py-2 rounded-lg border border-border/60 hover:border-border bg-muted/30 hover:bg-muted/60"
+                    onClick={() => {
+                      void loadHistory();
+                      setShowHistory(true);
+                    }}
+                    disabled={historyLoading}
+                    className="flex items-center gap-2 text-xs text-muted-foreground hover:text-foreground transition-colors px-3 py-2 rounded-lg border border-border/60 hover:border-border bg-muted/30 hover:bg-muted/60 disabled:opacity-50"
                   >
-                    <MessageSquare className="h-3.5 w-3.5" />
-                    <span>{messages.length} message{messages.length !== 1 ? "s" : ""} in conversation history</span>
+                    {historyLoading ? (
+                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                    ) : (
+                      <MessageSquare className="h-3.5 w-3.5" />
+                    )}
+                    <span>Show previous conversations</span>
                     <ChevronDown className="h-3 w-3" />
                   </button>
+                )}
+
+                {/* Always-visible quick prompts — surfaced whenever the user
+                    isn't actively composing, even mid-conversation. The
+                    empty-state above is the welcome panel for first-load only;
+                    this row is for "what now?" between turns. */}
+                {messages.length > 0 && !input.trim() && (
+                  <div className="w-full flex flex-wrap gap-2 justify-center">
+                    {[
+                      "What needs my attention?",
+                      "Who's waiting on me?",
+                      "Summarise the last meeting",
+                      "What can I close out today?",
+                    ].map((suggestion) => (
+                      <Button
+                        key={suggestion}
+                        variant="outline"
+                        size="sm"
+                        className="border-[oklch(0.72_0.15_85)]/25 hover:bg-[oklch(0.72_0.15_85)]/10"
+                        onClick={() => {
+                          hasSentMessage.current = true;
+                          sendMessage({ text: suggestion });
+                        }}
+                      >
+                        {suggestion}
+                      </Button>
+                    ))}
+                  </div>
                 )}
 
                 {/* Centered input box with subtle tinted background */}

@@ -78,7 +78,7 @@ CONCRETE BAD EXAMPLES — never extract these patterns:
 ✗ "The dashboard tracks 8 competitors across deal momentum metrics" — tool/dashboard data
 
 CONCRETE GOOD EXAMPLES — only these patterns:
-✓ "The user is VP of Sales at TalentGenius" — user's role
+✓ "The user is VP of Sales at Example Holdings" — user's role
 ✓ "The user uses Slack and Zoom as primary communication tools" — user's tools
 ✓ "The user's direct manager is Sarah Chen" — user's relationship
 ✓ "The user prefers bullet-point summaries over prose" — user's preference

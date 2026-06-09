@@ -185,7 +185,7 @@ export function DraftEmailModal({ open, onClose }: Props) {
                     type="button"
                     disabled={generating}
                     onClick={() => generateBody(quickPrompt)}
-                    className="flex items-center gap-1.5 text-[11px] font-medium text-[oklch(0.60_0.15_85)] hover:text-[oklch(0.50_0.15_85)] transition-colors disabled:opacity-50"
+                    className="flex items-center gap-1.5 text-xs font-medium text-[oklch(0.60_0.15_85)] hover:text-[oklch(0.50_0.15_85)] transition-colors disabled:opacity-50"
                     title="Generate body from To + Subject"
                   >
                     {generating ? (
@@ -244,7 +244,7 @@ export function DraftEmailModal({ open, onClose }: Props) {
                   Let Basil draft it for you
                 </p>
               </div>
-              <p className="text-[11px] text-muted-foreground leading-relaxed">
+              <p className="text-xs text-muted-foreground leading-relaxed">
                 Describe what you want to say and Basil will write the email body directly into the text box above.
               </p>
               <div className="flex gap-2">

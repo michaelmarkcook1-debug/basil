@@ -59,21 +59,21 @@ test("classify preference → durable", () => {
 
 test("classify rule → durable", () => {
   const store = new MemoryStore(tempDir());
-  const r = store.classify("Rule: Always CC Ed on investor communications.");
+  const r = store.classify("Rule: Always CC Sam on investor communications.");
   assert.strictEqual(r.category, "durable");
   cleanup(store.dataDir);
 });
 
 test("classify temporal reference → workspace", () => {
   const store = new MemoryStore(tempDir());
-  const r = store.classify("Today's call with Malcolm at 2pm needs prep.");
+  const r = store.classify("Today's call with Jordan at 2pm needs prep.");
   assert.strictEqual(r.category, "workspace");
   cleanup(store.dataDir);
 });
 
 test("classify @active tag → workspace", () => {
   const store = new MemoryStore(tempDir());
-  const r = store.classify("Current draft @active — AG pricing model v3.");
+  const r = store.classify("Current draft @active — Example Analytics pricing model v3.");
   assert.strictEqual(r.category, "workspace");
   cleanup(store.dataDir);
 });
@@ -118,7 +118,7 @@ test("ingest into durable returns id and sourceId", () => {
 test("ingest into durable writes to durable.json", () => {
   const dir = tempDir();
   const store = new MemoryStore(dir);
-  store.ingest("I am CEO of AnalystGenius.", "durable", { priority: 8 });
+  store.ingest("I am CEO of Example Analytics.", "durable", { priority: 8 });
   const records = JSON.parse(fs.readFileSync(path.join(dir, "durable.json"), "utf8"));
   assert.strictEqual(records.length, 1);
   assert.strictEqual(records[0].priority, 8);
@@ -143,7 +143,7 @@ test("ingest into knowledge creates chunks and embeddings", () => {
 test("ingest into workspace sets expiresAt", () => {
   const dir = tempDir();
   const store = new MemoryStore(dir);
-  store.ingest("Draft AG pricing doc.", "workspace");
+  store.ingest("Draft Example Analytics pricing doc.", "workspace");
   const records = JSON.parse(fs.readFileSync(path.join(dir, "workspace.json"), "utf8"));
   assert.strictEqual(records.length, 1);
   assert.ok(records[0].expiresAt !== null, "should have an expiry");
@@ -531,20 +531,20 @@ test("list filters by tags", () => {
   const dir = tempDir();
   const store = new MemoryStore(dir);
   // Use clearly distinct strings to avoid conflict-detection merging them
-  store.ingest("Malcolm Frank is a strategic thinker and AG investor.", "durable", { tags: ["investor"] });
-  store.ingest("Ed Baum runs day-to-day operations and reports to the board.", "durable");
+  store.ingest("Jordan Avery is a strategic thinker and Example Analytics investor.", "durable", { tags: ["investor"] });
+  store.ingest("Sam Rivera runs day-to-day operations and reports to the board.", "durable");
   const tagged = store.list("durable", { tags: ["investor"] });
   assert.strictEqual(tagged.length, 1);
-  assert.ok(tagged[0].content.includes("Malcolm"), "should return the tagged record");
+  assert.ok(tagged[0].content.includes("Jordan"), "should return the tagged record");
   cleanup(dir);
 });
 
 test("list filters by search substring", () => {
   const dir = tempDir();
   const store = new MemoryStore(dir);
-  store.ingest("Malcolm Frank is on the board.", "durable");
-  store.ingest("Ed Baum runs operations.", "durable");
-  const results = store.list("durable", { search: "malcolm" });
+  store.ingest("Jordan Avery is on the board.", "durable");
+  store.ingest("Sam Rivera runs operations.", "durable");
+  const results = store.list("durable", { search: "jordan" });
   assert.strictEqual(results.length, 1);
   cleanup(dir);
 });

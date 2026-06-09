@@ -185,7 +185,7 @@ function Row({
 }) {
   return (
     <div className="flex items-start gap-4">
-      <span className="w-28 shrink-0 text-[11px] font-mono text-muted-foreground/60 pt-0.5 select-none">
+      <span className="w-28 shrink-0 text-xs font-mono text-muted-foreground/60 pt-0.5 select-none">
         {label}
       </span>
       <div className="flex-1 min-w-0">{children}</div>
@@ -286,15 +286,15 @@ export default function TrustShowcasePage() {
       >
         <div className="space-y-4 max-w-xs">
           <div className="space-y-1">
-            <p className="text-[11px] text-muted-foreground/60 font-mono">High (91%)</p>
+            <p className="text-xs text-muted-foreground/60 font-mono">High (91%)</p>
             <ConfidenceMeter value={0.91} showLabel showPercent />
           </div>
           <div className="space-y-1">
-            <p className="text-[11px] text-muted-foreground/60 font-mono">Medium (62%)</p>
+            <p className="text-xs text-muted-foreground/60 font-mono">Medium (62%)</p>
             <ConfidenceMeter value={0.62} showLabel showPercent />
           </div>
           <div className="space-y-1">
-            <p className="text-[11px] text-muted-foreground/60 font-mono">Low (31%)</p>
+            <p className="text-xs text-muted-foreground/60 font-mono">Low (31%)</p>
             <ConfidenceMeter value={0.31} showLabel showPercent />
           </div>
         </div>
@@ -449,22 +449,22 @@ export default function TrustShowcasePage() {
       >
         <div className="grid sm:grid-cols-2 gap-4">
           <div className="space-y-1">
-            <p className="text-[11px] text-muted-foreground/60 font-mono">High · no conflicts</p>
+            <p className="text-xs text-muted-foreground/60 font-mono">High · no conflicts</p>
             <TrustPanel envelope={ENVELOPE_HIGH} />
           </div>
           <div className="space-y-1">
-            <p className="text-[11px] text-muted-foreground/60 font-mono">Review · with conflict</p>
+            <p className="text-xs text-muted-foreground/60 font-mono">Review · with conflict</p>
             <TrustPanel
               envelope={ENVELOPE_CONFLICT}
               resolvedConflicts={CONFLICTS}
             />
           </div>
           <div className="space-y-1">
-            <p className="text-[11px] text-muted-foreground/60 font-mono">Stale signal</p>
+            <p className="text-xs text-muted-foreground/60 font-mono">Stale signal</p>
             <TrustPanel envelope={ENVELOPE_STALE} />
           </div>
           <div className="space-y-1">
-            <p className="text-[11px] text-muted-foreground/60 font-mono">Compact (popover)</p>
+            <p className="text-xs text-muted-foreground/60 font-mono">Compact (popover)</p>
             <TrustPanel envelope={ENVELOPE_HIGH} compact showProvenance={false} />
           </div>
         </div>
@@ -477,7 +477,7 @@ export default function TrustShowcasePage() {
       >
         <div className="space-y-4">
           <div className="space-y-1">
-            <p className="text-[11px] text-muted-foreground/60 font-mono">verified</p>
+            <p className="text-xs text-muted-foreground/60 font-mono">verified</p>
             <TrustBannerCard
               variant="verified"
               envelope={ENVELOPE_HIGH}
@@ -485,7 +485,7 @@ export default function TrustShowcasePage() {
             />
           </div>
           <div className="space-y-1">
-            <p className="text-[11px] text-muted-foreground/60 font-mono">uncertain</p>
+            <p className="text-xs text-muted-foreground/60 font-mono">uncertain</p>
             <TrustBannerCard
               variant="uncertain"
               envelope={ENVELOPE_MEDIUM}
@@ -493,7 +493,7 @@ export default function TrustShowcasePage() {
             />
           </div>
           <div className="space-y-1">
-            <p className="text-[11px] text-muted-foreground/60 font-mono">conflict</p>
+            <p className="text-xs text-muted-foreground/60 font-mono">conflict</p>
             <TrustBannerCard
               variant="conflict"
               envelope={ENVELOPE_CONFLICT}
@@ -568,7 +568,7 @@ export default function TrustShowcasePage() {
       </Section>
 
       <div className="pb-8 text-center">
-        <p className="text-[11px] text-muted-foreground/40">
+        <p className="text-xs text-muted-foreground/40">
           Trust UI · Basil design system · {new Date().getFullYear()}
         </p>
       </div>
@@ -587,7 +587,7 @@ function CompositeDecisionCard() {
       {/* Title */}
       <div className="flex items-start justify-between gap-2">
         <div>
-          <p className="text-[11px] text-muted-foreground/60 font-mono uppercase tracking-wider mb-1">Decision</p>
+          <p className="text-xs text-muted-foreground/60 font-mono uppercase tracking-wider mb-1">Decision</p>
           <h3 className="text-[14px] font-semibold text-foreground leading-snug">
             Move Q3 launch to October to allow for compliance review
           </h3>

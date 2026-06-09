@@ -186,7 +186,7 @@ export function SlackCard() {
           <div className="mb-3 rounded-lg border border-[oklch(0.72_0.15_85)]/30 bg-accent/30 p-3 space-y-2">
             <input
               type="text"
-              placeholder="Channel or name (e.g. general, Malcolm)"
+              placeholder="Channel or name (e.g. general, Jordan)"
               value={composeChannel}
               onChange={(e) => setComposeChannel(e.target.value)}
               className="w-full text-xs bg-transparent border border-border/50 rounded px-2 py-1.5 placeholder:text-muted-foreground/40 focus:outline-none focus:border-[oklch(0.72_0.15_85)]/60"
@@ -202,7 +202,7 @@ export function SlackCard() {
             />
             {sendError && <p className="text-xs text-red-400">{sendError}</p>}
             <div className="flex items-center justify-between">
-              <span className="text-[11px] text-muted-foreground/40">⌘↵ to send</span>
+              <span className="text-xs text-muted-foreground/40">⌘↵ to send</span>
               <div className="flex gap-2">
                 <button onClick={() => { setComposing(false); setSendState("idle"); setSendError(null); }}
                   className="text-xs text-muted-foreground hover:text-foreground flex items-center gap-1">
@@ -296,7 +296,7 @@ export function SlackCard() {
                         className="w-full text-xs bg-accent/50 border border-[oklch(0.72_0.15_85)]/30 rounded px-2 py-1.5 resize-none placeholder:text-muted-foreground/40 focus:outline-none focus:border-[oklch(0.72_0.15_85)]/60"
                       />
                       <div className="flex items-center justify-between px-0.5">
-                        <span className="text-[11px] text-muted-foreground/40">⌘↵ send · Esc cancel</span>
+                        <span className="text-xs text-muted-foreground/40">⌘↵ send · Esc cancel</span>
                         <div className="flex gap-2">
                           <button
                             onClick={() => { setReplyTargetId(null); setReplyText(""); }}

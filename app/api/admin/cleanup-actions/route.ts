@@ -8,10 +8,10 @@
  *
  * Body (all optional):
  * {
- *   username: string;          // whose actions to clean — defaults to "michael"
+ *   username: string;          // whose actions to clean — defaults to the configured owner
  *   source?: string;           // filter by source, e.g. "slack" (default)
  *   dryRun?: boolean;          // if true, report what would be deleted without deleting
- *   keepOwners?: string[];     // owner values to KEEP (default: michael-ish names + blank)
+ *   keepOwners?: string[];     // owner values to KEEP (default: target-user-ish names + blank)
  *   beforeDate?: string;       // ISO date — only delete actions created before this date
  * }
  *
@@ -23,11 +23,13 @@ import { listActions, deleteAction } from "@/lib/actions/store";
 
 export const dynamic = "force-dynamic";
 
-/** Returns true if the owner value refers to Michael or is unset. */
-function isMichaelOwner(owner: string | undefined | null): boolean {
+/** Returns true if the owner value refers to the target user or is unset. */
+function isOwnerOrUnset(owner: string | undefined | null, targetUser: string): boolean {
   if (!owner || !owner.trim()) return true;
   const o = owner.trim().toLowerCase();
-  if (o.includes("michael") || o === "me" || o === "i" || o === "unknown") return true;
+  if (o === "me" || o === "i" || o === "unknown") return true;
+  const target = targetUser.trim().toLowerCase();
+  if (target && o.includes(target)) return true;
   return false;
 }
 
@@ -43,7 +45,7 @@ export async function POST(req: Request) {
   }
 
   // ── Parse body ──────────────────────────────────────────────────────────────
-  let username = "michael";
+  let username = "";
   let source = "slack";
   let dryRun = false;
   let keepOwners: string[] | null = null;
@@ -61,6 +63,12 @@ export async function POST(req: Request) {
   }
 
   // ── Load actions ────────────────────────────────────────────────────────────
+  if (!username) {
+    return NextResponse.json(
+      { error: "username is required in the request body." },
+      { status: 400 }
+    );
+  }
   const all = await listActions(username);
 
   const toDelete: { id: string; text: string; owner: string | undefined }[] = [];
@@ -83,7 +91,7 @@ export async function POST(req: Request) {
     const owner = action.owner ?? "";
     const shouldKeep = keepOwners
       ? keepOwners.some((k) => owner.toLowerCase().includes(k.toLowerCase()))
-      : isMichaelOwner(owner);
+      : isOwnerOrUnset(owner, username);
 
     if (shouldKeep) {
       toKeep.push(action.id);

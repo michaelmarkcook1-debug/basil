@@ -217,10 +217,19 @@ export async function POST(req: Request) {
       );
     }
 
+    // Read the updated action list from /tmp (NOT from Blob CDN).
+    // Each updateAction call above ran writeStore which writes to /tmp first, so
+    // /tmp on this instance already has all 30 eisenhower fields committed.
+    // Passing fresh:true would bypass /tmp and read from Blob CDN, which can
+    // serve the pre-write cached content — that's exactly the stale-read bug
+    // we're trying to fix. Reading without fresh hits /tmp, which is correct here.
+    const updatedActions = await listActions(username);
+
     return NextResponse.json({
       classified,
       total: toClassify.length,
       method,
+      actions: updatedActions,
       ...(method === "heuristic" ? { warning: "AI brain unavailable — used rule-based classification" } : {}),
     });
   } catch (e) {

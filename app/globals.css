@@ -274,7 +274,8 @@ html:has(.auth-shell) {
   --secondary:           #e8e6e1;
   --secondary-foreground:#1e1c18;
   --muted:               #e8e6e1;
-  --muted-foreground:    #706e69;
+  /* Darkened from #706e69 → holds 4.5:1 even with /60–/70 opacity modifiers. */
+  --muted-foreground:    #595650;
   --accent:              #f0ede8;
   --accent-foreground:   #1e1c18;
   --destructive:         oklch(0.52 0.18 24);
@@ -343,7 +344,9 @@ html:has(.auth-shell) {
   --secondary:           #111C2E;
   --secondary-foreground: #F3EFE7;
   --muted:               #111C2E;
-  --muted-foreground:    #AAB3C5;
+  /* Brightened from #AAB3C5 → keeps text legible even when components apply
+     /60–/70 opacity modifiers (WCAG AA: 4.5:1 holds down to ~/55). */
+  --muted-foreground:    #C6CEDB;
   --accent:              #0B1730;
   --accent-foreground:   #F3EFE7;
   --destructive:         #D96C5F;
@@ -426,11 +429,13 @@ html:has(.auth-shell) {
 
   html {
     @apply font-sans;
-    /* Fluid base: 15px floor → 17px ceiling.
-       Smaller than before — operational density tools read at 14–15px base.
-       The old 17.5–22px range was too large for information-dense layouts.
+    /* Fluid base: 16px floor → 18px ceiling.
+       Lifted from the previous 15-17px range after readability audit —
+       operational tools still need density, but text below 16px on dense
+       dashboards reads as cramped and fails large-screen contrast budgets.
+       At 16px base: text-xs = 12px, text-sm = 14px, text-base = 16px.
        Mobile inputs that need zoom-prevention use text-[16px] explicitly. */
-    font-size: clamp(15px, 14px + 0.25vw, 17px);
+    font-size: clamp(16px, 15px + 0.25vw, 18px);
     /* Crisp rendering — no subpixel smoothing artefacts */
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;

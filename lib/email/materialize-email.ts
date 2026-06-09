@@ -23,6 +23,8 @@ import {
   type AuditEntry,
 } from "@/lib/ingest/audit-log";
 import type { EmailIntelligence, EmailCategory } from "./classify-email";
+import { writeToneObservations } from "@/lib/contacts/tone-store";
+import { getFlags } from "@/core/feature-flags";
 
 // ── Input / output types ───────────────────────────────────────────────────────
 
@@ -113,6 +115,7 @@ export async function materializeEmailIntelligence(
           const { item: action, created } = await createActionTracked(username, {
             text: item.text.trim(),
             dueDate: item.dueDate,
+            expiresAt: item.expiresAt,
             source: "email",
             eventId,
             sourceRef,
@@ -283,6 +286,22 @@ export async function materializeEmailIntelligence(
       console.error("[email-materialize] failed to create memory:", e);
       auditEntries.push(auditFailed(sourceRef, "memory", e instanceof Error ? e.message : String(e)));
     }
+  }
+
+  // ── Tone observations ──────────────────────────────────────────────────────
+  // For relationship_signal emails with detected tone shifts, write observations
+  // to the relevant contact overrides. Gated by toneTracking_active flag.
+  // Non-fatal: errors are logged, not thrown.
+  const toneFlags = await getFlags(username).catch((err) => { console.error("[email-materialize] flags load failed:", err); return null; });
+  if (
+    toneFlags?.toneTracking_active !== false &&
+    intel.category === "relationship_signal" &&
+    intel.toneShifts &&
+    intel.toneShifts.length > 0
+  ) {
+    writeToneObservations(username, intel.toneShifts, date, "email", sourceRef).catch((err) => {
+      console.error("[email-materialize] tone observation write failed:", err);
+    });
   }
 
   return { actionsCreated, decisionsCreated, memoriesCreated, auditEntries };

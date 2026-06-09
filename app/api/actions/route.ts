@@ -50,7 +50,7 @@ export async function POST(req: Request) {
       );
     }
 
-    const resolvedOwner = owner?.trim() || (await getSettings(username).catch(() => null))?.name || undefined;
+    const resolvedOwner = owner?.trim() || (await getSettings(username).catch((err) => { console.error("[actions] settings load failed:", err); return null; }))?.name || undefined;
     const action = await createAction(username, {
       text,
       owner: resolvedOwner,

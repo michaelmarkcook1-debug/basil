@@ -13,6 +13,14 @@ const LINEAR_API = "https://api.linear.app/graphql";
 
 interface LinearConfig {
   apiKey?: string;
+  /** Organisation ID — captured at validation time, used to route webhooks
+   *  to the right Basil user. Linear webhook payloads include this field. */
+  organizationId?: string;
+  /** Per-user webhook ID returned by Linear when we registered the subscription.
+   *  Stored so we can delete the webhook on disconnect. */
+  webhookId?: string;
+  /** Per-user secret Linear signs payloads with — verified in the receiver. */
+  webhookSecret?: string;
 }
 
 export async function getLinearConfig(username: string): Promise<LinearConfig> {
@@ -63,13 +71,14 @@ export interface LinearIssue {
   description?: string;
   priority: number;     // 0=None, 1=Urgent, 2=High, 3=Normal, 4=Low
   state: { name: string; type: string };
-  team: { name: string };
+  team: { id?: string; name: string };
   project?: { name: string } | null;
   dueDate?: string | null;
   url: string;
   createdAt: string;
   updatedAt: string;
   assignee?: { id: string; name: string } | null;
+  labels?: { nodes: Array<{ id: string; name: string; color: string }> } | null;
 }
 
 export interface LinearTeam {
@@ -93,6 +102,26 @@ export interface LinearIssueInput {
   stateId?: string;
   priority?: number;
   dueDate?: string | null;
+  /** ID of the workspace member to assign. Linear treats null as unassigned. */
+  assigneeId?: string | null;
+  /** IDs of labels to apply. Pass [] to clear all labels. */
+  labelIds?: string[];
+}
+
+export interface LinearUser {
+  id: string;
+  name: string;
+  displayName?: string;
+  email?: string;
+  avatarUrl?: string;
+  active: boolean;
+}
+
+export interface LinearLabel {
+  id: string;
+  name: string;
+  color: string;
+  team?: { id: string } | null;
 }
 
 // ── Queries ────────────────────────────────────────────────────────────────
@@ -217,9 +246,10 @@ export async function getWorkflowStates(username: string, teamId?: string): Prom
 const ISSUE_FRAGMENT = `
   id identifier title description priority dueDate url createdAt updatedAt
   state { name type }
-  team { name }
+  team { id name }
   project { name }
   assignee { id name }
+  labels { nodes { id name color } }
 `;
 
 interface AllIssuesResult {
@@ -419,6 +449,93 @@ export async function validateApiKey(apiKey: string): Promise<string> {
     `query { viewer { name } }`
   );
   return data.viewer.name;
+}
+
+/**
+ * Validate the key AND capture the organisation ID. The org ID is what
+ * webhook payloads carry, so we need it stored to route push events back
+ * to the right Basil user.
+ */
+export async function validateAndIntrospect(apiKey: string): Promise<{
+  name: string;
+  organizationId: string;
+}> {
+  const data = await gql<{
+    viewer: { name: string; organization: { id: string } };
+  }>(apiKey, `query { viewer { name organization { id } } }`);
+  return {
+    name: data.viewer.name,
+    organizationId: data.viewer.organization.id,
+  };
+}
+
+// ── Webhook lifecycle ────────────────────────────────────────────────────────
+
+const WEBHOOK_CREATE_MUTATION = `
+  mutation WebhookCreate($input: WebhookCreateInput!) {
+    webhookCreate(input: $input) {
+      success
+      webhook { id secret }
+    }
+  }
+`;
+
+const WEBHOOK_DELETE_MUTATION = `
+  mutation WebhookDelete($id: String!) {
+    webhookDelete(id: $id) { success }
+  }
+`;
+
+interface WebhookCreateResult {
+  webhookCreate: {
+    success: boolean;
+    webhook: { id: string; secret: string };
+  };
+}
+
+/**
+ * Create a Linear webhook subscription for the user. Subscribes to the events
+ * we care about — Issue create/update/remove and Comment events for now.
+ *
+ * Returns the webhook id + signing secret so we can dedupe and verify pushes.
+ */
+export async function registerLinearWebhook(
+  username: string,
+  publicUrl: string
+): Promise<{ id: string; secret: string }> {
+  const config = await getLinearConfig(username);
+  if (!config.apiKey) throw new Error("Linear not connected");
+
+  const data = await gql<WebhookCreateResult>(config.apiKey, WEBHOOK_CREATE_MUTATION, {
+    input: {
+      url: publicUrl,
+      label: `Basil push sync — ${username}`,
+      resourceTypes: ["Issue", "Comment", "IssueLabel"],
+      allPublicTeams: true,
+    },
+  });
+
+  if (!data.webhookCreate.success) {
+    throw new Error("Linear webhook registration failed");
+  }
+  return data.webhookCreate.webhook;
+}
+
+/**
+ * Delete the user's Linear webhook. Best-effort — swallows errors because the
+ * webhook may already be gone (Linear UI deletion, key rotation, etc.).
+ */
+export async function unregisterLinearWebhook(
+  username: string,
+  webhookId: string
+): Promise<void> {
+  const config = await getLinearConfig(username);
+  if (!config.apiKey) return;
+  try {
+    await gql(config.apiKey, WEBHOOK_DELETE_MUTATION, { id: webhookId });
+  } catch (err) {
+    console.warn("[linear] webhook delete failed (likely already removed):", err);
+  }
 }
 
 // ── Comments ───────────────────────────────────────────────────────────────
@@ -625,4 +742,66 @@ export function linearPriorityToBasil(p: number): "high" | "medium" | "low" {
   if (p === 1 || p === 2) return "high";
   if (p === 3) return "medium";
   return "low";
+}
+
+// ── Workspace members (assignee picker) ────────────────────────────────────
+
+const USERS_QUERY = `
+  query Users {
+    users(filter: { active: { eq: true } }, first: 100) {
+      nodes { id name displayName email avatarUrl active }
+    }
+  }
+`;
+
+interface UsersResult { users: { nodes: LinearUser[] } }
+
+/**
+ * List active workspace members — used for the assignee picker.
+ * Throws if not connected; callers should catch and treat empty as "no picker".
+ */
+export async function getWorkspaceUsers(username: string): Promise<LinearUser[]> {
+  const config = await getLinearConfig(username);
+  if (!config.apiKey) throw new Error("Linear not connected");
+  const data = await gql<UsersResult>(config.apiKey, USERS_QUERY);
+  // Sort: real names first (skip noreply / bots), then alpha.
+  return [...data.users.nodes].sort((a, b) =>
+    (a.displayName ?? a.name).localeCompare(b.displayName ?? b.name)
+  );
+}
+
+// ── Labels (label picker) ──────────────────────────────────────────────────
+
+const LABELS_QUERY = `
+  query Labels($teamId: ID) {
+    issueLabels(
+      filter: { team: { id: { eq: $teamId } } }
+      first: 100
+    ) {
+      nodes { id name color team { id } }
+    }
+  }
+`;
+
+const LABELS_ALL_QUERY = `
+  query AllLabels {
+    issueLabels(first: 250) {
+      nodes { id name color team { id } }
+    }
+  }
+`;
+
+interface LabelsResult { issueLabels: { nodes: LinearLabel[] } }
+
+/**
+ * List labels available for a team (or all labels when no team is provided).
+ * Linear labels are either team-scoped or workspace-wide (no team).
+ */
+export async function getLabels(username: string, teamId?: string): Promise<LinearLabel[]> {
+  const config = await getLinearConfig(username);
+  if (!config.apiKey) throw new Error("Linear not connected");
+  const query = teamId ? LABELS_QUERY : LABELS_ALL_QUERY;
+  const variables = teamId ? { teamId } : {};
+  const data = await gql<LabelsResult>(config.apiKey, query, variables);
+  return data.issueLabels.nodes.sort((a, b) => a.name.localeCompare(b.name));
 }

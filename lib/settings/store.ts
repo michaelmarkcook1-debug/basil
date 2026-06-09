@@ -67,7 +67,7 @@ const BASE_DEFAULTS: Omit<UserSettings, "name"> = {
  * addressed as a different user.
  */
 function defaultsForUser(username: string): UserSettings {
-  // "michael_cook" → "Michael Cook", "alice" → "Alice"
+  // "jordan_avery" → "Jordan Avery", "alice" → "Alice"
   const displayName = username
     .replace(/[_.-]/g, " ")
     .replace(/\b\w/g, (c) => c.toUpperCase());

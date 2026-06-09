@@ -53,6 +53,14 @@ export interface FeatureFlags {
   /** Compute and attach RankedSignal to all new SignalEvents. */
   ranking_active: boolean;
 
+  // ── Relationship intelligence ─────────────────────────────────────────────
+  /**
+   * Detect tone and attitude shifts in relationship_signal emails and Slack
+   * messages and persist them as a per-contact observation history.
+   * On by default — toggle off to stop accumulating new observations.
+   */
+  toneTracking_active: boolean;
+
   // ── Per-source cutover ───────────────────────────────────────────────────
   // Each source migrates independently. No simultaneous cutover permitted.
   sources: SourceFlags;
@@ -67,6 +75,7 @@ const DEFAULTS: FeatureFlags = {
   dispatch_shadow: false,
   dispatch_active: false,
   ranking_active: true,       // on by default — ranking required for Signal Radar
+  toneTracking_active: true,  // on by default — tone history accumulates from day one
   sources: {
     gmail_cutover: false,
     calendar_cutover: false,

@@ -4,7 +4,7 @@ import { searchDriveFiles } from "@/lib/google/drive";
 import { getRecentEmails } from "@/lib/google/gmail";
 
 /**
- * GET /api/internal/discover-contact?email=mike@talentgenius.io&name=Mike
+ * GET /api/internal/discover-contact?email=robin@example.com&name=Robin
  *
  * Dev-only discovery helper — pulls whatever signal we have on a person from
  * Slack profile, Slack message history, Drive files, and recent email so we

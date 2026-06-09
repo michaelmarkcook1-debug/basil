@@ -10,6 +10,47 @@ import { writeDeadLetter } from "@/lib/webhooks/dead-letter";
 import { start } from "workflow/api";
 import { ingestSlackWorkflow } from "@/lib/jobs/workflows/ingest-slack";
 import { createJobRecord } from "@/lib/jobs/store";
+import { writeUserStore, readUserStore } from "@/lib/storage/user-store";
+import { HEALTH_META_FILE, type HealthMeta } from "@/lib/system/health";
+
+/**
+ * Fire-and-forget timestamp update — proof-of-life for the Slack push
+ * pipeline. Writes the current ISO time to `lastSlackPushAt` in the user's
+ * health metadata. Throttled to once per minute per user to avoid hammering
+ * the user-store on busy workspaces.
+ *
+ * Surfaced by the Data Freshness widget as "Push active · Xm ago" so the
+ * user can tell at a glance that real-time push is healthy without the
+ * widget conflating it with the cache-warm cron.
+ */
+const lastStamp = new Map<string, number>();
+const STAMP_THROTTLE_MS = 60_000;
+
+function stampSlackPushHeartbeat(username: string): void {
+  const now = Date.now();
+  const prev = lastStamp.get(username) ?? 0;
+  if (now - prev < STAMP_THROTTLE_MS) return;
+  lastStamp.set(username, now);
+
+  // Fire and forget — must not block webhook response (Slack expects <3s)
+  (async () => {
+    try {
+      const existing = await readUserStore<HealthMeta>(username, HEALTH_META_FILE, {});
+      await writeUserStore<HealthMeta>(username, HEALTH_META_FILE, {
+        ...existing,
+        lastSlackPushAt: new Date(now).toISOString(),
+        // A successful push proves the token is alive — clear any stale flag
+        // from the hourly cron's auth.test probe.
+        slackTokenInvalid: false,
+      });
+    } catch (err) {
+      console.warn(
+        "[webhooks/slack] failed to stamp push heartbeat:",
+        err instanceof Error ? err.message : err
+      );
+    }
+  })();
+}
 
 /**
  * POST /api/webhooks/slack — Slack Events API endpoint.
@@ -98,7 +139,12 @@ export async function POST(req: Request) {
     try {
       const payload = slackEventToIngest(inner);
       if (payload) {
-        // Dedupe: webhook may redeliver on Slack's retry policy
+        // Dedupe: webhook may redeliver on Slack's retry policy.
+        // Stamp lastSlackPushAt BEFORE the dedup early-return so retries still
+        // count as proof-of-life — the integration is healthy even if this
+        // exact event was already processed.
+        stampSlackPushHeartbeat(webhookUsername);
+
         if (payload.externalId && (await hasExternalId(webhookUsername, payload.externalId))) {
           return NextResponse.json({ ok: true });
         }

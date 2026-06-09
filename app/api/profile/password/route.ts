@@ -25,16 +25,10 @@ export async function PATCH(req: Request) {
     return NextResponse.json({ error: "New password must be at least 8 characters" }, { status: 400 });
   }
 
-  // Emergency mode: skip old-password check when EMERGENCY_LOGIN_TOKEN matches
-  const emergencyToken = process.env.EMERGENCY_LOGIN_TOKEN;
-  const isEmergencyChange = emergencyToken && currentPassword === emergencyToken;
-
-  if (!isEmergencyChange) {
-    // Normal path: verify current password before allowing change
-    const valid = await validateCredentials(username, currentPassword);
-    if (!valid) {
-      return NextResponse.json({ error: "Current password is incorrect" }, { status: 403 });
-    }
+  // Verify current password before allowing change.
+  const valid = await validateCredentials(username, currentPassword);
+  if (!valid) {
+    return NextResponse.json({ error: "Current password is incorrect" }, { status: 403 });
   }
 
   await changePassword(username, newPassword);

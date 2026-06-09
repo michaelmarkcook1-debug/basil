@@ -110,12 +110,12 @@ function PlatformStatusBar({ data }: { data: AIProjectsData }) {
             {status.label}
           </span>
           {status.connected && status.scraped && (
-            <span className="text-[10px] text-amber-600 font-medium text-center leading-tight">
+            <span className="text-xs text-amber-600 font-medium text-center leading-tight">
               scraped
             </span>
           )}
           {status.connected && status.itemCount !== undefined && (
-            <span className="text-[11px] text-muted-foreground tabular-nums">
+            <span className="text-xs text-muted-foreground tabular-nums">
               {status.itemCount} item{status.itemCount !== 1 ? "s" : ""}
             </span>
           )}
@@ -124,13 +124,13 @@ function PlatformStatusBar({ data }: { data: AIProjectsData }) {
               href={status.setupUrl}
               target="_blank"
               rel="noreferrer"
-              className="text-[11px] text-[oklch(0.72_0.15_85)] hover:underline"
+              className="text-xs text-[oklch(0.72_0.15_85)] hover:underline"
             >
               Setup
             </a>
           )}
           {status.error && (
-            <span className="text-[11px] text-red-600 text-center">{status.error}</span>
+            <span className="text-xs text-red-600 text-center">{status.error}</span>
           )}
         </div>
       ))}
@@ -162,14 +162,14 @@ function ProjectRow({
       <div className="shrink-0 mt-0.5 flex flex-col items-start gap-0.5">
         <span
           className={cn(
-            "rounded px-1.5 py-0.5 text-[11px] font-medium",
+            "rounded px-1.5 py-0.5 text-xs font-medium",
             platformBadgeStyle(project.platform)
           )}
         >
           {PLATFORM_LABELS[project.platform]}
         </span>
         {isScraped && (
-          <span className="rounded px-1.5 py-0.5 text-[10px] font-medium bg-amber-100 text-amber-700 border border-amber-200">
+          <span className="rounded px-1.5 py-0.5 text-xs font-medium bg-amber-100 text-amber-700 border border-amber-200">
             scraped
           </span>
         )}
@@ -188,15 +188,15 @@ function ProjectRow({
           {project.summary}
         </p>
         <div className="flex flex-wrap items-center gap-1.5 mt-1.5">
-          <span className={cn("rounded px-1.5 py-0.5 text-[11px] font-medium", IMPORTANCE_STYLES[imp] ?? IMPORTANCE_STYLES.low)}>
+          <span className={cn("rounded px-1.5 py-0.5 text-xs font-medium", IMPORTANCE_STYLES[imp] ?? IMPORTANCE_STYLES.low)}>
             {imp}
           </span>
           {hasRelated && (
-            <span className="text-[11px] text-muted-foreground bg-muted rounded px-1.5 py-0.5">
+            <span className="text-xs text-muted-foreground bg-muted rounded px-1.5 py-0.5">
               Related: {project.relatedProjectIds!.join(", ").substring(0, 40)}
             </span>
           )}
-          <span className="text-[11px] text-muted-foreground">
+          <span className="text-xs text-muted-foreground">
             Created {relativeTime(project.createdAt)} · active {relativeTime(project.lastActiveAt)}
           </span>
         </div>
@@ -209,7 +209,7 @@ function ProjectRow({
             <ExternalLink className="h-3.5 w-3.5 text-muted-foreground hover:text-foreground" />
           </a>
         ) : (
-          <span className="text-[10px] text-muted-foreground px-1">Local</span>
+          <span className="text-xs text-muted-foreground px-1">Local</span>
         )}
         <button
           onClick={() => onHide(project.id)}
@@ -242,20 +242,20 @@ function ProjectRow({
           <div className="flex gap-1.5 pt-1">
             <button
               onClick={() => { onCategoryChange(project.id, "work"); setShowPopover(false); }}
-              className="flex-1 rounded-lg border border-border px-2 py-1 text-[11px] hover:bg-blue-500/10 hover:text-blue-600 hover:border-blue-300 transition-colors"
+              className="flex-1 rounded-lg border border-border px-2 py-1 text-xs hover:bg-blue-500/10 hover:text-blue-600 hover:border-blue-300 transition-colors"
             >
               Mark as work
             </button>
             <button
               onClick={() => { onCategoryChange(project.id, "personal"); setShowPopover(false); }}
-              className="flex-1 rounded-lg border border-border px-2 py-1 text-[11px] hover:bg-purple-500/10 hover:text-purple-600 hover:border-purple-300 transition-colors"
+              className="flex-1 rounded-lg border border-border px-2 py-1 text-xs hover:bg-purple-500/10 hover:text-purple-600 hover:border-purple-300 transition-colors"
             >
               Mark as personal
             </button>
           </div>
           <button
             onClick={() => setShowPopover(false)}
-            className="w-full text-[11px] text-muted-foreground hover:text-foreground"
+            className="w-full text-xs text-muted-foreground hover:text-foreground"
           >
             Dismiss
           </button>
@@ -292,7 +292,7 @@ function ProjectColumn({
       <CardHeader className="pb-2 flex flex-row items-center justify-between gap-2">
         <CardTitle className="text-sm font-medium flex items-center gap-2">
           {title}
-          <Badge variant="secondary" className="text-[11px]">{count}</Badge>
+          <Badge variant="secondary" className="text-xs">{count}</Badge>
         </CardTitle>
         {/* Sort dropdown */}
         <div className="relative">

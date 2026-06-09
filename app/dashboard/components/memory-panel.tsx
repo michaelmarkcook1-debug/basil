@@ -145,7 +145,7 @@ export function MemoryPanel() {
           </CardTitle>
           <Link
             href="/dashboard/memory"
-            className="inline-flex items-center gap-1 text-[11px] font-medium text-muted-foreground hover:text-foreground transition-colors"
+            className="inline-flex items-center gap-1 text-xs font-medium text-muted-foreground hover:text-foreground transition-colors"
           >
             Manage <ArrowRight className="h-3 w-3" />
           </Link>
@@ -160,7 +160,7 @@ export function MemoryPanel() {
               key={kind}
               className="rounded-lg bg-muted/50 px-2 py-2 text-center"
             >
-              <p className="text-[11px] text-muted-foreground">{KIND_LABELS[kind]}</p>
+              <p className="text-xs text-muted-foreground">{KIND_LABELS[kind]}</p>
               <p className="text-base font-semibold tabular-nums">
                 {counts ? counts[kind] : "–"}
               </p>
@@ -171,7 +171,7 @@ export function MemoryPanel() {
         {/* ── Last 5 memories ──────────────────────────────────────────────── */}
         {memories !== null && (
           <div className="space-y-1">
-            <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
+            <p className="text-xs font-semibold uppercase tracking-[0.14em] text-muted-foreground">
               Recent
             </p>
             {last5.length === 0 ? (
@@ -185,7 +185,7 @@ export function MemoryPanel() {
                     key={m.id}
                     className="flex items-start gap-2 rounded-md px-2 py-1.5 hover:bg-muted/40 transition-colors"
                   >
-                    <span className="inline-block mt-0.5 text-[10px] font-mono uppercase text-muted-foreground/60 w-14 shrink-0">
+                    <span className="inline-block mt-0.5 text-xs font-mono uppercase text-muted-foreground/60 w-14 shrink-0">
                       {m.kind}
                     </span>
                     <span className="text-[12px] leading-snug flex-1 line-clamp-2">
@@ -195,7 +195,7 @@ export function MemoryPanel() {
                         m.content
                       )}
                     </span>
-                    <span className="text-[10px] font-mono text-muted-foreground/50 shrink-0 tabular-nums mt-0.5">
+                    <span className="text-xs font-mono text-muted-foreground/50 shrink-0 tabular-nums mt-0.5">
                       {relTime(m.updatedAt)}
                     </span>
                   </li>
@@ -203,7 +203,7 @@ export function MemoryPanel() {
               </ul>
             )}
             {total > 5 && (
-              <p className="text-[11px] text-muted-foreground pl-2">
+              <p className="text-xs text-muted-foreground pl-2">
                 +{total - 5} more —{" "}
                 <Link href="/dashboard/memory" className="text-[oklch(0.72_0.15_85)] hover:underline">
                   view all
@@ -215,7 +215,7 @@ export function MemoryPanel() {
 
         {/* ── Recall search ─────────────────────────────────────────────────── */}
         <div className="space-y-1.5">
-          <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
+          <p className="text-xs font-semibold uppercase tracking-[0.14em] text-muted-foreground">
             Recall
           </p>
           <div className="relative">
@@ -231,17 +231,17 @@ export function MemoryPanel() {
           {recallResults !== null && (
             <div className="space-y-0.5 max-h-36 overflow-y-auto">
               {recallResults.length === 0 ? (
-                <p className="text-[11px] text-muted-foreground italic px-1">No matches.</p>
+                <p className="text-xs text-muted-foreground italic px-1">No matches.</p>
               ) : (
                 recallResults.map((m) => (
                   <div
                     key={m.id}
                     className="flex items-start gap-2 rounded-md px-2 py-1 bg-muted/30"
                   >
-                    <span className="text-[10px] font-mono uppercase text-muted-foreground/60 w-14 shrink-0 mt-0.5">
+                    <span className="text-xs font-mono uppercase text-muted-foreground/60 w-14 shrink-0 mt-0.5">
                       {m.kind}
                     </span>
-                    <span className="text-[11px] leading-snug line-clamp-2">
+                    <span className="text-xs leading-snug line-clamp-2">
                       {m.entity ? (
                         <><span className="font-medium">{m.entity}: </span>{m.content}</>
                       ) : (
@@ -257,7 +257,7 @@ export function MemoryPanel() {
 
         {/* ── Quick ingest ──────────────────────────────────────────────────── */}
         <form onSubmit={handleIngest} className="space-y-1.5">
-          <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
+          <p className="text-xs font-semibold uppercase tracking-[0.14em] text-muted-foreground">
             Remember this
           </p>
           <div className="flex gap-2">

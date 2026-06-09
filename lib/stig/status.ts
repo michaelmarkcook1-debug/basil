@@ -67,7 +67,7 @@ export async function buildStigStatus(username: string) {
     },
     auth: {
       session: true,
-      tokenAuthConfigured: Boolean(process.env.STIG_API_TOKEN && (process.env.STIG_API_USERNAME || process.env.PRIMARY_OWNER_USERNAME || process.env.ADMIN_USERNAME)),
+      tokenAuthConfigured: Boolean(process.env.STIG_API_TOKEN && (process.env.STIG_API_USERNAME || process.env.PRIMARY_OWNER_USERNAME || process.env.ADMIN_USERNAME)), // ci-ok: read-only status flag (is token-auth configured?), not a data-owner default
     },
     endpoints: {
       status: "/api/stig/status",

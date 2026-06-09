@@ -205,7 +205,7 @@ const MODEL_TIER_LABEL: Record<string, string> = {
 
 // Separator used inline between trust summary elements
 const DOT_SEP = (
-  <span className="text-muted-foreground/30 text-[11px] select-none" aria-hidden>
+  <span className="text-muted-foreground/30 text-xs select-none" aria-hidden>
     ·
   </span>
 );
@@ -254,7 +254,7 @@ export function TrustTierBadge({
     <span className={cn("inline-flex items-center gap-1.5", className)}>
       <span className={cn("h-1.5 w-1.5 rounded-full shrink-0", dotClass)} />
       {showLabel && (
-        <span className={cn("text-[11px] font-medium", textClass)}>{label}</span>
+        <span className={cn("text-xs font-medium", textClass)}>{label}</span>
       )}
     </span>
   );
@@ -281,11 +281,11 @@ export function ConfidenceMeter({
     <div className={cn("space-y-1.5", className)}>
       {showLabel && (
         <div className="flex items-center justify-between gap-2">
-          <span className={cn("text-[11px] font-medium", cfg.textClass)}>
+          <span className={cn("text-xs font-medium", cfg.textClass)}>
             {cfg.label}
           </span>
           {showPercent && (
-            <span className={cn("text-[11px] font-mono tabular-nums", cfg.textClass)}>
+            <span className={cn("text-xs font-mono tabular-nums", cfg.textClass)}>
               {cfg.pct}%
             </span>
           )}
@@ -325,7 +325,7 @@ export function FreshnessTag({
   return (
     <span
       className={cn(
-        "inline-flex items-center gap-1 text-[11px]",
+        "inline-flex items-center gap-1 text-xs",
         isStale
           ? "text-amber-600 dark:text-amber-400"
           : isAging
@@ -384,7 +384,7 @@ export function FreshnessDecayBar({
 
   return (
     <div className={cn("space-y-1.5", className)}>
-      <div className="flex items-center justify-between text-[11px]">
+      <div className="flex items-center justify-between text-xs">
         <span className="text-muted-foreground/50">Fresh</span>
         <span className={cn("font-medium", labelColorClass)}>{label}</span>
         <span className="text-muted-foreground/50">Stale</span>
@@ -406,7 +406,7 @@ export function FreshnessDecayBar({
           style={{ left: `calc(${positionPct}% - 6px)` }}
         />
       </div>
-      <div className="text-[11px] text-muted-foreground tabular-nums">
+      <div className="text-xs text-muted-foreground tabular-nums">
         {relLabel(referenceDate)} · half-life {halfLifeDays}d
       </div>
     </div>
@@ -467,10 +467,10 @@ export function CorroborationBlock({
           {unique.map((p) => (
             <div key={p.source} className="flex items-center gap-2">
               <SourceChip source={p.source} />
-              <span className="text-[11px] text-muted-foreground">
+              <span className="text-xs text-muted-foreground">
                 {relLabel(p.extractedAt)}
               </span>
-              <span className="text-[11px] text-muted-foreground/60">
+              <span className="text-xs text-muted-foreground/60">
                 via {EXTRACTOR_LABEL[p.extractedBy]}
               </span>
             </div>
@@ -558,7 +558,7 @@ export function CorroborationPanel({
       {/* Sources */}
       {unique.length > 0 && (
         <div className="space-y-1.5">
-          <p className="text-[11px] text-muted-foreground font-medium uppercase tracking-wider">
+          <p className="text-xs text-muted-foreground font-medium uppercase tracking-wider">
             {isCorroborated ? "Corroborated across" : "Source"}
           </p>
           <div className="flex items-center gap-1.5 flex-wrap">
@@ -634,7 +634,7 @@ export function ContradictionAlert({
         {(conflicts?.length ?? 0) > 1 && (
           <span
             className={cn(
-              "text-[11px] font-mono",
+              "text-xs font-mono",
               isHighSeverity
                 ? "text-red-600/60 dark:text-red-500/60"
                 : "text-amber-600/60 dark:text-amber-500/60"
@@ -658,7 +658,7 @@ export function ContradictionAlert({
               Conflict on:{" "}
               <span className="font-medium text-foreground/90">{f.field}</span>
               {f.severity === "high" && (
-                <span className="ml-1.5 text-[11px] text-red-500">(high severity)</span>
+                <span className="ml-1.5 text-xs text-red-500">(high severity)</span>
               )}
             </p>
           </div>
@@ -776,7 +776,7 @@ function ConflictDetail({ conflict: c }: { conflict: ResolvedConflict }) {
   return (
     <div className="space-y-2">
       {c.field && (
-        <p className="text-[11px] font-bold uppercase tracking-[0.2em] text-muted-foreground/60">
+        <p className="text-xs font-bold uppercase tracking-[0.2em] text-muted-foreground/60">
           {c.field}
         </p>
       )}
@@ -788,7 +788,7 @@ function ConflictDetail({ conflict: c }: { conflict: ResolvedConflict }) {
         </div>
 
         {/* VS divider */}
-        <span className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground/50">
+        <span className="text-xs font-bold uppercase tracking-widest text-muted-foreground/50">
           vs
         </span>
 
@@ -827,7 +827,7 @@ export function ProvenanceTrail({
     <div className={cn("space-y-1.5", className)}>
       <button
         onClick={() => setExpanded((v) => !v)}
-        className="inline-flex items-center gap-1.5 text-[11px] text-muted-foreground hover:text-foreground transition-colors group"
+        className="inline-flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors group"
         aria-expanded={expanded}
       >
         <Link2 className="h-3 w-3 shrink-0 opacity-50 group-hover:opacity-70 transition-opacity" />
@@ -851,10 +851,10 @@ export function ProvenanceTrail({
               <div key={i} className="space-y-1">
                 <div className="flex items-center gap-2 flex-wrap">
                   <SourceChip source={p.source} />
-                  <span className="text-[11px] text-muted-foreground tabular-nums font-mono">
+                  <span className="text-xs text-muted-foreground tabular-nums font-mono">
                     {relLabel(p.extractedAt)}
                   </span>
-                  <span className="text-[11px] text-muted-foreground/60">
+                  <span className="text-xs text-muted-foreground/60">
                     {EXTRACTOR_LABEL[p.extractedBy]}{modelNote}
                   </span>
                 </div>
@@ -865,7 +865,7 @@ export function ProvenanceTrail({
                       style={{ width: `${cfg.pct}%` }}
                     />
                   </div>
-                  <span className={cn("text-[11px] font-mono tabular-nums", cfg.textClass)}>
+                  <span className={cn("text-xs font-mono tabular-nums", cfg.textClass)}>
                     {cfg.pct}%
                   </span>
                 </div>
@@ -896,7 +896,7 @@ export function TrustSummaryLine({ envelope, className }: TrustSummaryLineProps)
     <div className={cn("flex items-center gap-2 flex-wrap", className)}>
       <TrustTierBadge tier={envelope.trustTier} />
       {DOT_SEP}
-      <span className={cn("text-[11px] font-medium", cfg.textClass)}>
+      <span className={cn("text-xs font-medium", cfg.textClass)}>
         {cfg.label}
       </span>
       {unique.length > 0 && (
@@ -918,7 +918,7 @@ export function TrustSummaryLine({ envelope, className }: TrustSummaryLineProps)
       {hasConflict && (
         <>
           {DOT_SEP}
-          <span className="inline-flex items-center gap-1 text-[11px] text-amber-500 dark:text-amber-400">
+          <span className="inline-flex items-center gap-1 text-xs text-amber-500 dark:text-amber-400">
             <AlertTriangle className="h-2.5 w-2.5" />
             Conflict
           </span>
@@ -958,7 +958,7 @@ export function TrustStatusRow({
       )}
     >
       {/* Tier icon + label */}
-      <span className={cn("inline-flex items-center gap-1.5 text-[11px] font-medium", tier.textClass)}>
+      <span className={cn("inline-flex items-center gap-1.5 text-xs font-medium", tier.textClass)}>
         {tier.icon}
         {tier.label}
       </span>
@@ -966,7 +966,7 @@ export function TrustStatusRow({
       {DOT_SEP}
 
       {/* Confidence label */}
-      <span className={cn("text-[11px]", cfg.textClass)}>{cfg.label}</span>
+      <span className={cn("text-xs", cfg.textClass)}>{cfg.label}</span>
 
       {/* Sources */}
       {showSources && unique.length > 0 && (
@@ -990,7 +990,7 @@ export function TrustStatusRow({
 
       {/* Conflict warning */}
       {hasConflict && (
-        <span className="ml-auto inline-flex items-center gap-1 text-[11px] text-amber-500">
+        <span className="ml-auto inline-flex items-center gap-1 text-xs text-amber-500">
           <AlertTriangle className="h-2.5 w-2.5" />
           Conflict
         </span>
@@ -1192,7 +1192,7 @@ export function TrustBannerCard({
 
           <button
             onClick={() => setDetailOpen((v) => !v)}
-            className="text-[11px] text-muted-foreground hover:text-foreground flex items-center gap-1 shrink-0 transition-colors"
+            className="text-xs text-muted-foreground hover:text-foreground flex items-center gap-1 shrink-0 transition-colors"
           >
             {detailOpen ? "Less" : "Detail"}
             {detailOpen ? (
@@ -1207,7 +1207,7 @@ export function TrustBannerCard({
         <div className="flex items-center gap-2 flex-wrap">
           {/* Confidence label */}
           <ConfidenceMeter value={eff} showLabel={false} className="w-16 shrink-0" />
-          <span className={cn("text-[11px] font-medium", confidenceCfg(eff).textClass)}>
+          <span className={cn("text-xs font-medium", confidenceCfg(eff).textClass)}>
             {confidenceCfg(eff).label}
           </span>
 
@@ -1368,7 +1368,7 @@ export function TrustReviewPrompt({
           onClick={onConfirm}
           disabled={confirming}
           className={cn(
-            "inline-flex items-center gap-1 rounded px-2.5 py-1 text-[11px] font-medium transition-colors",
+            "inline-flex items-center gap-1 rounded px-2.5 py-1 text-xs font-medium transition-colors",
             "bg-emerald-50 text-emerald-700 hover:bg-emerald-100 border border-emerald-200/70",
             "dark:bg-emerald-950/30 dark:text-emerald-400 dark:border-emerald-800/50 dark:hover:bg-emerald-950/50",
             "disabled:opacity-50"
@@ -1380,7 +1380,7 @@ export function TrustReviewPrompt({
         <button
           onClick={onDismiss}
           className={cn(
-            "inline-flex items-center gap-1 rounded px-2.5 py-1 text-[11px] font-medium transition-colors",
+            "inline-flex items-center gap-1 rounded px-2.5 py-1 text-xs font-medium transition-colors",
             "bg-red-50 text-red-600 hover:bg-red-100 border border-red-200/70",
             "dark:bg-red-950/30 dark:text-red-400 dark:border-red-800/50 dark:hover:bg-red-950/50"
           )}
@@ -1450,7 +1450,7 @@ export function TrustExplainerPanel({ className }: { className?: string }) {
       </div>
 
       <div className="pt-1 border-t border-border/40">
-        <p className="text-[11px] text-muted-foreground leading-relaxed">
+        <p className="text-xs text-muted-foreground leading-relaxed">
           Confidence is a composite of source quality, extraction accuracy, and
           signal freshness. It decays over time — older signals are less certain.
         </p>
@@ -1470,7 +1470,7 @@ function TierExplainerRow({
   return (
     <div className="flex items-start gap-2.5">
       <TrustTierBadge tier={tier} showLabel className="shrink-0 pt-0.5" />
-      <p className="text-[11px] text-muted-foreground leading-relaxed">
+      <p className="text-xs text-muted-foreground leading-relaxed">
         {description}
       </p>
     </div>

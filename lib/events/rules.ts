@@ -64,7 +64,7 @@ export function classify(payload: IngestPayload): Classification {
   const combined = `${payload.title} ${payload.body}`;
   const tags = detectTags(combined);
   const isInvestor = !!payload.hints?.isFromInvestor;
-  // Investor contacts (Ed, Malcolm) always get "investor" tag added
+  // Investor contacts (Sam, Jordan) always get "investor" tag added
   if (isInvestor && !tags.includes("investor")) tags.push("investor");
   const aboutKeyPerson =
     payload.hints?.isFromKeyPerson || isAboutKeyPerson(combined);
@@ -116,7 +116,7 @@ export function classify(payload: IngestPayload): Classification {
       disposition: "draft",
       priority: isInvestor ? "high" : aboutKeyPerson ? "high" : "normal",
       confidence: hasExplicitHint ? 1.0 : 0.8,
-      rationale: `Drafting a reply — ${payload.hints?.isDM ? "direct message" : payload.hints?.isMention ? "you were @-mentioned" : isInvestor ? "investor — Ed or Malcolm" : "key person involved"}. Waiting for your sign-off before sending.`,
+      rationale: `Drafting a reply — ${payload.hints?.isDM ? "direct message" : payload.hints?.isMention ? "you were @-mentioned" : isInvestor ? "investor — Sam or Jordan" : "key person involved"}. Waiting for your sign-off before sending.`,
       tags,
       draft: {
         channel: payload.source === "email" ? "email" : "slack",
@@ -130,7 +130,7 @@ export function classify(payload: IngestPayload): Classification {
 
   // 3) AUTO — everything else: decisions/actions extracted, relationship updated, memory written
   // Catch-all → lower confidence
-  // Investor messages (Ed / Malcolm) are never sunk to "low" even if not replyable
+  // Investor messages (Sam / Jordan) are never sunk to "low" even if not replyable
   const autoPriority: EventPriority = isInvestor
     ? "high"
     : tags.includes("decision") || tags.includes("action")

@@ -42,10 +42,21 @@ export type SlackUrgency = "high" | "medium" | "low";
 
 // ── Extracted subtypes ─────────────────────────────────────────────────────────
 
+export interface ToneShift {
+  /** Name of the person whose tone shifted. */
+  person: string;
+  /** Direction relative to typical communication with this person. */
+  direction: "warming" | "cooling" | "neutral";
+  /** 1-sentence description of the observed shift. */
+  summary: string;
+}
+
 export interface SlackAction {
   text: string;
   owner?: string;
   dueDate?: string;
+  /** ISO timestamp when this action automatically expires (time-relative messages only). */
+  expiresAt?: string;
   /** Urgency of this specific action item. */
   priority?: "high" | "medium" | "low";
 }
@@ -76,7 +87,7 @@ export interface SlackIntelligence {
   confidence: number;
   urgency: SlackUrgency;
   /**
-   * True when Michael is specifically addressed or named as the
+   * True when the user is specifically addressed or named as the
    * owner/requester of an action or decision.
    */
   isMichaelAddressed: boolean;
@@ -95,6 +106,12 @@ export interface SlackIntelligence {
    * Empty string for "noise" and trivial messages.
    */
   keyContext: string;
+  /**
+   * Detected tone/attitude shifts. Only set for relationship_signal messages
+   * where a notable change in warmth, engagement, or disposition is clearly
+   * observable from the message language. Omit for routine communication.
+   */
+  toneShifts?: ToneShift[];
 }
 
 // ── Threshold constants ────────────────────────────────────────────────────────
@@ -149,7 +166,7 @@ function parseIntelligence(raw: string): SlackIntelligence {
 export interface ClassifySlackInput {
   /** Username to scope the system prompt to. Required — no fallback. */
   username: string;
-  /** Display name of the channel (e.g. "#eng-team", "DM: Ed Baum"). */
+  /** Display name of the channel (e.g. "#eng-team", "DM: Sam Rivera"). */
   channelName: string;
   /**
    * Full conversation transcript from formatThreadTranscript().
@@ -179,7 +196,7 @@ export async function classifySlack(
     console.error("[slack-classify] username is required — refusing to classify without owner");
     return emptyIntelligence();
   }
-  const userName = (await getSettings(username).catch(() => null))?.name ?? username;
+  const userName = (await getSettings(username).catch((err) => { console.error("[slack-classify] settings load failed:", err); return null; }))?.name ?? username;
   const userFirstName = userName.split(" ")[0];
 
   if (!transcript.trim()) return emptyIntelligence();
@@ -226,6 +243,7 @@ Classification rules — follow strictly:
 
 5. actions: only explicit next steps or assigned tasks — not wishes or vague suggestions.
    Each action: text (required), owner (omit if unclear), dueDate (omit if none), priority ("high"/"medium"/"low" — high if urgent/blocking/time-critical)
+   expiresAt: ISO timestamp when this action becomes irrelevant. ONLY set when the message contains time-relative language tied to a moment that will pass — e.g. "before the standup in 10 minutes", "before the meeting", "by EOD today", "in the next hour", "before the 3pm call". Compute relative to DATE (${date}). Examples: "standup in 10 mins" → DATE + 10 min; "before 3pm" → DATEdate at T15:00:00Z; "by EOD" → DATEdate at T23:59:00Z. Omit for anything without a clear expiry moment.
 
 6. decisions: only explicitly confirmed/announced decisions — not proposals, discussions, or "we could"
    - text: full decision as a sentence
@@ -243,6 +261,17 @@ Classification rules — follow strictly:
 
 10. keyContext: 1–2 sentences on what matters for a briefing, or "" if noise/trivial
 
+11. toneShifts: ONLY for relationship_signal messages. Omit entirely for other categories.
+    Detect a shift when someone's language reveals a notable change in warmth, engagement,
+    or disposition compared to what would be expected in normal professional Slack communication.
+    Signals of WARMING: unusually enthusiastic, warm, grateful, complimentary, sharing personal
+    detail, going out of their way to help, much more positive than a typical Slack message.
+    Signals of COOLING: notably terse, curt, one-word replies where paragraphs are usual, formal
+    language where casual was the norm, frustration, sarcasm, noticeably fewer words than typical.
+    DO NOT flag routine Slack messages as a tone shift. Only flag when the language clearly
+    departs from normal professional norms in one direction or the other.
+    Each entry: person (name of the person), direction ("warming"/"cooling"/"neutral"), summary (1 sentence).
+
 Extract ONLY what is explicitly stated. Never infer or fabricate.
 
 Respond with ONLY valid JSON — no markdown fences, no explanation:
@@ -251,16 +280,17 @@ Respond with ONLY valid JSON — no markdown fences, no explanation:
   "confidence": 0.85,
   "urgency": "high",
   "isMichaelAddressed": true,
-  "actions": [{"text": "string", "owner": "optional string", "dueDate": "optional string", "priority": "high|medium|low"}],
+  "actions": [{"text": "string", "owner": "optional string", "dueDate": "optional string", "priority": "high|medium|low", "expiresAt": "ISO timestamp or omit"}],
   "decisions": [{"text": "string", "title": "string or omit", "decidedBy": "string or omit", "rationale": "string or omit", "alternatives": ["string"] or omit, "consequences": ["string"] or omit}],
   "blockers": ["string"],
   "people": [{"name": "string", "role": "optional string"}],
   "companies": ["string"],
-  "keyContext": "1-2 sentences or empty string"
+  "keyContext": "1-2 sentences or empty string",
+  "toneShifts": [{"person": "string", "direction": "warming|cooling|neutral", "summary": "string"}] or omit
 }`;
 
   // Read flags outside the try block — failure to fetch flags must not block classification
-  const flags = await getFlags(username).catch(() => null);
+  const flags = await getFlags(username).catch((err) => { console.error("[slack-classify] flags load failed:", err); return null; });
 
   // ── dispatch_active: dispatcher is the authoritative AI call path (Week 7) ──
   if (flags && flags.dispatch_active) {
@@ -375,7 +405,7 @@ export function shouldClassifySlack(opts: {
   isDM: boolean;
   isGroupDM: boolean;
   isMention: boolean;
-  /** True when the message sender is a key person (Malcolm, Ed, Isaac, Olivia, Sam Jordan). */
+  /** True when the message sender is a key person (Jordan, Sam, Riley, Avery, Morgan Lee). */
   isFromKeyPerson?: boolean;
   tags: string[];
 }): boolean {

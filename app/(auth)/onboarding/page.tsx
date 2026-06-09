@@ -256,7 +256,7 @@ export default function OnboardingPage() {
     fetch("/api/integrations/status")
       .then((r) => r.json())
       .then((d) => setIntegrations(d))
-      .catch(() => {});
+      .catch((err) => { console.warn("[onboarding] integrations status fetch failed:", err); });
 
     fetch("/api/settings")
       .then((r) => r.json())
@@ -280,7 +280,7 @@ export default function OnboardingPage() {
         if (d?.workStart) setForm((f) => ({ ...f, workStart: d.workStart }));
         if (d?.workEnd)   setForm((f) => ({ ...f, workEnd:   d.workEnd }));
       })
-      .catch(() => {});
+      .catch((err) => { console.warn("[onboarding] settings fetch failed:", err); });
   }, []);
 
   function setField<K extends keyof FormData>(key: K, value: FormData[K]) {
@@ -850,9 +850,9 @@ export default function OnboardingPage() {
       <div className="auth-animate flex items-center gap-2.5 mb-8">
         {/* eslint-disable-next-line @next/next/no-img-element */}
         <img
-          src="/basil-logo.svg"
+          src="/brand/basil-mark.png"
           alt="Basil"
-          className="h-9 w-9"
+          className="h-9 w-9 rounded-xl"
           style={{ filter: "drop-shadow(0 0 14px rgba(200,169,107,0.3))" }}
         />
         <span

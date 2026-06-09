@@ -153,7 +153,7 @@ export default function ResetPasswordPage() {
         {/* Wordmark */}
         <div className="flex items-center justify-center gap-2.5 mb-8">
           { }
-          <img src="/basil-logo.svg" alt="Basil" className="h-8 w-8 rounded-lg shadow-lg shadow-black/40" />
+          <img src="/brand/basil-mark.png" alt="Basil" className="h-8 w-8 rounded-lg shadow-lg shadow-black/40" />
           <span
             className="text-white font-semibold text-lg tracking-tight"
             style={{ fontFamily: "var(--font-fraunces), Georgia, serif" }}

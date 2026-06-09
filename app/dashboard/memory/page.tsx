@@ -572,7 +572,7 @@ export default function MemoryPage() {
               {loadedFileNames.length > 0 && (
                 <div className="flex flex-wrap gap-1.5">
                   {loadedFileNames.map((name) => (
-                    <span key={name} className="inline-flex items-center gap-1 rounded-md bg-muted px-2 py-0.5 text-[11px] font-mono text-muted-foreground border border-border/60">
+                    <span key={name} className="inline-flex items-center gap-1 rounded-md bg-muted px-2 py-0.5 text-xs font-mono text-muted-foreground border border-border/60">
                       <FileText className="h-3 w-3 shrink-0" />
                       {name}
                     </span>
@@ -834,7 +834,7 @@ function MemoryRow({
                 type="button"
                 onClick={() => setEditKind(k)}
                 className={cn(
-                  "inline-flex items-center gap-1 rounded-md px-2 py-1 text-[11px] font-medium border transition-colors",
+                  "inline-flex items-center gap-1 rounded-md px-2 py-1 text-xs font-medium border transition-colors",
                   editKind === k
                     ? `${ks.bg} ${ks.text} border-current`
                     : "bg-background text-muted-foreground border-border hover:text-foreground"
@@ -884,7 +884,7 @@ function MemoryRow({
           >
             Cancel
           </button>
-          <span className="text-[11px] text-muted-foreground/50 ml-auto">⌘↵ to save · Esc to cancel</span>
+          <span className="text-xs text-muted-foreground/50 ml-auto">⌘↵ to save · Esc to cancel</span>
         </div>
       </div>
     );
@@ -1061,8 +1061,8 @@ function NewMemoryForm({
               onChange={(e) => setEntity(e.target.value)}
               placeholder={
                 kind === "person"
-                  ? "Who is this about? (e.g. Malcolm Frank)"
-                  : "What is this about? (e.g. AG v1.0 launch)"
+                  ? "Who is this about? (e.g. a teammate's name)"
+                  : "What is this about? (e.g. a product launch)"
               }
               className="w-full h-10 rounded-lg border border-border bg-background px-3 text-[16px] sm:text-sm focus:outline-none focus:border-[oklch(0.72_0.15_85)]/40 focus:ring-4 focus:ring-[oklch(0.72_0.15_85)]/10"
             />

@@ -483,7 +483,7 @@ IMPORTANT: ${userName} is the primary user of this assistant. Do not confuse the
 This is a chief-of-staff end-of-week note, not a data dump. ${userName} reads this on Friday afternoon or Sunday morning to understand: what actually happened, what shifted, what got decided, and where they need to focus next week.
 
 - Lead each section with the most important item, not chronology.
-- Use Basil's voice: name the pattern, name the tension, flag what's ripening. "Crystal's timeline moved twice this week — unusual." "Ed's 1:1 slipped again — worth a word." "Three separate threads with Sona this week suggests something is converging."
+- Use Basil's voice: name the pattern, name the tension, flag what's ripening. "Casey's timeline moved twice this week — unusual." "Sam's 1:1 slipped again — worth a word." "Three separate threads with Sona this week suggests something is converging."
 - Cross-reference sources: if a calendar attendee also appeared in Slack, email, or a Zoom recap, connect the threads.
 - Zoom meeting summaries are first-class evidence for meetings, decisions, and action items. Use them.
 - Memory notes from Basil add context that raw source data lacks — use them to explain patterns or flag recurring themes.

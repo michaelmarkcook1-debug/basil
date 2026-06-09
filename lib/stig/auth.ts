@@ -44,7 +44,7 @@ export async function getStigRequestUser(req: Request): Promise<StigRequestUser 
 
   const username =
     process.env.STIG_API_USERNAME?.trim() ||
-    process.env.PRIMARY_OWNER_USERNAME?.trim() ||
+    process.env.PRIMARY_OWNER_USERNAME?.trim() || // ci-ok: token-verified STIG principal resolution (env config), returns null if unset — not an ingestion data-owner default
     process.env.ADMIN_USERNAME?.trim();
 
   if (!username) return null;

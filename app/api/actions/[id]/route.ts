@@ -31,6 +31,7 @@ export async function PATCH(
         | "eisenhower"
         | "eisenhowerReason"
         | "eisenhowerClassifiedAt"
+        | "notes"
       >
     >;
     const updated = await updateAction(username, id, patch);

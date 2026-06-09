@@ -52,7 +52,7 @@ function StatCard({
     <Card className="basil-card">
       <CardContent className="p-4 flex items-center justify-between">
         <div>
-          <p className="text-[11px] uppercase tracking-[0.18em] text-muted-foreground">
+          <p className="text-xs uppercase tracking-[0.18em] text-muted-foreground">
             {label}
           </p>
           <p className="text-2xl font-semibold mt-1">{value}</p>
@@ -94,7 +94,7 @@ function ProjectCard({ project }: { project: CanonicalProject }) {
           <div className="flex gap-2">
             <ArrowRight className="h-4 w-4 shrink-0 mt-0.5 text-[oklch(0.58_0.15_85)]" />
             <div>
-              <p className="text-[11px] uppercase tracking-[0.18em] text-muted-foreground">
+              <p className="text-xs uppercase tracking-[0.18em] text-muted-foreground">
                 Next best action
               </p>
               <p className="text-sm mt-1">{project.nextBestAction}</p>
@@ -104,19 +104,19 @@ function ProjectCard({ project }: { project: CanonicalProject }) {
 
         <div className="grid gap-3 sm:grid-cols-4">
           <div className="rounded-lg bg-muted/40 p-3">
-            <p className="text-[11px] text-muted-foreground uppercase tracking-[0.16em]">Actions</p>
+            <p className="text-xs text-muted-foreground uppercase tracking-[0.16em]">Actions</p>
             <p className="text-lg font-semibold">{project.openActionCount}</p>
           </div>
           <div className="rounded-lg bg-muted/40 p-3">
-            <p className="text-[11px] text-muted-foreground uppercase tracking-[0.16em]">Decisions</p>
+            <p className="text-xs text-muted-foreground uppercase tracking-[0.16em]">Decisions</p>
             <p className="text-lg font-semibold">{project.decisionCount}</p>
           </div>
           <div className="rounded-lg bg-muted/40 p-3">
-            <p className="text-[11px] text-muted-foreground uppercase tracking-[0.16em]">Blockers</p>
+            <p className="text-xs text-muted-foreground uppercase tracking-[0.16em]">Blockers</p>
             <p className="text-lg font-semibold">{project.blockerCount}</p>
           </div>
           <div className="rounded-lg bg-muted/40 p-3">
-            <p className="text-[11px] text-muted-foreground uppercase tracking-[0.16em]">AI work</p>
+            <p className="text-xs text-muted-foreground uppercase tracking-[0.16em]">AI work</p>
             <p className="text-lg font-semibold">{project.aiWorkCount}</p>
           </div>
         </div>
@@ -126,7 +126,7 @@ function ProjectCard({ project }: { project: CanonicalProject }) {
             <div className="flex items-start gap-2">
               <ShieldAlert className="h-4 w-4 text-red-600 shrink-0 mt-0.5" />
               <div>
-                <p className="text-[11px] uppercase tracking-[0.18em] text-red-600 font-medium">
+                <p className="text-xs uppercase tracking-[0.18em] text-red-600 font-medium">
                   Risks / blockers
                 </p>
                 <ul className="mt-2 space-y-1.5">
@@ -142,7 +142,7 @@ function ProjectCard({ project }: { project: CanonicalProject }) {
         )}
 
         <div className="space-y-2">
-          <p className="text-[11px] uppercase tracking-[0.18em] text-muted-foreground">
+          <p className="text-xs uppercase tracking-[0.18em] text-muted-foreground">
             Source signals
           </p>
           <div className="flex flex-wrap gap-1.5">
@@ -165,7 +165,7 @@ function ProjectCard({ project }: { project: CanonicalProject }) {
             <div key={signal.id} className="p-3 bg-card/40">
               <div className="flex items-center justify-between gap-3">
                 <p className="text-sm font-medium truncate">{renderSlackText(signal.title)}</p>
-                <Badge variant="outline" className="text-[11px] shrink-0">
+                <Badge variant="outline" className="text-xs shrink-0">
                   {signal.source}
                 </Badge>
               </div>
@@ -382,7 +382,7 @@ export default function ProjectsPage() {
                   <Input
                     value={createForm.name}
                     onChange={(e) => setCreateForm((f) => ({ ...f, name: e.target.value }))}
-                    placeholder="e.g. TalentGenius v2"
+                    placeholder="e.g. Example Holdings v2"
                     required
                   />
                 </label>

@@ -27,7 +27,7 @@ export async function POST(req: Request) {
   const username = await getSessionUser();
   if (!username) return NextResponse.json({ error: "Unauthorised" }, { status: 401 });
 
-  const formData = await req.formData().catch(() => null);
+  const formData = await req.formData().catch((err) => { console.error("[ai-projects/upload] formData parse failed:", err); return null; });
   if (!formData) {
     return NextResponse.json({ error: "Expected multipart/form-data" }, { status: 400 });
   }

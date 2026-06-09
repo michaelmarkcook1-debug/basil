@@ -24,6 +24,8 @@ import {
 } from "@/lib/ingest/audit-log";
 import type { SlackIntelligence, SlackSignalCategory } from "./classify-slack";
 import { getSelfIdentity } from "@/lib/self-identity";
+import { writeToneObservations } from "@/lib/contacts/tone-store";
+import { getFlags } from "@/core/feature-flags";
 
 // ── Input / output types ───────────────────────────────────────────────────────
 
@@ -144,7 +146,7 @@ export async function materializeSlackIntelligence(
       // Explicit extracted action items — only create actions owned by (or assignable to) Michael.
       //
       // Filter rules (in priority order):
-      //   1. Skip if owner is clearly someone other than Michael (e.g. "Christopher Walton")
+      //   1. Skip if owner is clearly someone other than Michael (e.g. "Jamie Brooks")
       //   2. For action_identified: also skip if Michael wasn't specifically addressed —
       //      channel broadcasts where "someone" needs to do something shouldn't become
       //      Michael's actions unless he was named.
@@ -183,6 +185,7 @@ export async function materializeSlackIntelligence(
             text: item.text.trim(),
             owner: item.owner,
             dueDate: item.dueDate,
+            expiresAt: item.expiresAt,
             source: "slack",
             eventId,
             sourceRef,
@@ -369,6 +372,22 @@ export async function materializeSlackIntelligence(
       console.error("[slack-materialize] failed to create memory:", e);
       auditEntries.push(auditFailed(sourceRef, "memory", e instanceof Error ? e.message : String(e)));
     }
+  }
+
+  // ── Tone observations ──────────────────────────────────────────────────────
+  // For relationship_signal messages with detected tone shifts, write observations
+  // to the relevant contact overrides. Gated by toneTracking_active flag.
+  // Non-fatal: errors are logged, not thrown.
+  const toneFlags = await getFlags(username).catch((err) => { console.error("[slack-materialize] failed to load feature flags for tone tracking:", err); return null; });
+  if (
+    toneFlags?.toneTracking_active !== false &&
+    intel.category === "relationship_signal" &&
+    intel.toneShifts &&
+    intel.toneShifts.length > 0
+  ) {
+    writeToneObservations(username, intel.toneShifts, date, "slack", sourceRef).catch((err) => {
+      console.error("[slack-materialize] tone observation write failed:", err);
+    });
   }
 
   return { actionsCreated, decisionsCreated, memoriesCreated, auditEntries };

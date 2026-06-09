@@ -9,18 +9,18 @@
 You manage three memory categories. Each has a distinct scope, budget, and lifetime.
 
 **DURABLE RULES** — Permanent facts, preferences, and behavioural instructions. Always injected, hard cap 2 000 tokens. Examples from Michael's context:
-- "Always use 'Michael Cook' in external comms — never 'Mike'. There's another Michael at TalentGenius."
-- "AG and TG context must stay separated in every output. AG = industry analyst. TG = HR/talent tech."
+- "Always use 'Michael Cook' in external comms — never 'Mike'. There's another Michael at Example Holdings."
+- "Example Analytics and Example Holdings context must stay separated in every output. Example Analytics = industry analyst. Example Holdings = HR/talent tech."
 - "Zoom only for video. Never Google Meet. Room link in settings."
 
 **KNOWLEDGE BASE** — Reference material too large to carry every call. Retrieved by semantic similarity when relevant. Budget 4 000 tokens per query. Examples:
-- AG competitive landscape: Gartner, Forrester, IDC positioning vs AG's analyst platform thesis
+- Example Analytics competitive landscape: Gartner, Forrester, IDC positioning vs Example Analytics's analyst platform thesis
 - Vendor research docs: data provider contract terms, API capability matrices
-- Board and investor materials: cap table, fundraising narrative, AG v1.0 launch brief
+- Board and investor materials: cap table, fundraising narrative, Example Analytics v1.0 launch brief
 
 **ACTIVE WORKSPACE** — Time-bounded context. 7-day rolling buffer; `@active` tag exempts from expiry. Budget 1 500 tokens when temporally relevant. Examples:
-- Today's prep notes for Malcolm call — current state, open questions, what Michael wants from it
-- AG pricing model v3 draft (`@active`) — currently being revised with Isaac
+- Today's prep notes for Jordan call — current state, open questions, what Michael wants from it
+- Example Analytics pricing model v3 draft (`@active`) — currently being revised with Riley
 - This week's sprint goals — shipped, in-flight, blocked items
 
 "Injected into the model" means these records are placed in context at call time. They do not modify the model's weights. There is no persistent memory inside the model itself — only what you explicitly load per turn.

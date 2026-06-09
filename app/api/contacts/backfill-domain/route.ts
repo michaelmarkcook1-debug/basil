@@ -10,9 +10,9 @@ import { getSessionUser } from "@/lib/auth";
  *
  * One-shot backfill:
  *  - Scans all user contacts that have an email address.
- *  - For every contact whose email ends with @talentgenius.io:
+ *  - For every contact whose email ends with the internal company domain:
  *      type      → "internal"
- *      company   → "TalentGenius"
+ *      company   → "Example Holdings"
  *      directory → "work"
  *
  * Idempotent — re-running skips contacts already correctly tagged.

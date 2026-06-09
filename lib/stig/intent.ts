@@ -1,5 +1,5 @@
 export type QueryIntent = {
-  projectTopics: string[]; // e.g. ["AG", "AnalystGenius"]
+  projectTopics: string[]; // e.g. ["AG", "Example Analytics"]
   dateRange: { from: Date; to: Date; label: string };
   sourceFilter: string[] | "all"; // e.g. ["slack"] or "all"
   outputType: "update" | "blockers" | "commitments" | "decisions" | "general";

@@ -726,7 +726,7 @@ export default function WhatsAppPage() {
                   )}
                   {profileProgress && (
                     <div className="flex flex-col items-end gap-0.5 w-48">
-                      <span className="text-[11px] text-muted-foreground">
+                      <span className="text-xs text-muted-foreground">
                         {profileProgress.done < profileProgress.total
                           ? `Profiling ${profileProgress.done}/${profileProgress.total}…`
                           : `${profileProgress.total} profiles generated ✓`}
@@ -807,7 +807,7 @@ export default function WhatsAppPage() {
                                 <p className="text-sm font-medium truncate flex-1">
                                   {c.name}
                                 </p>
-                                <span className="text-[11px] text-muted-foreground shrink-0">
+                                <span className="text-xs text-muted-foreground shrink-0">
                                   {relTime(c.lastMessageAt)}
                                 </span>
                               </div>
@@ -877,7 +877,7 @@ export default function WhatsAppPage() {
                             }`}
                           >
                             {!m.fromMe && (
-                              <p className="text-[11px] font-semibold text-[oklch(0.58_0.15_85)] mb-0.5">
+                              <p className="text-xs font-semibold text-[oklch(0.58_0.15_85)] mb-0.5">
                                 {chat.isGroup ? (m.authorName || "Unknown") : chat.name}
                               </p>
                             )}
@@ -890,7 +890,7 @@ export default function WhatsAppPage() {
                                 {m.note || `(${m.type})`}
                               </p>
                             )}
-                            <p className="text-[10px] text-muted-foreground mt-1 font-mono tabular-nums">
+                            <p className="text-xs text-muted-foreground mt-1 font-mono tabular-nums">
                               {m.timestamp && formatTimestamp(m.timestamp)}
                             </p>
                           </div>

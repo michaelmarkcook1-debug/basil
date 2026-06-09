@@ -35,7 +35,7 @@ interface ContactActivity {
 
 // ── Nickname lookup ────────────────────────────────────────────────────────────
 // Maps canonical first name → common abbreviations and nicknames.
-// Used so "Chris" matches "Christopher Walton", "Ed" matches "Edward", etc.
+// Used so "Chris" matches "Jamie Brooks", "Ed" matches "Edward", etc.
 const NICKNAMES: Record<string, string[]> = {
   christopher: ["chris"],
   christian:   ["chris"],
@@ -79,9 +79,9 @@ for (const [full, nicks] of Object.entries(NICKNAMES)) {
  * refers to the person named `contactName`.
  *
  * Handles:
- *  - Exact/substring:  "Christopher Walton" ↔ "Christopher Walton"
- *  - Partial name:     "christopher.walton@company.com" matches "Christopher Walton"
- *  - Last name:        "Walton" matches "Christopher Walton"
+ *  - Exact/substring:  "Jamie Brooks" ↔ "Jamie Brooks"
+ *  - Partial name:     "jamie.brooks@company.com" matches "Jamie Brooks"
+ *  - Last name:        "Brooks" matches "Jamie Brooks"
  *  - Prefix nickname:  "Chris" matches "Christopher" (first name starts with text word)
  *  - Explicit nickname:"Bob" matches "Robert", "Ed" matches "Edward"
  */
@@ -90,13 +90,13 @@ for (const [full, nicks] of Object.entries(NICKNAMES)) {
  * refers to the person named `contactName`.
  *
  * Handles:
- *  - Exact/substring:     "Christopher Walton" ↔ "Christopher Walton"
- *  - First name only:     "Malcolm" matches "Malcolm Frank"
- *  - Partial name:        "christopher.walton@company.com" matches "Christopher Walton"
- *  - Last name:           "Walton" matches "Christopher Walton"
+ *  - Exact/substring:     "Jamie Brooks" ↔ "Jamie Brooks"
+ *  - First name only:     "Jordan" matches "Jordan Avery"
+ *  - Partial name:        "jamie.brooks@company.com" matches "Jamie Brooks"
+ *  - Last name:           "Brooks" matches "Jamie Brooks"
  *  - Prefix nickname:     "Chris" matches "Christopher" (first name starts with text word)
  *  - Explicit nickname:   "Bob" matches "Robert", "Ed" matches "Edward"
- *  - Contact email:       "malcolm@talentgenius.io" matches when contactEmail provided
+ *  - Contact email:       "jordan.avery@example.com" matches when contactEmail provided
  */
 function nameMatchesContact(text: string, contactName: string, contactEmail?: string): boolean {
   if (!text || !contactName) return false;
@@ -126,7 +126,7 @@ function nameMatchesContact(text: string, contactName: string, contactEmail?: st
   const textWords = textLower.split(/[\s,@.()\-]+/).filter((w) => w.length >= 2);
 
   for (const word of textWords) {
-    // 5. Exact first-name match: e.g. Slack author "Malcolm" ↔ "Malcolm Frank"
+    // 5. Exact first-name match: e.g. Slack author "Jordan" ↔ "Jordan Avery"
     //    (firstName.length > word.length would exclude this, hence a separate check)
     if (word === firstName && firstName.length >= 3) return true;
 
@@ -243,8 +243,8 @@ export async function GET() {
       const eventDate = (event.start || "").substring(0, 10);
       if (!eventDate || new Date(eventDate) < thirtyDaysAgo) continue;
 
-      // Attendees may be display names ("Malcolm Frank") or email addresses
-      // ("malcolm@talentgenius.io") — matchesContact handles both via email+name paths.
+      // Attendees may be display names ("Jordan Avery") or email addresses
+      // ("jordan.avery@example.com") — matchesContact handles both via email+name paths.
       const attendeeMatch = event.attendees.some((attendee) => matchesContact(attendee));
       const summaryMatch = matchesContact(event.summary);
 
@@ -284,7 +284,7 @@ export async function GET() {
       const emailDate = email.date.substring(0, 10);
       if (!emailDate || new Date(emailDate) < thirtyDaysAgo) continue;
 
-      // Direct email address match: fromEmail is the parsed address (e.g. "malcolm@talentgenius.io")
+      // Direct email address match: fromEmail is the parsed address (e.g. "jordan.avery@example.com")
       const fromEmailMatch = contactEmail
         ? (email.fromEmail?.toLowerCase() ?? "").includes(contactEmail)
         : false;

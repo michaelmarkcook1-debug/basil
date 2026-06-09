@@ -18,7 +18,7 @@ export function ThemeToggle({ className }: { className?: string }) {
       onClick={() => setTheme(isDark ? "light" : "dark")}
       aria-label={isDark ? "Switch to day mode" : "Switch to night mode"}
       className={cn(
-        "group relative flex items-center gap-1.5 rounded-full px-2 py-1 text-[11px] font-medium transition-all",
+        "group relative flex items-center gap-1.5 rounded-full px-2 py-1 text-xs font-medium transition-all",
         "text-sidebar-foreground/60 hover:text-sidebar-foreground",
         "hover:bg-sidebar-accent/50",
         className

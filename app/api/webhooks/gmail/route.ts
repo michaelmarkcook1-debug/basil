@@ -180,7 +180,7 @@ export async function POST(req: Request) {
   }
 }
 
-// "Malcolm Frank <malcolm@ex.com>" → "Malcolm Frank"
+// "Jordan Avery <jordan@ex.com>" → "Jordan Avery"
 function extractName(from: string): string {
   const m = from.match(/^(.+?)\s*<.+>$/);
   return (m?.[1] || from).replace(/^"|"$/g, "").trim();

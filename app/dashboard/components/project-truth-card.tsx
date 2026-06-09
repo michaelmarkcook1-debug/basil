@@ -55,11 +55,11 @@ export function ProjectTruthCard() {
                       {p.nextBestAction}
                     </p>
                   </div>
-                  <Badge variant="outline" className="text-[11px] shrink-0">
+                  <Badge variant="outline" className="text-xs shrink-0">
                     {p.priority}
                   </Badge>
                 </div>
-                <div className="mt-2 flex flex-wrap items-center gap-1.5 text-[11px] text-muted-foreground">
+                <div className="mt-2 flex flex-wrap items-center gap-1.5 text-xs text-muted-foreground">
                   <span>{Object.keys(p.sourceBreakdown).length} sources</span>
                   <span>·</span>
                   <span>{relativeTime(p.lastActiveAt)}</span>

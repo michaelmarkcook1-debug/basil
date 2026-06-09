@@ -21,7 +21,7 @@ export function DraftSavedIndicator({
 }) {
   return (
     <span
-      className={`inline-flex items-center gap-1 text-[11px] font-medium text-emerald-600 transition-opacity duration-300 ${
+      className={`inline-flex items-center gap-1 text-xs font-medium text-emerald-600 transition-opacity duration-300 ${
         saved ? "opacity-100" : "opacity-0"
       } ${className}`}
       aria-live="polite"

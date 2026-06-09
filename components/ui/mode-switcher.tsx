@@ -161,7 +161,7 @@ function BehavioralDiff({
               key={cat}
               title={`${catCfg.label}: ${hidden ? "hidden" : amplified ? "amplified" : reduced ? "reduced" : "normal"}`}
               className={cn(
-                "inline-flex items-center gap-0.5 text-[10px] font-medium",
+                "inline-flex items-center gap-0.5 text-xs font-medium",
                 indicatorClass
               )}
             >
@@ -175,7 +175,7 @@ function BehavioralDiff({
           <div
             key={cat}
             className={cn(
-              "flex flex-col items-center gap-0.5 text-[10px]",
+              "flex flex-col items-center gap-0.5 text-xs",
               indicatorClass
             )}
           >
@@ -238,12 +238,12 @@ function BehavioralTable({ config }: { config: ModeConfig }) {
             key={cat}
             className="flex items-center justify-between gap-2"
           >
-            <span className="text-[11px] text-muted-foreground/80 font-medium">
+            <span className="text-xs text-muted-foreground/80 font-medium">
               {catCfg.label}
             </span>
             <span
               className={cn(
-                "flex items-center gap-1 text-[11px] font-medium",
+                "flex items-center gap-1 text-xs font-medium",
                 statusClass
               )}
             >
@@ -256,10 +256,10 @@ function BehavioralTable({ config }: { config: ModeConfig }) {
 
       {/* Interrupt threshold */}
       <div className="flex items-center justify-between gap-2 col-span-2 border-t border-current/10 pt-1.5 mt-0.5">
-        <span className="text-[11px] text-muted-foreground/80 font-medium">
+        <span className="text-xs text-muted-foreground/80 font-medium">
           Interrupts at
         </span>
-        <span className="text-[11px] font-medium text-muted-foreground/70 capitalize">
+        <span className="text-xs font-medium text-muted-foreground/70 capitalize">
           {behavior.interruptThreshold}+ severity
         </span>
       </div>
@@ -338,7 +338,7 @@ function ModeCard({
 
       {/* Shortcut badge */}
       {config.shortcut ? (
-        <span className="absolute bottom-3 right-3 inline-flex items-center justify-center h-5 w-5 rounded border border-border/50 bg-muted/60 text-[10px] font-mono text-muted-foreground">
+        <span className="absolute bottom-3 right-3 inline-flex items-center justify-center h-5 w-5 rounded border border-border/50 bg-muted/60 text-xs font-mono text-muted-foreground">
           {config.shortcut}
         </span>
       ) : null}
@@ -509,7 +509,7 @@ export function ModeSwitcherDialog({
           </div>
 
           {/* Keyboard hint */}
-          <p className="text-[11px] text-muted-foreground/50 pt-1">
+          <p className="text-xs text-muted-foreground/50 pt-1">
             Shortcuts: F C M I D B to select · Enter to activate · Esc to close
           </p>
         </DialogHeader>
@@ -561,7 +561,7 @@ export function ModeSwitcherDialog({
                   "bg-background/40"
                 )}
               >
-                <p className="text-[11px] font-semibold uppercase tracking-[0.12em] text-muted-foreground/60 mb-2.5">
+                <p className="text-xs font-semibold uppercase tracking-[0.12em] text-muted-foreground/60 mb-2.5">
                   Signal weights
                 </p>
                 <BehavioralTable config={selectedConfig} />
@@ -700,7 +700,7 @@ export function ModeSwitcherTrigger({
             <span className="font-medium">
               {mode.shortLabel}
               {minutesRemaining !== null ? (
-                <span className="ml-1.5 text-[11px] opacity-70 font-normal">
+                <span className="ml-1.5 text-xs opacity-70 font-normal">
                   · {minutesRemaining}m
                 </span>
               ) : null}

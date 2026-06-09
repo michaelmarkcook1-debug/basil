@@ -277,14 +277,14 @@ function IntelConfidenceBar({ thread }: { thread: SignalThread }) {
       {sources.length > 0 && (
         <>
           <span className="text-border/60 select-none">·</span>
-          <span className="text-muted-foreground/50 text-[11px] uppercase tracking-wider font-medium">
+          <span className="text-muted-foreground/50 text-xs uppercase tracking-wider font-medium">
             {sources.length > 1 ? "Corroborated across" : "Source"}
           </span>
           <div className="flex items-center gap-1">
             {sources.map((src) => (
               <span
                 key={src}
-                className="inline-flex items-center gap-0.5 rounded bg-muted/60 px-1.5 py-0.5 text-[11px] font-mono text-muted-foreground capitalize"
+                className="inline-flex items-center gap-0.5 rounded bg-muted/60 px-1.5 py-0.5 text-xs font-mono text-muted-foreground capitalize"
               >
                 <SourceIcon source={src} className="h-2.5 w-2.5" />
                 {src}
@@ -300,7 +300,7 @@ function IntelConfidenceBar({ thread }: { thread: SignalThread }) {
         createdAt={thread.firstSignalAt}
         lastCorroboratedAt={thread.lastSignalAt}
         halfLifeDays={14}
-        className="text-[11px]"
+        className="text-xs"
       />
     </div>
   );
@@ -323,7 +323,7 @@ function ParticipantAvatar({ name, size = "sm" }: { name: string; size?: "sm" | 
     <span
       className={cn(
         "inline-flex items-center justify-center rounded-full bg-[oklch(0.72_0.15_85)]/20 text-[oklch(0.72_0.15_85)] font-medium shrink-0",
-        size === "sm" ? "h-6 w-6 text-[11px]" : "h-8 w-8 text-[13px]"
+        size === "sm" ? "h-6 w-6 text-xs" : "h-8 w-8 text-[13px]"
       )}
       title={name}
     >
@@ -377,7 +377,7 @@ function LinkedMeetings({
     <section>
       <div className="flex items-center gap-2 mb-3">
         <p className="basil-eyebrow">Linked Meetings</p>
-        <span className="text-[11px] font-mono text-muted-foreground/60 tabular-nums">
+        <span className="text-xs font-mono text-muted-foreground/60 tabular-nums">
           {linked.length} upcoming
         </span>
       </div>
@@ -394,7 +394,7 @@ function LinkedMeetings({
                   <p className="text-[13px] font-medium text-foreground leading-snug truncate">
                     {ev.summary}
                   </p>
-                  <p className="text-[11px] text-muted-foreground mt-0.5">
+                  <p className="text-xs text-muted-foreground mt-0.5">
                     {formatEventTime(ev.start)}
                     {ev.attendeeCount > 0 && (
                       <span className="ml-2 inline-flex items-center gap-0.5">
@@ -462,6 +462,17 @@ function CadenceBar({ thread }: { thread: SignalThread }) {
 
 // ── Thread list item ──────────────────────────────────────────────────────────
 
+/**
+ * Redesigned thread list item — scannable, minimal duplication.
+ *
+ * Visual contract (one row per encoding):
+ *   1. Title is the loudest element. Closed/resolved threads dim and italicise.
+ *   2. Urgency lives ONLY in the left rail colour. Removed: status chip,
+ *      category chip, urgency text — they all repeated the same signal.
+ *   3. Meta row reads as a single line: source · participants · action count.
+ *   4. Health summary line removed; it appears in the detail Relationship
+ *      Health panel where it gets full context.
+ */
 function ThreadListItem({
   thread,
   selected,
@@ -472,77 +483,68 @@ function ThreadListItem({
   onClick: () => void;
 }) {
   const urgency = threadUrgency(thread);
-  const status = STATUS_CHIP[thread.status];
-  const health = computeThreadHealth(inputFromThread(thread));
+  // Stale threads dim and italicise — the only two SignalThread statuses
+  // besides "open" are "open" and "stale" per the type. We treat "stale" as
+  // visually closed/quiet.
+  const isClosed = thread.status === "stale";
+
+  // First three participants, comma separated.
+  const participantSummary = thread.rawParticipants.length > 0
+    ? thread.rawParticipants.slice(0, 3).map(participantLabel).join(", ") +
+      (thread.rawParticipants.length > 3 ? ` +${thread.rawParticipants.length - 3}` : "")
+    : "";
 
   return (
     <button
       onClick={onClick}
       className={cn(
-        "group relative w-full text-left rounded-lg px-3 py-3 transition-colors",
+        "group relative w-full text-left rounded-lg px-3 py-2.5 transition-colors",
         selected
-          ? "bg-[oklch(0.72_0.15_85)]/10 border border-[oklch(0.72_0.15_85)]/20"
-          : "hover:bg-accent/50 border border-transparent"
+          ? "bg-[oklch(0.72_0.15_85)]/10 ring-1 ring-inset ring-[oklch(0.72_0.15_85)]/25"
+          : "hover:bg-accent/40"
       )}
     >
-      {/* Priority bar */}
+      {/* Urgency rail — the ONLY visual encoding of priority on the list. */}
       <span
         className={cn(
           "absolute left-0 top-2 bottom-2 w-[3px] rounded-r-full",
           URGENCY_BAR[urgency]
         )}
+        aria-label={`${urgency} priority`}
       />
 
-      <div className="pl-1.5">
-        {/* Top row: source icon + title + time */}
-        <div className="flex items-start gap-2 mb-1">
+      <div className="pl-2">
+        {/* Title row — title dominates; time is muted but always visible. */}
+        <div className="flex items-start gap-2">
           <SourceIcon source={thread.primarySource} className="mt-0.5 shrink-0" />
-          <span className="text-[13px] font-medium text-foreground leading-snug flex-1 min-w-0 line-clamp-2">
+          <span
+            className={cn(
+              "text-sm font-medium leading-snug flex-1 min-w-0 line-clamp-2",
+              isClosed ? "italic text-muted-foreground" : "text-foreground"
+            )}
+          >
             {thread.title}
           </span>
-          <span className="text-[11px] font-mono text-muted-foreground shrink-0 tabular-nums ml-1 mt-0.5">
+          <span className="text-xs font-mono text-muted-foreground shrink-0 tabular-nums mt-0.5">
             {relTime(thread.lastSignalAt)}
           </span>
         </div>
 
-        {/* Middle row: participants */}
-        {thread.rawParticipants.length > 0 && (
-          <p className="text-[12px] text-muted-foreground truncate pl-5 mb-1.5">
-            {thread.rawParticipants.slice(0, 3).map(participantLabel).join(", ")}
-            {thread.rawParticipants.length > 3 && ` +${thread.rawParticipants.length - 3}`}
-          </p>
-        )}
-
-        {/* Bottom row: badges + trust dots + action count */}
-        <div className="flex items-center gap-1.5 pl-5 flex-wrap">
-          <span className={cn("rounded-sm text-[11px] font-mono uppercase tracking-wider px-1.5 py-0.5", status.class)}>
-            {status.label}
-          </span>
-          <span className={cn("rounded-sm text-[11px] font-mono uppercase tracking-wider px-1.5 py-0.5", CATEGORY_CLASS[thread.category] ?? "bg-muted text-muted-foreground")}>
-            {CATEGORY_LABELS[thread.category] ?? thread.category}
-          </span>
-          {thread.actionIds.length > 0 && (
-            <span className="flex items-center gap-0.5 text-[11px] text-muted-foreground">
-              <CheckSquare className="h-2.5 w-2.5" />
-              {thread.actionIds.length}
-            </span>
-          )}
-          {/* Source corroboration dots */}
-          {thread.sources.length > 1 && (
-            <span className="flex items-center gap-0.5 ml-auto shrink-0">
-              {thread.sources.slice(0, 3).map((src) => (
-                <SourceIcon key={src} source={src} className="h-3 w-3 opacity-50" />
-              ))}
-            </span>
-          )}
-        </div>
-
-        {/* Health summary line */}
-        {health.reliable ? (
-          <div className="pl-5 mt-1.5">
-            <ThreadHealthSummaryLine health={health} />
+        {/* One meta line — participants · action count. Everything else moves
+            to the detail view where it has room to breathe. */}
+        {(participantSummary || thread.actionIds.length > 0) && (
+          <div className="flex items-center gap-2 mt-1 pl-5 text-xs text-muted-foreground">
+            {participantSummary && (
+              <span className="truncate flex-1 min-w-0">{participantSummary}</span>
+            )}
+            {thread.actionIds.length > 0 && (
+              <span className="inline-flex items-center gap-0.5 shrink-0">
+                <CheckSquare className="h-3 w-3" />
+                {thread.actionIds.length}
+              </span>
+            )}
           </div>
-        ) : null}
+        )}
       </div>
     </button>
   );
@@ -631,14 +633,14 @@ function ThreadDetail({
 
         {/* Meta badges */}
         <div className="flex flex-wrap gap-1.5 mb-3">
-          <span className={cn("rounded-md text-[11px] font-mono uppercase tracking-wider px-2 py-0.5", status.class)}>
+          <span className={cn("rounded-md text-xs font-mono uppercase tracking-wider px-2 py-0.5", status.class)}>
             {status.label}
           </span>
-          <span className={cn("rounded-md text-[11px] font-mono uppercase tracking-wider px-2 py-0.5", CATEGORY_CLASS[thread.category] ?? "bg-muted text-muted-foreground")}>
+          <span className={cn("rounded-md text-xs font-mono uppercase tracking-wider px-2 py-0.5", CATEGORY_CLASS[thread.category] ?? "bg-muted text-muted-foreground")}>
             {categoryLabel}
           </span>
           {thread.sources.map((src) => (
-            <span key={src} className="inline-flex items-center gap-1 rounded-md bg-muted text-muted-foreground text-[11px] font-mono uppercase tracking-wider px-2 py-0.5">
+            <span key={src} className="inline-flex items-center gap-1 rounded-md bg-muted text-muted-foreground text-xs font-mono uppercase tracking-wider px-2 py-0.5">
               <SourceIcon source={src} className="h-2.5 w-2.5" />
               {src}
             </span>
@@ -669,62 +671,22 @@ function ThreadDetail({
       {/* Scrollable body */}
       <div className="flex-1 overflow-y-auto px-5 py-4 space-y-5">
 
-        {/* ── Operational state ─────────────────────────────────────────── */}
-        <section>
-          <p className="basil-eyebrow mb-3">Operational State</p>
-          <div className="grid grid-cols-3 gap-3">
-            {/* Urgency */}
-            <div className="rounded-lg bg-card/60 border border-border/60 px-3 py-2.5 text-center">
-              <p className="text-[10px] text-muted-foreground mb-1 uppercase tracking-wider font-medium">Urgency</p>
-              <p className={cn(
-                "text-[13px] font-semibold capitalize",
-                urgency === "critical" ? "text-red-500"
-                  : urgency === "high" ? "text-amber-500"
-                  : urgency === "medium" ? "text-[oklch(0.72_0.15_85)]"
-                  : "text-muted-foreground"
-              )}>
-                {urgency}
-              </p>
-            </div>
-
-            {/* Trust */}
-            <div className="rounded-lg bg-card/60 border border-border/60 px-3 py-2.5 text-center">
-              <p className="text-[10px] text-muted-foreground mb-1.5 uppercase tracking-wider font-medium">Trust</p>
-              <div className="flex flex-col items-center gap-1">
-                <TrustTierBadge tier={thread.trustTier} />
-                {thread.sources.length > 1 && (
-                  <span className="text-[10px] text-muted-foreground/60 tabular-nums">
-                    {thread.sources.length} sources
-                  </span>
-                )}
-              </div>
-            </div>
-
-            {/* Relationship state */}
-            <div className="rounded-lg bg-card/60 border border-border/60 px-3 py-2.5 text-center">
-              <p className="text-[10px] text-muted-foreground mb-1 uppercase tracking-wider font-medium">State</p>
-              <p className={cn("text-[13px] font-semibold", relState.colorClass)}>
-                {relState.label}
-              </p>
-            </div>
+        {/* Cadence summary — single-line readout. Replaces the prior three
+            Operational State cards (urgency/trust/state) which all duplicated
+            what the header strip already shows. Cadence is the one signal
+            that wasn't redundant. */}
+        <div className="rounded-lg bg-card/60 border border-border/60 px-3 py-2.5 flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <Activity className="h-3.5 w-3.5 text-muted-foreground" />
+            <span className="text-xs text-muted-foreground">Signal cadence</span>
           </div>
-
-          {/* Activity cadence row */}
-          <div className="mt-2 rounded-lg bg-card/60 border border-border/60 px-3 py-2.5">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-2">
-                <Activity className="h-3.5 w-3.5 text-muted-foreground" />
-                <span className="text-[12px] text-muted-foreground">Signal cadence</span>
-              </div>
-              <div className="flex items-center gap-3">
-                <CadenceBar thread={thread} />
-                <span className="text-[11px] font-mono text-muted-foreground tabular-nums">
-                  {thread.signalCount} total · {relState.description}
-                </span>
-              </div>
-            </div>
+          <div className="flex items-center gap-3">
+            <CadenceBar thread={thread} />
+            <span className="text-xs font-mono text-muted-foreground tabular-nums">
+              {thread.signalCount} total · {relState.description}
+            </span>
           </div>
-        </section>
+        </div>
 
         {/* ── Relationship health ────────────────────────────────────────── */}
         <section>
@@ -774,7 +736,7 @@ function ThreadDetail({
                   <Link
                     key={id}
                     href={`/dashboard/actions?highlight=${id}`}
-                    className="inline-flex items-center gap-1 text-[11px] font-medium px-2 py-0.5 rounded-md bg-amber-500/10 text-amber-600 hover:bg-amber-500/20 transition-colors"
+                    className="inline-flex items-center gap-1 text-xs font-medium px-2 py-0.5 rounded-md bg-amber-500/10 text-amber-600 hover:bg-amber-500/20 transition-colors"
                   >
                     <CheckSquare className="h-3 w-3" />
                     Action {i + 1}
@@ -807,7 +769,7 @@ function ThreadDetail({
                   <Link
                     key={id}
                     href={`/dashboard/decisions?highlight=${id}`}
-                    className="inline-flex items-center gap-1 text-[11px] font-medium px-2 py-0.5 rounded-md bg-[oklch(0.72_0.15_85)]/10 text-[oklch(0.58_0.15_85)] hover:bg-[oklch(0.72_0.15_85)]/20 transition-colors"
+                    className="inline-flex items-center gap-1 text-xs font-medium px-2 py-0.5 rounded-md bg-[oklch(0.72_0.15_85)]/10 text-[oklch(0.58_0.15_85)] hover:bg-[oklch(0.72_0.15_85)]/20 transition-colors"
                   >
                     <Zap className="h-3 w-3" />
                     Decision {i + 1}
@@ -842,23 +804,34 @@ function ThreadDetail({
           </section>
         )}
 
-        {/* ── Action bar ────────────────────────────────────────────────── */}
+        {/* ── Action bar ────────────────────────────────────────────────── */
+         /* Collapsed: 5 vertical buttons → 1 prominent CTA + a chip row.
+            "Prepare me" is the most-used so it's the dominant button; the
+            rest live as smaller pill chips so the panel doesn't bloat. */}
         <section>
           <p className="basil-eyebrow mb-3">Ask Basil</p>
-          <div className="grid grid-cols-1 gap-2">
-            {ACTIONS.map((action) => (
+          <button
+            onClick={() => router.push(chatHref(ACTIONS[0].query))}
+            className="w-full flex items-center gap-3 rounded-lg border border-[oklch(0.72_0.15_85)]/40 bg-[oklch(0.72_0.15_85)]/10 px-3 py-2.5 text-left hover:bg-[oklch(0.72_0.15_85)]/18 transition-colors group"
+          >
+            <span className="text-[oklch(0.72_0.15_85)] shrink-0">{ACTIONS[0].icon}</span>
+            <div className="min-w-0 flex-1">
+              <p className="text-sm font-semibold text-foreground leading-none mb-0.5">
+                {ACTIONS[0].label}
+              </p>
+              <p className="text-xs text-muted-foreground">{ACTIONS[0].description}</p>
+            </div>
+          </button>
+
+          <div className="flex flex-wrap gap-1.5 mt-2">
+            {ACTIONS.slice(1).map((action) => (
               <button
                 key={action.label}
                 onClick={() => router.push(chatHref(action.query))}
-                className="flex items-center gap-3 rounded-lg border border-border/60 bg-card/60 px-3 py-2.5 text-left hover:bg-[oklch(0.72_0.15_85)]/8 hover:border-[oklch(0.72_0.15_85)]/30 transition-colors group"
+                className="inline-flex items-center gap-1.5 rounded-full border border-border/60 bg-card/40 px-3 py-1 text-xs text-muted-foreground hover:text-foreground hover:border-[oklch(0.72_0.15_85)]/30 hover:bg-[oklch(0.72_0.15_85)]/8 transition-colors"
               >
-                <span className="text-muted-foreground group-hover:text-[oklch(0.72_0.15_85)] transition-colors shrink-0">
-                  {action.icon}
-                </span>
-                <div className="min-w-0">
-                  <p className="text-[13px] font-medium text-foreground leading-none mb-0.5">{action.label}</p>
-                  <p className="text-[11px] text-muted-foreground">{action.description}</p>
-                </div>
+                {action.icon}
+                {action.label}
               </button>
             ))}
           </div>
@@ -1058,7 +1031,7 @@ export default function SignalsPage() {
         <div className="px-4 pt-5 pb-3 border-b border-border/60 shrink-0">
           <div className="flex items-center justify-between mb-1">
             <p className="basil-eyebrow">Threads</p>
-            <span className="text-[11px] font-mono text-muted-foreground tabular-nums">
+            <span className="text-xs font-mono text-muted-foreground tabular-nums">
               {filteredThreads.length}{activeFilter !== "all" ? ` / ${total}` : ""} total
             </span>
           </div>
@@ -1072,7 +1045,7 @@ export default function SignalsPage() {
             {sourceFilter && (
               <button
                 onClick={() => setSourceFilter(null)}
-                className="inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-[11px] font-medium bg-blue-500/10 text-blue-600 ring-1 ring-blue-500/20 shrink-0 mr-1"
+                className="inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-xs font-medium bg-blue-500/10 text-blue-600 ring-1 ring-blue-500/20 shrink-0 mr-1"
                 title="Clear source filter"
               >
                 {sourceFilter} ×
@@ -1087,7 +1060,7 @@ export default function SignalsPage() {
                   key={opt.id}
                   onClick={() => setActiveFilter(opt.id)}
                   className={cn(
-                    "inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-[11px] font-medium transition-colors shrink-0",
+                    "inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-xs font-medium transition-colors shrink-0",
                     isActive
                       ? "bg-[oklch(0.72_0.15_85)]/15 text-[oklch(0.58_0.15_85)] ring-1 ring-[oklch(0.72_0.15_85)]/30"
                       : "text-muted-foreground/60 hover:text-muted-foreground hover:bg-muted/50"

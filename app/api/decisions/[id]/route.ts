@@ -33,6 +33,7 @@ export async function PATCH(
         | "reviewDismissedAt"
         | "tags"
         | "linkedActionIds"
+        | "notes"
       >
     >;
     const updated = await updateDecision(username, id, patch);

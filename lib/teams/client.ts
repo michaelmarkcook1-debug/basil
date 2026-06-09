@@ -7,7 +7,7 @@
  */
 
 import { graphGet, graphFetch } from "@/lib/microsoft/auth";
-import { getSelfIdentity, isSelf } from "@/lib/self-identity";
+import { getSelfIdentity, isSelf, type SelfIdentity } from "@/lib/self-identity";
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -20,7 +20,7 @@ export interface TeamsMessage {
   author:           string;  // display name
   text:             string;  // plaintext (HTML stripped)
   date:             string;  // ISO
-  isMention:        boolean; // body contains @Michael or @michael.cook
+  isMention:        boolean; // body @-mentions the current user (by resolved self-identity)
   isDM:             boolean; // source is a chat (not a team channel)
 }
 
@@ -99,9 +99,16 @@ function stripHtml(html: string): string {
     .slice(0, 500);
 }
 
-function isMention(text: string): boolean {
+function isMention(text: string, identity: SelfIdentity): boolean {
   const lower = text.toLowerCase();
-  return lower.includes("@michael") || lower.includes("@michael.cook");
+  return identity.names.some((n) => {
+    if (!n) return false;
+    const nm = n.toLowerCase();
+    const handle = "@" + nm.replace(/\s+/g, "");
+    const dotted = "@" + nm.replace(/\s+/g, ".");
+    const first  = "@" + nm.split(/\s+/)[0];
+    return lower.includes(handle) || lower.includes(dotted) || lower.includes(first);
+  });
 }
 
 function mapChatMessage(
@@ -109,6 +116,7 @@ function mapChatMessage(
   chatOrChannelId: string,
   channelName:     string,
   isDM:            boolean,
+  identity:        SelfIdentity,
   channelId?:      string,
   teamId?:         string
 ): TeamsMessage {
@@ -125,7 +133,7 @@ function mapChatMessage(
     author:          msg.from?.user?.displayName || "Unknown",
     text:            rawText,
     date:            msg.createdDateTime,
-    isMention:       isMention(rawText),
+    isMention:       isMention(rawText, identity),
     isDM,
   };
 }
@@ -196,7 +204,7 @@ export async function getRecentTeamsMessages(
             if (msg.createdDateTime < cutoff) continue;
 
             messages.push(
-              mapChatMessage(msg, chat.id, channelName, true)
+              mapChatMessage(msg, chat.id, channelName, true, selfIdentity)
             );
           }
         } catch {
@@ -248,6 +256,7 @@ export async function getRecentTeamsMessages(
                     channel.id,
                     channelName,
                     false,
+                    selfIdentity,
                     channel.id,
                     team.id
                   )
@@ -283,6 +292,7 @@ export async function searchTeamsMessages(
   query:    string,
   limit =   10
 ): Promise<TeamsMessage[]> {
+  const selfIdentity = await getSelfIdentity(username).catch(() => ({ emails: [], names: [] }));
   try {
     const res = await graphFetch(username, "https://graph.microsoft.com/v1.0/search/query", {
       method: "POST",
@@ -325,7 +335,7 @@ export async function searchTeamsMessages(
         author:          r.from?.user?.displayName || "Unknown",
         text:            body,
         date:            r.createdDateTime,
-        isMention:       isMention(body),
+        isMention:       isMention(body, selfIdentity),
         isDM,
       };
     });

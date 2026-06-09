@@ -13,9 +13,12 @@
  * lib/contacts-data.ts remains the canonical source for everything else.
  */
 
-import type { ProfileOverride } from "@/lib/contact-profile-overrides";
+import type { ProfileOverride, ToneObservation } from "@/lib/contact-profile-overrides";
 import { readUserStore, writeUserStore } from "@/lib/storage/user-store";
 import { withLock } from "@/lib/events/lock";
+
+/** Maximum tone observations retained per contact (oldest dropped when exceeded). */
+const TONE_HISTORY_CAP = 20;
 
 type OverrideMap = Record<string, ProfileOverride>;
 
@@ -52,6 +55,37 @@ export async function setOverrideInStore(
     all[contactId] = merged;
     await writeUserStore(username, OVERRIDES_FILE, all);
     return merged;
+  });
+}
+
+/**
+ * Append a tone observation to a contact's override entry.
+ *
+ * Creates the override entry if it doesn't exist. Caps history at
+ * TONE_HISTORY_CAP entries — oldest are dropped when the cap is exceeded.
+ * Skips duplicate observations for the same sourceRef (idempotent).
+ */
+export async function appendToneObservation(
+  username: string,
+  contactId: string,
+  observation: ToneObservation
+): Promise<void> {
+  return withLock(lockKey(username), async () => {
+    const all = await readUserStore<OverrideMap>(username, OVERRIDES_FILE, {});
+    const existing = all[contactId] ?? {};
+    const history = existing.toneHistory ?? [];
+
+    // Idempotency: skip if same sourceRef already recorded
+    if (observation.sourceRef && history.some((h) => h.sourceRef === observation.sourceRef)) {
+      return;
+    }
+
+    const updated = [...history, observation];
+    // Keep newest — drop from front when over cap
+    const capped = updated.length > TONE_HISTORY_CAP ? updated.slice(-TONE_HISTORY_CAP) : updated;
+
+    all[contactId] = { ...existing, toneHistory: capped };
+    await writeUserStore(username, OVERRIDES_FILE, all);
   });
 }
 

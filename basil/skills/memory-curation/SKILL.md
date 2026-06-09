@@ -19,9 +19,9 @@ Do **not** auto-ingest. Propose first. Michael decides.
 ## What to propose saving
 
 **Yes — propose saving:**
-- Explicit instructions: "always CC Ed on investor emails"
+- Explicit instructions: "always CC Sam on investor emails"
 - Stated preferences: "I prefer bullets over prose in briefings"
-- Identity facts: "I'm CEO of AnalystGenius" (if not already stored)
+- Identity facts: "I'm CEO of Example Analytics" (if not already stored)
 - Repeated patterns: same preference stated twice across separate sessions
 - Named-person notes: something specific and useful about someone Michael interacts with
 

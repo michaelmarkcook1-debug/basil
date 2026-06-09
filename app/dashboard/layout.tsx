@@ -11,6 +11,7 @@ import { cn } from "@/lib/utils";
 import { ModeProvider } from "@/components/ui/mode-context";
 import { ModeStatusBar, ModeSwitcherDialog } from "@/components/ui/mode-switcher";
 import { ModeIntelligenceBar } from "@/components/ui/mode-intelligence";
+import { CommandPalette } from "@/components/command-palette";
 
 export default function DashboardLayout({
   children,
@@ -62,6 +63,9 @@ export default function DashboardLayout({
 
   return (
     <ModeProvider>
+      {/* Global command palette (Cmd-K) — works on every dashboard route */}
+      <CommandPalette />
+
       {/* ── Desktop: side-by-side, no topbar ─────────────────────────────────── */}
       <div className="hidden lg:flex h-screen overflow-hidden">
         {/* Sidebar */}
@@ -99,7 +103,7 @@ export default function DashboardLayout({
               <Menu className="h-5 w-5" />
             </button>
             <div className="flex items-center gap-2 ml-2">
-              <img src="/basil-logo.svg" alt="Basil" className="h-7 w-7" />
+              <img src="/brand/basil-mark.png" alt="Basil" className="h-7 w-7 rounded-lg" />
               <p className="basil-display text-base text-[#C8A96B]">Basil</p>
             </div>
             <div className="ml-auto flex items-center gap-1">

@@ -485,7 +485,7 @@ export default function BriefingPage() {
           <span className="text-[13px] font-medium" style={{ color: "rgba(243,239,231,0.85)" }}>
             Writing your {loadingLabel}
           </span>
-          <span className="text-[11px]" style={{ color: "rgba(170,179,197,0.45)" }}>
+          <span className="text-xs" style={{ color: "rgba(170,179,197,0.45)" }}>
             · takes about 30 seconds
           </span>
         </div>
@@ -631,7 +631,7 @@ export default function BriefingPage() {
 
       <ExtraContextInput
         label="Want Basil to weigh in on something specific?"
-        placeholder="e.g. 'Focus on the AG launch timeline', 'Here's my investor update draft — pull anything relevant', 'Attached notes from yesterday's 1:1'…"
+        placeholder="e.g. 'Focus on the Example Analytics launch timeline', 'Here's my investor update draft — pull anything relevant', 'Attached notes from yesterday's 1:1'…"
         notes={extraNotes}
         onNotesChange={setExtraNotes}
         files={extraFiles}
@@ -663,10 +663,10 @@ export default function BriefingPage() {
                 Basil&apos;s Operational Read
               </span>
               {stigLoading && (
-                <span className="text-[11px] text-muted-foreground/50">scanning sources…</span>
+                <span className="text-xs text-muted-foreground/50">scanning sources…</span>
               )}
               {stigRead && !stigLoading && (
-                <span className="text-[11px] text-muted-foreground/40 font-mono">
+                <span className="text-xs text-muted-foreground/40 font-mono">
                   {new Date(stigRead.generatedAt).toLocaleTimeString("en-GB", {
                     hour: "2-digit",
                     minute: "2-digit",
@@ -690,20 +690,20 @@ export default function BriefingPage() {
                 </div>
               )}
               {stigRead && (
-                <div className="prose prose-sm max-w-none text-[13px] text-foreground/80 leading-relaxed [&_h2]:text-[11px] [&_h2]:font-semibold [&_h2]:uppercase [&_h2]:tracking-wider [&_h2]:text-[oklch(0.72_0.15_85)] [&_h2]:mt-4 [&_h2]:mb-1 [&_ul]:pl-4 [&_li]:my-0.5">
+                <div className="prose prose-sm max-w-none text-[13px] text-foreground/80 leading-relaxed [&_h2]:text-xs [&_h2]:font-semibold [&_h2]:uppercase [&_h2]:tracking-wider [&_h2]:text-[oklch(0.72_0.15_85)] [&_h2]:mt-4 [&_h2]:mb-1 [&_ul]:pl-4 [&_li]:my-0.5">
                   {stigRead.briefing.split("\n").map((line, i) => {
                     const trimmed = line.trim();
                     if (!trimmed) return <br key={i} />;
                     if (trimmed.startsWith("## ")) {
                       return (
-                        <h2 key={i} className="text-[11px] font-semibold uppercase tracking-wider text-[oklch(0.72_0.15_85)] mt-4 mb-1 first:mt-0">
+                        <h2 key={i} className="text-xs font-semibold uppercase tracking-wider text-[oklch(0.72_0.15_85)] mt-4 mb-1 first:mt-0">
                           {trimmed.replace(/^## /, "")}
                         </h2>
                       );
                     }
                     if (trimmed.startsWith("# ")) {
                       return (
-                        <p key={i} className="text-[11px] font-semibold text-muted-foreground/50 mb-3">
+                        <p key={i} className="text-xs font-semibold text-muted-foreground/50 mb-3">
                           {trimmed.replace(/^# /, "")}
                         </p>
                       );
@@ -785,7 +785,7 @@ export default function BriefingPage() {
       {!loading && briefing && (
         <div className="space-y-5">
           {/* Provenance line — generated at + source attribution */}
-          <div className="flex items-center gap-2 text-[11px] text-muted-foreground/50 font-mono">
+          <div className="flex items-center gap-2 text-xs text-muted-foreground/50 font-mono">
             <Clock className="h-3 w-3 shrink-0" />
             <span>Generated {new Date(briefing.generatedAt).toLocaleString("en-GB", {
               timeZone: USER_TZ,
@@ -888,7 +888,7 @@ export default function BriefingPage() {
                     <span
                       key={s.id ?? i}
                       className={cn(
-                        "inline-flex items-center rounded-full px-2 py-0.5 text-[11px] font-medium ring-1",
+                        "inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium ring-1",
                         s.status === "error" || s.status === "missing"
                           ? "bg-amber-50 text-amber-700 ring-amber-300/60"
                           : "bg-muted text-muted-foreground ring-border/40"
@@ -923,7 +923,7 @@ export default function BriefingPage() {
               Basil will synthesise today&apos;s calendar, inbox, open actions,
               and key decisions into a concise operational brief.
             </p>
-            <div className="flex items-center justify-center gap-3 mt-6 text-[11px] text-muted-foreground/50 font-mono uppercase tracking-wider">
+            <div className="flex items-center justify-center gap-3 mt-6 text-xs text-muted-foreground/50 font-mono uppercase tracking-wider">
               {["Calendar", "Inbox", "Actions", "Decisions"].map((src, i) => (
                 <span key={src} className="flex items-center gap-1.5">
                   {i > 0 && <span className="text-border/40">·</span>}

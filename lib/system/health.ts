@@ -31,6 +31,23 @@ export interface HealthMeta {
   lastPollAt?: string;
   /** ISO — last time the slack-sync cron warmed the Slack cache. */
   lastSlackSyncAt?: string;
+  /**
+   * ISO — last time a Slack webhook (Events API push) was processed for this
+   * user. THIS is the right freshness signal for Slack: push is real-time,
+   * so a recent value means the integration is healthy at the source. The
+   * cron timestamp (`lastSlackSyncAt`) measures cache-warm freshness, not
+   * push health, so it's misleading as the primary indicator.
+   */
+  lastSlackPushAt?: string;
+  /**
+   * Set by the slack-sync cron when Slack returned `invalid_auth` /
+   * `token_revoked` / `account_inactive`. Surfaces a "Reconnect Slack" CTA
+   * in the freshness widget so users don't see a vague "stale" warning when
+   * the real fix is to re-OAuth.
+   */
+  slackTokenInvalid?: boolean;
+  /** ISO — when we last verified the Slack token via `auth.test`. */
+  slackTokenCheckedAt?: string;
   /** ISO — most recent createdAt across memory/actions/decisions. */
   lastClassifiedAt?: string;
   /** Counts from the most recent poll-ingest run. */
@@ -480,23 +497,49 @@ export async function gatherSystemHealth(username: string): Promise<SystemHealth
           ? "Connect Google above — Basil detects Zoom meeting summaries from Gmail automatically"
           : undefined,
     },
-    // Slack sync freshness (cron runs daily at 06:00)
-    {
-      id:            "slack-sync",
-      label:         "Slack sync",
-      color:         !slackConn
+    // Slack push freshness — measures real Events API delivery, not the
+    // cache-warm cron. Slack is push, so freshness should reflect real-time
+    // push health. Falls back to the cron timestamp ONLY when we've never
+    // seen a push (newly installed workspaces / very quiet channels).
+    (() => {
+      const pushAt = healthMeta.lastSlackPushAt;
+      const cronAt = healthMeta.lastSlackSyncAt;
+      const primary = pushAt ?? cronAt;
+      const isPush = !!pushAt;
+
+      // Quiet workspaces are normal — relax thresholds when push is the
+      // signal. 8h amber / 48h red gives room for evenings, weekends,
+      // small workspaces. Cron thresholds stay tight because the cron is
+      // deterministic (once per hour) — staleness there is a real signal.
+      const color = !slackConn
         ? "grey"
-        : freshnessColor(healthMeta.lastSlackSyncAt, 26, 50),   // amber after 26h (cron is daily)
-      statusText:    !slackConn
-        ? "Slack not connected"
-        : healthMeta.lastSlackSyncAt
-        ? `Synced ${relAgo(healthMeta.lastSlackSyncAt)}`
-        : "Awaiting first sync",
-      lastCheckedAt: now,
-      nextAction:    slackConn && !healthMeta.lastSlackSyncAt
-        ? "Slack sync runs at 6am daily — or trigger Intelligence Backfill below"
-        : undefined,
-    },
+        : healthMeta.slackTokenInvalid
+        ? "red"
+        : isPush
+        ? freshnessColor(primary, 8, 48)
+        : freshnessColor(primary, 3, 12);
+
+      return {
+        id: "slack-sync",
+        label: isPush ? "Slack push" : "Slack sync",
+        color,
+        statusText: !slackConn
+          ? "Slack not connected"
+          : healthMeta.slackTokenInvalid
+          ? "Slack token revoked — reconnect"
+          : pushAt
+          ? `Push active · last event ${relAgo(pushAt)}`
+          : cronAt
+          ? `Synced ${relAgo(cronAt)} (push not yet seen)`
+          : "Awaiting first event",
+        lastCheckedAt: now,
+        nextAction: healthMeta.slackTokenInvalid
+          ? "Reconnect Slack in Settings — the workspace install was removed or the token expired"
+          : slackConn && !pushAt && !cronAt
+          ? "Slack push runs continuously — trigger Intelligence Backfill below for immediate refresh"
+          : undefined,
+      };
+    })(),
     // Daily briefing freshness
     {
       id:            "briefing",

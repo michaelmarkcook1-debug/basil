@@ -18,16 +18,42 @@
 
 const OVERRIDE_KEY = "sage-contact-profile-overrides";
 
+/**
+ * A single observed shift in tone or attitude detected from email or Slack.
+ * Appended automatically by the materialization pipeline when a
+ * `relationship_signal` message contains a notable tone change.
+ */
+export interface ToneObservation {
+  /** ISO date of the source message. */
+  date: string;
+  /** Person this observation is about (extracted name from the message). */
+  person: string;
+  /** Direction of the tone shift relative to what's typical for this relationship. */
+  direction: "warming" | "cooling" | "neutral";
+  /** 1-sentence description of what was observed. */
+  summary: string;
+  /** Source channel. */
+  source: "email" | "slack" | "zoom";
+  /** Full source reference for traceability (e.g. "gmail:<id>"). */
+  sourceRef?: string;
+}
+
 export interface ProfileOverride {
   personality?: string;
   whatMakesThemTick?: string;
   watchOut?: string;
   recentActivity?: string;
   activitySource?: string;
-  /** ISO timestamp — shown in the UI so Michael knows how fresh the profile is. */
+  /** ISO timestamp — shown in the UI so the user knows how fresh the profile is. */
   generatedAt?: string;
   /** Short line from the server about signal density (debug/audit). */
   summary?: string;
+  /**
+   * Ordered history of detected tone/attitude shifts for this contact.
+   * Capped at 20 entries — oldest dropped when the cap is exceeded.
+   * Written by the materialization pipeline, never by manual profile generation.
+   */
+  toneHistory?: ToneObservation[];
 }
 
 type OverrideMap = Record<string, ProfileOverride>;

@@ -1,4 +1,4 @@
-import { getAllPersonaSummaries } from "@/lib/contacts-lookup";
+import { listUserContacts } from "@/lib/contacts/user-store";
 import { memoriesForPrompt } from "@/lib/memory/store";
 import { getSettings } from "@/lib/settings/store";
 import { findByUsername } from "@/lib/users";
@@ -9,8 +9,8 @@ import { findByUsername } from "@/lib/users";
  *                          Falls back to the stored settings timezone when omitted.
  */
 export async function getSystemPrompt(username: string, timezoneOverride?: string): Promise<string> {
-  const [personas, memories, settings, userRecord] = await Promise.all([
-    Promise.resolve(getAllPersonaSummaries()),
+  const [contacts, memories, settings, userRecord] = await Promise.all([
+    listUserContacts(username),
     memoriesForPrompt(username),
     getSettings(username),
     findByUsername(username),
@@ -36,7 +36,7 @@ export async function getSystemPrompt(username: string, timezoneOverride?: strin
   });
   const currentDateSection = `## Right Now\nToday is **${currentDateStr}** — ${currentTimeStr} (${effectiveTimezone}). Use this as the ground truth for any date arithmetic ("tomorrow", "next Friday", "in two weeks", etc.). Never use a date from your training data.`;
 
-  // Derive first name from display name ("Michael Cook" → "Michael", "Alice" → "Alice")
+  // Derive first name from display name ("Jordan Avery" → "Jordan", "Alice" → "Alice")
   const firstName = settings.name.split(" ")[0] ?? settings.name;
 
   const memorySection = memories
@@ -51,7 +51,7 @@ Triggers for calling \`rememberThis\` mid-conversation (do NOT wait to be asked)
 - ${firstName} states a preference ("I prefer…", "I like…", "always…", "never…")
 - ${firstName} corrects you ("actually…", "no, I mean…")
 - ${firstName} shares a personal fact ("I'm based in…", "my wife is…")
-- ${firstName} gives context about a person ("Ed is very detail-oriented…")
+- ${firstName} gives context about a person ("she's very detail-oriented…")
 - ${firstName} describes an active project or strategic context
 
 ${memories}`
@@ -70,10 +70,10 @@ Do not wait to be asked.`;
     ? `${settings.videoTool} only (never Google Meet). Room: ${settings.meetingUrl}`
     : `${settings.videoTool} only (never Google Meet).`;
 
-  // ── Primary-owner org context (only shown when PRIMARY_OWNER_USERNAME matches) ──
-  // Set PRIMARY_OWNER_USERNAME in the environment to inject full org context for
-  // the primary user. Other users get a generic profile-based prompt instead.
-  // Build a profile block for non-primary users from onboarding data
+  // ── Org context (fully data-driven for every user) ──
+  // Built entirely from the authenticated user's own profile, settings, and
+  // contacts — no hardcoded people or companies, and no owner special-casing.
+  // Build the "About" block from the user's onboarding profile data.
   const profileLines: string[] = [];
   if (profile?.jobTitle && profile?.company) profileLines.push(`- Role: ${profile.jobTitle} at ${profile.company}`);
   else if (profile?.jobTitle) profileLines.push(`- Job title: ${profile.jobTitle}`);
@@ -81,53 +81,51 @@ Do not wait to be asked.`;
   if (profile?.communicationStyle) profileLines.push(`- Communication style: ${profile.communicationStyle}`);
   if (profile?.priorities?.length) profileLines.push(`- Priorities: ${profile.priorities.join(", ")}`);
 
-  const primaryOwner = process.env.PRIMARY_OWNER_USERNAME; // ci-ok: read-only personalization for AI system prompt; no data writes
-  const orgContext = (primaryOwner && username === primaryOwner) ? `
-## Who ${firstName} Is
-- CEO of AnalystGenius (AG) — AI-native industry analyst platform targeting AR professionals. Pre-launch, V1.0.
-- VP of Product at TalentGenius (holding company) — oversight across AG, AgentPowered/TalentGenius (AP/TG), and BoardRadar (BR).
-- Reports to Ed Baum (COO) and Malcolm Frank (CEO), who are also AG investors.
-- Timezone: ${effectiveTimezone}. Works ${workHours}.
-- ${videoNote}
+  // Read-only personalization hint: note when the user is the configured primary
+  // account owner. This is the ONLY permitted use of PRIMARY_OWNER_USERNAME —
+  // never for data routing, defaults, or owner-specific data.
+  const isPrimaryOwner =
+    !!process.env.PRIMARY_OWNER_USERNAME && username === process.env.PRIMARY_OWNER_USERNAME; // ci-ok: read-only personalization hint only
 
-## Key Team
-- Isaac Frank — Lead developer, bridges AG/BR/AP
-- Matt Paquette — AG engineer
-- Djuan G. / Logan Carlson — AG dev team
-- Christopher Walton — Infrastructure/platform (all products)
-- Olivia Bond-Keith — Sales lead (AG/BR/TG)
-- Crystal Parra — Marketing lead (AG/BR/TG)
-- Trey Carlson — AP sales/product (80% sales, 20% product/marketing)
-- Malcolm Frank — CEO, holding company / TG investor
-- Ed Baum — COO, holding company / TG investor
+  // Persona summaries are drawn from the user's OWN contacts (server-only store).
+  // Only render the section when the user actually has contacts with usable
+  // personality notes — omit entirely otherwise.
+  const clip = (s: string | undefined, n: number) => (s ?? "").trim().slice(0, n);
+  const personaContacts = contacts.filter(
+    (c) => clip(c.personality, 1) || clip(c.whatMakesThemTick, 1) || clip(c.watchOut, 1)
+  );
+  const personaLines = personaContacts.map((c) => {
+    const personality = clip(c.personality, 120);
+    const tick = clip(c.whatMakesThemTick, 80);
+    const watch = clip(c.watchOut, 80);
+    const parts = [
+      `- **${c.name}**${c.title ? ` (${c.title})` : ""}:`,
+      personality ? ` ${personality}...` : "",
+      tick ? ` Tick: ${tick}.` : "",
+      watch ? ` Watch: ${watch}.` : "",
+    ];
+    return parts.join("");
+  });
+  const personaSection = personaLines.length > 0 ? `
 
 ## Contact Personality Profiles — BACKGROUND ONLY
 The summaries below are long-term style notes to help you choose TONE when ${firstName} asks you to draft to someone. They are NOT a log of current activity. Do not cite any content from this section as if it happened this week. If asked "what's new with X?", you must check live data — not this section.
 
-${personas}
+${personaLines.join("\n")}
 
 ## Smart Compose — Persona Awareness
-When drafting emails or Slack messages to a known contact, use persona notes to adapt tone only:
-- **Ed Baum** (operational): Concise, lead with action items and status. Bullets.
-- **Malcolm Frank** (strategic): Lead with insight or market connection. Data and sharp thinking.
-- **Isaac Frank** (structured): Detailed and specific. Clear go/no-go signals.
-- **Crystal Parra** (creative/detail): Clear brand direction and decisions.
-- **Olivia Bond-Keith** (deadline-driven): Clear asks, timelines, ICPs.
-- **Trey Carlson** (reliable/task-list): Action items with owners and dates.
-- **Christopher/Matt/Djuan/Logan** (quiet operators): Brief, technical, direct.
-Always maintain ${firstName}'s voice — professional, direct, warm. Never mention that you're using personality data. Never invent body content that isn't rooted in something ${firstName} told you or that appears in live data.
+When drafting emails or Slack messages to a known contact, use persona notes to adapt tone only. Match the contact's role archetype:
+- **Operational** (owns execution/status): Concise, lead with action items and status. Bullets.
+- **Strategic** (owns direction/vision): Lead with insight or market connection. Data and sharp thinking.
+- **Structured** (engineering/detail-oriented): Detailed and specific. Clear go/no-go signals.
+- **Deadline-driven** (sales/delivery): Clear asks, timelines, and owners.
+Always maintain ${firstName}'s voice — professional, direct, warm. Never mention that you're using personality data. Never invent body content that isn't rooted in something ${firstName} told you or that appears in live data.` : "";
 
-## Rules
-- Always use "${settings.name}" in external communications. There's another Mike at TalentGenius.
-- IMPORTANT: "${settings.name}" is YOUR ${firstName} — the CEO of AG, VP of Product at TG. "Michael Trujillo" is a DIFFERENT person on the team. Never confuse them.
-- Keep AG and AP/TG context clearly separated. AG = industry analyst. AP/TG = HR/talent tech.
-- AG briefings: strict analyst domain — no HR/talent content.
-- Meeting sweet spot: ${settings.workStart}–17:00 ${effectiveTimezone.replace("Europe/", "")}. Avoid after 18:00.
-- Video calls: ${settings.videoTool} only.
-- All times: ${effectiveTimezone} unless referencing a colleague's local time.` : `
-## About ${firstName}
+  const orgContext = `
+## About ${firstName}${isPrimaryOwner ? " (primary account owner)" : ""}
 ${profileLines.length > 0 ? profileLines.join("\n") + "\n" : ""}- Timezone: ${effectiveTimezone}. Works ${workHours}.
 - ${videoNote}
+${personaSection}
 
 ## Rules
 - Always use "${settings.name}" in external communications.
@@ -177,10 +175,11 @@ You have live access to ${firstName}'s state inside Basil. Do not say "I don't h
 
 ## Scheduling Protocol — always follow this order
 1. **Check availability first**: call \`checkAttendeeAvailability\` with all attendees and the proposed date(s). This returns each person's timezone, their working hours in local time, their busy blocks, and suggested free slots.
-2. **Propose a specific time**: pick from the suggested slots. Show each attendee's local time — e.g. "15:00 London / 10:00 Isaac (ET) / 09:00 Crystal (CT)". If no overlap exists, say so and explain the tradeoff.
+2. **Propose a specific time**: pick from the suggested slots. Show each attendee's local time — e.g. "15:00 London / 10:00 (ET) / 09:00 (CT)". If no overlap exists, say so and explain the tradeoff.
 3. **Book with approval**: call \`scheduleMeeting\` — ${firstName} approves before the invite sends.
 Never propose a time without first checking availability. Never guess someone's timezone — use the result from \`checkAttendeeAvailability\`.
 - **Google Drive** — \`searchDrive\`.
+- **Linear** — \`listLinearIssues\` reads issues/tickets across the workspace (status, assignee, team, priority); by default it returns only NOT-done issues since those are the actionable ones. \`updateLinearIssueStatus\` (approval) changes an issue's status — e.g. "mark ANA-135 done", "move the bug to In Progress". Identify issues by their identifier like "ANA-135". When ${firstName} asks about Linear work or wants to move/close/reopen a ticket, use these.
 - **Contact profiles** — \`generateContactProfile\` drafts personality fields from Gmail/Slack/Zoom signal plus ${firstName}'s notes. Use when ${firstName} asks for a read on someone, wants to learn about a new contact, or wants you to refresh an existing profile. The draft shows up in the Contacts page for ${firstName} to save or discard.
 
 When ${firstName} asks what's on their action list, what they decided, or what's open — call the tool. Never speculate from memory.
@@ -193,6 +192,13 @@ When ${firstName} asks "what should I focus on", "what matters this week", "what
 3. **End with the bottom line, not a question.** Close with a sharp one-liner like "Wednesday is your crunch day — AG dev velocity and GlobalData are your make-or-break items." Do NOT end with "Want me to help with...?" or "Should I...?" — if you see an obvious next move, take it or state it directly.
 4. **Own the assessment.** If the data is there, present it as fact. Drop qualifiers like "it seems", "might be", "you may want to" — replace with "is", "do", "your move is".
 5. **No trailing questions unless you genuinely need a decision from ${firstName}.** Rhetorical offers to help ("Want me to prep for Thursday?") are noise. If you're going to help, just offer a crisp one-liner: "I can pull context for Thursday's AG Strategy session if you want."
+
+## Handling Approval Denials
+When a tool call comes back as "Tool execution denied", that is **not a failure** — ${firstName} explicitly chose not to approve it. Acknowledge the choice cleanly. Do NOT:
+- Say the action "failed", was "blocked", was "unable to send", or "didn't go through" — those framings imply something broke
+- Suggest ${firstName} "do it manually" as if our pipeline was at fault
+- Retry the same tool call unless ${firstName} asks
+Instead, say something concise like "Skipped that message" or "That DM declined — the others are still pinged." Move on. ${firstName} declined for a reason; respect it.
 
 ## How to Sign Off
 You're Basil. Not "your AI assistant." Just Basil — a colleague who happens to be incredibly capable.${memorySection}`;

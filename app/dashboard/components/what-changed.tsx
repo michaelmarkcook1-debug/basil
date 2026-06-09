@@ -80,13 +80,13 @@ function CompactRow({ event }: { event: ChangeEvent }) {
               {event.title}
             </span>
             <span
-              className={`inline-flex items-center gap-0.5 text-[10px] font-medium ${cfg.colorClass}`}
+              className={`inline-flex items-center gap-0.5 text-xs font-medium ${cfg.colorClass}`}
             >
               {CATEGORY_ICON[event.category]}
               {cfg.label}
             </span>
           </div>
-          <p className="text-[11px] text-muted-foreground leading-relaxed line-clamp-1">
+          <p className="text-xs text-muted-foreground leading-relaxed line-clamp-1">
             {event.context}
           </p>
         </div>
@@ -116,7 +116,7 @@ function CriticalBanner({ count }: { count: number }) {
   return (
     <Link
       href="/dashboard/delta"
-      className="flex items-center gap-2 px-2.5 py-1.5 rounded-md bg-red-500/10 dark:bg-red-950/25 text-red-600 dark:text-red-400 text-[11px] font-medium hover:bg-red-500/15 transition-colors"
+      className="flex items-center gap-2 px-2.5 py-1.5 rounded-md bg-red-500/10 dark:bg-red-950/25 text-red-600 dark:text-red-400 text-xs font-medium hover:bg-red-500/15 transition-colors"
     >
       <Circle className="h-2 w-2 fill-current shrink-0" />
       {count} critical change{count !== 1 ? "s" : ""} need attention
@@ -164,19 +164,19 @@ export function WhatChangedWidget() {
           <Activity className="h-4 w-4 text-muted-foreground" />
           <span className="basil-eyebrow text-xs">What Changed</span>
           {!isDefault ? (
-            <span className={`text-[10px] font-medium ${mode.colorClass}`}>
+            <span className={`text-xs font-medium ${mode.colorClass}`}>
               {mode.shortLabel}
             </span>
           ) : null}
           {unseenCount > 0 ? (
-            <span className="inline-flex items-center justify-center h-4 min-w-4 px-1 rounded-full bg-primary text-primary-foreground text-[10px] font-semibold">
+            <span className="inline-flex items-center justify-center h-4 min-w-4 px-1 rounded-full bg-primary text-primary-foreground text-xs font-semibold">
               {unseenCount}
             </span>
           ) : null}
         </div>
         <Link
           href="/dashboard/delta"
-          className="text-[11px] text-muted-foreground hover:text-primary transition-colors flex items-center gap-0.5"
+          className="text-xs text-muted-foreground hover:text-primary transition-colors flex items-center gap-0.5"
         >
           All changes
           <ArrowRight className="h-3 w-3" />
@@ -215,7 +215,7 @@ export function WhatChangedWidget() {
       {hasMore ? (
         <Link
           href="/dashboard/delta"
-          className="block text-center text-[11px] text-muted-foreground hover:text-primary transition-colors py-1 border-t border-border/50"
+          className="block text-center text-xs text-muted-foreground hover:text-primary transition-colors py-1 border-t border-border/50"
         >
           {filteredChanges.length - MAX_WIDGET_ROWS} more change
           {filteredChanges.length - MAX_WIDGET_ROWS !== 1 ? "s" : ""}

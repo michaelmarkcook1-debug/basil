@@ -56,6 +56,13 @@ export interface Decision {
    */
   source?: "meeting" | "slack" | "email" | "manual" | "chat";
 
+  // ── User annotations ─────────────────────────────────────────────────────
+  /**
+   * Freeform notes added by the user via "Explore further".
+   * Never overwritten by AI pipeline runs — user-owned only.
+   */
+  notes?: string;
+
   // ── Confidence & quality ──────────────────────────────────────────────────
   /**
    * 0–1 confidence this is a real finalized decision (not a proposal or discussion).

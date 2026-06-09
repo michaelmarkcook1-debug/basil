@@ -1,13 +1,16 @@
 "use client";
 
-import { useState, useRef, useCallback, useEffect } from "react";
+import { useState, useRef, useCallback, useEffect, useMemo } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { cn } from "@/lib/utils";
+import Link from "next/link";
 import {
   X, Trash2, Video, Users, Save, Loader2, Plus, Pencil,
   MapPin, Clock, ExternalLink, Copy, Check, ChevronDown, ChevronUp,
-  CheckCircle2, XCircle, HelpCircle,
+  CheckCircle2, XCircle, HelpCircle, Send, Forward, Sparkles,
+  Link as LinkIcon, CalendarSearch,
 } from "lucide-react";
 
 // ─── Constants ────────────────────────────────────────────────────────────────
@@ -72,6 +75,16 @@ interface EditState {
   startTime: string;      // HH:MM
   durationMin: number;
   attendees: string;      // comma-separated
+  /** When true, Google Calendar auto-generates a Meet link on create. */
+  addVideoCall: boolean;
+  /** Optional explicit conferencing URL (Zoom/Teams personal room paste). */
+  videoLink: string;
+}
+
+interface ContactOption {
+  id: string;
+  name: string;
+  email: string;
 }
 
 interface DragState {
@@ -129,6 +142,7 @@ function EventBlock({
   dragEndMin,
   onDragStart,
   onResizeStart,
+  onEventClick,
 }: {
   event: DayEvent;
   dragging: boolean;
@@ -136,6 +150,7 @@ function EventBlock({
   dragEndMin: number;
   onDragStart: (e: React.MouseEvent, id: string) => void;
   onResizeStart: (e: React.MouseEvent, id: string) => void;
+  onEventClick: (event: DayEvent) => void;
 }) {
   const { startMin, endMin } = parseEventTimes(event);
   const displayStart = dragging ? dragStartMin : startMin;
@@ -161,24 +176,27 @@ function EventBlock({
         transition-all cursor-pointer active:cursor-grabbing`}
       style={{ top: `${top}px`, height: `${height}px`, minHeight: `${MIN_DURATION * PX_PER_MIN}px` }}
       onMouseDown={(e) => { e.stopPropagation(); onDragStart(e, event.id); }}
+      // Stop the click bubbling to the grid (which would open the "New event"
+      // modal). The parent decides whether this was a click or the tail of a drag.
+      onClick={(e) => { e.stopPropagation(); onEventClick(event); }}
     >
       {/* Pencil icon hint on hover */}
-      <div className="absolute top-1 right-1 opacity-0 group-hover:opacity-50 transition-opacity pointer-events-none">
-        <Pencil className="h-2.5 w-2.5 text-current" />
+      <div className="absolute top-1 right-1 opacity-0 group-hover:opacity-60 transition-opacity pointer-events-none">
+        <Pencil className="h-3 w-3 text-current" />
       </div>
 
       <div className="flex items-start gap-1 overflow-hidden h-full pr-4">
         <div className="flex-1 min-w-0">
-          <p className={`text-xs font-semibold leading-tight truncate ${text}`}>
+          <p className={`text-[13px] font-semibold leading-tight truncate ${text}`}>
             {event.summary}
           </p>
           {height >= 36 && (
-            <p className="text-[11px] text-muted-foreground leading-tight">
+            <p className="text-xs text-muted-foreground leading-tight">
               {minToTime(displayStart)} – {minToTime(displayEnd)}
             </p>
           )}
           {height >= 52 && event.attendees.length > 0 && (
-            <p className="text-[10px] text-muted-foreground truncate flex items-center gap-0.5 mt-0.5">
+            <p className="text-xs text-muted-foreground truncate flex items-center gap-0.5 mt-0.5">
               <Users className="h-2.5 w-2.5 inline shrink-0" />
               {event.attendees.slice(0, 2).join(", ")}
               {event.attendees.length > 2 && ` +${event.attendees.length - 2}`}
@@ -224,6 +242,54 @@ function EventDetailPopover({
   const [rsvping, setRsvping] = useState(false);
   const [rsvpStatus, setRsvpStatus] = useState(event.myResponseStatus ?? "needsAction");
   const isOrganizer = event.isOrganizer ?? true;
+
+  // ── Reply state ─────────────────────────────────────────────────────────────
+  const [replyOpen, setReplyOpen] = useState(false);
+  const [replyMessage, setReplyMessage] = useState("");
+  const [replyAll, setReplyAll] = useState(false);
+  const [replySending, setReplySending] = useState(false);
+  const [replySent, setReplySent] = useState(false);
+
+  // ── Forward state ───────────────────────────────────────────────────────────
+  const [forwardOpen, setForwardOpen] = useState(false);
+  const [forwardEmails, setForwardEmails] = useState("");
+  const [forwarding, setForwarding] = useState(false);
+  const [forwardDone, setForwardDone] = useState(false);
+
+  async function handleReply() {
+    if (!replyMessage.trim()) return;
+    setReplySending(true);
+    try {
+      await fetch(`/api/calendar/${event.id}/reply`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ message: replyMessage, replyAll }),
+      });
+      setReplySent(true);
+      setReplyMessage("");
+      setTimeout(() => { setReplySent(false); setReplyOpen(false); }, 2000);
+    } finally {
+      setReplySending(false);
+    }
+  }
+
+  async function handleForward() {
+    const emails = forwardEmails.split(/[,;\s]+/).map((e) => e.trim()).filter(Boolean);
+    if (emails.length === 0) return;
+    setForwarding(true);
+    try {
+      await fetch(`/api/calendar/${event.id}/forward`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ emails }),
+      });
+      setForwardDone(true);
+      setForwardEmails("");
+      setTimeout(() => { setForwardDone(false); setForwardOpen(false); }, 2000);
+    } finally {
+      setForwarding(false);
+    }
+  }
 
   async function handleRsvp(status: "accepted" | "declined" | "tentative") {
     setRsvping(true);
@@ -414,13 +480,111 @@ function EventDetailPopover({
               {hasMoreDesc && (
                 <button
                   onClick={() => setDescExpanded(!descExpanded)}
-                  className="flex items-center gap-0.5 text-[11px] text-[oklch(0.55_0.12_85)] hover:text-[oklch(0.72_0.15_85)] transition-colors"
+                  className="flex items-center gap-0.5 text-xs text-[oklch(0.55_0.12_85)] hover:text-[oklch(0.72_0.15_85)] transition-colors"
                 >
                   {descExpanded ? <><ChevronUp className="h-3 w-3" /> Show less</> : <><ChevronDown className="h-3 w-3" /> Show more</>}
                 </button>
               )}
             </div>
           )}
+
+          {/* ── Action bar ──────────────────────────────────────────────── */}
+          <div className="border-t border-border/50 pt-3 space-y-2.5">
+
+            {/* Create brief button */}
+            <Link
+              href={`/dashboard/meetings/${event.id}`}
+              onClick={onClose}
+              className="flex items-center justify-center gap-2 w-full h-9 rounded-md text-sm font-medium
+                bg-[oklch(0.72_0.15_85)]/10 text-[oklch(0.55_0.12_85)] border border-[oklch(0.72_0.15_85)]/25
+                hover:bg-[oklch(0.72_0.15_85)]/20 transition-colors"
+            >
+              <Sparkles className="h-3.5 w-3.5" />
+              Create meeting brief
+            </Link>
+
+            {/* Reply section */}
+            <div>
+              <button
+                onClick={() => { setReplyOpen((v) => !v); setForwardOpen(false); }}
+                className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground hover:text-foreground transition-colors w-full"
+              >
+                <Send className="h-3.5 w-3.5" />
+                Reply to organiser
+                {replyOpen ? <ChevronUp className="h-3 w-3 ml-auto" /> : <ChevronDown className="h-3 w-3 ml-auto" />}
+              </button>
+              {replyOpen && (
+                <div className="mt-2 space-y-2">
+                  <textarea
+                    value={replyMessage}
+                    onChange={(e) => setReplyMessage(e.target.value)}
+                    autoFocus
+                    rows={3}
+                    placeholder="Type your message…"
+                    className="w-full text-sm rounded-md border border-border bg-muted/30 px-3 py-2
+                      outline-none resize-none focus:ring-2 focus:ring-[oklch(0.72_0.15_85)]/40
+                      placeholder:text-muted-foreground/40"
+                  />
+                  <div className="flex items-center justify-between gap-2">
+                    <label className="flex items-center gap-1.5 text-xs text-muted-foreground cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={replyAll}
+                        onChange={(e) => setReplyAll(e.target.checked)}
+                        className="rounded"
+                      />
+                      Reply all
+                    </label>
+                    <button
+                      onClick={handleReply}
+                      disabled={replySending || !replyMessage.trim()}
+                      className="flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium
+                        bg-[oklch(0.72_0.15_85)] text-[oklch(0.18_0.04_250)]
+                        hover:bg-[oklch(0.78_0.12_85)] disabled:opacity-50 transition-colors"
+                    >
+                      {replySent ? <><Check className="h-3 w-3" /> Sent</> : replySending ? <Loader2 className="h-3 w-3 animate-spin" /> : <><Send className="h-3 w-3" /> Send</>}
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* Forward section */}
+            <div>
+              <button
+                onClick={() => { setForwardOpen((v) => !v); setReplyOpen(false); }}
+                className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground hover:text-foreground transition-colors w-full"
+              >
+                <Forward className="h-3.5 w-3.5" />
+                Forward invite
+                {forwardOpen ? <ChevronUp className="h-3 w-3 ml-auto" /> : <ChevronDown className="h-3 w-3 ml-auto" />}
+              </button>
+              {forwardOpen && (
+                <div className="mt-2 space-y-2">
+                  <input
+                    type="text"
+                    value={forwardEmails}
+                    onChange={(e) => setForwardEmails(e.target.value)}
+                    autoFocus
+                    placeholder="email@example.com, another@example.com"
+                    className="w-full text-sm rounded-md border border-border bg-muted/30 px-3 py-1.5
+                      outline-none focus:ring-2 focus:ring-[oklch(0.72_0.15_85)]/40
+                      placeholder:text-muted-foreground/40"
+                  />
+                  <p className="text-xs text-muted-foreground">Separate multiple addresses with commas</p>
+                  <button
+                    onClick={handleForward}
+                    disabled={forwarding || !forwardEmails.trim()}
+                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium
+                      border border-border text-muted-foreground hover:text-foreground hover:bg-accent
+                      disabled:opacity-50 transition-colors"
+                  >
+                    {forwardDone ? <><Check className="h-3 w-3 text-emerald-500" /> Forwarded</> : forwarding ? <Loader2 className="h-3 w-3 animate-spin" /> : <><Forward className="h-3 w-3" /> Forward</>}
+                  </button>
+                </div>
+              )}
+            </div>
+          </div>
         </div>
       </div>
     </div>
@@ -428,6 +592,260 @@ function EventDetailPopover({
 }
 
 // ─── EditModal ────────────────────────────────────────────────────────────────
+// ─── AttendeesAutocomplete ────────────────────────────────────────────────────
+/**
+ * Attendees input with contact-email autocomplete.
+ *
+ * Holds the raw comma-separated string the user is typing. As they type into
+ * the active token, matching contacts from /api/contacts/all surface in a
+ * dropdown. Selecting one replaces the current token with `Name <email>` and
+ * appends a trailing ", " ready for the next entry.
+ *
+ * The dropdown only opens when there is at least 1 character in the active
+ * token and at least 1 match — never noisy.
+ */
+function AttendeesAutocomplete({
+  value,
+  onChange,
+  contacts,
+}: {
+  value: string;
+  onChange: (next: string) => void;
+  contacts: ContactOption[];
+}) {
+  const [focused, setFocused] = useState(false);
+  const [highlight, setHighlight] = useState(0);
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  // Split on commas; the LAST segment is the token currently being typed.
+  // Everything before it is "committed" (already chosen / typed) attendees.
+  const segments = value.split(",");
+  const committed = segments.slice(0, -1).join(",");
+  const activeRaw = segments[segments.length - 1] ?? "";
+  const activeToken = activeRaw.trim().toLowerCase();
+
+  // Pull email out of "Name <email>" form, or accept a bare email/typed text.
+  function extractEmail(token: string): string {
+    const m = token.match(/<([^>]+)>/);
+    return (m ? m[1] : token).trim().toLowerCase();
+  }
+
+  // Emails already in the field — exclude them from suggestions.
+  const alreadyEmails = new Set(
+    segments.slice(0, -1).map((s) => extractEmail(s)).filter(Boolean)
+  );
+
+  const matches = activeToken.length === 0
+    ? []
+    : contacts
+        .filter((c) => c.email && !alreadyEmails.has(c.email.toLowerCase()))
+        .filter((c) =>
+          c.email.toLowerCase().includes(activeToken) ||
+          c.name.toLowerCase().includes(activeToken)
+        )
+        .slice(0, 6);
+
+  // Reset the highlighted row whenever the matches list changes shape.
+  useEffect(() => { setHighlight(0); }, [activeToken]);
+
+  function selectMatch(c: ContactOption) {
+    // Replace the active token with the chosen contact and append ", " so the
+    // user can immediately start the next one.
+    const prefix = committed ? committed + ", " : "";
+    onChange(`${prefix}${c.name} <${c.email}>, `);
+    inputRef.current?.focus();
+  }
+
+  const showDropdown = focused && matches.length > 0;
+
+  return (
+    <div className="relative">
+      <Input
+        ref={inputRef}
+        id="ev-attendees"
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        onFocus={() => setFocused(true)}
+        // Blur is delayed so a mousedown on a dropdown row registers as a click.
+        onBlur={() => setTimeout(() => setFocused(false), 150)}
+        onKeyDown={(e) => {
+          if (!showDropdown) return;
+          if (e.key === "ArrowDown") { e.preventDefault(); setHighlight((h) => Math.min(h + 1, matches.length - 1)); }
+          else if (e.key === "ArrowUp") { e.preventDefault(); setHighlight((h) => Math.max(h - 1, 0)); }
+          else if (e.key === "Enter" || e.key === "Tab") {
+            e.preventDefault();
+            selectMatch(matches[highlight]);
+          } else if (e.key === "Escape") setFocused(false);
+        }}
+        placeholder="alice@co.com, bob@co.com"
+        className="h-9 text-sm"
+        autoComplete="off"
+      />
+      {showDropdown && (
+        <div className="absolute z-10 mt-1 w-full rounded-md border border-border bg-popover shadow-lg overflow-hidden">
+          {matches.map((c, i) => (
+            <button
+              key={c.id}
+              type="button"
+              // Use mousedown so the selection happens before the input blurs.
+              onMouseDown={(e) => { e.preventDefault(); selectMatch(c); }}
+              onMouseEnter={() => setHighlight(i)}
+              className={cn(
+                "w-full flex items-center justify-between gap-2 px-3 py-2 text-sm text-left transition-colors",
+                i === highlight ? "bg-accent" : "hover:bg-accent/50"
+              )}
+            >
+              <span className="font-medium truncate">{c.name}</span>
+              <span className="text-xs text-muted-foreground truncate ml-2">{c.email}</span>
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─── SmartSlotPicker ──────────────────────────────────────────────────────────
+/**
+ * "Find a time" picker: given the current attendees string + duration, calls
+ * /api/calendar/freebusy to compute mutual free slots and presents them as
+ * clickable chips. Selecting a chip fills the parent's `date` and `startTime`.
+ *
+ * Quietly degrades when no attendee emails are present, when Google isn't
+ * connected, or when the API returns no slots.
+ */
+interface SlotSuggestionUI {
+  start: string;
+  end: string;
+  label: string;
+  attendeeLocalTimes: Array<{ name: string; localTime: string }>;
+}
+
+function SmartSlotPicker({
+  attendeesValue,
+  durationMin,
+  onChoose,
+}: {
+  attendeesValue: string;
+  durationMin: number;
+  onChoose: (date: string, startTime: string) => void;
+}) {
+  const [loading, setLoading] = useState(false);
+  const [slots, setSlots] = useState<SlotSuggestionUI[] | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  // Extract bare emails from "Name <email>, Name <email>, …" or "a@b, c@d".
+  const emails = useMemo(() => {
+    const out: string[] = [];
+    for (const segment of attendeesValue.split(",")) {
+      const m = segment.match(/<([^>]+)>/);
+      const candidate = (m ? m[1] : segment).trim();
+      if (candidate.includes("@")) out.push(candidate.toLowerCase());
+    }
+    // Dedupe.
+    return Array.from(new Set(out));
+  }, [attendeesValue]);
+
+  const findTimes = useCallback(async () => {
+    if (emails.length === 0) return;
+    setLoading(true);
+    setError(null);
+    setSlots(null);
+    try {
+      const res = await fetch("/api/calendar/freebusy", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          attendeeEmails: emails,
+          durationMin,
+          maxSlots: 6,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setError(data.error || "Couldn't fetch availability");
+        setSlots([]);
+        return;
+      }
+      setSlots(data.slots || []);
+    } catch {
+      setError("Network error fetching availability");
+      setSlots([]);
+    } finally {
+      setLoading(false);
+    }
+  }, [emails, durationMin]);
+
+  // Disable when no real emails present yet.
+  const disabled = emails.length === 0 || loading;
+
+  return (
+    <div className="space-y-2">
+      <button
+        type="button"
+        onClick={findTimes}
+        disabled={disabled}
+        className="flex items-center gap-1.5 text-xs font-medium text-[oklch(0.55_0.12_85)] hover:text-[oklch(0.72_0.15_85)] disabled:text-muted-foreground/40 disabled:cursor-not-allowed transition-colors"
+        title={emails.length === 0 ? "Add an attendee email first" : "Check everyone's calendars"}
+      >
+        {loading ? (
+          <Loader2 className="h-3.5 w-3.5 animate-spin" />
+        ) : (
+          <CalendarSearch className="h-3.5 w-3.5" />
+        )}
+        Find a time everyone is free
+      </button>
+
+      {/* Slot chips — only render once a query has run */}
+      {slots !== null && (
+        <div className="rounded-md border border-border/60 bg-muted/30 p-2 space-y-1.5">
+          {error && (
+            <p className="text-xs text-amber-600">{error}</p>
+          )}
+          {slots.length === 0 && !error && (
+            <p className="text-xs text-muted-foreground italic">
+              No mutual free slots in the next 7 days — try a different duration or check the attendees&apos; tz.
+            </p>
+          )}
+          {slots.length > 0 && (
+            <>
+              <p className="text-[11px] uppercase tracking-wider text-muted-foreground/80 font-medium">
+                Suggested times
+              </p>
+              <div className="flex flex-wrap gap-1.5">
+                {slots.map((slot) => {
+                  // Slot has UTC ISO start; surface date + HH:MM in local time.
+                  const dt = new Date(slot.start);
+                  const dateStr = dt.toISOString().slice(0, 10);
+                  const startTime = dt.toLocaleTimeString("en-GB", {
+                    hour: "2-digit",
+                    minute: "2-digit",
+                  });
+                  const tooltip = slot.attendeeLocalTimes
+                    .map((a) => `${a.localTime} — ${a.name}`)
+                    .join("\n");
+                  return (
+                    <button
+                      key={slot.start}
+                      type="button"
+                      onClick={() => onChoose(dateStr, startTime)}
+                      title={tooltip}
+                      className="inline-flex items-center gap-1.5 rounded-md border border-[oklch(0.72_0.15_85)]/30 bg-[oklch(0.72_0.15_85)]/5 hover:bg-[oklch(0.72_0.15_85)]/15 px-2.5 py-1 text-xs font-medium text-[oklch(0.55_0.12_85)] transition-colors"
+                    >
+                      <Clock className="h-3 w-3" />
+                      {slot.label}
+                    </button>
+                  );
+                })}
+              </div>
+            </>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function EditModal({
   state,
   onClose,
@@ -435,6 +853,7 @@ function EditModal({
   onDelete,
   saving,
   deleting,
+  contacts,
   onChange,
 }: {
   state: EditState;
@@ -443,6 +862,7 @@ function EditModal({
   onDelete: () => void;
   saving: boolean;
   deleting: boolean;
+  contacts: ContactOption[];
   onChange: (patch: Partial<EditState>) => void;
 }) {
   const isNew = state.eventId === null;
@@ -530,15 +950,57 @@ function EditModal({
 
         <div className="space-y-1.5">
           <Label htmlFor="ev-attendees" className="text-xs font-medium">
-            Attendees <span className="text-muted-foreground font-normal">(emails, comma-separated)</span>
+            Attendees <span className="text-muted-foreground font-normal">(type to search your contacts)</span>
           </Label>
-          <Input
-            id="ev-attendees"
+          <AttendeesAutocomplete
             value={state.attendees}
-            onChange={(e) => onChange({ attendees: e.target.value })}
-            placeholder="alice@co.com, bob@co.com"
-            className="h-9 text-sm"
+            onChange={(v) => onChange({ attendees: v })}
+            contacts={contacts}
           />
+        </div>
+
+        {/* ── Smart slot picker — finds mutual free time across attendees ─── */}
+        <SmartSlotPicker
+          attendeesValue={state.attendees}
+          durationMin={state.durationMin}
+          onChoose={(date, startTime) => onChange({ date, startTime })}
+        />
+
+        {/* ── Video conferencing ───────────────────────────────────────────── */}
+        <div className="space-y-2 pt-1">
+          <label className="flex items-center gap-2 cursor-pointer select-none">
+            <input
+              type="checkbox"
+              checked={state.addVideoCall}
+              onChange={(e) => onChange({ addVideoCall: e.target.checked })}
+              className="h-4 w-4 rounded border-input accent-[oklch(0.72_0.15_85)]"
+            />
+            <Video className="h-3.5 w-3.5 text-[oklch(0.72_0.15_85)]" />
+            <span className="text-xs font-medium">Add video call</span>
+            {!state.videoLink.trim() && state.addVideoCall && (
+              <span className="text-xs text-muted-foreground">
+                · Google Meet link will be generated
+              </span>
+            )}
+          </label>
+
+          {state.addVideoCall && (
+            <div className="pl-6 space-y-1.5">
+              <Label htmlFor="ev-videolink" className="text-xs font-medium text-muted-foreground">
+                Or paste a Zoom / Teams link
+              </Label>
+              <div className="relative">
+                <LinkIcon className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
+                <Input
+                  id="ev-videolink"
+                  value={state.videoLink}
+                  onChange={(e) => onChange({ videoLink: e.target.value })}
+                  placeholder="https://zoom.us/j/…  (leave blank for Meet)"
+                  className="h-9 pl-8 text-sm"
+                />
+              </div>
+            </div>
+          )}
         </div>
 
         <div className="flex items-center gap-2 pt-1">
@@ -588,6 +1050,27 @@ export function DayView({
   const [saving, setSaving]     = useState(false);
   const [deleting, setDeleting] = useState(false);
 
+  // Contacts for the attendees autocomplete in the edit/create modal.
+  // Fetched once when the modal first opens — not on mount, to keep DayView
+  // cheap when no edit is in flight.
+  const [contacts, setContacts] = useState<ContactOption[]>([]);
+  useEffect(() => {
+    if (!editState || contacts.length > 0) return;
+    fetch("/api/contacts/all")
+      .then((r) => r.ok ? r.json() : null)
+      .then((d) => {
+        if (!d?.contacts) return;
+        // Drop anyone without an email — they can't be invited.
+        const opts: ContactOption[] = d.contacts
+          .filter((c: { email?: string }) => !!c.email)
+          .map((c: { id: string; name: string; email: string }) => ({
+            id: c.id, name: c.name, email: c.email,
+          }));
+        setContacts(opts);
+      })
+      .catch(() => { /* autocomplete simply won't fire — input still works */ });
+  }, [editState, contacts.length]);
+
   // ── Open detail popover ───────────────────────────────────────────────────
   const openDetail = useCallback((event: DayEvent) => {
     setDetailEvent(event);
@@ -604,6 +1087,10 @@ export function DayView({
       startTime: minToTime(startMin),
       durationMin: Math.max(MIN_DURATION, endMin - startMin),
       attendees: event.attendees.join(", "),
+      // Existing events already have whatever link they have — show it as a
+      // pre-filled value so the user can clear or replace it.
+      addVideoCall: !!event.videoLink,
+      videoLink: event.videoLink ?? "",
     });
   }, [date]);
 
@@ -621,6 +1108,9 @@ export function DayView({
       startTime: minToTime(startMin),
       durationMin: 30,
       attendees: "",
+      // Default to OFF — opt-in instead of auto-attaching a stale Zoom link.
+      addVideoCall: false,
+      videoLink: "",
     });
   }, [date]);
 
@@ -636,9 +1126,9 @@ export function DayView({
     e.preventDefault();
   }, [events]);
 
-  const onMouseMove = useCallback((e: React.MouseEvent) => {
+  const updateDragFromY = useCallback((clientY: number) => {
     if (!drag) return;
-    const deltaY = e.clientY - drag.startY;
+    const deltaY = clientY - drag.startY;
 
     // Only activate drag visuals after threshold to allow click-to-open-detail
     if (Math.abs(deltaY) > DRAG_THRESHOLD) hasDragged.current = true;
@@ -655,15 +1145,19 @@ export function DayView({
     }
   }, [drag]);
 
+  const onMouseMove = useCallback((e: React.MouseEvent) => {
+    updateDragFromY(e.clientY);
+  }, [updateDragFromY]);
+
   const onMouseUp = useCallback(async () => {
     if (!drag) { setDragPos(null); return; }
 
-    // ── Click (no movement) → open detail popover ────────────────────────────
+    // ── Click (no movement) → handled by EventBlock's onClick, not here ──────
+    // We only clear drag state; the synthetic click that follows opens the
+    // detail popover (guarded by hasDragged so a real drag never opens it).
     if (!hasDragged.current) {
-      const ev = events.find((x) => x.id === drag.eventId);
       setDrag(null);
       setDragPos(null);
-      if (ev && drag.type === "move") openDetail(ev);
       return;
     }
 
@@ -719,6 +1213,11 @@ export function DayView({
           }),
         });
       } else {
+        // Video-call resolution:
+        //   - User pasted an explicit URL → send as zoomLink
+        //   - User ticked "Add video call" with no URL → ask Google Meet auto-gen
+        //   - Neither → no video attached (default)
+        const trimmedLink = editState.videoLink.trim();
         await fetch("/api/calendar/create", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -728,6 +1227,8 @@ export function DayView({
             startTime: editState.startTime,
             duration:  editState.durationMin,
             attendees: attendeeList,
+            ...(trimmedLink ? { zoomLink: trimmedLink } : {}),
+            ...(editState.addVideoCall && !trimmedLink ? { addVideoCall: true } : {}),
           }),
         });
       }
@@ -761,13 +1262,19 @@ export function DayView({
     openNew(clickMin);
   };
 
-  // Listen for mouseup globally so drag completes even if cursor leaves the grid
+  // While dragging, track move + up on the window so the drag keeps working
+  // even when the cursor leaves the grid (fast drags, edge of screen).
   useEffect(() => {
     if (!drag) return;
+    const move = (e: MouseEvent) => updateDragFromY(e.clientY);
     const up = () => { onMouseUp(); };
+    window.addEventListener("mousemove", move);
     window.addEventListener("mouseup", up);
-    return () => window.removeEventListener("mouseup", up);
-  }, [drag, onMouseUp]);
+    return () => {
+      window.removeEventListener("mousemove", move);
+      window.removeEventListener("mouseup", up);
+    };
+  }, [drag, onMouseUp, updateDragFromY]);
 
   // Scroll to current time (or 08:00) when the day is first displayed
   useEffect(() => {
@@ -787,15 +1294,15 @@ export function DayView({
   return (
     <div className="flex flex-col" style={{ height: "100%" }}>
       {/* Hint bar */}
-      <div className="flex items-center justify-between px-3 py-1.5 border-b border-border/50 shrink-0">
-        <p className="text-[11px] text-muted-foreground">
-          Click to view · Drag to move · Drag bottom edge to resize
+      <div className="flex items-center justify-between px-3 py-2 border-b border-border/50 shrink-0">
+        <p className="text-xs text-muted-foreground">
+          Click an event to view · drag to move · drag bottom edge to resize
         </p>
         <button
           onClick={() => openNew()}
-          className="flex items-center gap-1 text-[11px] text-[oklch(0.55_0.12_85)] hover:text-[oklch(0.72_0.15_85)] transition-colors"
+          className="flex items-center gap-1.5 text-xs font-medium px-2.5 py-1 rounded-md border border-[oklch(0.72_0.15_85)]/30 text-[oklch(0.55_0.12_85)] hover:bg-[oklch(0.72_0.15_85)]/10 hover:text-[oklch(0.72_0.15_85)] transition-colors"
         >
-          <Plus className="h-3 w-3" /> Add event
+          <Plus className="h-3.5 w-3.5" /> Add event
         </button>
       </div>
 
@@ -811,7 +1318,7 @@ export function DayView({
             {HOURS.map((h) => (
               <div
                 key={h}
-                className="absolute right-2 text-[10px] text-muted-foreground/70 -translate-y-2"
+                className="absolute right-2 text-xs font-medium text-muted-foreground/80 -translate-y-2"
                 style={{ top: `${(h - GRID_START_H) * HOUR_HEIGHT}px` }}
               >
                 {String(h).padStart(2, "0")}:00
@@ -859,6 +1366,11 @@ export function DayView({
                   dragEndMin={pos.endMin}
                   onDragStart={(e, id) => startDrag(e, id, "move")}
                   onResizeStart={(e, id) => startDrag(e, id, "resize")}
+                  onEventClick={(clicked) => {
+                    // Ignore the click that fires at the end of a real drag.
+                    if (hasDragged.current) return;
+                    openDetail(clicked);
+                  }}
                 />
               );
             })}
@@ -895,6 +1407,7 @@ export function DayView({
           onDelete={() => handleDelete()}
           saving={saving}
           deleting={deleting}
+          contacts={contacts}
         />
       )}
     </div>

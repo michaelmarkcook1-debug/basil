@@ -96,7 +96,7 @@ function ContactList({
             <div className="flex items-center gap-1.5 min-w-0">
               <p className="text-sm font-medium truncate">{c.name}</p>
               {c._isSeedData && (
-                <span className="shrink-0 rounded px-1 py-0.5 text-[10px] font-semibold uppercase tracking-wide bg-muted text-muted-foreground border border-border/60">
+                <span className="shrink-0 rounded px-1 py-0.5 text-xs font-semibold uppercase tracking-wide bg-muted text-muted-foreground border border-border/60">
                   SAMPLE
                 </span>
               )}
@@ -404,7 +404,7 @@ function ContactDetail({
                 <div className="flex items-center gap-2 group">
                   <h2 className="text-xl font-semibold">{contact.name}</h2>
                   {contact._isSeedData && (
-                    <span className="rounded px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide bg-muted text-muted-foreground border border-border/60">
+                    <span className="rounded px-1.5 py-0.5 text-xs font-semibold uppercase tracking-wide bg-muted text-muted-foreground border border-border/60">
                       SAMPLE
                     </span>
                   )}
@@ -805,6 +805,47 @@ function ContactDetail({
             </Card>
           )}
 
+          {/* Tone / attitude history — AI-detected shifts from email & Slack. */}
+          {override?.toneHistory && override.toneHistory.length > 0 && (
+            <Card className="border-l-4 border-l-violet-400">
+              <CardHeader className="pb-2">
+                <CardTitle className="text-xs font-semibold tracking-widest uppercase text-violet-600 flex items-center gap-1.5">
+                  <MessageCircle className="h-3.5 w-3.5" /> Tone &amp; Attitude
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                <ul className="space-y-2.5">
+                  {[...override.toneHistory].reverse().map((obs, i) => (
+                    <li key={i} className="flex items-start gap-2 text-sm">
+                      <span className={`mt-1 h-2 w-2 rounded-full shrink-0 ${
+                        obs.direction === "warming"
+                          ? "bg-emerald-500"
+                          : obs.direction === "cooling"
+                          ? "bg-amber-500"
+                          : "bg-slate-400"
+                      }`} />
+                      <div className="min-w-0">
+                        <span className={`inline-block text-xs font-semibold rounded px-1.5 py-0.5 mr-2 ${
+                          obs.direction === "warming"
+                            ? "bg-emerald-50 text-emerald-700"
+                            : obs.direction === "cooling"
+                            ? "bg-amber-50 text-amber-700"
+                            : "bg-slate-100 text-slate-600"
+                        }`}>
+                          {obs.direction === "warming" ? "↑ Warming" : obs.direction === "cooling" ? "↓ Cooling" : "→ Neutral"}
+                        </span>
+                        <span className="text-foreground/90">{obs.summary}</span>
+                        <span className="block text-xs text-muted-foreground mt-0.5">
+                          {obs.date} · via {obs.source}
+                        </span>
+                      </div>
+                    </li>
+                  ))}
+                </ul>
+              </CardContent>
+            </Card>
+          )}
+
           {/* Hardcoded narrative — context for what was happening last time the
               persona was authored. Shown as a historical note alongside live data. */}
           <Card>
@@ -1195,7 +1236,7 @@ export default function ContactsPage() {
         <div className="p-4 space-y-3 border-b border-border shrink-0">
           {/* Refresh row — always visible, not buried in health panel */}
           <div className="flex items-center justify-between">
-            <span className="text-[11px] text-muted-foreground">
+            <span className="text-xs text-muted-foreground">
               {activityFetchedAt
                 ? (() => {
                     const mins = Math.floor((Date.now() - new Date(activityFetchedAt).getTime()) / 60000);
@@ -1208,7 +1249,7 @@ export default function ContactsPage() {
             <button
               onClick={refreshActivity}
               disabled={activityLoading}
-              className="flex items-center gap-1 text-[11px] text-muted-foreground hover:text-[oklch(0.72_0.15_85)] transition-colors disabled:opacity-50"
+              className="flex items-center gap-1 text-xs text-muted-foreground hover:text-[oklch(0.72_0.15_85)] transition-colors disabled:opacity-50"
               title="Refresh from Calendar, Gmail & Slack"
             >
               {activityLoading ? (

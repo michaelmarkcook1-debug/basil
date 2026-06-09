@@ -40,7 +40,7 @@ function isPersonalEmail(from: string, fromEmail: string, subject: string): bool
   // Known contact → always personal
   if (KNOWN_CONTACT_EMAILS.has(addr)) return true;
 
-  // Shared-domain team (e.g. @talentgenius.io) → treat as internal = personal
+  // Shared-domain team (e.g. @example.com) → treat as internal = personal
   // Only apply this if domain is ≥2 segments and NOT a large public provider
   const domain = addr.split("@")[1] ?? "";
   const publicDomains = /gmail\.com|outlook\.com|hotmail\.com|yahoo\.com|icloud\.com|me\.com|protonmail\.com/;

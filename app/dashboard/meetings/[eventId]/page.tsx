@@ -143,7 +143,7 @@ export default function MeetingPrepPage() {
     fetch("/api/settings", { cache: "no-store" })
       .then((r) => r.ok ? r.json() : null)
       .then((d) => { if (d?.name) setSelfName(d.name); })
-      .catch(() => {});
+      .catch((err) => { console.warn("[meeting] self-name load failed:", err); });
   }, []);
 
   // Hydrate cached prep for this event id — so navigating away and back
@@ -269,7 +269,7 @@ export default function MeetingPrepPage() {
       <header className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3">
         <div className="space-y-1 min-w-0">
           <p className="text-xs font-semibold tracking-widest uppercase text-[oklch(0.72_0.15_85)]">
-            TalentGenius · Meeting Prep
+            Example Holdings · Meeting Prep
           </p>
           <h1 className="text-xl font-semibold break-words">{meta?.title}</h1>
           <div className="flex items-center gap-2 text-sm text-[oklch(0.72_0.15_85)] flex-wrap">
@@ -477,7 +477,7 @@ export default function MeetingPrepPage() {
             (prep.priorDecisions && prep.priorDecisions.length > 0)) && (
             <div className="flex items-center gap-3 pt-2">
               <Separator className="flex-1" />
-              <span className="text-[10px] font-semibold tracking-widest uppercase text-muted-foreground whitespace-nowrap">Reference Data</span>
+              <span className="text-xs font-semibold tracking-widest uppercase text-muted-foreground whitespace-nowrap">Reference Data</span>
               <Separator className="flex-1" />
             </div>
           )}

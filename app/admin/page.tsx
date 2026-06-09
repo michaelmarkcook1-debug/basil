@@ -49,6 +49,7 @@ interface FeatureFlags {
   dispatch_shadow: boolean;
   dispatch_active: boolean;
   ranking_active: boolean;
+  toneTracking_active: boolean;
   sources: {
     gmail_cutover: boolean;
     calendar_cutover: boolean;
@@ -69,6 +70,7 @@ const FLAG_META: Array<{ key: string; label: string; description: string; critic
   { key: "dispatch_active",         label: "AI dispatcher",         description: "Route all AI calls through the canonical dispatcher" },
   { key: "dispatch_shadow",         label: "Dispatcher shadow",     description: "Log dispatcher traces without routing through it" },
   { key: "signalEvent_shadow",      label: "Signal shadow",         description: "Compare new pipeline with old pipeline (no writes)" },
+  { key: "toneTracking_active",     label: "Tone tracking",         description: "Detect tone & attitude shifts in emails and Slack and save to contact history" },
 ];
 
 const SOURCE_META: Array<{ key: string; label: string }> = [
@@ -256,13 +258,13 @@ export default function AdminPage() {
                           <span className="font-medium text-sm">{user.name} {user.surname}</span>
                           <span className="text-xs text-muted-foreground font-mono">@{user.username}</span>
                           {i === 0 && user.id === "env-admin" ? (
-                            <Badge variant="secondary" className="text-[10px] px-1.5 py-0">env-admin</Badge>
+                            <Badge variant="secondary" className="text-xs px-1.5 py-0">env-admin</Badge>
                           ) : null}
                           {user.disabled && (
-                            <Badge variant="destructive" className="text-[10px] px-1.5 py-0">disabled</Badge>
+                            <Badge variant="destructive" className="text-xs px-1.5 py-0">disabled</Badge>
                           )}
                           {!user.onboardingCompleted && (
-                            <Badge variant="outline" className="text-[10px] px-1.5 py-0 text-muted-foreground">onboarding</Badge>
+                            <Badge variant="outline" className="text-xs px-1.5 py-0 text-muted-foreground">onboarding</Badge>
                           )}
                         </div>
 
@@ -406,7 +408,7 @@ export default function AdminPage() {
 
                 {/* Source cutover flags */}
                 <div className="px-4 py-2 sm:px-6 bg-muted/30">
-                  <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+                  <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
                     Source cutover
                   </p>
                 </div>
@@ -437,7 +439,7 @@ export default function AdminPage() {
                       );
                     })}
                   </div>
-                  <p className="text-[10px] text-muted-foreground mt-2">
+                  <p className="text-xs text-muted-foreground mt-2">
                     When enabled, this source uses the new SignalEvent pipeline exclusively. Disable to fall back to the old path.
                   </p>
                 </div>

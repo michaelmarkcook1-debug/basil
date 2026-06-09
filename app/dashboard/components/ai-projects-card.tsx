@@ -71,7 +71,7 @@ function ProjectRow({ project }: { project: AIProject }) {
       {/* Platform badge */}
       <span
         className={cn(
-          "shrink-0 mt-0.5 rounded px-1.5 py-0.5 text-[11px] font-medium",
+          "shrink-0 mt-0.5 rounded px-1.5 py-0.5 text-xs font-medium",
           platformBadgeStyle(project.platform)
         )}
       >
@@ -88,7 +88,7 @@ function ProjectRow({ project }: { project: AIProject }) {
           {/* Importance badge */}
           <span
             className={cn(
-              "rounded px-1.5 py-0.5 text-[11px] font-medium",
+              "rounded px-1.5 py-0.5 text-xs font-medium",
               IMPORTANCE_STYLES[imp] ?? IMPORTANCE_STYLES.low
             )}
           >
@@ -96,12 +96,12 @@ function ProjectRow({ project }: { project: AIProject }) {
           </span>
           {/* Related pill */}
           {hasRelated && (
-            <span className="text-[11px] text-muted-foreground bg-muted rounded px-1.5 py-0.5">
+            <span className="text-xs text-muted-foreground bg-muted rounded px-1.5 py-0.5">
               Related to {project.relatedProjectIds!.length} project{project.relatedProjectIds!.length !== 1 ? "s" : ""}
             </span>
           )}
           {/* Dates */}
-          <span className="text-[11px] text-muted-foreground">
+          <span className="text-xs text-muted-foreground">
             active {relativeTime(project.lastActiveAt)}
           </span>
         </div>
@@ -120,7 +120,7 @@ function ProjectRow({ project }: { project: AIProject }) {
         </a>
       ) : (
         <span className="shrink-0 mt-1 opacity-0 group-hover:opacity-50 transition-opacity">
-          <span className="text-[10px] text-muted-foreground">Local</span>
+          <span className="text-xs text-muted-foreground">Local</span>
         </span>
       )}
     </div>
@@ -194,7 +194,7 @@ export function AIProjectsCard() {
         </CardTitle>
         <div className="flex items-center gap-2">
           {data?.lastSyncedAt && (
-            <span className="text-[11px] text-muted-foreground hidden sm:inline">
+            <span className="text-xs text-muted-foreground hidden sm:inline">
               synced {relativeTime(data.lastSyncedAt)}
             </span>
           )}

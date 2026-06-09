@@ -26,7 +26,7 @@ export async function GET() {
     const allMessages = await getRecentSlackMessages(username, 30, 3);
 
     // For DMs: keep only the most recent message per conversation to avoid
-    // 3 consecutive "DM: Ed Baum" entries. For channels: keep all (different topics).
+    // 3 consecutive "DM: Sam Rivera" entries. For channels: keep all (different topics).
     const dmSeen = new Map<string, boolean>();
     const dedupedDMs: typeof allMessages = [];
     const channelMsgs: typeof allMessages = [];

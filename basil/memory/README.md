@@ -30,7 +30,7 @@ const context = store.retrieve("prepare for board meeting");
 
 *What it is:* Stable facts about the user. Preferences, explicit instructions, identity details, behavioural rules.
 
-*Examples:* "I prefer Zoom over Google Meet." / "Always CC Ed on investor emails." / "I'm CEO of AnalystGenius."
+*Examples:* "I prefer Zoom over Google Meet." / "Always CC Sam on investor emails." / "I'm CEO of Example Analytics."
 
 *Behaviour:* Always included in the system prompt. Hard cap at 2 000 tokens — lower-priority records are dropped first. Records are never silently overwritten: near-duplicates update in place and the previous version is archived in `history[]`.
 
@@ -54,7 +54,7 @@ const context = store.retrieve("prepare for board meeting");
 
 *What it is:* Time-bounded recent context. Today's calendar notes, current drafts, recent uploads.
 
-*Examples:* "Today's call prep for Malcolm" / current pricing model draft / just-received PDF.
+*Examples:* "Today's call prep for Jordan" / current pricing model draft / just-received PDF.
 
 *Behaviour:* 7-day TTL by default. Tag content `@active` to exempt it from expiry. Surfaced when the query has temporal signals (today, this week) or when items are `@active`. Eviction is lazy-on-read and eager via `evict()`.
 

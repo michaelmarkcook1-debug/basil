@@ -276,7 +276,7 @@ function TabButton({
           </span>
         )}
         {connected === false && (
-          <span className="text-[10px] font-normal text-muted-foreground/60">
+          <span className="text-xs font-normal text-muted-foreground/60">
             (disconnected)
           </span>
         )}
@@ -894,7 +894,7 @@ function RankedSignalRow({ signal: s }: { signal: RankedSignalView }) {
           </span>
         )}
         {/* Category badge */}
-        <span className="rounded-sm bg-muted text-muted-foreground text-[11px] font-mono uppercase tracking-wider px-1.5 py-0.5 shrink-0">
+        <span className="rounded-sm bg-muted text-muted-foreground text-xs font-mono uppercase tracking-wider px-1.5 py-0.5 shrink-0">
           {CATEGORY_LABELS[s.category] ?? s.category}
         </span>
         {/* Score — compact meter replaces raw number */}
@@ -912,13 +912,13 @@ function RankedSignalRow({ signal: s }: { signal: RankedSignalView }) {
       {(s.actionCount > 0 || s.decisionCount > 0) && (
         <div className="flex items-center gap-2 mt-1 pl-5">
           {s.actionCount > 0 && (
-            <span className="flex items-center gap-0.5 text-[11px] text-muted-foreground">
+            <span className="flex items-center gap-0.5 text-xs text-muted-foreground">
               <CheckSquare className="h-2.5 w-2.5" />
               {s.actionCount} action{s.actionCount !== 1 ? "s" : ""}
             </span>
           )}
           {s.decisionCount > 0 && (
-            <span className="flex items-center gap-0.5 text-[11px] text-muted-foreground">
+            <span className="flex items-center gap-0.5 text-xs text-muted-foreground">
               <Zap className="h-2.5 w-2.5" />
               {s.decisionCount} decision{s.decisionCount !== 1 ? "s" : ""}
             </span>

@@ -47,7 +47,7 @@ export function CachedDataBadge({
   if (error) {
     return (
       <span
-        className={`inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-[10px] font-medium bg-red-50 text-red-600 border border-red-200 ${className}`}
+        className={`inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-xs font-medium bg-red-50 text-red-600 border border-red-200 ${className}`}
         title={error}
       >
         <WifiOff className="h-2.5 w-2.5" />
@@ -59,7 +59,7 @@ export function CachedDataBadge({
   if (live) {
     return (
       <span
-        className={`inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-[10px] font-medium bg-emerald-50 text-emerald-600 border border-emerald-200 ${className}`}
+        className={`inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-xs font-medium bg-emerald-50 text-emerald-600 border border-emerald-200 ${className}`}
       >
         <span className="h-1.5 w-1.5 rounded-full bg-emerald-500 animate-pulse" />
         Live
@@ -70,7 +70,7 @@ export function CachedDataBadge({
   if (!fetchedAt) {
     return (
       <span
-        className={`inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-[10px] font-medium bg-zinc-50 text-zinc-400 border border-zinc-200 ${className}`}
+        className={`inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-xs font-medium bg-zinc-50 text-zinc-400 border border-zinc-200 ${className}`}
       >
         <Clock className="h-2.5 w-2.5" />
         Cached
@@ -85,7 +85,7 @@ export function CachedDataBadge({
 
   return (
     <span
-      className={`inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-[10px] font-medium ${
+      className={`inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-xs font-medium ${
         isStale
           ? "bg-amber-50 text-amber-600 border border-amber-200"
           : "bg-zinc-50  text-zinc-400  border border-zinc-200"

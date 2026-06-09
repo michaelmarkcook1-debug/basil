@@ -5,7 +5,7 @@ export interface Memory {
   kind: MemoryKind;
   /** One-line canonical fact. Keep it short, specific, decontextualised. */
   content: string;
-  /** Optional entity this memory is about — e.g. "Isaac Frank", "AnalystGenius". */
+  /** Optional entity this memory is about — e.g. "Riley Chen", "Example Analytics". */
   entity?: string;
   /** Where this came from: chat, briefing, manual, tool-inferred. */
   source: "chat" | "manual" | "inferred";

@@ -70,7 +70,7 @@ export async function POST(req: Request) {
   const hashed = await bcrypt.hash(newPassword, 12);
 
   // ── Read current file users (may be empty if decryption broke) ─────────────
-  let fileUsers = await readUserRecords();
+  const fileUsers = await readUserRecords();
   const idx = fileUsers.findIndex(
     (u) => u.username.toLowerCase() === username
   );

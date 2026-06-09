@@ -20,12 +20,14 @@ import { classifyAction } from "./classify";
 import {
   isOverdueStale,
   isGroupOwner,
+  isMeetingAttendancePast,
 } from "./utils";
 import { getSelfIdentity } from "@/lib/self-identity";
 export {
   isActionStalled,
   isOverdueStale,
   isGroupOwner,
+  isMeetingAttendancePast,
   STALE_THRESHOLD_DAYS,
   STALE_OVERDUE_THRESHOLD_DAYS,
 } from "./utils";
@@ -322,7 +324,7 @@ export async function listActions(username: string, options?: { fresh?: boolean 
   // Remove actions whose owner field is:
   //   (a) a Slack channel / @mention / team reference  (isGroupOwner)
   //   (b) a named person who is clearly not the current user
-  //       e.g. "Christopher Walton" when the user is Michael Cook
+  //       e.g. "Jamie Brooks" when the current user is someone else
   //
   // Pattern for (b): owner contains at least one space (looks like a name),
   // does NOT match any of the user's known names or first-person pronouns,
@@ -417,8 +419,65 @@ export async function listActions(username: string, options?: { fresh?: boolean 
     }).catch((err) => console.error("[actions] stale-overdue archive failed:", err));
   }
   const staleIds = new Set(staleOverdue.map((a) => a.id));
-  const live = withOverdue.map((a) =>
+  const afterStale = withOverdue.map((a) =>
     staleIds.has(a.id) ? { ...a, status: "done" as const } : a
+  );
+
+  // ── Past-meeting attendance auto-archive ─────────────────────────────────────
+  // "Attend meeting…" / "Join call with…" type actions become meaningless once
+  // the meeting time has passed. Archive them silently after a grace period so
+  // they don't accumulate as permanent overdue noise.
+  const pastMeeting = afterStale.filter((a) => isMeetingAttendancePast(a));
+  if (pastMeeting.length > 0) {
+    const pastMeetingIds = new Set(pastMeeting.map((a) => a.id));
+    withLock(lockKey(username), async () => {
+      const current = await readAll(username);
+      let changed = false;
+      const archived = current.map((a) => {
+        if (!pastMeetingIds.has(a.id) || a.status === "done") return a;
+        changed = true;
+        return { ...a, status: "done" as const, updatedAt: new Date().toISOString() };
+      });
+      if (changed) {
+        await writeAll(username, archived);
+        console.log(
+          `[actions] auto-archived ${pastMeeting.length} past-meeting attendance action(s) for ${username}`
+        );
+      }
+    }).catch((err) => console.error("[actions] past-meeting archive failed:", err));
+  }
+  const pastMeetingIds = new Set(pastMeeting.map((a) => a.id));
+  const afterPastMeeting = afterStale.map((a) =>
+    pastMeetingIds.has(a.id) ? { ...a, status: "done" as const } : a
+  );
+
+  // ── Time-bounded expiry auto-archive ─────────────────────────────────────────
+  // Actions whose expiresAt has passed are silently archived — they were only
+  // relevant within a specific window ("meeting in 30 mins", "by EOD today") and
+  // keeping them open creates noise rather than signal.
+  const now = new Date();
+  const expired = afterPastMeeting.filter(
+    (a) => a.expiresAt && new Date(a.expiresAt) < now && a.status !== "done"
+  );
+  if (expired.length > 0) {
+    const expiredIds = new Set(expired.map((a) => a.id));
+    withLock(lockKey(username), async () => {
+      const current = await readAll(username);
+      let changed = false;
+      const archived = current.map((a) => {
+        if (!expiredIds.has(a.id) || a.status === "done") return a;
+        changed = true;
+        return { ...a, status: "done" as const, updatedAt: new Date().toISOString() };
+      });
+      if (changed) {
+        await writeAll(username, archived);
+        console.log(`[actions] archived ${expired.length} expired time-bounded action(s) for ${username}`);
+      }
+    }).catch((err) => console.error("[actions] expiry archive failed:", err));
+  }
+  const expiredIds = new Set(expired.map((a) => a.id));
+  const live = afterPastMeeting.map((a) =>
+    expiredIds.has(a.id) ? { ...a, status: "done" as const } : a
   );
 
   return live.sort(
@@ -445,6 +504,11 @@ export interface CreateActionInput {
   linkedDecisionIds?: string[];
   /** Internal follow-up reminder date (YYYY-MM-DD). */
   followUpDate?: string;
+  /**
+   * ISO timestamp at which this action auto-expires (see ActionItem.expiresAt).
+   * Set when the message contained time-relative language like "in 30 minutes".
+   */
+  expiresAt?: string;
   /** BasilEvent ID that produced this item (provenance). */
   eventId?: string;
   /** Stable source-system reference, e.g. "gmail:1abc2def". */
@@ -513,6 +577,7 @@ export async function createAction(username: string, input: CreateActionInput): 
       ...(input.needsReview !== undefined && { needsReview: input.needsReview }),
       ...(input.linkedDecisionIds?.length && { linkedDecisionIds: input.linkedDecisionIds }),
       ...(input.followUpDate && { followUpDate: input.followUpDate }),
+      ...(input.expiresAt && { expiresAt: input.expiresAt }),
       // Classification
       ...(category         !== undefined && { category }),
       ...(decisionRequired               && { decisionRequired: true }),

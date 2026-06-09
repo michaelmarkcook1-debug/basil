@@ -391,515 +391,316 @@ export default function SchedulePage() {
     }
   }
 
+  // ── Today navigation helper ─────────────────────────────────────────────────
+  function goToToday() {
+    setYear(now.getFullYear());
+    setMonth(now.getMonth());
+    setSelectedDay(now.getDate());
+  }
+
+  // ── Formatted selected day label ────────────────────────────────────────────
+  const selectedDateLabel = selectedDay
+    ? `${DAY_NAMES[new Date(`${year}-${String(month + 1).padStart(2, "0")}-${String(selectedDay).padStart(2, "0")}T12:00:00`).getDay()]}, ${MONTH_NAMES[month]} ${selectedDay}`
+    : "";
+
+  const pendingProposals = proposed.map((p, i) => ({ ...p, _index: i })).filter((p) => p.status === "proposed");
+
   return (
-    <div className="p-4 sm:p-6 lg:p-8 pb-8">
-      <header className="mb-6">
-        <h1 className="text-2xl font-semibold tracking-tight flex items-center gap-2">
-          <CalendarPlus className="h-6 w-6 text-[oklch(0.72_0.15_85)]" />
-          Schedule
-        </h1>
-        <p className="text-sm text-muted-foreground mt-1">
-          Monthly diary. Ask Basil to schedule meetings — you approve before any
-          invite sends.
-        </p>
-      </header>
+    <div className="h-full flex flex-col overflow-hidden">
+      {/* ── Top bar ──────────────────────────────────────────────────────── */}
+      <div className="flex items-center gap-3 px-4 h-12 border-b border-border/40 shrink-0 bg-background/80 backdrop-blur-sm">
+        <CalendarPlus className="h-4 w-4 text-[oklch(0.72_0.15_85)] shrink-0" />
+        <span className="font-semibold text-sm">Schedule</span>
 
-      {!connected && !loading && (
-        <Card className="border-[oklch(0.72_0.15_85)]/30 mb-6">
-          <CardContent className="py-6 text-center">
-            <Unplug className="h-8 w-8 text-muted-foreground/40 mx-auto mb-2" />
-            <p className="text-sm text-muted-foreground">
-              Google Calendar not connected.
-            </p>
-            <Link
-              href="/dashboard/settings"
-              className="text-xs text-[oklch(0.72_0.15_85)] hover:underline mt-2 inline-block"
-            >
-              Connect in Settings
-            </Link>
-          </CardContent>
-        </Card>
-      )}
+        <div className="flex-1" />
 
-      <div className="grid gap-6 lg:grid-cols-[1fr_340px]">
-        {/* Calendar grid */}
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between pb-2">
-            <Button variant="ghost" size="icon" onClick={prevMonth}>
-              <ChevronLeft className="h-4 w-4" />
-            </Button>
-            <CardTitle className="text-sm font-semibold">
-              {MONTH_NAMES[month]} {year}
-            </CardTitle>
-            <Button variant="ghost" size="icon" onClick={nextMonth}>
-              <ChevronRight className="h-4 w-4" />
-            </Button>
-          </CardHeader>
-          <CardContent>
+        {/* Month navigation */}
+        <div className="flex items-center gap-1">
+          <button
+            onClick={prevMonth}
+            className="p-1.5 rounded hover:bg-accent transition-colors text-muted-foreground hover:text-foreground"
+          >
+            <ChevronLeft className="h-3.5 w-3.5" />
+          </button>
+          <span className="text-sm font-medium w-28 text-center">
+            {MONTH_NAMES[month]} {year}
+          </span>
+          <button
+            onClick={nextMonth}
+            className="p-1.5 rounded hover:bg-accent transition-colors text-muted-foreground hover:text-foreground"
+          >
+            <ChevronRight className="h-3.5 w-3.5" />
+          </button>
+        </div>
+
+        <button
+          onClick={goToToday}
+          className="px-3 py-1 text-xs font-medium rounded-md border border-border hover:bg-accent transition-colors text-muted-foreground hover:text-foreground"
+        >
+          Today
+        </button>
+
+        {!connected && !loading && (
+          <Link
+            href="/dashboard/settings"
+            className="flex items-center gap-1.5 text-xs text-amber-600 bg-amber-50 border border-amber-200/60 px-2.5 py-1 rounded-md hover:bg-amber-100 transition-colors"
+          >
+            <Unplug className="h-3 w-3" /> Calendar not connected
+          </Link>
+        )}
+      </div>
+
+      {/* ── Body ─────────────────────────────────────────────────────────── */}
+      <div className="flex flex-1 min-h-0 overflow-hidden">
+
+        {/* ── Left sidebar ─────────────────────────────────────────────── */}
+        <aside className="w-60 border-r border-border/40 flex flex-col overflow-hidden shrink-0 bg-sidebar/20">
+
+          {/* Mini calendar */}
+          <div className="p-3 shrink-0">
+            {/* Day-name row */}
+            <div className="grid grid-cols-7 gap-0.5 mb-1">
+              {["S","M","T","W","T","F","S"].map((d, i) => (
+                <div key={i} className="text-center text-xs font-semibold text-muted-foreground/60 py-0.5">
+                  {d}
+                </div>
+              ))}
+            </div>
+            {/* Day cells */}
             {loading ? (
-              <div className="space-y-2">
-                <Skeleton className="h-8 w-full" />
-                <Skeleton className="h-48 w-full" />
-              </div>
+              <Skeleton className="h-32 w-full rounded-md" />
             ) : (
-              <>
-                {/* Day headers */}
-                <div className="grid grid-cols-7 gap-1 mb-1">
-                  {DAY_NAMES.map((d) => (
-                    <div
-                      key={d}
-                      className="text-center text-[12px] font-semibold text-muted-foreground uppercase py-1"
-                    >
-                      {d}
-                    </div>
-                  ))}
-                </div>
-                {/* Days grid */}
-                <div className="grid grid-cols-7 gap-1">
-                  {/* Empty cells for days before the 1st */}
-                  {Array.from({ length: firstDay }).map((_, i) => (
-                    <div key={`empty-${i}`} className="h-20" />
-                  ))}
-                  {/* Actual days */}
-                  {Array.from({ length: daysInMonth }).map((_, i) => {
-                    const day = i + 1;
-                    const isToday = day === todayDay;
-                    const isSelected = day === selectedDay;
-                    const dayEvents = eventsByDay[day] || [];
-                    const dayProposed = proposedByDay[day] || [];
-                    const timedEvents = dayEvents.filter((ev) => !ev.isAllDay);
-                    const hasProposed = dayProposed.some(
-                      (p) => p.status === "proposed"
-                    );
+              <div className="grid grid-cols-7 gap-0.5">
+                {Array.from({ length: firstDay }).map((_, i) => (
+                  <div key={`e-${i}`} className="h-7" />
+                ))}
+                {Array.from({ length: daysInMonth }).map((_, i) => {
+                  const day = i + 1;
+                  const isToday = day === todayDay;
+                  const isSelected = day === selectedDay;
+                  const hasCal = (eventsByDay[day] || []).filter((e) => !e.isAllDay).length > 0;
+                  const hasProp = (proposedByDay[day] || []).some((p) => p.status === "proposed");
 
-                    return (
-                      <button
-                        key={day}
-                        onClick={() => setSelectedDay(day)}
-                        className={`h-20 rounded-md text-left p-1 transition-colors relative ${
-                          isSelected
-                            ? "bg-[oklch(0.72_0.15_85)]/15 ring-1 ring-[oklch(0.72_0.15_85)]"
-                            : hasProposed
-                              ? "bg-amber-500/5 border border-dashed border-amber-400/50 hover:bg-amber-500/10"
-                              : "hover:bg-accent/50"
-                        }`}
-                      >
-                        <span
-                          className={`text-xs font-medium ${
-                            isToday
-                              ? "bg-[oklch(0.72_0.15_85)] text-white rounded-full w-5 h-5 flex items-center justify-center"
-                              : ""
-                          }`}
-                        >
-                          {day}
-                        </span>
-                        {/* Confirmed events */}
-                        {timedEvents.length > 0 && (
-                          <div className="mt-0.5">
-                            {timedEvents.slice(0, 2).map((ev, j) => (
-                              <div
-                                key={j}
-                                className="text-[12px] truncate text-muted-foreground leading-tight"
-                              >
-                                {ev.summary}
-                              </div>
-                            ))}
-                            {timedEvents.length > 2 && (
-                              <div className="text-[12px] text-[oklch(0.72_0.15_85)]">
-                                +{timedEvents.length - 2} more
-                              </div>
-                            )}
-                          </div>
-                        )}
-                        {/* Proposed meetings overlay */}
-                        {dayProposed
-                          .filter((p) => p.status === "proposed")
-                          .slice(0, 1)
-                          .map((p, j) => (
-                            <div
-                              key={`prop-${j}`}
-                              className="text-[12px] truncate text-amber-600 font-medium leading-tight mt-0.5"
-                            >
-                              {p.title}
-                            </div>
-                          ))}
-                        {dayProposed.filter((p) => p.status === "proposed")
-                          .length > 1 && (
-                          <div className="text-[12px] text-amber-500">
-                            +
-                            {dayProposed.filter((p) => p.status === "proposed")
-                              .length - 1}{" "}
-                            proposed
-                          </div>
-                        )}
-                      </button>
-                    );
-                  })}
-                </div>
-              </>
-            )}
-          </CardContent>
-        </Card>
-
-        {/* Right panel: day detail + Basil input */}
-        <div className="space-y-4">
-          {/* Selected day — interactive DayView (timed events only) */}
-          <Card>
-            <CardHeader className="pb-2">
-              <CardTitle className="text-sm font-medium">
-                {selectedDay
-                  ? `${MONTH_NAMES[month]} ${selectedDay}`
-                  : "Select a day"}
-              </CardTitle>
-            </CardHeader>
-            <CardContent className="p-0">
-              {!selectedDay ? (
-                <p className="text-sm text-muted-foreground p-4">
-                  Click a day to see meetings.
-                </p>
-              ) : (
-                /* Explicit pixel height so DayView's h-full resolves correctly */
-                <div style={{ height: "500px", overflow: "hidden" }}>
-                  <DayView
-                    date={selectedDateStr}
-                    events={selectedEvents
-                      .filter((e) => !e.isAllDay)
-                      .map(toDay)}
-                    onRefresh={fetchEvents}
-                  />
-                </div>
-              )}
-            </CardContent>
-          </Card>
-
-          {/* Proposed meetings for the selected day */}
-          {selectedProposed.length > 0 && (
-            <Card className="border-amber-400/30">
-              <CardHeader className="pb-2">
-                <CardTitle className="text-sm font-medium text-amber-600">
-                  Proposed for {MONTH_NAMES[month]} {selectedDay}
-                </CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-2">
-                {selectedProposed.map((p, i) => {
-                  const globalIndex = proposed.indexOf(p);
-                  const isEditing = editProposedIdx === globalIndex;
                   return (
-                    <div
-                      key={`proposed-${i}`}
-                      className={`rounded-md p-3 text-sm border ${
-                        p.status === "approved"
-                          ? "bg-emerald-500/5 border-emerald-400/30"
-                          : "bg-amber-500/5 border-dashed border-amber-400/30"
-                      }`}
+                    <button
+                      key={day}
+                      onClick={() => setSelectedDay(day)}
+                      className={`h-7 w-full rounded flex flex-col items-center justify-center text-xs font-medium relative transition-colors
+                        ${isSelected
+                          ? "bg-[oklch(0.72_0.15_85)] text-[oklch(0.18_0.04_250)]"
+                          : isToday
+                            ? "ring-1 ring-[oklch(0.72_0.15_85)] text-[oklch(0.55_0.15_85)] font-bold"
+                            : "text-foreground hover:bg-accent/50"
+                        }`}
                     >
-                      {/* Header row */}
-                      <div className="flex items-center gap-2">
-                        <Clock className="h-3 w-3 text-muted-foreground shrink-0" />
-                        <span className="font-mono text-xs">
-                          {p.startTime} · {p.duration}min
-                        </span>
-                        <Badge
-                          variant="outline"
-                          className={`text-[12px] h-4 ${
-                            p.status === "approved"
-                              ? "border-emerald-400/50 text-emerald-600"
-                              : "border-amber-400/50 text-amber-600"
-                          }`}
-                        >
-                          {p.status === "approved" ? "Approved" : "Proposed"}
-                        </Badge>
-                        {p.status === "proposed" && !isEditing && (
-                          <button
-                            onClick={() => startEditProposed(globalIndex)}
-                            className="ml-auto text-muted-foreground hover:text-foreground transition-colors"
-                            title="Edit this proposal"
-                          >
-                            <Pencil className="h-3 w-3" />
-                          </button>
-                        )}
-                      </div>
-
-                      {/* Inline edit form */}
-                      {isEditing ? (
-                        <div className="mt-3 space-y-2">
-                          <div className="space-y-1">
-                            <Label className="text-[11px]">Title</Label>
-                            <Input
-                              value={editProposedForm.title}
-                              onChange={(e) => setEditProposedForm((f) => ({ ...f, title: e.target.value }))}
-                              className="h-7 text-xs"
-                              autoFocus
-                            />
-                          </div>
-                          <div className="grid grid-cols-2 gap-2">
-                            <div className="space-y-1">
-                              <Label className="text-[11px]">Date</Label>
-                              <Input
-                                type="date"
-                                value={editProposedForm.date}
-                                onChange={(e) => setEditProposedForm((f) => ({ ...f, date: e.target.value }))}
-                                className="h-7 text-xs"
-                              />
-                            </div>
-                            <div className="space-y-1">
-                              <Label className="text-[11px]">Start</Label>
-                              <Input
-                                type="time"
-                                step={900}
-                                value={editProposedForm.startTime}
-                                onChange={(e) => setEditProposedForm((f) => ({ ...f, startTime: e.target.value }))}
-                                className="h-7 text-xs"
-                              />
-                            </div>
-                          </div>
-                          <div className="space-y-1">
-                            <Label className="text-[11px]">Duration</Label>
-                            <select
-                              value={editProposedForm.duration}
-                              onChange={(e) => setEditProposedForm((f) => ({ ...f, duration: Number(e.target.value) }))}
-                              className="h-7 w-full rounded-md border border-input bg-background px-2 text-xs"
-                            >
-                              {[15, 30, 45, 60, 90, 120].map((d) => (
-                                <option key={d} value={d}>
-                                  {d < 60 ? `${d} min` : `${d / 60}h${d % 60 ? ` ${d % 60}m` : ""}`}
-                                </option>
-                              ))}
-                            </select>
-                          </div>
-                          <div className="flex gap-2 pt-1">
-                            <Button
-                              size="sm"
-                              onClick={saveEditProposed}
-                              disabled={!editProposedForm.title.trim()}
-                              className="h-7 text-xs gap-1 bg-[oklch(0.72_0.15_85)] text-[oklch(0.18_0.04_250)] hover:bg-[oklch(0.78_0.12_85)]"
-                            >
-                              <Save className="h-3 w-3" /> Save
-                            </Button>
-                            <Button
-                              size="sm"
-                              variant="ghost"
-                              onClick={() => setEditProposedIdx(null)}
-                              className="h-7 text-xs"
-                            >
-                              Cancel
-                            </Button>
-                          </div>
-                        </div>
-                      ) : (
-                        <>
-                          <p className="font-medium mt-1">{p.title}</p>
-                          {p.attendees.length > 0 && (
-                            <p className="text-xs text-muted-foreground flex items-center gap-1 mt-0.5">
-                              <Users className="h-3 w-3" />{" "}
-                              {p.attendees.slice(0, 3).join(", ")}
-                              {p.attendees.length > 3 && ` +${p.attendees.length - 3}`}
-                            </p>
-                          )}
-                        </>
-                      )}
-
-                      {/* Approve / Decline (only when not editing) */}
-                      {p.status === "proposed" && !isEditing && (
-                        <div className="flex gap-2 mt-2">
-                          <Button
-                            size="sm"
-                            className="bg-emerald-500 hover:bg-emerald-600 text-white text-xs h-7 gap-1"
-                            disabled={approving === globalIndex}
-                            onClick={() => handleApprove(globalIndex)}
-                          >
-                            {approving === globalIndex ? (
-                              <Loader2 className="h-3 w-3 animate-spin" />
-                            ) : (
-                              <Check className="h-3 w-3" />
-                            )}
-                            Approve & Send
-                          </Button>
-                          <Button
-                            size="sm"
-                            variant="outline"
-                            className="text-xs h-7 border-destructive/30 text-destructive gap-1"
-                            onClick={() => handleDecline(globalIndex)}
-                          >
-                            <X className="h-3 w-3" />
-                            Decline
-                          </Button>
+                      {day}
+                      {/* Event indicator dots */}
+                      {(hasCal || hasProp) && !isSelected && (
+                        <div className="flex gap-0.5 absolute bottom-0.5">
+                          {hasCal && <span className="w-1 h-1 rounded-full bg-[oklch(0.72_0.15_85)]/70" />}
+                          {hasProp && <span className="w-1 h-1 rounded-full bg-amber-400" />}
                         </div>
                       )}
-                    </div>
+                    </button>
                   );
                 })}
-              </CardContent>
-            </Card>
-          )}
+              </div>
+            )}
+          </div>
 
-          {/* Basil scheduling input */}
-          <Card className="border-[oklch(0.72_0.15_85)]/30">
-            <CardHeader className="pb-2">
-              <CardTitle className="text-sm font-medium flex items-center gap-1.5">
-                { }
-                <img
-                  src="/basil-logo.svg"
-                  alt=""
-                  className="h-4 w-4 rounded"
-                />
-                Ask Basil to schedule
-              </CardTitle>
-            </CardHeader>
-            <CardContent>
-              <form onSubmit={handleBasilSubmit} className="space-y-3">
-                <Textarea
-                  value={basilInput}
-                  onChange={(e) => setBasilInput(e.target.value)}
-                  placeholder="e.g. Schedule a 30 min call with Ed tomorrow at 2pm..."
-                  className="min-h-20 resize-none text-[16px] sm:text-sm leading-relaxed"
-                  rows={3}
-                />
-                <div className="flex items-center justify-between gap-3">
-                  <p className="text-xs text-muted-foreground leading-snug">
-                    Basil will propose — you approve before any invite sends
-                  </p>
-                  <Button
-                    type="submit"
-                    size="sm"
-                    disabled={basilLoading || !basilInput.trim()}
-                    className="shrink-0 bg-[oklch(0.72_0.15_85)] text-[oklch(0.18_0.04_250)] hover:bg-[oklch(0.78_0.12_85)] gap-1.5"
-                  >
-                    {basilLoading ? (
-                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                    ) : (
-                      <Send className="h-3.5 w-3.5" />
-                    )}
-                    Send
-                  </Button>
-                </div>
-              </form>
-              {basilResponse && (
-                <div className="mt-3 p-2 rounded bg-accent/30 text-xs text-muted-foreground">
-                  {basilResponse}
-                </div>
-              )}
-            </CardContent>
-          </Card>
-
-          {/* Pending proposals summary */}
-          {proposed.filter((p) => p.status === "proposed").length > 0 && (
-            <Card className="border-amber-400/30">
-              <CardHeader className="pb-2">
-                <CardTitle className="text-sm font-medium text-amber-600">
-                  Pending Approval ({proposed.filter((p) => p.status === "proposed").length})
-                </CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-2">
-                {proposed
-                  .map((p, i) => ({ ...p, _index: i }))
-                  .filter((p) => p.status === "proposed")
-                  .map((p) => {
-                    const isEditing = editProposedIdx === p._index;
-                    return (
-                    <div
-                      key={p._index}
-                      className="rounded-md p-3 bg-amber-500/5 border border-dashed border-amber-400/20"
-                    >
-                      <div className="flex items-start justify-between gap-2">
-                        <div className="min-w-0">
-                          <p className="text-sm font-medium">{p.title}</p>
-                          <p className="text-xs text-muted-foreground">
-                            {p.date} at {p.startTime} · {p.duration}min
-                          </p>
-                          {p.attendees.length > 0 && (
-                            <p className="text-xs text-muted-foreground">
-                              {p.attendees.join(", ")}
-                            </p>
-                          )}
-                        </div>
-                        {!isEditing && (
-                          <button
-                            onClick={() => startEditProposed(p._index)}
-                            className="shrink-0 text-muted-foreground hover:text-foreground transition-colors mt-0.5"
-                            title="Edit"
-                          >
-                            <Pencil className="h-3 w-3" />
-                          </button>
-                        )}
-                      </div>
-                      {isEditing && (
-                        <div className="mt-2 space-y-2">
-                          <Input
-                            value={editProposedForm.title}
-                            onChange={(e) => setEditProposedForm((f) => ({ ...f, title: e.target.value }))}
-                            className="h-7 text-xs"
-                            placeholder="Title"
-                            autoFocus
-                          />
-                          <div className="grid grid-cols-2 gap-2">
-                            <Input
-                              type="date"
-                              value={editProposedForm.date}
-                              onChange={(e) => setEditProposedForm((f) => ({ ...f, date: e.target.value }))}
-                              className="h-7 text-xs"
-                            />
-                            <Input
-                              type="time"
-                              step={900}
-                              value={editProposedForm.startTime}
-                              onChange={(e) => setEditProposedForm((f) => ({ ...f, startTime: e.target.value }))}
-                              className="h-7 text-xs"
-                            />
+          {/* Selected day agenda list */}
+          <div className="flex-1 min-h-0 overflow-y-auto px-3 pb-2">
+            {selectedDay ? (
+              <>
+                <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-1.5 sticky top-0 bg-sidebar/20 py-1">
+                  {selectedDateLabel}
+                </p>
+                {selectedEvents.filter((e) => !e.isAllDay).length === 0 ? (
+                  <p className="text-xs text-muted-foreground/50 italic py-1">No events</p>
+                ) : (
+                  <div className="space-y-0.5">
+                    {selectedEvents
+                      .filter((e) => !e.isAllDay)
+                      .map((ev, i) => {
+                        const t = new Date(ev.start).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+                        return (
+                          <div key={i} className="flex items-start gap-2 py-1.5 border-b border-border/25 last:border-0">
+                            <span className="text-xs font-mono text-muted-foreground/60 mt-0.5 w-10 shrink-0">{t}</span>
+                            <div className="flex-1 min-w-0">
+                              <p className="text-xs leading-snug truncate font-medium">{ev.summary}</p>
+                              {ev.hasVideo && (
+                                <span className="text-xs text-[oklch(0.55_0.15_85)]">Video call</span>
+                              )}
+                            </div>
                           </div>
-                          <select
-                            value={editProposedForm.duration}
-                            onChange={(e) => setEditProposedForm((f) => ({ ...f, duration: Number(e.target.value) }))}
-                            className="h-7 w-full rounded-md border border-input bg-background px-2 text-xs"
-                          >
-                            {[15, 30, 45, 60, 90, 120].map((d) => (
-                              <option key={d} value={d}>
-                                {d < 60 ? `${d} min` : `${d / 60}h${d % 60 ? ` ${d % 60}m` : ""}`}
-                              </option>
-                            ))}
-                          </select>
-                          <div className="flex gap-2">
-                            <Button size="sm" onClick={saveEditProposed} className="h-7 text-xs gap-1 bg-[oklch(0.72_0.15_85)] text-[oklch(0.18_0.04_250)] hover:bg-[oklch(0.78_0.12_85)]">
-                              <Save className="h-3 w-3" /> Save
-                            </Button>
-                            <Button size="sm" variant="ghost" onClick={() => setEditProposedIdx(null)} className="h-7 text-xs">Cancel</Button>
+                        );
+                      })}
+                  </div>
+                )}
+                {/* Proposed for this day */}
+                {selectedProposed.length > 0 && (
+                  <div className="mt-2 pt-2 border-t border-amber-300/30">
+                    <p className="text-xs font-semibold uppercase tracking-wider text-amber-600 mb-1.5">
+                      Proposed ({selectedProposed.length})
+                    </p>
+                    {selectedProposed.map((p, i) => {
+                      const globalIndex = proposed.indexOf(p);
+                      return (
+                        <div key={i} className="rounded-md p-2 mb-1.5 bg-amber-500/5 border border-dashed border-amber-300/40">
+                          <p className="text-xs font-medium truncate">{p.title}</p>
+                          <p className="text-xs text-muted-foreground">{p.startTime} · {p.duration}min</p>
+                          <div className="flex gap-1.5 mt-1.5">
+                            <button
+                              disabled={approving === globalIndex}
+                              onClick={() => handleApprove(globalIndex)}
+                              className="flex items-center gap-1 text-xs font-medium px-2 py-0.5 rounded bg-emerald-500 text-white hover:bg-emerald-600 disabled:opacity-50 transition-colors"
+                            >
+                              {approving === globalIndex ? <Loader2 className="h-2.5 w-2.5 animate-spin" /> : <Check className="h-2.5 w-2.5" />}
+                              Approve
+                            </button>
+                            <button
+                              onClick={() => handleDecline(globalIndex)}
+                              className="text-xs font-medium px-2 py-0.5 rounded border border-border text-muted-foreground hover:text-destructive hover:border-destructive/40 transition-colors"
+                            >
+                              Decline
+                            </button>
                           </div>
                         </div>
-                      )}
-                      {!isEditing && (
-                      <div className="flex gap-2 mt-2">
-                        <Button
-                          size="sm"
-                          className="bg-emerald-500 hover:bg-emerald-600 text-white text-xs h-7 gap-1"
-                          disabled={approving === p._index}
-                          onClick={() => handleApprove(p._index)}
-                        >
-                          {approving === p._index ? (
-                            <Loader2 className="h-3 w-3 animate-spin" />
-                          ) : (
-                            <Check className="h-3 w-3" />
-                          )}
-                          Approve & Send
-                        </Button>
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          className="text-xs h-7 border-destructive/30 text-destructive gap-1"
-                          onClick={() => handleDecline(p._index)}
-                        >
-                          <X className="h-3 w-3" />
-                          Decline
-                        </Button>
-                      </div>
-                      )}
+                      );
+                    })}
+                  </div>
+                )}
+              </>
+            ) : (
+              <p className="text-xs text-muted-foreground/40 italic py-2">Pick a day</p>
+            )}
+          </div>
+
+          {/* Pending proposals (global) — if any outside selected day */}
+          {pendingProposals.filter((p) => p.date !== selectedDateStr).length > 0 && (
+            <div className="border-t border-amber-300/30 px-3 py-2 shrink-0">
+              <p className="text-xs font-semibold uppercase tracking-wider text-amber-600 mb-1.5">
+                Other pending ({pendingProposals.filter((p) => p.date !== selectedDateStr).length})
+              </p>
+              <div className="space-y-1 max-h-24 overflow-y-auto">
+                {pendingProposals
+                  .filter((p) => p.date !== selectedDateStr)
+                  .map((p) => (
+                    <div key={p._index} className="text-xs text-muted-foreground flex items-center gap-1.5 cursor-pointer hover:text-foreground" onClick={() => {
+                      const d = new Date(p.date + "T12:00:00");
+                      setYear(d.getFullYear()); setMonth(d.getMonth()); setSelectedDay(d.getDate());
+                    }}>
+                      <span className="w-1.5 h-1.5 rounded-full bg-amber-400 shrink-0" />
+                      <span className="truncate">{p.date} — {p.title}</span>
                     </div>
-                    );
-                  })}
-              </CardContent>
-            </Card>
+                  ))}
+              </div>
+            </div>
           )}
-        </div>
+
+          {/* Ask Basil */}
+          <div className="border-t border-border/40 p-3 shrink-0">
+            <div className="flex items-center gap-1.5 mb-2">
+              <img src="/brand/basil-mark.png" alt="" className="h-3.5 w-3.5 rounded" />
+              <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Ask Basil</span>
+            </div>
+            {/* Pre-populated scheduling prompts — clicking submits immediately.
+                Calendar-flavoured so suggestions are relevant to this surface. */}
+            {!basilInput && !basilLoading && (
+              <div className="flex flex-wrap gap-1 mb-2">
+                {[
+                  "Schedule a 30 min with Ed tomorrow",
+                  "Find a 1h slot this week",
+                  "Block 2h for focus tomorrow morning",
+                  "When am I free Friday?",
+                ].map((q) => (
+                  <button
+                    key={q}
+                    type="button"
+                    onClick={() => {
+                      setBasilInput(q);
+                      // Submit on the next tick once state has flushed.
+                      requestAnimationFrame(() => {
+                        const form = document.getElementById("schedule-basil-form") as HTMLFormElement | null;
+                        form?.requestSubmit();
+                      });
+                    }}
+                    className="text-xs px-2 py-1 rounded-md border border-[oklch(0.72_0.15_85)]/25 bg-[oklch(0.72_0.15_85)]/5 text-[oklch(0.55_0.12_85)] hover:bg-[oklch(0.72_0.15_85)]/15 transition-colors text-left leading-tight"
+                  >
+                    {q}
+                  </button>
+                ))}
+              </div>
+            )}
+
+            <form id="schedule-basil-form" onSubmit={handleBasilSubmit} className="space-y-2">
+              <Textarea
+                value={basilInput}
+                onChange={(e) => setBasilInput(e.target.value)}
+                placeholder="Or type your own request…"
+                className="min-h-[56px] resize-none text-xs leading-relaxed"
+                rows={2}
+              />
+              <div className="flex items-center justify-between gap-2">
+                <p className="text-xs text-muted-foreground leading-snug">You approve before any invite sends</p>
+                <Button
+                  type="submit"
+                  size="sm"
+                  disabled={basilLoading || !basilInput.trim()}
+                  className="h-6 text-xs shrink-0 bg-[oklch(0.72_0.15_85)] text-[oklch(0.18_0.04_250)] hover:bg-[oklch(0.78_0.12_85)] gap-1 px-2"
+                >
+                  {basilLoading ? <Loader2 className="h-3 w-3 animate-spin" /> : <Send className="h-3 w-3" />}
+                  Send
+                </Button>
+              </div>
+            </form>
+            {basilResponse && (
+              <p className="mt-2 text-xs text-muted-foreground bg-accent/30 rounded px-2 py-1.5 leading-relaxed">
+                {basilResponse}
+              </p>
+            )}
+          </div>
+        </aside>
+
+        {/* ── Main: full-width DayView ────────────────────────────────── */}
+        <main className="flex-1 min-w-0 flex flex-col overflow-hidden">
+          {/* Day header bar */}
+          <div className="flex items-center justify-between px-4 h-10 border-b border-border/40 shrink-0 bg-background/60">
+            <div className="flex items-center gap-3">
+              <span className="font-semibold text-sm">
+                {selectedDateLabel || "No day selected"}
+              </span>
+              {selectedDay && (
+                <span className="text-xs text-muted-foreground">
+                  {selectedEvents.filter((e) => !e.isAllDay).length} event
+                  {selectedEvents.filter((e) => !e.isAllDay).length !== 1 ? "s" : ""}
+                </span>
+              )}
+            </div>
+            {!connected && (
+              <span className="text-xs text-muted-foreground/50">Connect Google Calendar to see events</span>
+            )}
+          </div>
+
+          {/* DayView — fills all remaining height, no fixed cap */}
+          <div className="flex-1 min-h-0 overflow-hidden">
+            {selectedDay ? (
+              <DayView
+                date={selectedDateStr}
+                events={selectedEvents.filter((e) => !e.isAllDay).map(toDay)}
+                onRefresh={fetchEvents}
+              />
+            ) : (
+              <div className="flex flex-col items-center justify-center h-full gap-3 text-muted-foreground/40">
+                <CalendarPlus className="h-10 w-10" />
+                <p className="text-sm">Select a day from the mini calendar</p>
+              </div>
+            )}
+          </div>
+        </main>
+
       </div>
     </div>
   );
 }
+

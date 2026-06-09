@@ -197,7 +197,7 @@ function ErrorState({
 
 function StaleBanner() {
   return (
-    <div className="flex items-center gap-1.5 rounded-md bg-amber-50 border border-amber-200 px-3 py-1.5 text-[11px] text-amber-700 mb-3">
+    <div className="flex items-center gap-1.5 rounded-md bg-amber-50 border border-amber-200 px-3 py-1.5 text-xs text-amber-700 mb-3">
       <AlertTriangle className="h-3 w-3 shrink-0" />
       Showing cached data — live refresh failed
     </div>
@@ -286,7 +286,7 @@ export function DataErrorBadge({
 
   return (
     <span
-      className={`inline-flex items-center gap-1 text-[10px] font-medium text-red-500 ${className}`}
+      className={`inline-flex items-center gap-1 text-xs font-medium text-red-500 ${className}`}
       title={cfg.description}
     >
       <AlertTriangle className="h-3 w-3" />

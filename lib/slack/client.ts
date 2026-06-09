@@ -410,30 +410,58 @@ export async function searchSlackMessages(
   }
 }
 
-// ── Send message (bot: chat:write.public works without being in channel) ──
+// ── Send message ──────────────────────────────────────────────────────────────
+//
+// Sender selection:
+//   1. Prefer the USER token (xoxp-) so the message appears to come from the
+//      authenticated user themselves. Recipient sees Michael's name + avatar
+//      in their DM list / channel, not "Sage Bot".
+//   2. Fall back to the BOT token (xoxb-) only when:
+//        - The user token doesn't exist (older installs)
+//        - Posting fails as the user (e.g. they're not a member of a public
+//          channel — bot has `chat:write.public` so it can still post)
+//
+// Lookups (channels / users) use the bot when available because it usually has
+// broader directory visibility.
 export async function sendSlackMessage(
   username: string,
   channel:  string,
   text:     string
 ): Promise<{ ok: boolean; error?: string }> {
-  const web = await getSlackBotClientForUser(username);
-  if (!web) return { ok: false, error: "Slack not connected" };
+  const userClient = await getSlackUserClientForUser(username);
+  const botClient  = await getSlackBotClientForUser(username);
+  const primary    = userClient ?? botClient;
+  if (!primary) return { ok: false, error: "Slack not connected" };
+
+  const lookupClient = botClient ?? userClient!;
 
   try {
     const channelName = channel.replace("#", "").trim();
 
     // Try to find channel by name
-    const channelsRes = await web.conversations.list({ types: "public_channel,private_channel", limit: 200 });
+    const channelsRes = await lookupClient.conversations.list({
+      types: "public_channel,private_channel",
+      limit: 200,
+    });
     const ch = channelsRes.channels?.find((c) => c.name === channelName);
 
     if (ch?.id) {
-      // chat:write.public allows posting without being a member
-      await web.chat.postMessage({ channel: ch.id, text });
-      return { ok: true };
+      try {
+        await primary.chat.postMessage({ channel: ch.id, text });
+        return { ok: true };
+      } catch (err) {
+        // User token can't post in channels they're not a member of. Bot has
+        // `chat:write.public` so it can still post — but it'll appear as the bot.
+        if (botClient && primary !== botClient) {
+          await botClient.chat.postMessage({ channel: ch.id, text });
+          return { ok: true };
+        }
+        throw err;
+      }
     }
 
-    // Maybe it's a user name — start a DM
-    const usersRes = await web.users.list({ limit: 200 });
+    // Maybe it's a user name — open a DM
+    const usersRes = await lookupClient.users.list({ limit: 200 });
     const user = usersRes.members?.find(
       (u) =>
         u.real_name?.toLowerCase() === channelName.toLowerCase() ||
@@ -441,9 +469,12 @@ export async function sendSlackMessage(
     );
 
     if (user?.id) {
-      const dm = await web.conversations.open({ users: user.id });
+      // Open the DM as the user so the conversation lives in *their* DM list
+      // with their identity. Posting as the user keeps the same identity.
+      const opener = userClient ?? botClient!;
+      const dm = await opener.conversations.open({ users: user.id });
       if (dm.channel?.id) {
-        await web.chat.postMessage({ channel: dm.channel.id, text });
+        await primary.chat.postMessage({ channel: dm.channel.id, text });
         return { ok: true };
       }
     }
@@ -454,13 +485,19 @@ export async function sendSlackMessage(
   }
 }
 
-// ── Send DM to a specific user ──
+// ── Send DM to a specific user — also user-token-first ──────────────────────
+//
+// Same identity rule as sendSlackMessage: opening and posting via the user
+// token (xoxp-) makes the DM appear AS the user — recipient sees Michael's
+// avatar, not a bot. Falls back to the bot only when there's no user token.
 export async function sendSlackDM(
   username: string,
   userId:   string,
   text:     string
 ): Promise<{ ok: boolean; error?: string }> {
-  const web = await getSlackBotClientForUser(username);
+  const userClient = await getSlackUserClientForUser(username);
+  const botClient  = await getSlackBotClientForUser(username);
+  const web = userClient ?? botClient;
   if (!web) return { ok: false, error: "Slack not connected" };
 
   try {

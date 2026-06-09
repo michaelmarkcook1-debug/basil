@@ -495,7 +495,7 @@ export function AttentionLayer() {
           )}
 
           {/* Status label */}
-          <p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-muted-foreground">
+          <p className="text-xs font-semibold uppercase tracking-[0.2em] text-muted-foreground">
             {isLoading
               ? "Checking…"
               : totalCount === 0
@@ -510,7 +510,7 @@ export function AttentionLayer() {
           {/* Mode badge */}
           {!isDefault && (
             <span className={cn(
-              "inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-medium border",
+              "inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-xs font-medium border",
               mode.bgClass, mode.colorClass, mode.borderClass
             )}>
               <span className="h-1 w-1 rounded-full bg-current" />
@@ -522,7 +522,7 @@ export function AttentionLayer() {
         <button
           onClick={handleSync}
           disabled={syncing}
-          className="inline-flex items-center gap-1.5 text-[11px] font-medium uppercase tracking-widest text-muted-foreground hover:text-foreground transition-colors disabled:opacity-40"
+          className="inline-flex items-center gap-1.5 text-xs font-medium uppercase tracking-widest text-muted-foreground hover:text-foreground transition-colors disabled:opacity-40"
           aria-label="Sync integrations"
         >
           <RefreshCw className={cn("h-3 w-3", syncing && "animate-spin")} />
@@ -622,7 +622,7 @@ export function AttentionLayer() {
                       </span>
                     </div>
                     {item.context && (
-                      <p className="text-[11px] text-muted-foreground/70 mt-0.5 truncate leading-tight">
+                      <p className="text-xs text-muted-foreground/70 mt-0.5 truncate leading-tight">
                         {item.context}
                       </p>
                     )}
@@ -631,13 +631,13 @@ export function AttentionLayer() {
                   {/* Time + CTA */}
                   <div className="flex items-center gap-2.5 shrink-0 ml-1">
                     {item.timeLabel && (
-                      <span className="hidden sm:block text-[11px] font-mono tabular-nums text-muted-foreground/50">
+                      <span className="hidden sm:block text-xs font-mono tabular-nums text-muted-foreground/50">
                         {item.timeLabel}
                       </span>
                     )}
                     <span className={cn(
                       "inline-flex items-center gap-1 rounded-lg px-2.5 py-1",
-                      "text-[11px] font-semibold tracking-wide transition-all whitespace-nowrap",
+                      "text-xs font-semibold tracking-wide transition-all whitespace-nowrap",
                       "bg-muted/40 text-muted-foreground",
                       "group-hover:bg-[oklch(0.72_0.15_85)] group-hover:text-[oklch(0.15_0.04_250)]"
                     )}>
@@ -654,7 +654,7 @@ export function AttentionLayer() {
                 {showTierDivider && (
                   <div className="flex items-center gap-3 py-2">
                     <div className="h-px flex-1 bg-border/30" />
-                    <span className="text-[10px] uppercase tracking-[0.18em] text-muted-foreground/40 font-medium">
+                    <span className="text-xs uppercase tracking-[0.18em] text-muted-foreground/40 font-medium">
                       Lower priority
                     </span>
                     <div className="h-px flex-1 bg-border/30" />
@@ -681,7 +681,7 @@ export function AttentionLayer() {
           <div className="pt-2 flex justify-end">
             <Link
               href="/dashboard/actions"
-              className="text-[11px] text-muted-foreground/50 hover:text-muted-foreground transition-colors"
+              className="text-xs text-muted-foreground/50 hover:text-muted-foreground transition-colors"
             >
               All actions →
             </Link>

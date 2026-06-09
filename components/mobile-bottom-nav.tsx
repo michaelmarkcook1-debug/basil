@@ -4,19 +4,19 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import {
   Home,
-  Layers,
+  ListTodo,
   Newspaper,
-  Users,
+  CalendarDays,
   MoreHorizontal,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
-// Primary 4 tabs — Workspace lives behind "More" to keep the bar clean
+// Primary 4 tabs — the rest live behind "More" to keep the bar clean
 const TABS = [
-  { href: "/dashboard",          label: "Home",        icon: Home },
-  { href: "/dashboard/signals",  label: "Threads",     icon: Layers },
-  { href: "/dashboard/briefing", label: "Briefings",   icon: Newspaper },
-  { href: "/dashboard/contacts", label: "Relations",   icon: Users },
+  { href: "/dashboard",          label: "Home",      icon: Home },
+  { href: "/dashboard/briefing", label: "Briefing",  icon: Newspaper },
+  { href: "/dashboard/actions",  label: "Actions",   icon: ListTodo },
+  { href: "/dashboard/schedule", label: "Schedule",  icon: CalendarDays },
 ] as const;
 
 interface MobileBottomNavProps {
@@ -57,19 +57,19 @@ export function MobileBottomNav({ onMoreClick }: MobileBottomNavProps) {
               )}
               <Icon
                 className={cn(
-                  "h-[18px] w-[18px] transition-colors",
+                  "h-[20px] w-[20px] transition-colors",
                   active
                     ? "text-[oklch(0.72_0.15_85)]"
-                    : "text-sidebar-foreground/45"
+                    : "text-sidebar-foreground/70"
                 )}
                 strokeWidth={active ? 2 : 1.75}
               />
               <span
                 className={cn(
-                  "text-[10px] font-medium tracking-tight transition-colors",
+                  "text-xs font-medium tracking-tight transition-colors",
                   active
                     ? "text-[oklch(0.72_0.15_85)]"
-                    : "text-sidebar-foreground/40"
+                    : "text-sidebar-foreground/65"
                 )}
               >
                 {tab.label}
@@ -88,19 +88,19 @@ export function MobileBottomNav({ onMoreClick }: MobileBottomNavProps) {
           )}
           <MoreHorizontal
             className={cn(
-              "h-[18px] w-[18px] transition-colors",
+              "h-[20px] w-[20px] transition-colors",
               moreActive
                 ? "text-[oklch(0.72_0.15_85)]"
-                : "text-sidebar-foreground/45"
+                : "text-sidebar-foreground/70"
             )}
             strokeWidth={1.75}
           />
           <span
             className={cn(
-              "text-[10px] font-medium tracking-tight transition-colors",
+              "text-xs font-medium tracking-tight transition-colors",
               moreActive
                 ? "text-[oklch(0.72_0.15_85)]"
-                : "text-sidebar-foreground/40"
+                : "text-sidebar-foreground/65"
             )}
           >
             More

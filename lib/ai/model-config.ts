@@ -4,14 +4,24 @@
  * Single source of truth for model selection. All generateText / streamText
  * call sites import `getTextModel` from here — zero hardcoded model IDs elsewhere.
  *
- * Usage:
- *   import { getTextModel } from "@/lib/ai/model-config";
+ * Tiering policy (verified live against ai-gateway.vercel.sh/v1/models):
+ *   fast    → Haiku 4.5  — data-fetch shaped work: classification, light
+ *                         extraction, structured JSON. The model is just
+ *                         routing or labelling, not reasoning.
+ *   default → Opus 4.8   — chat (Ask Basil), contact profile generation,
+ *                         anything where reasoning quality matters more than
+ *                         latency or token cost.
+ *   long    → Opus 4.8   — daily briefings, digests, meeting prep. Same model
+ *                         as default but with a higher max-output token cap.
  *
- *   const { text } = await generateText({
- *     model: getTextModel("fast"),    // classification tasks
- *     model: getTextModel(),          // "default" — chat, briefing, digests
- *     model: getTextModel("long"),    // high-output generation
- *   });
+ * Cost note: chat + briefing + profile now hit Opus (roughly 5x more $/token
+ * than Sonnet). This was an explicit product decision — quality over cost on
+ * the surfaces the user reads directly.
+ *
+ * Usage:
+ *   model: getTextModel("fast"),    // classify / extract / route
+ *   model: getTextModel(),          // chat, profile, ad-hoc generation
+ *   model: getTextModel("long"),    // briefings, digests, meeting prep
  *
  * Provider resolution order:
  *   1. VERCEL_OIDC_TOKEN / AI_GATEWAY_API_KEY  → Vercel AI Gateway (preferred)
@@ -52,15 +62,18 @@ export const PROVIDER_MODE: ProviderMode = resolveProviderMode();
  */
 export const GATEWAY_MODEL_IDS = {
   fast:    "anthropic/claude-haiku-4.5",
-  default: "anthropic/claude-sonnet-4.6",
-  long:    "anthropic/claude-sonnet-4.6",
+  // Opus 4.8 is the latest as of this writing (verified live against
+  // ai-gateway.vercel.sh/v1/models). Used for chat, briefings, profiling —
+  // surfaces where reasoning quality drives the user-perceived value.
+  default: "anthropic/claude-opus-4.8",
+  long:    "anthropic/claude-opus-4.8",
 } as const satisfies Record<ModelKind, string>;
 
 /** Anthropic direct model IDs — dot notation matches @ai-sdk/anthropic conventions. */
 export const ANTHROPIC_MODEL_IDS: Record<ModelKind, string> = {
   fast:    "claude-haiku-4.5",
-  default: "claude-sonnet-4.6",
-  long:    "claude-sonnet-4.6",
+  default: "claude-opus-4.8",
+  long:    "claude-opus-4.8",
 };
 
 /** OpenAI fallback model IDs — used when Anthropic quota is exhausted. */

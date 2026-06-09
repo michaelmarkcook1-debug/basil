@@ -22,11 +22,17 @@ export async function GET() {
       maxOutputTokens: 16,
     });
 
+    // AI SDK v6 model objects don't have a useful toString — pull modelId off
+    // the LanguageModelV2 interface. Fall back to provider/modelId or "unknown".
+    const modelLabel =
+      (model as { modelId?: string }).modelId ??
+      `${(model as { provider?: string }).provider ?? "model"}/${(model as { modelId?: string }).modelId ?? "unknown"}`;
+
     return NextResponse.json({
       ok: true,
       providerMode: PROVIDER_MODE,
       text: text.trim(),
-      model: String(model),
+      model: modelLabel,
       durationMs: Date.now() - start,
       usage,
     });

@@ -49,6 +49,7 @@ import { usePersistentDraft } from "@/lib/hooks/use-persistent-draft";
 import { DraftSavedIndicator } from "@/components/ui/draft-saved-indicator";
 import { EvidencePanel } from "@/components/ui/trust-badge";
 import { TrustReviewPrompt } from "@/components/ui/trust-ui";
+import { ExplorePanel } from "@/components/explore-panel";
 
 const LEGACY_STORAGE_KEY = "sage-actions";
 
@@ -80,9 +81,50 @@ function PriorityBadge({ priority }: { priority?: ActionItem["priority"] }) {
   };
   return (
     <span
-      className={`inline-flex items-center rounded-full border px-1.5 py-0 text-[11px] font-medium ${styles[priority]}`}
+      className={`inline-flex items-center rounded-full border px-2 py-0.5 text-xs font-medium ${styles[priority]}`}
     >
       {priority}
+    </span>
+  );
+}
+
+/**
+ * Format a due date for display. Handles both plain "YYYY-MM-DD" dates and
+ * full ISO timestamps ("2026-05-23T16:00:00Z") — never shows the raw ISO string.
+ * Includes the time when the source value carried one.
+ */
+function formatDueDate(due: string): string {
+  if (!due) return "";
+  const hasTime = due.includes("T");
+  const d = new Date(hasTime ? due : due + "T12:00:00");
+  if (isNaN(d.getTime())) return due; // fall back to raw rather than "Invalid Date"
+  const datePart = d.toLocaleDateString("en-GB", { day: "numeric", month: "short" });
+  if (!hasTime) return datePart;
+  const timePart = d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+  return `${datePart}, ${timePart}`;
+}
+
+/**
+ * Badge shown when an action has a time-bounded expiresAt set.
+ * Shows a countdown if expiry is within the next 4 hours; otherwise shows the time.
+ * Returns null if expiresAt is in the past (action should already be archived).
+ */
+function ExpiryBadge({ expiresAt }: { expiresAt?: string }) {
+  if (!expiresAt) return null;
+  const msLeft = new Date(expiresAt).getTime() - Date.now();
+  if (msLeft <= 0) return null; // already expired — listActions will archive it
+
+  const minLeft = Math.floor(msLeft / 60_000);
+  const label =
+    minLeft < 60
+      ? `⏱ ${minLeft}m`
+      : minLeft < 240
+        ? `⏱ ${Math.floor(minLeft / 60)}h ${minLeft % 60}m`
+        : `⏱ expires ${new Date(expiresAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}`;
+  const urgency = minLeft < 30 ? "bg-red-100 text-red-700 border-red-200" : minLeft < 120 ? "bg-amber-100 text-amber-700 border-amber-200" : "bg-slate-100 text-slate-600 border-slate-200";
+  return (
+    <span className={`inline-flex items-center rounded-full border px-2 py-0.5 text-xs font-medium ${urgency}`} title={`Expires at ${new Date(expiresAt).toLocaleString()}`}>
+      {label}
     </span>
   );
 }
@@ -111,7 +153,7 @@ function SourceBadge({ source }: { source: ActionItem["source"] }) {
   };
   return (
     <span
-      className={`inline-flex items-center rounded px-1.5 py-0 text-[11px] font-medium ${styles[source]}`}
+      className={`inline-flex items-center rounded px-2 py-0.5 text-xs font-medium ${styles[source]}`}
     >
       {source}
     </span>
@@ -121,7 +163,7 @@ function SourceBadge({ source }: { source: ActionItem["source"] }) {
 /** Amber pill shown on actions that need user confirmation before being trusted. */
 function NeedsReviewBadge() {
   return (
-    <span className="inline-flex items-center gap-1 rounded-full border border-amber-300 bg-amber-50 px-1.5 py-0 text-[11px] font-medium text-amber-700">
+    <span className="inline-flex items-center gap-1 rounded-full border border-amber-300 bg-amber-50 px-2 py-0.5 text-xs font-medium text-amber-700">
       <ShieldQuestion className="h-2.5 w-2.5" />
       Review
     </span>
@@ -138,7 +180,7 @@ function CategoryChip({ category }: { category?: ActionCategory }) {
   };
   const { cls, label, Icon } = styles[category];
   return (
-    <span className={`inline-flex items-center gap-1 rounded border px-1.5 py-0 text-[11px] font-medium ${cls}`}>
+    <span className={`inline-flex items-center gap-1 rounded border px-2 py-0.5 text-xs font-medium ${cls}`}>
       <Icon className="h-2.5 w-2.5" />
       {label}
     </span>
@@ -150,7 +192,7 @@ function DecisionRequiredBadge({ onClick }: { onClick?: () => void }) {
   return (
     <button
       onClick={onClick}
-      className="inline-flex items-center gap-1 rounded-full border border-violet-300 bg-violet-50 px-1.5 py-0 text-[11px] font-medium text-violet-700 hover:bg-violet-100 transition-colors cursor-pointer"
+      className="inline-flex items-center gap-1 rounded-full border border-violet-300 bg-violet-50 px-2 py-0.5 text-xs font-medium text-violet-700 hover:bg-violet-100 transition-colors cursor-pointer"
       title="A decision needs to be made — click to log it"
     >
       <GitBranch className="h-2.5 w-2.5" />
@@ -189,6 +231,7 @@ function ActionCard({
   onDelete,
   onConfirmReview,
   onDecisionClick,
+  onNotes,
   todayStr,
   photos = {},
 }: {
@@ -197,6 +240,7 @@ function ActionCard({
   onDelete: (id: string) => void;
   onConfirmReview?: (id: string) => void;
   onDecisionClick?: (action: ActionItem) => void;
+  onNotes?: (id: string, notes: string) => Promise<void>;
   todayStr: string;
   photos?: Record<string, string>;
 }) {
@@ -243,7 +287,7 @@ function ActionCard({
                   color={contact.color}
                   photoUrl={photos[contact.email?.toLowerCase() ?? ""]}
                   className="h-4 w-4"
-                  fallbackClassName="text-[11px]"
+                  fallbackClassName="text-xs"
                 />
               )}
               <span className="text-xs text-muted-foreground">{action.owner}</span>
@@ -260,18 +304,19 @@ function ActionCard({
                     : "text-muted-foreground"
                 }`}
               >
-                Due {action.dueDate}
+                Due {formatDueDate(action.dueDate)}
               </span>
             )}
 
             {/* Stalled indicator */}
             {stalled && (
-              <span className="inline-flex items-center gap-1 text-[11px] text-amber-600 font-medium">
+              <span className="inline-flex items-center gap-1 text-xs text-amber-600 font-medium">
                 <Clock className="h-3 w-3" />
                 Stalled
               </span>
             )}
 
+            <ExpiryBadge expiresAt={action.expiresAt} />
             <PriorityBadge priority={action.priority} />
             <SourceBadge source={action.source} />
             <CategoryChip category={action.category} />
@@ -285,7 +330,7 @@ function ActionCard({
 
             {/* Linked decisions */}
             {action.linkedDecisionIds && action.linkedDecisionIds.length > 0 && (
-              <span className="inline-flex items-center gap-0.5 text-[11px] text-muted-foreground">
+              <span className="inline-flex items-center gap-0.5 text-xs text-muted-foreground">
                 <Link2 className="h-3 w-3" />
                 {action.linkedDecisionIds.length}
               </span>
@@ -309,6 +354,14 @@ function ActionCard({
               onConfirm={() => onConfirmReview?.(action.id)}
               onDismiss={() => onDelete(action.id)}
               className="mt-2"
+            />
+          )}
+
+          {/* Explore further — inline notes */}
+          {onNotes && action.status !== "done" && (
+            <ExplorePanel
+              notes={action.notes}
+              onSave={(notes) => onNotes(action.id, notes)}
             />
           )}
         </div>
@@ -337,6 +390,7 @@ function CollapsibleSection({
   onDelete,
   onConfirmReview,
   onDecisionClick,
+  onNotes,
   todayStr,
   photos = {},
 }: {
@@ -348,6 +402,7 @@ function CollapsibleSection({
   onDelete: (id: string) => void;
   onConfirmReview?: (id: string) => void;
   onDecisionClick?: (action: ActionItem) => void;
+  onNotes?: (id: string, notes: string) => Promise<void>;
   todayStr: string;
   photos?: Record<string, string>;
 }) {
@@ -383,6 +438,7 @@ function CollapsibleSection({
               onDelete={onDelete}
               onConfirmReview={onConfirmReview}
               onDecisionClick={onDecisionClick}
+              onNotes={onNotes}
               todayStr={todayStr}
               photos={photos}
             />
@@ -463,7 +519,7 @@ function CompletedActionsPanel({ items, todayStr }: { items: ActionItem[]; today
       <div className="space-y-4 max-h-[70vh] overflow-y-auto pr-1">
         {dates.map((date) => (
           <div key={date}>
-            <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground mb-1.5">
+            <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-1.5">
               {dateLabel(date)}
             </p>
             <div>
@@ -476,7 +532,7 @@ function CompletedActionsPanel({ items, todayStr }: { items: ActionItem[]; today
                   <div className="min-w-0 flex-1">
                     <p className="text-xs text-muted-foreground leading-snug line-clamp-2">{a.text}</p>
                     {a.owner && (
-                      <p className="text-[10px] text-muted-foreground/60 mt-0.5">{a.owner}</p>
+                      <p className="text-xs text-muted-foreground/60 mt-0.5">{a.owner}</p>
                     )}
                   </div>
                 </div>
@@ -570,11 +626,13 @@ function MatrixActionRow({
   action,
   onToggle,
   onDelete,
+  onNotes,
   todayStr,
 }: {
   action: ActionItem;
   onToggle: (id: string) => void;
   onDelete: (id: string) => void;
+  onNotes?: (id: string, notes: string) => Promise<void>;
   todayStr: string;
 }) {
   const isOverdue = action.dueDate && action.dueDate < todayStr && action.status !== "done";
@@ -588,22 +646,34 @@ function MatrixActionRow({
         {action.status === "done" && <Check className="h-2.5 w-2.5 text-emerald-500" />}
       </button>
       <div className="flex-1 min-w-0">
-        <p className={`text-[12px] leading-snug ${action.status === "done" ? "line-through text-muted-foreground/50" : "text-foreground/85"}`}>
+        {/* Action text — lifted from text-[12px] to text-sm so the matrix view
+            matches body readability across the rest of the app. Foreground at
+            full opacity (instead of /85) keeps the row scannable from a glance. */}
+        <p className={`text-sm leading-snug ${action.status === "done" ? "line-through text-muted-foreground/70" : "text-foreground"}`}>
           {action.text}
         </p>
-        <div className="flex items-center gap-2 mt-0.5 flex-wrap">
+        <div className="flex items-center gap-2 mt-1 flex-wrap">
+          <ExpiryBadge expiresAt={action.expiresAt} />
           {action.dueDate && (
-            <span className={`text-[10px] font-medium ${isOverdue ? "text-red-500" : "text-muted-foreground/60"}`}>
-              {isOverdue ? "⚠ " : ""}{action.dueDate}
+            <span className={`text-xs font-medium ${isOverdue ? "text-red-500" : "text-muted-foreground"}`}>
+              {isOverdue ? "⚠ " : ""}{formatDueDate(action.dueDate)}
             </span>
           )}
           {action.owner && action.owner.toLowerCase() !== "me" && (
-            <span className="text-[10px] text-muted-foreground/50">→ {action.owner}</span>
+            <span className="text-xs text-muted-foreground">→ {action.owner}</span>
           )}
           {action.eisenhowerReason && (
-            <span className="text-[10px] text-muted-foreground/40 italic">{action.eisenhowerReason}</span>
+            // Lifted from text-xs / opacity 40 (illegible) to text-xs / 80.
+            <span className="text-xs text-muted-foreground/80 italic">{action.eisenhowerReason}</span>
           )}
         </div>
+        {onNotes && action.status !== "done" && (
+          <ExplorePanel
+            notes={action.notes}
+            onSave={(notes) => onNotes(action.id, notes)}
+            className="mt-1"
+          />
+        )}
       </div>
       <button
         onClick={() => onDelete(action.id)}
@@ -623,6 +693,7 @@ function MatrixView({
   onClassify,
   onToggle,
   onDelete,
+  onNotes,
   todayStr,
 }: {
   actions: ActionItem[];
@@ -631,6 +702,7 @@ function MatrixView({
   onClassify: () => void;
   onToggle: (id: string) => void;
   onDelete: (id: string) => void;
+  onNotes?: (id: string, notes: string) => Promise<void>;
   todayStr: string;
 }) {
   const open = actions.filter((a) => a.status !== "done");
@@ -642,7 +714,7 @@ function MatrixView({
     <div className="space-y-4">
       {/* Axis labels + classify button */}
       <div className="flex items-center justify-between gap-3 flex-wrap">
-        <div className="flex items-center gap-4 text-[11px] text-muted-foreground/60 font-medium">
+        <div className="flex items-center gap-4 text-xs text-muted-foreground/60 font-medium">
           <span className="flex items-center gap-1">
             <span className="w-2 h-2 rounded-full bg-red-400 inline-block" /> Urgent
           </span>
@@ -656,7 +728,7 @@ function MatrixView({
         <button
           onClick={onClassify}
           disabled={classifying || open.length === 0}
-          className="inline-flex items-center gap-1.5 text-[11px] font-semibold px-3 py-1.5 rounded-lg bg-[oklch(0.72_0.15_85)]/[0.10] text-[oklch(0.58_0.15_85)] hover:bg-[oklch(0.72_0.15_85)]/[0.18] border border-[oklch(0.72_0.15_85)]/20 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+          className="inline-flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-lg bg-[oklch(0.72_0.15_85)]/[0.10] text-[oklch(0.58_0.15_85)] hover:bg-[oklch(0.72_0.15_85)]/[0.18] border border-[oklch(0.72_0.15_85)]/20 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
         >
           {classifying ? (
             <><Loader2 className="h-3 w-3 animate-spin" />Classifying…</>
@@ -696,16 +768,18 @@ function MatrixView({
               className={`rounded-xl border ${q.border} ${q.bg} overflow-hidden`}
             >
               {/* Quadrant header */}
-              <div className={`px-4 py-2.5 ${q.headerBg} flex items-center justify-between`}>
-                <div className="flex items-center gap-2">
-                  <Icon className={`h-3.5 w-3.5 ${q.headerText}`} />
-                  <span className={`text-[11px] font-bold uppercase tracking-wider ${q.headerText}`}>
+              <div className={`px-4 py-3 ${q.headerBg} flex items-center justify-between`}>
+                <div className="flex items-center gap-2.5">
+                  <Icon className={`h-4 w-4 ${q.headerText}`} />
+                  {/* Lifted verb from text-xs → text-xs, sublabel from
+                      opacity-60 → text-muted-foreground for readability. */}
+                  <span className={`text-xs font-bold uppercase tracking-wider ${q.headerText}`}>
                     {q.verb}
                   </span>
-                  <span className="text-[11px] text-muted-foreground/60">{q.sublabel}</span>
+                  <span className="text-xs text-muted-foreground">{q.sublabel}</span>
                 </div>
                 {items.length > 0 && (
-                  <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded-full ${q.badgeBg}`}>
+                  <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${q.badgeBg}`}>
                     {items.length}
                   </span>
                 )}
@@ -713,7 +787,7 @@ function MatrixView({
               {/* Items */}
               <div className="px-4 py-1 min-h-[80px]">
                 {items.length === 0 ? (
-                  <p className="text-[11px] text-muted-foreground/30 py-3 italic">
+                  <p className="text-xs text-muted-foreground/60 py-3 italic">
                     {classifiedCount === 0 ? "Run classify to populate" : "Nothing here"}
                   </p>
                 ) : (
@@ -723,6 +797,7 @@ function MatrixView({
                       action={a}
                       onToggle={onToggle}
                       onDelete={onDelete}
+                      onNotes={onNotes}
                       todayStr={todayStr}
                     />
                   ))
@@ -736,11 +811,11 @@ function MatrixView({
       {/* Unclassified overflow */}
       {unclassified.length > 0 && (
         <div className="rounded-xl border border-border/30 bg-muted/20 overflow-hidden">
-          <div className="px-4 py-2.5 bg-muted/30 flex items-center justify-between">
-            <span className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground/70">
+          <div className="px-4 py-3 bg-muted/30 flex items-center justify-between">
+            <span className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
               Unclassified
             </span>
-            <span className="text-[10px] text-muted-foreground/50">{unclassified.length} item{unclassified.length !== 1 ? "s" : ""} · run classify to sort</span>
+            <span className="text-xs text-muted-foreground/80">{unclassified.length} item{unclassified.length !== 1 ? "s" : ""} · run classify to sort</span>
           </div>
           <div className="px-4 py-1">
             {unclassified.map((a) => (
@@ -922,6 +997,13 @@ export default function ActionsPage() {
     const prevStatus = current.status;
     const next = current.status === "done" ? "open" : "done";
 
+    // Optimistic update — bust cache before notify()/refresh() re-renders from it
+    const patched = actions.map((a) =>
+      a.id === id ? { ...a, status: next as typeof a.status } : a
+    );
+    setActions(patched);
+    dashboardCache.set("actions", patched);
+
     // Offer undo when marking done
     if (next === "done") {
       pushUndo({
@@ -1002,6 +1084,19 @@ export default function ActionsPage() {
     await refresh();
   }
 
+  async function handleNotes(id: string, notes: string) {
+    // Optimistic update — reflect notes immediately in local state and cache
+    const patched = actions.map((a) => (a.id === id ? { ...a, notes } : a));
+    setActions(patched);
+    dashboardCache.set("actions", patched);
+
+    await fetch(`/api/actions/${id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ notes }),
+    });
+  }
+
   async function handleClassify() {
     setClassifying(true);
     setClassifyStatus(null);
@@ -1035,22 +1130,32 @@ export default function ActionsPage() {
           message: `Classified ${data.classified.length} action${data.classified.length !== 1 ? "s" : ""} with AI.`,
         });
       }
-      // Bypass /tmp cache — classify may have run on a different Fluid Compute
-      // instance whose /tmp update won't be visible to this instance's cache.
-      // ?fresh=true forces a direct Blob read so we always see the new eisenhower fields.
-      try {
-        const freshRes = await fetch("/api/actions?fresh=true", { cache: "no-store" });
-        if (freshRes.ok) {
-          const freshData = await freshRes.json() as { actions?: ActionItem[] };
-          const fresh = freshData.actions ?? [];
-          dashboardCache.set("actions", fresh);
-          setActions(fresh);
-          setFetchError(null);
-        } else {
+      // The classify route returns the fully-updated actions list read directly
+      // from Blob after all writes commit — use it to update state immediately.
+      // This avoids a separate round-trip and eliminates the cross-instance CDN
+      // race where a second ?fresh=true fetch could hit a Fluid Compute instance
+      // with a stale /tmp cache or stale CDN content.
+      const returnedActions = (data as { actions?: ActionItem[] }).actions;
+      if (Array.isArray(returnedActions) && returnedActions.length > 0) {
+        dashboardCache.set("actions", returnedActions);
+        setActions(returnedActions);
+        setFetchError(null);
+      } else {
+        // Fallback: classify route on an older deployment without `actions` field
+        try {
+          const freshRes = await fetch("/api/actions?fresh=true", { cache: "no-store" });
+          if (freshRes.ok) {
+            const freshData = await freshRes.json() as { actions?: ActionItem[] };
+            const fresh = freshData.actions ?? [];
+            dashboardCache.set("actions", fresh);
+            setActions(fresh);
+            setFetchError(null);
+          } else {
+            await refresh();
+          }
+        } catch {
           await refresh();
         }
-      } catch {
-        await refresh();
       }
     } catch (e) {
       console.error("[classify] failed:", e);
@@ -1318,6 +1423,7 @@ export default function ActionsPage() {
               defaultOpen={true}
               onToggle={toggleDone}
               onDelete={handleDelete}
+              onNotes={handleNotes}
               onConfirmReview={handleConfirmReview}
               onDecisionClick={handleDecisionClick}
               todayStr={todayStr}
@@ -1334,6 +1440,7 @@ export default function ActionsPage() {
               defaultOpen={true}
               onToggle={toggleDone}
               onDelete={handleDelete}
+              onNotes={handleNotes}
               onConfirmReview={handleConfirmReview}
               onDecisionClick={handleDecisionClick}
               todayStr={todayStr}
@@ -1388,6 +1495,7 @@ export default function ActionsPage() {
               defaultOpen={false}
               onToggle={toggleDone}
               onDelete={handleDelete}
+              onNotes={handleNotes}
               onConfirmReview={handleConfirmReview}
               onDecisionClick={handleDecisionClick}
               todayStr={todayStr}
@@ -1431,6 +1539,7 @@ export default function ActionsPage() {
               defaultOpen={true}
               onToggle={toggleDone}
               onDelete={handleDelete}
+              onNotes={handleNotes}
               onConfirmReview={handleConfirmReview}
               onDecisionClick={handleDecisionClick}
               todayStr={todayStr}
@@ -1460,6 +1569,7 @@ export default function ActionsPage() {
                 defaultOpen={true}
                 onToggle={toggleDone}
                 onDelete={handleDelete}
+              onNotes={handleNotes}
                 onConfirmReview={handleConfirmReview}
                 onDecisionClick={handleDecisionClick}
                 todayStr={todayStr}
@@ -1481,6 +1591,7 @@ export default function ActionsPage() {
                         action={a}
                         onToggle={toggleDone}
                         onDelete={handleDelete}
+              onNotes={handleNotes}
                         onConfirmReview={handleConfirmReview}
                         onDecisionClick={handleDecisionClick}
                         todayStr={todayStr}
@@ -1502,6 +1613,7 @@ export default function ActionsPage() {
                         action={a}
                         onToggle={toggleDone}
                         onDelete={handleDelete}
+              onNotes={handleNotes}
                         onConfirmReview={handleConfirmReview}
                         onDecisionClick={handleDecisionClick}
                         todayStr={todayStr}
@@ -1523,6 +1635,7 @@ export default function ActionsPage() {
                         action={a}
                         onToggle={toggleDone}
                         onDelete={handleDelete}
+              onNotes={handleNotes}
                         onConfirmReview={handleConfirmReview}
                         onDecisionClick={handleDecisionClick}
                         todayStr={todayStr}
@@ -1544,6 +1657,7 @@ export default function ActionsPage() {
                         action={a}
                         onToggle={toggleDone}
                         onDelete={handleDelete}
+              onNotes={handleNotes}
                         onConfirmReview={handleConfirmReview}
                         onDecisionClick={handleDecisionClick}
                         todayStr={todayStr}
@@ -1562,6 +1676,7 @@ export default function ActionsPage() {
                 defaultOpen={false}
                 onToggle={toggleDone}
                 onDelete={handleDelete}
+              onNotes={handleNotes}
                 onConfirmReview={handleConfirmReview}
                 onDecisionClick={handleDecisionClick}
                 todayStr={todayStr}
@@ -1575,6 +1690,7 @@ export default function ActionsPage() {
                 defaultOpen={false}
                 onToggle={toggleDone}
                 onDelete={handleDelete}
+              onNotes={handleNotes}
                 todayStr={todayStr}
                 photos={photos}
               />
@@ -1590,6 +1706,7 @@ export default function ActionsPage() {
               action={a}
               onToggle={toggleDone}
               onDelete={handleDelete}
+              onNotes={handleNotes}
               onConfirmReview={handleConfirmReview}
               onDecisionClick={handleDecisionClick}
               todayStr={todayStr}

@@ -274,7 +274,7 @@ export function ScheduleMeetingModal({ open, onClose }: Props) {
                         isToday ? "bg-[oklch(0.72_0.15_85)]/10" : ""
                       }`}
                     >
-                      <p className="text-[10px] text-muted-foreground font-medium">{DAY_NAMES[i]}</p>
+                      <p className="text-xs text-muted-foreground font-medium">{DAY_NAMES[i]}</p>
                       <p
                         className={`text-xs font-semibold leading-tight ${
                           isToday ? "text-[oklch(0.55_0.15_85)]" : ""
@@ -358,15 +358,15 @@ export function ScheduleMeetingModal({ open, onClose }: Props) {
 
               {/* Grid legend */}
               <div className="px-3 py-1.5 border-t border-border/50 flex items-center gap-4 shrink-0">
-                <span className="flex items-center gap-1 text-[10px] text-muted-foreground">
+                <span className="flex items-center gap-1 text-xs text-muted-foreground">
                   <span className="h-2.5 w-3 rounded-sm bg-[oklch(0.72_0.15_85)]/25 inline-block" />
                   Busy
                 </span>
-                <span className="flex items-center gap-1 text-[10px] text-muted-foreground">
+                <span className="flex items-center gap-1 text-xs text-muted-foreground">
                   <span className="h-2.5 w-3 rounded-sm bg-emerald-400/30 inline-block" />
                   Selected
                 </span>
-                <span className="text-[10px] text-muted-foreground">
+                <span className="text-xs text-muted-foreground">
                   Click a free slot to pre-fill time
                 </span>
               </div>
@@ -416,7 +416,7 @@ export function ScheduleMeetingModal({ open, onClose }: Props) {
                     required
                   />
                   {!selectedDate && !selectedTime && (
-                    <p className="text-[10px] text-muted-foreground">
+                    <p className="text-xs text-muted-foreground">
                       Or click a slot in the grid
                     </p>
                   )}
@@ -475,7 +475,7 @@ export function ScheduleMeetingModal({ open, onClose }: Props) {
 
               {/* Natural language fallback */}
               <div className="px-4 pb-4 border-t border-border pt-3 space-y-1.5 shrink-0">
-                <p className="text-[10px] text-muted-foreground font-medium uppercase tracking-wide">
+                <p className="text-xs text-muted-foreground font-medium uppercase tracking-wide">
                   Or let Basil do it
                 </p>
                 <div className="flex gap-1">

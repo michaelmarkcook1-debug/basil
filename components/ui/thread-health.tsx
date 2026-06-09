@@ -174,7 +174,7 @@ export function ThreadHealthBadge({
 
   if (!health.reliable) {
     return (
-      <span className="inline-flex items-center gap-1 text-[11px] text-muted-foreground/60">
+      <span className="inline-flex items-center gap-1 text-xs text-muted-foreground/60">
         <span className="h-1.5 w-1.5 rounded-full bg-muted-foreground/30" />
         Unknown
       </span>
@@ -186,7 +186,7 @@ export function ThreadHealthBadge({
       className={cn(
         "inline-flex items-center gap-1.5 font-medium",
         compact
-          ? "text-[11px]"
+          ? "text-xs"
           : "text-[12px] px-2 py-0.5 rounded-full border",
         compact ? cfg.colorClass : cn(cfg.bgClass, cfg.borderClass, cfg.colorClass)
       )}
@@ -240,7 +240,7 @@ export function SilenceIndicator({
   return (
     <span
       className={cn(
-        "inline-flex items-center gap-1 text-[11px] tabular-nums",
+        "inline-flex items-center gap-1 text-xs tabular-nums",
         urgency === "critical" ? "text-red-500" :
         urgency === "warning"  ? "text-amber-500" :
         "text-muted-foreground",
@@ -273,7 +273,7 @@ function SignalBar({ signal }: { signal: HealthSignal }) {
           {signal.trend && signal.trend !== "stable" ? (
             <span
               className={cn(
-                "text-[11px]",
+                "text-xs",
                 signal.trend === "improving"
                   ? "text-emerald-500"
                   : "text-amber-500"
@@ -294,7 +294,7 @@ function SignalBar({ signal }: { signal: HealthSignal }) {
 
         {/* Explanation */}
         {signal.explanation ? (
-          <p className="text-[11px] text-muted-foreground/70 leading-snug">
+          <p className="text-xs text-muted-foreground/70 leading-snug">
             {signal.explanation}
           </p>
         ) : null}
@@ -358,7 +358,7 @@ export function RelationshipAlerts({
             {alert.actionLabel && alert.actionHref && !compact ? (
               <Link
                 href={alert.actionHref}
-                className="inline-flex items-center gap-0.5 text-primary hover:underline font-medium text-[11px]"
+                className="inline-flex items-center gap-0.5 text-primary hover:underline font-medium text-xs"
               >
                 {alert.actionLabel}
                 <ExternalLink className="h-2.5 w-2.5" />
@@ -419,7 +419,7 @@ export function ThreadHealthPanel({
             {cfg.label}
           </span>
           {criticalAlerts.length > 0 ? (
-            <span className="inline-flex items-center justify-center h-4 min-w-4 px-1 rounded-full bg-red-500 text-white text-[10px] font-bold">
+            <span className="inline-flex items-center justify-center h-4 min-w-4 px-1 rounded-full bg-red-500 text-white text-xs font-bold">
               {criticalAlerts.length}
             </span>
           ) : null}
@@ -466,7 +466,7 @@ export function ThreadHealthPanel({
  */
 export function ThreadHealthSummaryLine({ health }: { health: ThreadHealth }) {
   if (!health.reliable) {
-    return <span className="text-[11px] text-muted-foreground/50">No health data</span>;
+    return <span className="text-xs text-muted-foreground/50">No health data</span>;
   }
 
   const cfg = STATE_CONFIG[health.state];
@@ -482,7 +482,7 @@ export function ThreadHealthSummaryLine({ health }: { health: ThreadHealth }) {
   }
 
   return (
-    <span className={cn("inline-flex items-center gap-1.5 text-[11px]", cfg.colorClass)}>
+    <span className={cn("inline-flex items-center gap-1.5 text-xs", cfg.colorClass)}>
       <span className={cn("h-1.5 w-1.5 rounded-full shrink-0", cfg.dotClass)} />
       <span className="font-medium">{cfg.label}</span>
       {parts.length > 0 ? (
@@ -526,11 +526,11 @@ export function RelationshipHealthRow({
       <div className="flex-1 min-w-0 space-y-0.5">
         <p className="text-[13px] font-medium text-foreground truncate">{contact.name}</p>
         {contact.primaryAlert ? (
-          <p className={cn("text-[11px] leading-snug truncate", cfg.colorClass)}>
+          <p className={cn("text-xs leading-snug truncate", cfg.colorClass)}>
             {contact.primaryAlert}
           </p>
         ) : (
-          <p className="text-[11px] text-muted-foreground/60">{cfg.label}</p>
+          <p className="text-xs text-muted-foreground/60">{cfg.label}</p>
         )}
       </div>
 
@@ -540,7 +540,7 @@ export function RelationshipHealthRow({
           <SilenceIndicator daysSince={contact.daysSinceContact} />
         ) : null}
         {contact.unresolvedCommitments > 0 ? (
-          <p className="text-[11px] text-amber-600 dark:text-amber-400">
+          <p className="text-xs text-amber-600 dark:text-amber-400">
             {contact.unresolvedCommitments} open
           </p>
         ) : null}
@@ -596,11 +596,11 @@ export function RelationshipHealthGrid({
             {title}
           </span>
           {criticalCount > 0 ? (
-            <span className="inline-flex items-center justify-center h-4 min-w-4 px-1 rounded-full bg-red-500 text-white text-[10px] font-bold">
+            <span className="inline-flex items-center justify-center h-4 min-w-4 px-1 rounded-full bg-red-500 text-white text-xs font-bold">
               {criticalCount}
             </span>
           ) : coolingCount > 0 ? (
-            <span className="inline-flex items-center justify-center h-4 min-w-4 px-1 rounded-full bg-amber-500/20 text-amber-600 dark:text-amber-400 text-[10px] font-semibold border border-amber-500/30">
+            <span className="inline-flex items-center justify-center h-4 min-w-4 px-1 rounded-full bg-amber-500/20 text-amber-600 dark:text-amber-400 text-xs font-semibold border border-amber-500/30">
               {coolingCount}
             </span>
           ) : null}
@@ -608,7 +608,7 @@ export function RelationshipHealthGrid({
         {viewAllHref ? (
           <Link
             href={viewAllHref}
-            className="text-[11px] text-muted-foreground hover:text-primary transition-colors flex items-center gap-0.5"
+            className="text-xs text-muted-foreground hover:text-primary transition-colors flex items-center gap-0.5"
           >
             All contacts
             <ArrowUpRight className="h-3 w-3" />
@@ -634,7 +634,7 @@ export function RelationshipHealthGrid({
         {(["strengthening", "stable", "cooling", "critical"] as HealthState[]).map((s) => {
           const c = STATE_CONFIG[s];
           return (
-            <span key={s} className="inline-flex items-center gap-1 text-[10px] text-muted-foreground/60">
+            <span key={s} className="inline-flex items-center gap-1 text-xs text-muted-foreground/60">
               <span className={cn("h-1.5 w-1.5 rounded-full", c.dotClass)} />
               {c.label}
             </span>
@@ -803,7 +803,7 @@ export function HealthScoreArc({ health, size = 120, className }: HealthScoreArc
         {reliable && trend !== "stable" ? (
           <p
             className={cn(
-              "text-[10px] flex items-center justify-center gap-0.5 mt-0.5",
+              "text-xs flex items-center justify-center gap-0.5 mt-0.5",
               trend === "improving"
                 ? "text-emerald-500"
                 : "text-amber-500"
@@ -946,7 +946,7 @@ export function HealthStateCard({
               {name}
             </span>
           ) : null}
-          <span className={cn("text-[11px] font-medium shrink-0", cfg.colorClass)}>
+          <span className={cn("text-xs font-medium shrink-0", cfg.colorClass)}>
             {health.reliable ? cfg.label : "Unknown"}
           </span>
         </div>
@@ -955,7 +955,7 @@ export function HealthStateCard({
           {health.reliable && health.trend !== "stable" ? (
             <span
               className={cn(
-                "text-[11px] flex items-center gap-0.5 font-medium",
+                "text-xs flex items-center gap-0.5 font-medium",
                 health.trend === "improving"
                   ? "text-emerald-600 dark:text-emerald-400"
                   : "text-amber-600 dark:text-amber-400"
@@ -1002,12 +1002,12 @@ export function HealthStateCard({
                 >
                   {DIMENSION_ICON[signal.dimension]}
                 </span>
-                <span className="flex-1 min-w-0 text-[11px] text-muted-foreground/70 truncate">
+                <span className="flex-1 min-w-0 text-xs text-muted-foreground/70 truncate">
                   {signal.label}
                 </span>
                 <span
                   className={cn(
-                    "text-[11px] tabular-nums shrink-0 font-medium",
+                    "text-xs tabular-nums shrink-0 font-medium",
                     signal.status === "critical" ? "text-red-600 dark:text-red-400" :
                     signal.status === "warning"  ? "text-amber-600 dark:text-amber-400" :
                     signal.status === "healthy"  ? "text-emerald-600 dark:text-emerald-400" :
@@ -1029,14 +1029,14 @@ export function HealthStateCard({
       {/* ── Weekly pulse sparkline ──────────────────────────────────── */}
       {showPulse ? (
         <div className="px-3 py-2.5 border-t border-border/30 bg-card/30 flex items-center gap-3">
-          <span className="text-[10px] uppercase tracking-wider text-muted-foreground/40 shrink-0 font-medium">
+          <span className="text-xs uppercase tracking-wider text-muted-foreground/40 shrink-0 font-medium">
             8-week
           </span>
           <RelationshipPulseChart
             weeklySignals={weeklySignals!}
             state={health.state}
           />
-          <span className="text-[10px] text-muted-foreground/40 ml-auto">now</span>
+          <span className="text-xs text-muted-foreground/40 ml-auto">now</span>
         </div>
       ) : null}
 
@@ -1053,7 +1053,7 @@ export function HealthStateCard({
         </div>
       ) : health.reliable ? (
         <div className="px-3 py-2 border-t border-border/25 bg-card/20">
-          <p className="text-[11px] text-muted-foreground/50 flex items-center gap-1.5">
+          <p className="text-xs text-muted-foreground/50 flex items-center gap-1.5">
             <span className="h-1.5 w-1.5 rounded-full bg-emerald-500/50 shrink-0" />
             No operational concerns
           </p>

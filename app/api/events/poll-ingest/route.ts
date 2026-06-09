@@ -84,7 +84,7 @@ export async function POST(req: Request) {
 
   // ── Contact name sets (dynamic key-person classification) ────────────────────
   // Every contact is treated as a key person for Slack classification.
-  // Investor-tagged contacts (Ed Baum, Malcolm Frank) get extra priority escalation.
+  // Investor-tagged contacts (Sam Rivera, Jordan Avery) get extra priority escalation.
   //
   // We load user-added contacts and merge with seed contacts so new contacts
   // added via the UI are immediately picked up on the next poll.
@@ -243,7 +243,7 @@ export async function POST(req: Request) {
         isMention: m.isMention,
         // Every contact is a key person — drives shouldClassifySlack gate
         isFromKeyPerson: isKnownContact(m.author),
-        // Investor contacts (Ed Baum, Malcolm Frank) get high-priority escalation
+        // Investor contacts (Sam Rivera, Jordan Avery) get high-priority escalation
         isFromInvestor: isInvestorContact(m.author),
       },
     });
@@ -824,6 +824,22 @@ export async function POST(req: Request) {
       if (synced > 0) {
         console.log(`[poll-ingest] Linear: synced ${synced} issue(s)`);
         await forceFlushSnapshot();
+      }
+
+      // Close any Basil action whose Linear issue is no longer "my open" —
+      // covers completed, cancelled, and reassign-away cases. force:true
+      // because cron runs are deliberate sweeps.
+      try {
+        const { syncLinearActionStates } = await import("@/lib/linear/sync-actions");
+        const result = await syncLinearActionStates(username, { force: true });
+        if (result.closed > 0) {
+          console.log(
+            `[poll-ingest] Linear: auto-closed ${result.closed} stale action(s)`
+          );
+          await forceFlushSnapshot();
+        }
+      } catch (err) {
+        console.warn("[poll-ingest] Linear action-state sync failed:", err);
       }
     } catch (err) {
       console.error("[poll-ingest] Linear sync failed:", err);
