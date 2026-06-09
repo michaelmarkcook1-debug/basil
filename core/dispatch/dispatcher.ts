@@ -25,6 +25,7 @@
 
 import { readUserStore, writeUserStore } from "@/lib/storage/user-store";
 import { generateValidated } from "@/lib/ai/generate-validated";
+import type { SpendMeter } from "@/lib/ai/spend-guard";
 import { hashContent } from "@/lib/ingest/content-hash";
 import { GATEWAY_MODEL_IDS, MAX_TOKENS } from "@/lib/ai/model-config";
 import type { ModelKind } from "@/lib/ai/model-config";
@@ -76,6 +77,12 @@ export interface DispatchOpts<T> {
   isRepair?: boolean;
   /** Pre-computed requestId — pass to link repair attempts to originals. */
   requestId?: string;
+  /**
+   * Spend meter — forwarded to generateValidated so dispatch()-routed AI calls
+   * count against the per-user/global spend cap. Without it the dispatch path
+   * would silently bypass metering.
+   */
+  meter?: SpendMeter;
 }
 
 export interface DispatchResult<T> {
@@ -98,7 +105,7 @@ export async function dispatch<T>(
   const {
     username, intent, sourceRef, modelKind,
     system, prompt, schema, schemaName, schemaDescription,
-    isRepair = false,
+    isRepair = false, meter,
   } = opts;
 
   const requestId = opts.requestId ?? makeRequestId(intent, sourceRef);
@@ -126,6 +133,7 @@ export async function dispatch<T>(
       schemaName,
       ...(schemaDescription ? { schemaDescription } : {}),
       tag: `dispatch:${intent}`,
+      ...(meter ? { meter, meterKind: modelKind } : {}),
     });
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);

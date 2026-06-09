@@ -3,6 +3,7 @@ export const maxDuration = 300;
 import { getTextModel, MAX_TOKENS, PROVIDER_MODE } from "@/lib/ai/model-config";
 import { getSystemPrompt } from "@/lib/ai/system-prompt";
 import { generateValidated, AIValidationError, aiValidationErrorResponse } from "@/lib/ai/generate-validated";
+import { SpendCapError } from "@/lib/ai/spend-guard";
 import { ContactProfileSchema } from "@/lib/ai/schemas";
 import { searchEmails, getRecentEmails } from "@/lib/google/gmail";
 import {
@@ -290,6 +291,8 @@ Return ONLY valid JSON, no markdown fences:
       system: await getSystemPrompt(username),
       prompt: promptText,
       tag: "contact-profile",
+      meter: { username, feature: "contact-profile" },
+      meterKind: "default",
       ...(PROVIDER_MODE === "vercel_gateway" && {
         providerOptions: { gateway: { tags: ["feature:contact-profile", "env:production"] } },
       }),
@@ -300,6 +303,12 @@ Return ONLY valid JSON, no markdown fences:
       generatedAt: new Date().toISOString(),
     });
   } catch (e) {
+    if (e instanceof SpendCapError) {
+      return Response.json(
+        { error: `AI budget reached (${e.scope}).` },
+        { status: 429, headers: { "Retry-After": String(e.retryAfterSec) } }
+      );
+    }
     if (e instanceof AIValidationError) {
       return Response.json(aiValidationErrorResponse(e), { status: 422 });
     }

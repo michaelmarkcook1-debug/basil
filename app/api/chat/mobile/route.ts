@@ -14,6 +14,8 @@ export const maxDuration = 300;
 import { stepCountIs, type ModelMessage } from "ai";
 import { generateTextSafe } from "@/lib/ai/generate";
 import { SpendCapError } from "@/lib/ai/spend-guard";
+import { getEntitlement } from "@/lib/billing/entitlement-store";
+import { effectiveKind, familyForKind } from "@/lib/ai/tiering";
 import { getTextModel, MAX_TOKENS, PROVIDER_MODE } from "@/lib/ai/model-config";
 import { getSystemPrompt } from "@/lib/ai/system-prompt";
 import { buildAssistantTools } from "@/lib/ai/tools";
@@ -64,9 +66,13 @@ export async function POST(req: Request) {
     const firstName = settings.name.split(" ")[0] ?? settings.name;
     const system = await getSystemPrompt(username, timezone);
 
+    // Plan-aware tier (mirror the web chat route): Pro/admin → Opus, Free → Sonnet.
+    const entitlement = await getEntitlement(username);
+    const chatKind = effectiveKind("default", entitlement.plan);
+
     const result = await generateTextSafe({
-      model: getTextModel(),
-      maxOutputTokens: MAX_TOKENS.default,
+      model: getTextModel(chatKind),
+      maxOutputTokens: MAX_TOKENS[chatKind],
       system,
       messages,
       tools: buildAssistantTools(username, firstName, timezone),
@@ -76,7 +82,13 @@ export async function POST(req: Request) {
           gateway: { tags: ["feature:chat", "env:production", "platform:mobile"] },
         },
       }),
-    }, "default", { username, feature: "chat:mobile" });
+    }, chatKind, {
+      username,
+      feature: "chat:mobile",
+      family: familyForKind(chatKind),
+      userMonthlyUsd: entitlement.aiMonthlyUsd,
+      maxSteps: 5,
+    });
 
     return Response.json({ text: result.text });
   } catch (e) {

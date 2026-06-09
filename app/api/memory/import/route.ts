@@ -13,8 +13,8 @@
 export const maxDuration = 300;
 
 import { NextResponse } from "next/server";
-import { generateText } from "ai";
 import { getTextModel, MAX_TOKENS, PROVIDER_MODE } from "@/lib/ai/model-config";
+import { generateTextSafe } from "@/lib/ai/generate";
 import { parseAndValidate } from "@/lib/ai/parse-json";
 import { MemoryImportArraySchema } from "@/lib/ai/schemas";
 import { getSessionUser } from "@/lib/auth";
@@ -169,9 +169,9 @@ function isCompetitiveIntelligence(content: string): boolean {
  * Call the LLM on a single chunk and return extracted memories.
  * Returns [] on any failure (errors are logged, not propagated).
  */
-async function extractChunk(chunk: string, chunkIndex: number, totalChunks: number): Promise<ExtractedMemory[]> {
+async function extractChunk(username: string, chunk: string, chunkIndex: number, totalChunks: number): Promise<ExtractedMemory[]> {
   try {
-    const result = await generateText({
+    const result = await generateTextSafe({
       model: getTextModel(),
       maxOutputTokens: MAX_TOKENS.default,
       messages: [{ role: "user", content: buildPrompt(chunk, chunkIndex, totalChunks) }],
@@ -180,7 +180,7 @@ async function extractChunk(chunk: string, chunkIndex: number, totalChunks: numb
           gateway: { tags: ["feature:memory-import"] },
         },
       }),
-    });
+    }, "default", { username, feature: "memory-import" });
 
     const parseResult = parseAndValidate(result.text, MemoryImportArraySchema, "[memory/import]");
     if (!parseResult.ok) {
@@ -264,7 +264,7 @@ export async function POST(req: Request) {
   // Process chunks sequentially to avoid hammering the gateway
   const allExtracted: ExtractedMemory[] = [];
   for (let i = 0; i < chunks.length; i++) {
-    const results = await extractChunk(chunks[i], i, chunks.length);
+    const results = await extractChunk(username, chunks[i], i, chunks.length);
     allExtracted.push(...results);
   }
 

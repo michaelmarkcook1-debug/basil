@@ -103,7 +103,7 @@ ${question}`,
           gateway: { tags: ["feature:stig-api", `mode:${mode}`, "env:production"] },
         },
       }),
-    }, kind, { username, feature: `stig:${mode}` });
+    }, kind, { username, feature: `stig:${mode}`, maxSteps: mode === "voice" ? 4 : 7 });
     answerText = result.text;
   } catch (err) {
     // Spend-cap rejections propagate unmapped so callers can return 429.

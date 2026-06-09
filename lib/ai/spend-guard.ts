@@ -89,6 +89,12 @@ export interface SpendMeter {
    * cap — so "your plan's AI quota" and "your spend cap" are one number.
    */
   userMonthlyUsd?: number;
+  /**
+   * Max model calls this request may make (tool-loop step budget, e.g.
+   * stepCountIs(8)). The reservation scales worst-case cost by this so the
+   * whole in-flight call is bounded, not just the first step. Defaults to 1.
+   */
+  maxSteps?: number;
 }
 
 export interface SpendReservation {
@@ -123,30 +129,62 @@ export async function reserveSpend(meter: SpendMeter, kind: ModelKind): Promise<
     return { username: meter.username, feature: meter.feature, family, period, reservedUsd: 0 };
   }
 
-  const worst = worstCaseCostUsd(kind, family);
+  // Reserve for the whole call. Tool-loop paths (chat) run up to maxSteps model
+  // calls before onFinish, so we scale the worst case by the step budget — the
+  // reservation must bound the ENTIRE in-flight cost, not one step, or many
+  // concurrent loops could collectively exceed the cap before commit reconciles.
+  const steps = Math.max(1, meter.maxSteps ?? 1);
+  const worst = worstCaseCostUsd(kind, family) * steps;
+
+  // Track which counters we actually incremented so the catch can compensate
+  // any committed increment (finding: a user-step store error after a successful
+  // global increment must not leak the global reservation forever).
+  let globalApplied = false;
+  let userApplied = false;
 
   try {
     if (gc !== null) {
       const { value } = await incrCounter(globalKey(period), worst, COUNTER_TTL_SECONDS);
+      globalApplied = true;
       if (value > gc) {
         await incrCounter(globalKey(period), -worst, COUNTER_TTL_SECONDS); // roll back
+        globalApplied = false;
         throw new SpendCapError("global", secondsUntilPeriodEnd());
       }
     }
     if (uc !== null) {
       const { value } = await incrCounter(userKey(meter.username, period), worst, COUNTER_TTL_SECONDS);
+      userApplied = true;
       if (value > uc) {
         await incrCounter(userKey(meter.username, period), -worst, COUNTER_TTL_SECONDS); // roll back user
-        if (gc !== null) await incrCounter(globalKey(period), -worst, COUNTER_TTL_SECONDS); // and global
+        userApplied = false;
+        if (globalApplied) {
+          await incrCounter(globalKey(period), -worst, COUNTER_TTL_SECONDS); // and global
+          globalApplied = false;
+        }
         throw new SpendCapError("user", secondsUntilPeriodEnd());
       }
     }
     return { username: meter.username, feature: meter.feature, family, period, reservedUsd: worst };
   } catch (err) {
     if (err instanceof SpendCapError) throw err;
-    // Counter store error. Fail closed on Opus (expensive), open on cheap tiers.
-    if (family === "opus" && !isDurableCounter()) {
-      console.error("[spend-guard] counter store unavailable on Opus path — failing CLOSED:", err instanceof Error ? err.message : err);
+
+    // Counter STORE error (not a cap rejection). Compensate any increment that
+    // already committed so a partial reservation never leaks. Each rollback is
+    // best-effort and isolated so a rollback failure can't mask the real error.
+    if (globalApplied) {
+      try { await incrCounter(globalKey(period), -worst, COUNTER_TTL_SECONDS); } catch { /* best-effort */ }
+    }
+    if (userApplied) {
+      try { await incrCounter(userKey(meter.username, period), -worst, COUNTER_TTL_SECONDS); } catch { /* best-effort */ }
+    }
+
+    // Fail CLOSED on the expensive Opus family whenever a cap is configured —
+    // better to 429 than risk runaway Opus spend during a store outage. (We are
+    // past the observe-only early return, so a cap IS configured here.) Cheap
+    // families fail OPEN so a transient counter blip can't take down classifiers.
+    if (family === "opus") {
+      console.error("[spend-guard] counter store error on Opus path — failing CLOSED:", err instanceof Error ? err.message : err);
       throw new SpendCapError("global", secondsUntilPeriodEnd());
     }
     console.warn("[spend-guard] counter store error — failing OPEN (cheap tier):", err instanceof Error ? err.message : err);

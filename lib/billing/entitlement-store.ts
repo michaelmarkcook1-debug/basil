@@ -20,6 +20,7 @@ import {
   type Entitlement,
   type Plan,
   type PlanStatus,
+  PLAN_DEFS,
   defaultEntitlement,
   adminEntitlement,
   entitlementForPlan,
@@ -29,6 +30,41 @@ import {
 } from "./plans";
 
 const FILE = "entitlement.json";
+
+const KNOWN_STATUSES: PlanStatus[] = ["active", "trialing", "past_due", "canceled"];
+
+/**
+ * Coerce an untrusted stored blob into a well-formed Entitlement.
+ *
+ * Critically, FEATURES and aiMonthlyUsd are ALWAYS derived from PLAN_DEFS for
+ * the resolved plan rather than trusted from the blob — this closes both the
+ * paywall-bypass (a corrupt/partial `features` granting Pro) and the
+ * NaN-to-spend-cap risk in one place. Only the plan, status, and provider
+ * linkage / timestamps are read from the stored record.
+ */
+function normaliseEntitlement(raw: unknown): Entitlement {
+  if (!raw || typeof raw !== "object") return defaultEntitlement();
+  const r = raw as Record<string, unknown>;
+
+  const plan: Plan = r.plan === "pro" ? "pro" : "free";
+  const status: PlanStatus = KNOWN_STATUSES.includes(r.status as PlanStatus)
+    ? (r.status as PlanStatus)
+    : "active";
+  const def = PLAN_DEFS[plan];
+
+  return {
+    plan,
+    status,
+    aiMonthlyUsd: def.aiMonthlyUsd,        // always from PLAN_DEFS — never the blob
+    features: { ...def.features },          // always from PLAN_DEFS — never the blob
+    ...(typeof r.trialEndsAt === "string" ? { trialEndsAt: r.trialEndsAt } : {}),
+    ...(typeof r.currentPeriodEnd === "string" ? { currentPeriodEnd: r.currentPeriodEnd } : {}),
+    ...(r.provider === "stub" || r.provider === "stripe" ? { provider: r.provider } : {}),
+    ...(typeof r.customerId === "string" ? { customerId: r.customerId } : {}),
+    ...(typeof r.subscriptionId === "string" ? { subscriptionId: r.subscriptionId } : {}),
+    updatedAt: typeof r.updatedAt === "string" ? r.updatedAt : nowIso(),
+  };
+}
 
 /** Resolve trial expiry: an expired trial reads as Free until renewed. */
 function resolveTrial(ent: Entitlement): Entitlement {
@@ -44,12 +80,14 @@ function resolveTrial(ent: Entitlement): Entitlement {
 /**
  * The user's current entitlement. Admins/dev get an unlimited internal
  * entitlement; everyone else defaults to Free until a stored record exists.
+ * Stored data is normalised (features/quota derived from PLAN_DEFS, never
+ * trusted from the blob) before trial resolution.
  */
 export async function getEntitlement(username: string): Promise<Entitlement> {
   if (isAdminUser(username)) return adminEntitlement();
-  const stored = await readUserStore<Entitlement | null>(username, FILE, null);
+  const stored = await readUserStore<unknown>(username, FILE, null);
   if (!stored || typeof stored !== "object") return defaultEntitlement();
-  return resolveTrial(stored);
+  return resolveTrial(normaliseEntitlement(stored));
 }
 
 /** Persist an entitlement (stamps updatedAt). */

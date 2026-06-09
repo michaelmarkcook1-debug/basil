@@ -58,6 +58,7 @@ export async function POST(req: Request) {
         feature: "chat",
         family: familyForKind(chatKind),
         userMonthlyUsd: entitlement.aiMonthlyUsd,
+        maxSteps: 8, // matches stopWhen: stepCountIs(8) below
       },
       chatKind
     );
@@ -124,6 +125,17 @@ export async function POST(req: Request) {
         gateway: { tags: ["feature:chat", "env:production"] },
       },
     }),
+  });
+
+  // Pull the stream to completion on the SERVER regardless of the client. If the
+  // client disconnects mid-stream, onFinish would otherwise never fire and the
+  // spend reservation would leak (stay counted at worst-case forever). consumeStream
+  // guarantees onFinish (commit) or onError (release) runs. Fire-and-forget.
+  void Promise.resolve(result.consumeStream()).catch(() => {
+    if (!spendSettled) {
+      spendSettled = true;
+      void releaseSpend(reservation);
+    }
   });
 
   return result.toUIMessageStreamResponse();

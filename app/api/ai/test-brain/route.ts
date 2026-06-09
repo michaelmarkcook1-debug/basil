@@ -12,6 +12,10 @@ export async function GET() {
 
   const start = Date.now();
   try {
+    // Intentionally UNMETERED: this is a ~16-output-token connectivity probe
+    // that must succeed even when a user is over their AI spend cap (it's how
+    // they diagnose provider health). Its cost is negligible and excluded by
+    // design from the spend guard.
     const model = getTextModel("fast");
     const { text, usage } = await generateText({
       model,

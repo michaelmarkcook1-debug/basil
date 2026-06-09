@@ -16,7 +16,7 @@
 
 import "server-only";
 import type { Plan } from "./plans";
-import { activatePlan, startTrial } from "./entitlement-store";
+import { startTrial } from "./entitlement-store";
 
 /** Normalised webhook event the app understands (provider-agnostic). */
 export type BillingWebhookEvent =
@@ -65,11 +65,11 @@ class StubProvider implements BillingProvider {
     cancelUrl: string;
   }): Promise<CheckoutSession> {
     // No real payment page exists — simulate the upgrade immediately so the
-    // end-to-end flow (button → entitlement change → UI) is exercisable.
+    // end-to-end flow (button → entitlement change → UI) is exercisable. Grant a
+    // 14-day Pro trial; let any storage failure propagate so checkout returns
+    // 500 rather than silently appearing to succeed.
     if (input.plan === "pro") {
-      await startTrial(input.username).catch(async () => {
-        await activatePlan(input.username, "pro", { provider: "stub" });
-      });
+      await startTrial(input.username);
     }
     return { url: input.successUrl, sessionId: `stub_${input.username}_${input.plan}` };
   }

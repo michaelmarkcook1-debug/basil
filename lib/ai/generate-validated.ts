@@ -34,6 +34,8 @@ import { generateText, Output, NoObjectGeneratedError } from "ai";
 import { z } from "zod";
 import type { LanguageModel } from "ai";
 import type { ProviderOptions } from "@ai-sdk/provider-utils";
+import type { ModelKind } from "@/lib/ai/model-config";
+import { reserveSpend, commitSpend, releaseSpend, SpendCapError, type SpendMeter } from "@/lib/ai/spend-guard";
 
 // ── Error type ─────────────────────────────────────────────────────────────────
 
@@ -62,6 +64,10 @@ interface BaseOpts {
   prompt: string;
   tag: string;
   providerOptions?: ProviderOptions;
+  /** Spend meter — when set, each attempt is checked against the AI spend cap. */
+  meter?: SpendMeter;
+  /** Tier for the worst-case reservation (defaults to "default" / Opus). */
+  meterKind?: ModelKind;
 }
 
 interface ObjectOpts<T> extends BaseOpts {
@@ -109,16 +115,26 @@ export async function generateValidated<T>(opts: Opts<T>): Promise<T> {
               : {}),
           });
 
-    const result = await generateText({
-      model: opts.model,
-      maxOutputTokens: opts.maxOutputTokens,
-      output,
-      system,
-      prompt: opts.prompt,
-      ...(opts.providerOptions ? { providerOptions: opts.providerOptions } : {}),
-    });
-
-    return result.output as T;
+    // Meter each attempt (the repair retry is a second billable call). reserve
+    // may throw SpendCapError — that propagates out and is re-thrown past the
+    // validation-repair logic below so a budget rejection is never mistaken for
+    // a validation failure.
+    const reservation = opts.meter ? await reserveSpend(opts.meter, opts.meterKind ?? "default") : null;
+    try {
+      const result = await generateText({
+        model: opts.model,
+        maxOutputTokens: opts.maxOutputTokens,
+        output,
+        system,
+        prompt: opts.prompt,
+        ...(opts.providerOptions ? { providerOptions: opts.providerOptions } : {}),
+      });
+      if (reservation) await commitSpend(reservation, result.usage);
+      return result.output as T;
+    } catch (callErr) {
+      if (reservation) await releaseSpend(reservation);
+      throw callErr;
+    }
   }
 
   // ── Attempt 1 ─────────────────────────────────────────────────────────────
@@ -131,6 +147,9 @@ export async function generateValidated<T>(opts: Opts<T>): Promise<T> {
   try {
     return await attempt();
   } catch (err) {
+    // A spend-cap rejection is not a validation failure — propagate it so the
+    // caller can return 429 (and we don't waste a repair attempt on it).
+    if (err instanceof SpendCapError) throw err;
     // Extract diagnostic info from NoObjectGeneratedError or Zod error
     if (NoObjectGeneratedError.isInstance(err)) {
       modelExcerpt = (err.text ?? "").slice(0, 300);
@@ -164,6 +183,7 @@ export async function generateValidated<T>(opts: Opts<T>): Promise<T> {
   try {
     return await attempt(repairHint);
   } catch (retryErr) {
+    if (retryErr instanceof SpendCapError) throw retryErr;
     const retryExcerpt = NoObjectGeneratedError.isInstance(retryErr)
       ? (retryErr.text ?? "").slice(0, 300)
       : retryErr instanceof Error

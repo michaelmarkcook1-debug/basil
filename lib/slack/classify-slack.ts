@@ -316,6 +316,7 @@ Respond with ONLY valid JSON — no markdown fences, no explanation:
         schema: SlackIntelligenceSchema,
         schemaName: "SlackIntelligence",
         schemaDescription: "Structured intelligence extracted from a Slack conversation",
+        meter: { username, feature: "classify:slack" },
       });
 
       return output as SlackIntelligence;
@@ -354,6 +355,7 @@ Respond with ONLY valid JSON — no markdown fences, no explanation:
             schema: SlackIntelligenceSchema,
             schemaName: "SlackIntelligence",
             schemaDescription: "Structured intelligence extracted from a Slack conversation",
+            meter: { username, feature: "classify:slack:shadow" },
           });
         } catch {
           // Shadow failures are intentionally silent — never surface to caller

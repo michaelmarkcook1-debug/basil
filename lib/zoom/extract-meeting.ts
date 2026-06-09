@@ -219,7 +219,10 @@ Respond with ONLY valid JSON — no markdown fences, no explanation, no preamble
         system,
         messages: [{ role: "user", content: prompt }],
       },
-      "default",
+      // Reserve at the "long" output budget (8192) to match maxOutputTokens above;
+      // familyForTier("long") === "opus" so pricing is unchanged, only the
+      // worst-case reservation grows to cover the real output ceiling.
+      "long",
       { username, feature: "zoom:extract" }
     );
 

@@ -296,6 +296,7 @@ Respond with ONLY valid JSON — no markdown fences, no explanation:
         schema: EmailIntelligenceSchema,
         schemaName: "EmailIntelligence",
         schemaDescription: "Structured intelligence extracted from an email",
+        meter: { username, feature: "classify:email" },
       });
 
       return output as EmailIntelligence;
@@ -335,6 +336,7 @@ Respond with ONLY valid JSON — no markdown fences, no explanation:
             schema: EmailIntelligenceSchema,
             schemaName: "EmailIntelligence",
             schemaDescription: "Structured intelligence extracted from an email",
+            meter: { username, feature: "classify:email:shadow" },
           });
         } catch {
           // Shadow failures are intentionally silent — never surface to caller
