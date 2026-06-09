@@ -1,5 +1,6 @@
 import { getStigRequestUser } from "@/lib/stig/auth";
 import { runStigAsk } from "@/lib/stig/engine";
+import { SpendCapError } from "@/lib/ai/spend-guard";
 import { checkRateLimit, getClientIp } from "@/lib/rate-limit";
 
 export const dynamic = "force-dynamic";
@@ -55,6 +56,12 @@ export async function POST(req: Request) {
       headers: { "Content-Type": "text/plain; charset=utf-8" },
     });
   } catch (err) {
+    if (err instanceof SpendCapError) {
+      return new Response("Your AI budget for this period has been reached.", {
+        status: 429,
+        headers: { "Retry-After": String(err.retryAfterSec) },
+      });
+    }
     console.error("[api/stig/siri] failed:", err instanceof Error ? err.message : String(err));
     return new Response("The Stig API failed. Check Basil logs.", { status: 500 });
   }

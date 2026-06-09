@@ -1,6 +1,7 @@
 export const maxDuration = 300;
 
 import { generateTextSafe } from "@/lib/ai/generate";
+import { SpendCapError } from "@/lib/ai/spend-guard";
 import { getTextModel, MAX_TOKENS } from "@/lib/ai/model-config";
 import { getSystemPrompt } from "@/lib/ai/system-prompt";
 import { parseAndValidate } from "@/lib/ai/parse-json";
@@ -521,8 +522,14 @@ Return ONLY valid JSON, no markdown code fences.`;
       maxOutputTokens: MAX_TOKENS.long,
       system: await getSystemPrompt(username, tz),
       prompt,
-    });
+    }, "long", { username, feature: "digest" });
   } catch (e) {
+    if (e instanceof SpendCapError) {
+      return Response.json(
+        { error: `AI budget reached (${e.scope}).` },
+        { status: 429, headers: { "Retry-After": String(e.retryAfterSec) } }
+      );
+    }
     console.error("[digest] generateText failed:", e instanceof Error ? e.message : e);
     return Response.json(
       { error: "AI generation failed. Please try again in a moment." },

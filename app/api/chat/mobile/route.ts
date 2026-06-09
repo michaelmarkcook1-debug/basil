@@ -13,6 +13,7 @@ export const maxDuration = 300;
 
 import { stepCountIs, type ModelMessage } from "ai";
 import { generateTextSafe } from "@/lib/ai/generate";
+import { SpendCapError } from "@/lib/ai/spend-guard";
 import { getTextModel, MAX_TOKENS, PROVIDER_MODE } from "@/lib/ai/model-config";
 import { getSystemPrompt } from "@/lib/ai/system-prompt";
 import { buildAssistantTools } from "@/lib/ai/tools";
@@ -75,10 +76,16 @@ export async function POST(req: Request) {
           gateway: { tags: ["feature:chat", "env:production", "platform:mobile"] },
         },
       }),
-    });
+    }, "default", { username, feature: "chat:mobile" });
 
     return Response.json({ text: result.text });
   } catch (e) {
+    if (e instanceof SpendCapError) {
+      return Response.json(
+        { error: `AI budget reached (${e.scope}).` },
+        { status: 429, headers: { "Retry-After": String(e.retryAfterSec) } }
+      );
+    }
     console.error("[api/chat/mobile] generateText failed:", e);
     return Response.json(
       { error: "AI request failed. Please try again." },

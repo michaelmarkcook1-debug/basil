@@ -1,15 +1,23 @@
 /**
- * Simple in-memory IP-based rate limiter.
+ * Rate limiter with two backends:
  *
- * Designed for auth and AI endpoints where a small burst of legitimate
- * requests is acceptable but brute-force or runaway loops should be blocked.
+ *   • checkRateLimitDurable() — Upstash Redis sliding window (when
+ *     UPSTASH_REDIS_REST_URL + UPSTASH_REDIS_REST_TOKEN are set). Enforced
+ *     ACROSS all Vercel instances, so a user/IP can't multiply their quota by
+ *     hitting different concurrent instances. This is the real abuse control.
+ *
+ *   • checkRateLimit() — module-level in-memory Map (per-instance). Fine for
+ *     unauthenticated brute-force slowing where approximate is acceptable, and
+ *     used as the automatic fallback when Redis is not configured or errors.
+ *
+ * Prefer the USERNAME as the key on authenticated routes (not the spoofable
+ * x-forwarded-for IP), so the limit follows the account, not the connection.
  *
  * Default: 10 attempts per 60-second sliding window per key.
- * Pass a custom `maxAttempts` to override for a specific route.
- *
- * Memory: entries auto-expire; module-level map is fine for a single-instance
- * deployment (Vercel Fluid Compute reuses instances across concurrent requests).
  */
+
+import { Ratelimit, type Duration } from "@upstash/ratelimit";
+import { Redis } from "@upstash/redis";
 
 interface Entry {
   count: number;
@@ -20,6 +28,65 @@ const store = new Map<string, Entry>();
 
 const WINDOW_MS      = 60_000; // 1 minute
 const DEFAULT_MAX    = 10;
+
+// ── Durable (Upstash) backend ──────────────────────────────────────────────────
+
+let rlRedis: Redis | null | undefined;
+function getRlRedis(): Redis | null {
+  if (rlRedis !== undefined) return rlRedis;
+  if (process.env.UPSTASH_REDIS_REST_URL && process.env.UPSTASH_REDIS_REST_TOKEN) {
+    try {
+      rlRedis = Redis.fromEnv();
+    } catch {
+      rlRedis = null;
+    }
+  } else {
+    rlRedis = null;
+  }
+  return rlRedis;
+}
+
+// Cache one Ratelimit instance per (max, window) so we don't rebuild on every call.
+const limiterCache = new Map<string, Ratelimit>();
+function getLimiter(maxAttempts: number, window: Duration): Ratelimit | null {
+  const redis = getRlRedis();
+  if (!redis) return null;
+  const cacheKey = `${maxAttempts}:${window}`;
+  let limiter = limiterCache.get(cacheKey);
+  if (!limiter) {
+    limiter = new Ratelimit({
+      redis,
+      limiter: Ratelimit.slidingWindow(maxAttempts, window),
+      prefix: "rl",
+      analytics: false,
+    });
+    limiterCache.set(cacheKey, limiter);
+  }
+  return limiter;
+}
+
+/**
+ * Cross-instance durable rate-limit check (Upstash). Falls back to the
+ * in-memory limiter when Redis is unconfigured or errors, so it is always safe
+ * to call. `window` is an Upstash Duration string, e.g. "60 s" | "1 m" | "1 h".
+ */
+export async function checkRateLimitDurable(
+  key: string,
+  maxAttempts = DEFAULT_MAX,
+  window: Duration = "60 s"
+): Promise<{ allowed: true } | { allowed: false; retryAfter: number }> {
+  const limiter = getLimiter(maxAttempts, window);
+  if (!limiter) return checkRateLimit(key, maxAttempts);
+  try {
+    const { success, reset } = await limiter.limit(key);
+    if (success) return { allowed: true };
+    const retryAfter = Math.max(1, Math.ceil((reset - Date.now()) / 1000));
+    return { allowed: false, retryAfter };
+  } catch (err) {
+    console.warn("[rate-limit] durable limiter error — falling back to in-memory:", err instanceof Error ? err.message : err);
+    return checkRateLimit(key, maxAttempts);
+  }
+}
 
 /** Prune expired entries (runs inline on every check — cheap for low traffic). */
 function prune() {

@@ -16,6 +16,7 @@
 
 import { NextResponse } from "next/server";
 import { getUsers } from "@/lib/users";
+import { checkGlobalBudget } from "@/lib/ai/spend-guard";
 
 export const dynamic = "force-dynamic";
 
@@ -25,6 +26,15 @@ export async function GET(req: Request) {
 
   if (!cronSecret || authHeader !== `Bearer ${cronSecret}`) {
     return new NextResponse("Forbidden", { status: 403 });
+  }
+
+  // Global spend gate — briefing generation is the most expensive unattended
+  // Opus workload and its cost scales with every user. If the global monthly
+  // ceiling is already reached, skip the whole fan-out rather than blow past it.
+  const budget = await checkGlobalBudget();
+  if (!budget.ok) {
+    console.warn(`[cron/generate-briefing] global AI budget reached (${budget.scope}) — skipping run`);
+    return NextResponse.json({ ok: false, skipped: "global-budget-reached", scope: budget.scope });
   }
 
   const host = process.env.APP_URL

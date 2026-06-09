@@ -11,7 +11,7 @@
  * via the email pipeline.
  */
 
-import { generateText } from "ai";
+import { generateTextSafe } from "@/lib/ai/generate";
 import { getTextModel, MAX_TOKENS } from "@/lib/ai/model-config";
 import { parseAndValidate } from "@/lib/ai/parse-json";
 import { MeetingIntelligenceSchema } from "@/lib/ai/schemas";
@@ -56,7 +56,7 @@ async function extractMeetingIntelligence(
 ): Promise<MeetingIntelligence | null> {
   try {
     const sysPrompt = await getSystemPrompt(username).catch(() => "");
-    const { text } = await generateText({
+    const { text } = await generateTextSafe({
       model: getTextModel("fast"),
       maxOutputTokens: MAX_TOKENS.fast,
       system: sysPrompt ||
@@ -84,7 +84,7 @@ Rules:
 - Confidence 0.9 = explicit assignment; 0.7 = clear but unattributed; 0.5 = inferred
 - Return empty arrays if nothing qualifies
 - summary: factual, no speculation`,
-    });
+    }, "fast", { username, feature: "zoom:process" });
 
     const parseResult = parseAndValidate(text, MeetingIntelligenceSchema, "[process-meeting]");
     return parseResult.ok ? parseResult.data : null;

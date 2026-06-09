@@ -1,7 +1,9 @@
 import "server-only";
 
-import { generateText, stepCountIs, type ModelMessage } from "ai";
+import { stepCountIs, type ModelMessage } from "ai";
 import { getTextModel, MAX_TOKENS, PROVIDER_MODE } from "@/lib/ai/model-config";
+import { generateTextSafe } from "@/lib/ai/generate";
+import { SpendCapError } from "@/lib/ai/spend-guard";
 import { getSystemPrompt } from "@/lib/ai/system-prompt";
 import { buildAssistantTools } from "@/lib/ai/tools";
 import { getSettings } from "@/lib/settings/store";
@@ -86,10 +88,11 @@ ${question}`,
     },
   ];
 
+  const kind = mode === "briefing" || mode === "projects" ? "long" : "default";
   let answerText: string;
   try {
-    const result = await generateText({
-      model: getTextModel(mode === "briefing" || mode === "projects" ? "long" : "default"),
+    const result = await generateTextSafe({
+      model: getTextModel(kind),
       maxOutputTokens: mode === "voice" ? 900 : MAX_TOKENS.default,
       system,
       messages,
@@ -100,9 +103,11 @@ ${question}`,
           gateway: { tags: ["feature:stig-api", `mode:${mode}`, "env:production"] },
         },
       }),
-    });
+    }, kind, { username, feature: `stig:${mode}` });
     answerText = result.text;
   } catch (err) {
+    // Spend-cap rejections propagate unmapped so callers can return 429.
+    if (err instanceof SpendCapError) throw err;
     const mapped = mapProviderError(err);
     const error = new Error(mapped.userMessage) as Error & {
       code: string;

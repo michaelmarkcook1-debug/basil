@@ -158,7 +158,7 @@ export async function POST(req: Request) {
         maxOutputTokens: 1024,
         temperature: 0,
         prompt: buildPrompt(batch, todayStr),
-      });
+      }, "fast", { username, feature: "classify:actions" });
       aiText = text;
     } catch (aiErr) {
       // AI call failed — fall through to heuristic

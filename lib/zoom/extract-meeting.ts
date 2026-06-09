@@ -219,7 +219,8 @@ Respond with ONLY valid JSON — no markdown fences, no explanation, no preamble
         system,
         messages: [{ role: "user", content: prompt }],
       },
-      "default"
+      "default",
+      { username, feature: "zoom:extract" }
     );
 
     return parseExtract(text, metadata);

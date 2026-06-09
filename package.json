@@ -21,6 +21,8 @@
     "@ai-sdk/react": "^3.0.160",
     "@slack/web-api": "^7.15.0",
     "@types/bcryptjs": "^2.4.6",
+    "@upstash/ratelimit": "^2.0.8",
+    "@upstash/redis": "^1.38.0",
     "@vercel/blob": "^2.3.3",
     "@whiskeysockets/baileys": "^7.0.0-rc.9",
     "@workflow/next": "^4.0.5",

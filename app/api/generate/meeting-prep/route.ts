@@ -1,5 +1,6 @@
 import { type ModelMessage } from "ai";
 import { generateTextSafe } from "@/lib/ai/generate";
+import { SpendCapError } from "@/lib/ai/spend-guard";
 import { getTextModel, MAX_TOKENS } from "@/lib/ai/model-config";
 
 export const maxDuration = 300;
@@ -626,8 +627,14 @@ Return ONLY valid JSON, no markdown code fences:
       maxOutputTokens: MAX_TOKENS.long,
       system: systemPrompt,
       ...(messages ? { messages } : { prompt: promptText }),
-    });
+    }, "long", { username, feature: "meeting-prep" });
   } catch (e) {
+    if (e instanceof SpendCapError) {
+      return Response.json(
+        { error: `AI budget reached (${e.scope}).` },
+        { status: 429, headers: { "Retry-After": String(e.retryAfterSec) } }
+      );
+    }
     const name = e instanceof Error ? e.constructor.name : "unknown";
     const msg  = e instanceof Error ? e.message : String(e);
     const status = (e as Record<string, unknown>)?.statusCode ?? (e as Record<string, unknown>)?.status ?? "";

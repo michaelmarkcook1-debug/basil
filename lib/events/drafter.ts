@@ -16,7 +16,7 @@
  *   always has something to show rather than a silent blank
  */
 
-import { generateText } from "ai";
+import { generateTextSafe } from "@/lib/ai/generate";
 import { getTextModel, MAX_TOKENS } from "@/lib/ai/model-config";
 import { getSystemPrompt } from "@/lib/ai/system-prompt";
 import { searchEmails, getEmailBody } from "@/lib/google/gmail";
@@ -201,12 +201,12 @@ CRITICAL: The reply must address the specific content of THIS message. If you fi
 
   try {
     const system = await getSystemPrompt(username);
-    const { text } = await generateText({
+    const { text } = await generateTextSafe({
       model: getTextModel(),
       maxOutputTokens: MAX_TOKENS.default,
       system,
       messages: [{ role: "user", content: userPrompt }],
-    });
+    }, "default", { username, feature: "draft" });
 
     // Parse the JSON response
     let parsed: { body?: string; caveat?: string } = {};

@@ -11,7 +11,7 @@
  * - Body clipped to 4 000 chars to keep AI costs bounded
  */
 
-import { generateText } from "ai";
+import { generateTextSafe } from "@/lib/ai/generate";
 import { getTextModel, MAX_TOKENS } from "@/lib/ai/model-config";
 import { getSystemPrompt } from "@/lib/ai/system-prompt";
 import { parseAndValidate } from "@/lib/ai/parse-json";
@@ -311,12 +311,12 @@ Respond with ONLY valid JSON — no markdown fences, no explanation:
   // ── Legacy path: generateText + optional dispatch_shadow trace ────────────
   try {
     const system = await getSystemPrompt(username);
-    const { text } = await generateText({
+    const { text } = await generateTextSafe({
       model: getTextModel("fast"),
       maxOutputTokens: MAX_TOKENS.fast,
       system,
       messages: [{ role: "user", content: prompt }],
-    });
+    }, "fast", { username, feature: "classify:email" });
 
     const result = parseIntelligence(text);
 

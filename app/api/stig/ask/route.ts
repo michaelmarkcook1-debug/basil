@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { getStigRequestUser } from "@/lib/stig/auth";
 import { runStigAsk } from "@/lib/stig/engine";
+import { SpendCapError } from "@/lib/ai/spend-guard";
 import { mapProviderError } from "@/lib/stig/error-mapper";
 import { checkRateLimit, getClientIp } from "@/lib/rate-limit";
 import type { StigAskRequest } from "@/lib/stig/types";
@@ -55,6 +56,14 @@ export async function POST(req: Request) {
     const result = await runStigAsk(user.username, body, user.authMode);
     return NextResponse.json(result);
   } catch (err) {
+    // AI spend cap — return 429 with Retry-After.
+    if (err instanceof SpendCapError) {
+      return NextResponse.json(
+        { error: `AI budget reached (${err.scope}).`, code: "spend_cap" },
+        { status: 429, headers: { "Retry-After": String(err.retryAfterSec) } }
+      );
+    }
+
     // Check if this is an already-mapped engine error (has a .code property)
     const errWithCode = err as Error & { code?: string; narrowingOptions?: string[] };
     if (errWithCode.code && errWithCode.message && !errWithCode.message.includes("question is required")) {

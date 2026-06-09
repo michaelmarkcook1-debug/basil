@@ -22,6 +22,12 @@ import { generateText, streamText } from "ai";
 import { createAnthropic } from "@ai-sdk/anthropic";
 import { getTextModel, type ModelKind, ANTHROPIC_MODEL_IDS } from "@/lib/ai/model-config";
 import type { LanguageModel } from "ai";
+import {
+  reserveSpend,
+  commitSpend,
+  releaseSpend,
+  type SpendMeter,
+} from "@/lib/ai/spend-guard";
 
 // ── Internal helpers ──────────────────────────────────────────────────────────
 
@@ -60,26 +66,40 @@ export type StreamTextOptions   = Parameters<typeof streamText>[0];
  *                 If `model` is omitted, getTextModel(kind) is used.
  * @param kind     Model tier — "fast" | "default" | "long".  Ignored when
  *                 `options.model` is explicitly provided.
+ * @param meter    Optional spend meter — when provided, the call is checked
+ *                 against the per-user + global AI spend caps BEFORE running
+ *                 (throws SpendCapError / 429 if over) and the actual token
+ *                 usage is recorded AFTER. Omit for unmetered internal calls.
  */
 export async function generateTextSafe(
   options: GenerateTextOptions,
-  kind: ModelKind = "default"
+  kind: ModelKind = "default",
+  meter?: SpendMeter
 ): Promise<Awaited<ReturnType<typeof generateText>>> {
   const primaryModel = options.model ?? getTextModel(kind);
 
+  // Reserve worst-case budget up front (throws SpendCapError if over cap).
+  const reservation = meter ? await reserveSpend(meter, kind) : null;
+
   // ── Attempt 1: primary ────────────────────────────────────────────────────
   try {
-    return await generateText({ ...options, model: primaryModel });
+    const result = await generateText({ ...options, model: primaryModel });
+    if (reservation) await commitSpend(reservation, result.usage);
+    return result;
   } catch (primaryErr) {
     const msg = primaryErr instanceof Error ? primaryErr.message : String(primaryErr);
     console.warn(`[ai/generate] Primary model failed (${kind}): ${msg.slice(0, 200)}`);
 
-    if (!isFallbackWorthTrying(primaryErr)) throw primaryErr;
+    if (!isFallbackWorthTrying(primaryErr)) {
+      if (reservation) await releaseSpend(reservation);
+      throw primaryErr;
+    }
   }
 
   // ── Attempt 2: direct Anthropic fallback ──────────────────────────────────
   const fallback = getDirectAnthropicModel(kind);
   if (!fallback) {
+    if (reservation) await releaseSpend(reservation);
     throw new Error(
       "[ai/generate] Primary model failed and no ANTHROPIC_API_KEY fallback is available. " +
       "Check AI Gateway credentials or set ANTHROPIC_API_KEY."
@@ -88,8 +108,11 @@ export async function generateTextSafe(
 
   try {
     console.info(`[ai/generate] Retrying with direct Anthropic fallback (${kind})`);
-    return await generateText({ ...options, model: fallback });
+    const result = await generateText({ ...options, model: fallback });
+    if (reservation) await commitSpend(reservation, result.usage);
+    return result;
   } catch (fallbackErr) {
+    if (reservation) await releaseSpend(reservation);
     const msg = fallbackErr instanceof Error ? fallbackErr.message : String(fallbackErr);
     throw new Error(`[ai/generate] Both gateway and Anthropic direct failed. Last: ${msg.slice(0, 200)}`);
   }
