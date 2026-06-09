@@ -169,3 +169,35 @@ export async function blobIsMigrated(): Promise<boolean> {
   const url = await resolveUrl(`${PREFIX}/_migrated`);
   return url !== null;
 }
+
+/**
+ * Delete ALL blobs under basil/users/<username>/ — called on account deletion.
+ *
+ * Paginates through the entire prefix so it handles any number of files.
+ * Batch-deletes each page (up to 100 URLs per del() call).
+ * Evicts deleted entries from the in-memory URL cache.
+ *
+ * @returns Number of blobs deleted.
+ */
+export async function blobPurgeUserData(username: string): Promise<number> {
+  const sanitized = username.replace(/[^a-zA-Z0-9._-]/g, "_");
+  const scopePrefix = `${PREFIX}/users/${sanitized}/`;
+
+  let deleted = 0;
+  let cursor: string | undefined;
+
+  do {
+    const result = await list({ prefix: scopePrefix, cursor, limit: 100 });
+    if (result.blobs.length > 0) {
+      const urls = result.blobs.map((b) => b.url);
+      await del(urls);
+      for (const b of result.blobs) {
+        urlCache.delete(b.pathname);
+      }
+      deleted += result.blobs.length;
+    }
+    cursor = result.hasMore ? result.cursor : undefined;
+  } while (cursor);
+
+  return deleted;
+}

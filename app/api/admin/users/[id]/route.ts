@@ -7,6 +7,7 @@
 import { NextResponse } from "next/server";
 import { getSessionUser } from "@/lib/auth";
 import { getUsers, isAdminUser, setUserDisabled, deleteUser, revokeUserSessions } from "@/lib/users";
+import { purgeUserData } from "@/lib/storage/persistent";
 
 type Params = { params: Promise<{ id: string }> };
 
@@ -68,5 +69,17 @@ export async function DELETE(_req: Request, { params }: Params) {
   }
 
   await deleteUser(target.username);
+
+  // Best-effort blob purge — fire-and-forget so a storage error never blocks
+  // a successful admin deletion response. Account record is already gone.
+  purgeUserData(target.username)
+    .then(({ deleted }) => {
+      console.info(`[admin/users/delete] data purge complete for ${target.username}: ${deleted} blob(s) removed`);
+    })
+    .catch((err) => {
+      console.error("[admin/users/delete] data purge failed (non-fatal):", err instanceof Error ? err.message : err);
+    });
+
+  console.info(`[admin/users/delete] admin=${admin} deleted user=${target.username}`);
   return NextResponse.json({ success: true });
 }

@@ -42,6 +42,7 @@ import {
   blobListJson,
   blobMigrateFromSnapshot,
   blobIsMigrated,
+  blobPurgeUserData,
 } from "./adapters/blob";
 import {
   fsReadJson,
@@ -353,6 +354,64 @@ export async function forceFlushSnapshot(): Promise<{ ok: boolean; errors: strin
     const msg = err instanceof Error ? err.message : String(err);
     console.error("[storage] forceFlushSnapshot failed:", msg);
     return { ok: false, errors: [msg] };
+  }
+}
+
+/**
+ * Purge all stored data for a user — call immediately after deleteUser().
+ *
+ * On Blob (production): deletes every blob under basil/users/<username>/
+ * with full pagination. Also removes the /tmp write-through cache directory
+ * so a warm instance can't serve stale data after the blobs are gone.
+ *
+ * On local filesystem: removes .data/users/<username>/ recursively.
+ *
+ * This is intentionally best-effort: failures are logged but never thrown.
+ * The account record is already gone before this runs, so data orphaning is
+ * always preferable to blocking a successful account deletion response.
+ *
+ * @returns { deleted } — number of blobs removed (0 on filesystem or on error).
+ */
+export async function purgeUserData(username: string): Promise<{ deleted: number }> {
+  const safe = username.replace(/[^a-zA-Z0-9._-]/g, "_");
+
+  // Always clear /tmp write-through cache so warm instances don't re-serve stale data
+  try {
+    const tmpUserDir = path.join(DATA_DIR, "users", safe);
+    await fs.rm(tmpUserDir, { recursive: true, force: true });
+  } catch (err) {
+    console.warn("[storage/purge] /tmp cache clear failed:", err instanceof Error ? err.message : err);
+  }
+
+  if (isEnvEnabled()) {
+    // Vercel Env adapter is a legacy path used before Blob was enabled.
+    // File-by-file deletion would require listing the snapshot; since this
+    // path is deprecated and will not be used by new commercial deployments,
+    // we log and skip rather than implementing a full sweep.
+    console.warn("[storage/purge] Vercel Env adapter active — per-user blob purge not supported; delete BASIL_DATA env var manually.");
+    return { deleted: 0 };
+  }
+
+  if (!isBlobEnabled()) {
+    // Local filesystem: remove the user data directory
+    try {
+      const fsUserDir = path.join(DATA_DIR, "users", safe);
+      await fs.rm(fsUserDir, { recursive: true, force: true });
+      console.info(`[storage/purge] local fs purge complete for ${username}`);
+    } catch (err) {
+      console.warn("[storage/purge] fs dir remove failed:", err instanceof Error ? err.message : err);
+    }
+    return { deleted: 0 };
+  }
+
+  // Vercel Blob: paginated prefix delete
+  try {
+    const deleted = await blobPurgeUserData(username);
+    console.info(`[storage/purge] blob purge complete for ${username}: ${deleted} blob(s) deleted`);
+    return { deleted };
+  } catch (err) {
+    console.error("[storage/purge] blob purge failed:", err instanceof Error ? err.message : err);
+    return { deleted: 0 };
   }
 }
 
