@@ -117,17 +117,15 @@ export async function readUserRecords(): Promise<User[]> {
 
 /**
  * Encrypt and persist the user records array.
- * Falls back to plain JSON when the encryption key is not yet configured,
- * so registration/password-change never throws a hard 500.
+ *
+ * Intentionally fail-closed: if encryption fails (missing/invalid
+ * BASIL_TOKEN_ENCRYPTION_KEY) the write throws rather than silently
+ * downgrading to a plaintext users.json.  The caller receives a hard error
+ * and should return HTTP 500 — no credentials are ever stored unencrypted.
  */
 export async function writeUserRecords(users: User[]): Promise<void> {
-  try {
-    const envelope = encrypt(JSON.stringify(users));
-    await writeStore(SECURE_USERS_FILE, envelope, undefined, { durability: "strong" });
-  } catch (err) {
-    console.error("[secure-auth-store] encrypt failed — writing plain users.json fallback:", err instanceof Error ? err.message : err);
-    await writeStore(LEGACY_USERS_FILE, users, undefined, { durability: "strong" });
-  }
+  const envelope = encrypt(JSON.stringify(users));
+  await writeStore(SECURE_USERS_FILE, envelope, undefined, { durability: "strong" });
 }
 
 // ── Reset token record storage ────────────────────────────────────────────────

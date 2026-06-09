@@ -66,12 +66,18 @@ export async function POST(req: Request) {
 
   let username: string | null = null;
   if (isCronCall) {
-    // For cron-triggered ingestion, use the first admin user (or first user if
-    // no admin exists). poll-ingest is inherently single-user per call — the
-    // cron scheduler can POST multiple times to cover multiple users if needed.
-    const users = await getUsers();
-    const adminUser = users.find((u) => isAdminUser(u.username)) ?? users[0];
-    username = adminUser?.username ?? null;
+    // The cron wrapper /api/cron/poll-ingest fans out by sending one POST per
+    // user with an X-Basil-Username header.  When that header is present, use
+    // it directly; otherwise fall back to the first admin/first user so a
+    // direct cron invocation without the wrapper still works.
+    const cronUsername = req.headers.get("x-basil-username");
+    if (cronUsername) {
+      username = cronUsername;
+    } else {
+      const users = await getUsers();
+      const adminUser = users.find((u) => isAdminUser(u.username)) ?? users[0];
+      username = adminUser?.username ?? null;
+    }
     if (!username) {
       return NextResponse.json({ error: "No users configured" }, { status: 503 });
     }

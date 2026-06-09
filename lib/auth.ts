@@ -115,6 +115,48 @@ export async function destroySession() {
 }
 
 /**
+ * Return the username from the current session, or throw a typed 401 error.
+ *
+ * Preferred over the manual getSessionUser() + null-check pattern in route
+ * handlers.  All authentication enforcement flows through one function so:
+ *   – audit logging can be added in one place
+ *   – TypeScript callers receive `string` (never `string | null`)
+ *   – missed auth checks produce compile errors rather than silent bugs
+ *
+ * Usage in route handlers:
+ *   ```ts
+ *   import { requireUser, AuthRequiredError } from "@/lib/auth";
+ *
+ *   export async function GET() {
+ *     try {
+ *       const username = await requireUser();
+ *       // ... handler body
+ *     } catch (err) {
+ *       if (err instanceof AuthRequiredError) {
+ *         return NextResponse.json({ error: "Unauthorised" }, { status: 401 });
+ *       }
+ *       throw err;
+ *     }
+ *   }
+ *   ```
+ *
+ * Or use the `withAuth` helper which wraps this boilerplate automatically.
+ */
+export class AuthRequiredError extends Error {
+  readonly status = 401;
+  constructor() {
+    super("Unauthorised");
+    this.name = "AuthRequiredError";
+  }
+}
+
+export async function requireUser(): Promise<string> {
+  const username = await getSessionUser();
+  if (!username) throw new AuthRequiredError();
+  return username;
+}
+
+/**
  * Return the username from the current session JWT without hitting the user store.
  *
  * Use this in OAuth initiation routes where the full user-record lookup
