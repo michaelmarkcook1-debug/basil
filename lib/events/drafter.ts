@@ -201,12 +201,13 @@ CRITICAL: The reply must address the specific content of THIS message. If you fi
 
   try {
     const system = await getSystemPrompt(username);
+    // #4 by-path down-tier: auto-drafts run on Sonnet ("balanced"), not Opus.
     const { text } = await generateTextSafe({
-      model: getTextModel(),
+      model: getTextModel("balanced"),
       maxOutputTokens: MAX_TOKENS.default,
       system,
       messages: [{ role: "user", content: userPrompt }],
-    }, "default", { username, feature: "draft" });
+    }, "balanced", { username, feature: "draft" });
 
     // Parse the JSON response
     let parsed: { body?: string; caveat?: string } = {};

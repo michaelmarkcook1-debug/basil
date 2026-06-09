@@ -767,12 +767,15 @@ Return ONLY valid JSON, no markdown code fences:
 
   let result: Awaited<ReturnType<typeof generateTextSafe>>;
   try {
+    // #4 by-path down-tier: briefings run on Sonnet ("balanced"), ~5x cheaper
+    // than Opus, while keeping the long output budget. Revert model to
+    // getTextModel("long") here to restore Opus if briefing quality regresses.
     result = await generateTextSafe({
-      model: getTextModel("long"),
+      model: getTextModel("balanced"),
       maxOutputTokens: MAX_TOKENS.long,
       system: await getSystemPrompt(username, tz),
       ...(messages ? { messages } : { prompt: promptText }),
-    }, "long", { username, feature: "briefing" });
+    }, "balanced", { username, feature: "briefing" });
   } catch (e) {
     if (e instanceof SpendCapError) {
       return Response.json(

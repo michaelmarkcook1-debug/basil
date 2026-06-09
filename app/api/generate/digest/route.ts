@@ -517,12 +517,13 @@ Return ONLY valid JSON, no markdown code fences.`;
 
   let result: Awaited<ReturnType<typeof generateTextSafe>>;
   try {
+    // #4 by-path down-tier: digests run on Sonnet ("balanced") to control cost.
     result = await generateTextSafe({
-      model: getTextModel("long"),
+      model: getTextModel("balanced"),
       maxOutputTokens: MAX_TOKENS.long,
       system: await getSystemPrompt(username, tz),
       prompt,
-    }, "long", { username, feature: "digest" });
+    }, "balanced", { username, feature: "digest" });
   } catch (e) {
     if (e instanceof SpendCapError) {
       return Response.json(

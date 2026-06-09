@@ -83,6 +83,12 @@ export interface SpendMeter {
   feature: string;
   /** Override the family for plan-aware down-tiering (#4). Defaults to tier→family. */
   family?: PriceFamily;
+  /**
+   * Per-user monthly USD cap for THIS user, from their plan entitlement
+   * (lib/billing). When set, it overrides the global AI_PER_USER_MONTHLY_USD env
+   * cap — so "your plan's AI quota" and "your spend cap" are one number.
+   */
+  userMonthlyUsd?: number;
 }
 
 export interface SpendReservation {
@@ -108,7 +114,9 @@ export async function reserveSpend(meter: SpendMeter, kind: ModelKind): Promise<
   const family = meter.family ?? familyForTier(kind);
   const period = currentPeriod();
   const gc = globalCapUsd();
-  const uc = userCapUsd();
+  // Per-user cap: the plan entitlement (meter.userMonthlyUsd) takes precedence
+  // over the global env default.
+  const uc = meter.userMonthlyUsd ?? userCapUsd();
 
   // No caps → observe-only. Skip reservation; commit still meters usage.
   if (gc === null && uc === null) {

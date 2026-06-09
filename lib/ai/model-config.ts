@@ -39,7 +39,7 @@ import type { LanguageModel } from "ai";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
-export type ModelKind = "fast" | "default" | "long";
+export type ModelKind = "fast" | "balanced" | "default" | "long";
 
 // Keep ProviderMode as a string alias for back-compat with call sites that read it
 export type ProviderMode = "vercel_gateway" | "anthropic_direct" | "openai_direct";
@@ -62,6 +62,11 @@ export const PROVIDER_MODE: ProviderMode = resolveProviderMode();
  */
 export const GATEWAY_MODEL_IDS = {
   fast:    "anthropic/claude-haiku-4.5",
+  // Sonnet 4.5 — the mid-tier (~5x cheaper than Opus). Used for unattended/bulk
+  // workloads (briefings, digests, drafts) and for Free/trial interactive paths
+  // where Opus-grade reasoning isn't worth the cost (Sprint 3 #4: tier by path
+  // and by plan).
+  balanced: "anthropic/claude-sonnet-4.5",
   // Opus 4.8 is the latest as of this writing (verified live against
   // ai-gateway.vercel.sh/v1/models). Used for chat, briefings, profiling —
   // surfaces where reasoning quality drives the user-perceived value.
@@ -71,24 +76,27 @@ export const GATEWAY_MODEL_IDS = {
 
 /** Anthropic direct model IDs — dot notation matches @ai-sdk/anthropic conventions. */
 export const ANTHROPIC_MODEL_IDS: Record<ModelKind, string> = {
-  fast:    "claude-haiku-4.5",
-  default: "claude-opus-4.8",
-  long:    "claude-opus-4.8",
+  fast:     "claude-haiku-4.5",
+  balanced: "claude-sonnet-4.5",
+  default:  "claude-opus-4.8",
+  long:     "claude-opus-4.8",
 };
 
 /** OpenAI fallback model IDs — used when Anthropic quota is exhausted. */
 const OPENAI_MODEL_IDS: Record<ModelKind, string> = {
-  fast:    "gpt-5.4",
-  default: "gpt-5.4",
-  long:    "gpt-5.4",
+  fast:     "gpt-5.4",
+  balanced: "gpt-5.4",
+  default:  "gpt-5.4",
+  long:     "gpt-5.4",
 };
 
 // ── Token defaults ─────────────────────────────────────────────────────────────
 
 export const MAX_TOKENS: Record<ModelKind, number> = {
-  fast:    2_048,
-  default: 4_096,
-  long:    8_192,
+  fast:     2_048,
+  balanced: 4_096,
+  default:  4_096,
+  long:     8_192,
 };
 
 // ── Startup validation ────────────────────────────────────────────────────────

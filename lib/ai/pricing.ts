@@ -45,12 +45,18 @@ export function costUsd(family: PriceFamily, usage: TokenUsage | undefined): num
 }
 
 /**
- * Default family for a tier, matching the CURRENT model-config routing
- * (fast → Haiku, default/long → Opus). Plan-aware down-tiering (Sprint 3 #4)
- * passes an explicit family to the spend guard to override this.
+ * Family for a tier, matching model-config routing:
+ *   fast → Haiku, balanced → Sonnet, default/long → Opus.
+ * Plan-aware down-tiering (Sprint 3 #4) resolves the effective tier first
+ * (see lib/ai/tiering.ts) and the resulting family flows to the spend guard.
  */
 export function familyForTier(kind: ModelKind): PriceFamily {
-  return kind === "fast" ? "haiku" : "opus";
+  switch (kind) {
+    case "fast": return "haiku";
+    case "balanced": return "sonnet";
+    case "default":
+    case "long": return "opus";
+  }
 }
 
 /**

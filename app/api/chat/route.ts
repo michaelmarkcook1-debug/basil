@@ -14,6 +14,8 @@ import { getSettings } from "@/lib/settings/store";
 import { resolveTimezone } from "@/lib/timezone";
 import { checkRateLimitDurable } from "@/lib/rate-limit";
 import { reserveSpend, commitSpend, releaseSpend, SpendCapError } from "@/lib/ai/spend-guard";
+import { getEntitlement } from "@/lib/billing/entitlement-store";
+import { effectiveKind, familyForKind } from "@/lib/ai/tiering";
 
 // 200 KB limit — covers very long chat histories while preventing abuse
 const MAX_BODY_BYTES = 200_000;
@@ -41,11 +43,24 @@ export async function POST(req: Request) {
     );
   }
 
-  // Spend cap — reserve worst-case budget before the (Opus) call. A 429 here
-  // means the per-user or global monthly AI ceiling has been hit.
+  // Plan-aware model tier: Pro/admin get Opus on chat; Free/trial-expired get
+  // Sonnet ("balanced"). The per-user spend cap comes from the plan's AI quota.
+  const entitlement = await getEntitlement(username);
+  const chatKind = effectiveKind("default", entitlement.plan);
+
+  // Spend cap — reserve worst-case budget before the call. A 429 here means the
+  // per-user (plan quota) or global monthly AI ceiling has been hit.
   let reservation;
   try {
-    reservation = await reserveSpend({ username, feature: "chat" }, "default");
+    reservation = await reserveSpend(
+      {
+        username,
+        feature: "chat",
+        family: familyForKind(chatKind),
+        userMonthlyUsd: entitlement.aiMonthlyUsd,
+      },
+      chatKind
+    );
   } catch (err) {
     if (err instanceof SpendCapError) {
       return Response.json(
@@ -76,9 +91,13 @@ export async function POST(req: Request) {
   const timezone  = resolveTimezone(settings, req);
   const system    = await getSystemPrompt(username, timezone);
 
+  // Settle the spend reservation exactly once — onFinish (success) and onError
+  // (failure) are mutually exclusive, but guard so we never both commit AND
+  // release the same reservation (which would corrupt the counter).
+  let spendSettled = false;
   const result = streamText({
-    model: getTextModel(),
-    maxOutputTokens: MAX_TOKENS.default,
+    model: getTextModel(chatKind),
+    maxOutputTokens: MAX_TOKENS[chatKind],
     system,
     messages: modelMessages,
     tools: buildAssistantTools(username, firstName, timezone),
@@ -86,6 +105,8 @@ export async function POST(req: Request) {
     // Reconcile the reservation to ACTUAL token usage once the stream finishes.
     // totalUsage aggregates across all tool-loop steps.
     onFinish: ({ totalUsage }) => {
+      if (spendSettled) return;
+      spendSettled = true;
       void commitSpend(reservation, {
         inputTokens: totalUsage?.inputTokens,
         outputTokens: totalUsage?.outputTokens,
@@ -94,6 +115,8 @@ export async function POST(req: Request) {
     // If the model errors before producing usage, return the reservation so a
     // failed call costs nothing.
     onError: () => {
+      if (spendSettled) return;
+      spendSettled = true;
       void releaseSpend(reservation);
     },
     ...(PROVIDER_MODE === "vercel_gateway" && {

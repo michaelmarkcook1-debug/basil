@@ -17,6 +17,7 @@
 import { NextResponse } from "next/server";
 import { getUsers } from "@/lib/users";
 import { checkGlobalBudget } from "@/lib/ai/spend-guard";
+import { hasFeature } from "@/lib/billing/paywall";
 
 export const dynamic = "force-dynamic";
 
@@ -45,6 +46,13 @@ export async function GET(req: Request) {
 
   for (const user of users) {
     try {
+      // Paywall: only generate daily briefings for users whose plan includes
+      // them (Pro / trial / admin). Free users are skipped — no unattended spend.
+      if (!(await hasFeature(user.username, "briefings"))) {
+        results[user.username] = { ok: false, skipped: "not-entitled" };
+        continue;
+      }
+
       // First delete the stale cache so POST always regenerates
       await fetch(`${host}/api/generate/briefing`, {
         method: "DELETE",
