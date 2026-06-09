@@ -66,7 +66,7 @@ export interface ChangeEvent {
 
   /**
    * One-line context giving the specific entity and detail.
-   * e.g. "AG demo deck — was low priority, deadline passed"
+   * e.g. "Example Analytics demo deck — was low priority, deadline passed"
    */
   context: string;
 

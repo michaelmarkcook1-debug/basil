@@ -501,7 +501,7 @@ for (const { full, rel, isTest } of ALL_FILES) {
 // Guard 6d — Hardcoded personal email in runtime code
 // ─────────────────────────────────────────────────────────────────────────────
 //
-// Hardcoded personal email addresses (e.g. michael@talentgenius.io) must not
+// Hardcoded personal email addresses (e.g. michael@example.com) must not
 // appear in runtime app/ or lib/ code.  Self-identity must be resolved from
 // the authenticated user's profile, not baked into source constants.
 //

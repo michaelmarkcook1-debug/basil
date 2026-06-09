@@ -108,7 +108,7 @@ export interface BasilEvent {
   // ── Execution metadata ────────────────────────────────────────────────────
   /** ISO timestamp when execution was attempted. */
   executedAt?: string;
-  /** Human-readable summary of what was done, e.g. "Email sent to malcolm@acme.com". */
+  /** Human-readable summary of what was done, e.g. "Email sent to jordan.avery@example.com". */
   executionResult?: string;
   /** Reason for failure when status === "failed". */
   executionError?: string;

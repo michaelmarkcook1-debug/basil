@@ -292,7 +292,7 @@ export default function MeetingPrepPage() {
 
       <ExtraContextInput
         label="Add context for this meeting"
-        placeholder="e.g. 'Read this email thread', 'Here's the deck we're walking them through', 'My open questions for Ed'…"
+        placeholder="e.g. 'Read this email thread', 'Here's the deck we're walking them through', 'My open questions for Sam'…"
         notes={extraNotes}
         onNotesChange={setExtraNotes}
         files={extraFiles}

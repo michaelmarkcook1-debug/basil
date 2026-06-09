@@ -609,7 +609,7 @@ export default function SchedulePage() {
             {!basilInput && !basilLoading && (
               <div className="flex flex-wrap gap-1 mb-2">
                 {[
-                  "Schedule a 30 min with Ed tomorrow",
+                  "Schedule a 30 min with Sam tomorrow",
                   "Find a 1h slot this week",
                   "Block 2h for focus tomorrow morning",
                   "When am I free Friday?",
