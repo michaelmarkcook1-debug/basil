@@ -1,6 +1,7 @@
-import { NextResponse } from "next/server";
+import { NextResponse, after } from "next/server";
 import { exchangeZoomCode } from "@/lib/zoom/auth";
 import { getSessionUser } from "@/lib/auth";
+import { triggerOnboardingBackfill } from "@/lib/onboarding/backfill";
 import { forceFlushSnapshot } from "@/lib/storage/persistent";
 
 // GET /api/auth/zoom/callback — handles Zoom OAuth callback
@@ -44,6 +45,10 @@ export async function GET(req: Request) {
     await exchangeZoomCode(code, username);
     await forceFlushSnapshot();
     console.log(`[zoom-oauth] Zoom connected successfully for user: ${username}`);
+
+    // Day-0 backfill — runs after the redirect, never blocks it.
+    after(() => triggerOnboardingBackfill(username));
+
     const res = NextResponse.redirect(new URL(successDest, req.url));
     res.cookies.set("basil_zoom_from", "", { path: "/", maxAge: 0 });
     return res;

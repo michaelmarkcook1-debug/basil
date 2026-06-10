@@ -1,7 +1,8 @@
-import { NextResponse } from "next/server";
+import { NextResponse, after } from "next/server";
 import { exchangeCode } from "@/lib/microsoft/auth";
 import { getSessionUser } from "@/lib/auth";
 import { forceFlushSnapshot } from "@/lib/storage/persistent";
+import { triggerOnboardingBackfill } from "@/lib/onboarding/backfill";
 
 // GET /api/auth/microsoft/callback — handles Microsoft OAuth callback
 export async function GET(req: Request) {
@@ -38,6 +39,10 @@ export async function GET(req: Request) {
     }
     await exchangeCode(code, username, origin);
     await forceFlushSnapshot();
+
+    // Day-0 backfill — runs after the redirect, never blocks it.
+    after(() => triggerOnboardingBackfill(username));
+
     const res = NextResponse.redirect(new URL(successDest, req.url));
     res.cookies.set("basil_auth_from", "", { path: "/", maxAge: 0 });
     return res;

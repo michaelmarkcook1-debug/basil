@@ -1,5 +1,6 @@
-import { NextResponse } from "next/server";
+import { NextResponse, after } from "next/server";
 import { getSessionUser } from "@/lib/auth";
+import { triggerOnboardingBackfill } from "@/lib/onboarding/backfill";
 import { saveSlackConfig } from "@/lib/slack/client";
 import { forceFlushSnapshot } from "@/lib/storage/persistent";
 
@@ -110,6 +111,10 @@ export async function GET(req: Request) {
       connectedAt:  new Date().toISOString(),
     });
     await forceFlushSnapshot();
+
+    // Day-0 backfill — pull recent signal + first briefing now (runs after the
+    // redirect, never blocks it).
+    after(() => triggerOnboardingBackfill(username));
 
     return clearFromCookie(NextResponse.redirect(new URL(successDest, req.url)));
   } catch (e) {

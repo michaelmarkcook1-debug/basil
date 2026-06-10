@@ -12,6 +12,7 @@ import { ModeProvider } from "@/components/ui/mode-context";
 import { ModeStatusBar, ModeSwitcherDialog } from "@/components/ui/mode-switcher";
 import { ModeIntelligenceBar } from "@/components/ui/mode-intelligence";
 import { CommandPalette } from "@/components/command-palette";
+import { SyncBanner } from "@/components/sync-banner";
 
 export default function DashboardLayout({
   children,
@@ -73,6 +74,7 @@ export default function DashboardLayout({
 
         {/* Main content */}
         <main className="flex-1 overflow-y-auto basil-scroll bg-background">
+          <SyncBanner />
           <ModeStatusBar />
           <ModeIntelligenceBar />
           <ModeSwitcherDialog open={modeDialogOpen} onOpenChange={setModeDialogOpen} />
@@ -122,6 +124,7 @@ export default function DashboardLayout({
             "pb-[calc(3.5rem+env(safe-area-inset-bottom))]"
           )}
         >
+          <SyncBanner />
           <ModeStatusBar />
           <ModeIntelligenceBar />
           <ModeSwitcherDialog open={modeDialogOpen} onOpenChange={setModeDialogOpen} />

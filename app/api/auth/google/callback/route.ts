@@ -1,8 +1,9 @@
-import { NextResponse } from "next/server";
+import { NextResponse, after } from "next/server";
 import { exchangeCode } from "@/lib/google/auth";
 import { getSessionUser } from "@/lib/auth";
 import { forceFlushSnapshot } from "@/lib/storage/persistent";
 import { autoRegisterGoogleWebhooks } from "@/lib/google/register-webhooks";
+import { triggerOnboardingBackfill } from "@/lib/onboarding/backfill";
 
 // GET /api/auth/google/callback — handles Google OAuth callback
 export async function GET(req: Request) {
@@ -58,6 +59,13 @@ export async function GET(req: Request) {
     }).catch((err) => {
       console.error("[google/callback] Webhook auto-registration threw:", err instanceof Error ? err.message : err);
     });
+
+    // ── Day-0 backfill ────────────────────────────────────────────────────────
+    // Pull recent signal + generate the first briefing now, so the dashboard
+    // fills in within a minute instead of waiting for tomorrow's cron. after()
+    // runs this once the redirect has been sent — it never blocks the user.
+    const backfillUser = username;
+    after(() => triggerOnboardingBackfill(backfillUser));
 
     return redirect(successDest);
   } catch (e) {
