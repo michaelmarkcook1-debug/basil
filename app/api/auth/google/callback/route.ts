@@ -4,6 +4,7 @@ import { getSessionUser } from "@/lib/auth";
 import { forceFlushSnapshot } from "@/lib/storage/persistent";
 import { autoRegisterGoogleWebhooks } from "@/lib/google/register-webhooks";
 import { triggerOnboardingBackfill } from "@/lib/onboarding/backfill";
+import { verifyOAuthState, clearOAuthStateCookie } from "@/lib/auth/oauth-state";
 
 // GET /api/auth/google/callback — handles Google OAuth callback
 export async function GET(req: Request) {
@@ -19,12 +20,22 @@ export async function GET(req: Request) {
   const successDest = from === "onboarding" ? "/onboarding?connected=google" : "/dashboard/settings?connected=google";
   const errorDest   = from === "onboarding" ? "/onboarding?error=google_auth" : "/dashboard/settings?error=oauth_failed";
 
-  // Helper to produce a clean redirect and clear the from-cookie regardless of outcome
+  // Helper to produce a clean redirect and clear the transient cookies regardless of outcome
   const redirect = (dest: string) => {
     const res = NextResponse.redirect(new URL(dest, req.url));
     res.cookies.set("basil_auth_from", "", { path: "/", maxAge: 0 });
+    const cleared = clearOAuthStateCookie("google");
+    res.cookies.set(cleared.name, cleared.value, cleared.options);
     return res;
   };
+
+  // ── CSRF state guard ───────────────────────────────────────────────────────
+  // The state echoed back must match the cookie set at initiation; otherwise
+  // this callback wasn't started by this browser (login-CSRF account linking).
+  if (!verifyOAuthState("google", req, searchParams.get("state"))) {
+    console.warn("[google/callback] OAuth state mismatch — possible CSRF, aborting.");
+    return redirect(errorDest);
+  }
 
   // ── Session guard ──────────────────────────────────────────────────────────
   // Must verify the user is logged in BEFORE exchanging the OAuth code.

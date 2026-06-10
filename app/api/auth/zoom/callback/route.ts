@@ -3,6 +3,7 @@ import { exchangeZoomCode } from "@/lib/zoom/auth";
 import { getSessionUser } from "@/lib/auth";
 import { triggerOnboardingBackfill } from "@/lib/onboarding/backfill";
 import { forceFlushSnapshot } from "@/lib/storage/persistent";
+import { verifyOAuthState, clearOAuthStateCookie } from "@/lib/auth/oauth-state";
 
 // GET /api/auth/zoom/callback — handles Zoom OAuth callback
 export async function GET(req: Request) {
@@ -19,6 +20,16 @@ export async function GET(req: Request) {
   const isSafePath = fromDecoded.startsWith("/") && !fromDecoded.startsWith("//");
   const successDest = isSafePath ? fromDecoded : "/dashboard/settings?connected=zoom";
   const errorDest   = "/dashboard/settings?error=zoom_oauth_failed";
+
+  // CSRF state guard.
+  if (!verifyOAuthState("zoom", req, searchParams.get("state"))) {
+    console.warn("[zoom-oauth] OAuth state mismatch — possible CSRF, aborting.");
+    const res = NextResponse.redirect(new URL(errorDest, req.url));
+    res.cookies.set("basil_zoom_from", "", { path: "/", maxAge: 0 });
+    const cleared = clearOAuthStateCookie("zoom");
+    res.cookies.set(cleared.name, cleared.value, cleared.options);
+    return res;
+  }
 
   // Log any Zoom-side error param so it appears in Vercel logs
   const zoomError = searchParams.get("error");

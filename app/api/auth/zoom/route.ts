@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { getZoomAuthUrl, disconnectZoom } from "@/lib/zoom/auth";
 import { getSessionUser } from "@/lib/auth";
 import { forceFlushSnapshot } from "@/lib/storage/persistent";
+import { buildOAuthState } from "@/lib/auth/oauth-state";
 
 // GET /api/auth/zoom — redirects to Zoom OAuth consent screen
 export async function GET(req: Request) {
@@ -16,7 +17,8 @@ export async function GET(req: Request) {
   }
 
   const from = new URL(req.url).searchParams.get("from") ?? "";
-  const url  = getZoomAuthUrl();
+  const st = buildOAuthState("zoom");
+  const url = `${getZoomAuthUrl()}&state=${encodeURIComponent(st.state)}`;
 
   // Log the redirect URI being used so mismatches are visible in Vercel logs
   const clientId    = process.env.ZOOM_CLIENT_ID    ? "[set]" : "[MISSING]";
@@ -24,6 +26,7 @@ export async function GET(req: Request) {
   console.log(`[zoom-oauth] Initiating OAuth — user: ${username}, client_id: ${clientId}, redirect_uri: ${redirectUri}`);
 
   const res  = NextResponse.redirect(url);
+  res.cookies.set(st.name, st.value, st.options);
   if (from) res.cookies.set("basil_zoom_from", from, { path: "/", httpOnly: true, maxAge: 600 });
   return res;
 }

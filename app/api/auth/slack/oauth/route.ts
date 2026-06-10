@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { getSessionUser } from "@/lib/auth";
+import { buildOAuthState } from "@/lib/auth/oauth-state";
 
 /**
  * GET /api/auth/slack/oauth
@@ -56,13 +57,16 @@ export async function GET(req: Request) {
 
   const from = new URL(req.url).searchParams.get("from") ?? "";
 
+  const st = buildOAuthState("slack");
   const slackUrl = new URL("https://slack.com/oauth/v2/authorize");
   slackUrl.searchParams.set("client_id", clientId);
   slackUrl.searchParams.set("scope", BOT_SCOPES);
   slackUrl.searchParams.set("user_scope", USER_SCOPES);
   slackUrl.searchParams.set("redirect_uri", redirectUri);
+  slackUrl.searchParams.set("state", st.state);
 
   const res = NextResponse.redirect(slackUrl.toString());
+  res.cookies.set(st.name, st.value, st.options);
   // Remember where to send the user after OAuth completes
   if (from) {
     res.cookies.set("basil_slack_from", from, { path: "/", httpOnly: true, maxAge: 600 });

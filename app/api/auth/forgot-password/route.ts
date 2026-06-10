@@ -20,7 +20,7 @@
 import { NextResponse } from "next/server";
 import { findByEmail, findByUsername } from "@/lib/users";
 import { createResetToken } from "@/lib/auth/reset-tokens";
-import { checkRateLimit, getClientIp } from "@/lib/rate-limit";
+import { checkRateLimitDurable, getClientIp } from "@/lib/rate-limit";
 import { forceFlushSnapshot } from "@/lib/storage/persistent";
 
 // ── Email sending via Resend ──────────────────────────────────────────────────
@@ -82,7 +82,7 @@ async function sendResetEmail(to: string, name: string, resetUrl: string): Promi
 
 export async function POST(req: Request) {
   const ip = getClientIp(req);
-  const rl = checkRateLimit(`forgot-pw:${ip}`);
+  const rl = await checkRateLimitDurable(`forgot-pw:${ip}`);
   if (!rl.allowed) {
     return NextResponse.json(
       { error: `Too many requests — please wait ${rl.retryAfter} seconds.` },

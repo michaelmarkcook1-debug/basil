@@ -2,13 +2,13 @@ import { NextResponse } from "next/server";
 import { createSession } from "@/lib/auth";
 import { findByEmail, findByUsername, createUser } from "@/lib/users";
 import { patchSettings } from "@/lib/settings/store";
-import { checkRateLimit, getClientIp } from "@/lib/rate-limit";
+import { checkRateLimitDurable, getClientIp } from "@/lib/rate-limit";
 import { forceFlushSnapshot } from "@/lib/storage/persistent";
 
 export async function POST(req: Request) {
-  // Rate limit by IP — 10 attempts per minute
+  // Rate limit by IP — 10 attempts per minute, enforced across instances.
   const ip = getClientIp(req);
-  const rl = checkRateLimit(`register:${ip}`);
+  const rl = await checkRateLimitDurable(`register:${ip}`);
   if (!rl.allowed) {
     return NextResponse.json(
       { error: `Too many registration attempts — please wait ${rl.retryAfter} seconds.` },

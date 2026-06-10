@@ -3,6 +3,7 @@ import { getSessionUser } from "@/lib/auth";
 import { triggerOnboardingBackfill } from "@/lib/onboarding/backfill";
 import { saveSlackConfig } from "@/lib/slack/client";
 import { forceFlushSnapshot } from "@/lib/storage/persistent";
+import { verifyOAuthState, clearOAuthStateCookie } from "@/lib/auth/oauth-state";
 
 /**
  * GET /api/auth/slack/callback
@@ -31,8 +32,16 @@ export async function GET(req: Request) {
 
   const clearFromCookie = (res: NextResponse) => {
     res.cookies.set("basil_slack_from", "", { path: "/", maxAge: 0 });
+    const cleared = clearOAuthStateCookie("slack");
+    res.cookies.set(cleared.name, cleared.value, cleared.options);
     return res;
   };
+
+  // CSRF state guard.
+  if (!verifyOAuthState("slack", req, searchParams.get("state"))) {
+    console.warn("[slack/callback] OAuth state mismatch — possible CSRF, aborting.");
+    return clearFromCookie(NextResponse.redirect(new URL(errorDest, req.url)));
+  }
 
   if (error || !code) {
     console.error("Slack OAuth error param:", error);

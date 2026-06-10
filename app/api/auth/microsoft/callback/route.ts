@@ -3,6 +3,7 @@ import { exchangeCode } from "@/lib/microsoft/auth";
 import { getSessionUser } from "@/lib/auth";
 import { forceFlushSnapshot } from "@/lib/storage/persistent";
 import { triggerOnboardingBackfill } from "@/lib/onboarding/backfill";
+import { verifyOAuthState, clearOAuthStateCookie } from "@/lib/auth/oauth-state";
 
 // GET /api/auth/microsoft/callback — handles Microsoft OAuth callback
 export async function GET(req: Request) {
@@ -29,6 +30,15 @@ export async function GET(req: Request) {
   const from = req.headers.get("cookie")?.match(/basil_auth_from=([^;]+)/)?.[1] ?? "";
   const successDest = from === "onboarding" ? "/onboarding?connected=microsoft" : "/dashboard/settings?connected=microsoft";
   const errorDest   = from === "onboarding" ? "/onboarding?error=microsoft_auth" : "/dashboard/settings?error=microsoft_auth";
+
+  // CSRF state guard — the echoed state must match the cookie set at initiation.
+  if (!verifyOAuthState("microsoft", req, searchParams.get("state"))) {
+    console.warn("[microsoft-callback] OAuth state mismatch — possible CSRF, aborting.");
+    const res = NextResponse.redirect(new URL(errorDest, req.url));
+    const cleared = clearOAuthStateCookie("microsoft");
+    res.cookies.set(cleared.name, cleared.value, cleared.options);
+    return res;
+  }
 
   try {
     const username = await getSessionUser();

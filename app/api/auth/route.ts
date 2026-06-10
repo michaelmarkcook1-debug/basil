@@ -1,12 +1,12 @@
 import { NextResponse } from "next/server";
-import { createSession, destroySession } from "@/lib/auth";
-import { validateCredentials, updateUser } from "@/lib/users";
-import { checkRateLimit, getClientIp } from "@/lib/rate-limit";
+import { createSession, destroySession, getSessionUser } from "@/lib/auth";
+import { validateCredentials, updateUser, revokeUserSessions } from "@/lib/users";
+import { checkRateLimitDurable, getClientIp } from "@/lib/rate-limit";
 
 export async function POST(req: Request) {
-  // Rate limit by IP — 10 attempts per minute
+  // Rate limit by IP — 10 attempts per minute, enforced across instances.
   const ip = getClientIp(req);
-  const rl = checkRateLimit(`login:${ip}`);
+  const rl = await checkRateLimitDurable(`login:${ip}`);
   if (!rl.allowed) {
     return NextResponse.json(
       { error: `Too many login attempts — please wait ${rl.retryAfter} seconds.` },
@@ -42,6 +42,15 @@ export async function POST(req: Request) {
 }
 
 export async function DELETE() {
+  // Revoke server-side so a captured session cookie can't be replayed after
+  // logout. Bumping sessionVersion invalidates ALL of the user's JWTs (logout
+  // everywhere) — the safe default for a 30-day token.
+  const username = await getSessionUser();
+  if (username) {
+    await revokeUserSessions(username).catch((err) => {
+      console.error("[auth/logout] session revoke failed:", err instanceof Error ? err.message : err);
+    });
+  }
   await destroySession();
   return NextResponse.json({ success: true });
 }

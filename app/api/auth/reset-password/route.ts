@@ -9,12 +9,12 @@
 import { NextResponse } from "next/server";
 import { changePassword } from "@/lib/users";
 import { validateResetToken, consumeResetToken } from "@/lib/auth/reset-tokens";
-import { checkRateLimit, getClientIp } from "@/lib/rate-limit";
+import { checkRateLimitDurable, getClientIp } from "@/lib/rate-limit";
 import { forceFlushSnapshot } from "@/lib/storage/persistent";
 
 export async function POST(req: Request) {
   const ip = getClientIp(req);
-  const rl = checkRateLimit(`reset-pw:${ip}`);
+  const rl = await checkRateLimitDurable(`reset-pw:${ip}`);
   if (!rl.allowed) {
     return NextResponse.json(
       { error: "Too many attempts. Please try again later." },

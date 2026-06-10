@@ -3,6 +3,7 @@ import { getMicrosoftAuthUrl } from "@/lib/microsoft/auth";
 import { getSessionUser } from "@/lib/auth";
 import { deleteIntegrationToken } from "@/lib/storage/secure-token-store";
 import { forceFlushSnapshot } from "@/lib/storage/persistent";
+import { buildOAuthState } from "@/lib/auth/oauth-state";
 
 // GET /api/auth/microsoft — redirects to Microsoft OAuth consent screen
 export async function GET(req: Request) {
@@ -16,8 +17,10 @@ export async function GET(req: Request) {
   // Vercel preview URL without requiring MICROSOFT_REDIRECT_URI / NEXT_PUBLIC_APP_URL.
   const reqUrl = new URL(req.url);
   const from = reqUrl.searchParams.get("from") ?? "";
-  const url = getMicrosoftAuthUrl(reqUrl.origin);
+  const st = buildOAuthState("microsoft");
+  const url = `${getMicrosoftAuthUrl(reqUrl.origin)}&state=${encodeURIComponent(st.state)}`;
   const res = NextResponse.redirect(url);
+  res.cookies.set(st.name, st.value, st.options);
   if (from) {
     res.cookies.set("basil_auth_from", from, {
       path: "/",

@@ -3,6 +3,7 @@ import { getAuthUrl } from "@/lib/google/auth";
 import { getSessionUser, getSessionUserLite } from "@/lib/auth";
 import { deleteIntegrationToken } from "@/lib/storage/secure-token-store";
 import { forceFlushSnapshot } from "@/lib/storage/persistent";
+import { buildOAuthState } from "@/lib/auth/oauth-state";
 
 // GET /api/auth/google — redirects to Google OAuth consent screen
 export async function GET(req: Request) {
@@ -18,9 +19,12 @@ export async function GET(req: Request) {
   }
 
   const from = new URL(req.url).searchParams.get("from") ?? "";
-  const url = getAuthUrl();
+  // CSRF state — echoed back on the callback and checked against the cookie.
+  const st = buildOAuthState("google");
+  const url = `${getAuthUrl()}&state=${encodeURIComponent(st.state)}`;
   console.log(`[google/connect] Starting OAuth flow for user ${username}.`);
   const res = NextResponse.redirect(url);
+  res.cookies.set(st.name, st.value, st.options);
   if (from) {
     res.cookies.set("basil_auth_from", from, {
       path: "/",
