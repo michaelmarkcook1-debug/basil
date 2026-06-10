@@ -27,6 +27,7 @@ import {
 } from "lucide-react";
 import Link from "next/link";
 import { formatTime } from "@/lib/utils";
+import { ApproachChips } from "@/components/approach-chip";
 import {
   ExtraContextInput,
   buildExtraContextFormData,
@@ -279,6 +280,11 @@ export default function MeetingPrepPage() {
             <span>·</span>
             <Video className="h-3.5 w-3.5" /> Zoom
           </div>
+          {/* Influence layer, ambient: how to approach each attendee Basil knows —
+              available instantly from stored intelligence, before prep generates. */}
+          {meta?.attendees && meta.attendees.length > 0 && (
+            <ApproachChips names={meta.attendees} className="mt-2" />
+          )}
         </div>
         <Button
           onClick={generate}
