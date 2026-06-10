@@ -53,10 +53,12 @@ export async function POST(req: Request) {
     const state = await getWatchState(webhookUsername);
     const expectedClientState = state.mail?.clientState;
 
-    // Verify clientState to prevent spoofed notifications
-    if (expectedClientState && notification.clientState !== expectedClientState) {
+    // Verify clientState to prevent spoofed notifications. Fail closed: a
+    // missing stored clientState means we can't authenticate this notification,
+    // so reject it rather than process an unverifiable event.
+    if (!expectedClientState || notification.clientState !== expectedClientState) {
       console.error(
-        "[ms-mail-webhook] clientState mismatch — ignoring notification",
+        "[ms-mail-webhook] clientState missing or mismatch — ignoring notification",
         { subscriptionId: notification.subscriptionId, user: webhookUsername }
       );
       continue;

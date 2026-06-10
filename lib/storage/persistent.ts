@@ -157,10 +157,10 @@ async function tmpReadOrMiss<T>(
 
 let blobChain: Promise<void> = Promise.resolve();
 
-function enqueueBlobWrite<T>(scope: string, key: string, data: T): void {
+function enqueueBlobWrite<T>(scope: string, key: string, data: T, allowShrink?: boolean): void {
   blobChain = blobChain
     .catch(() => undefined) // don't let a prior failure stall the queue
-    .then(() => blobWriteJson(scope, key, data));
+    .then(() => blobWriteJson(scope, key, data, { allowShrink }));
   // NOTE: we deliberately do NOT catch() the write itself here.
   // For "eventual" durability callers, the error stays on blobChain but doesn't
   // propagate (the caller never awaits it). For "strong" durability callers,
@@ -235,7 +235,7 @@ export async function writeStore<T>(
   filename: string,
   data: T,
   subdir?: string,
-  options?: { durability?: "eventual" | "strong" }
+  options?: { durability?: "eventual" | "strong"; allowShrink?: boolean }
 ): Promise<void> {
   const scope = subdir ?? "";
   const durability = options?.durability ?? "eventual";
@@ -265,7 +265,7 @@ export async function writeStore<T>(
   await tmpWrite(scope, filename, data);
 
   // Enqueue durable Blob write
-  enqueueBlobWrite(scope, filename, data);
+  enqueueBlobWrite(scope, filename, data, options?.allowShrink);
 
   if (durability === "strong") {
     // Await all pending Blob writes (including the one just enqueued).

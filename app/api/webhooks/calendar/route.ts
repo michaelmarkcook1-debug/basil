@@ -23,7 +23,13 @@ import { writeDeadLetter } from "@/lib/webhooks/dead-letter";
 export async function POST(req: Request) {
   const expectedToken = process.env.CALENDAR_WATCH_TOKEN;
   const sentToken = req.headers.get("x-goog-channel-token");
-  if (expectedToken && sentToken !== expectedToken) {
+  if (!expectedToken) {
+    // Fail closed: an unconfigured channel token means anyone could POST forged
+    // calendar notifications. Reject until CALENDAR_WATCH_TOKEN is set.
+    console.error("[webhooks/calendar] CALENDAR_WATCH_TOKEN not configured — rejecting webhook (fail closed).");
+    return new NextResponse("webhook not configured", { status: 503 });
+  }
+  if (sentToken !== expectedToken) {
     return new NextResponse("forbidden", { status: 403 });
   }
 

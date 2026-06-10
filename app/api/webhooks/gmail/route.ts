@@ -39,10 +39,15 @@ export async function POST(req: Request) {
   // Note: urlParams comes from the native URL API (synchronous) — not Next.js route searchParams.
   const urlParams = new URL(req.url).searchParams;
   const secretToken = urlParams.get("token");
-  if (
-    process.env.GMAIL_PUBSUB_TOKEN &&
-    secretToken !== process.env.GMAIL_PUBSUB_TOKEN
-  ) {
+  const expectedToken = process.env.GMAIL_PUBSUB_TOKEN;
+  if (!expectedToken) {
+    // Fail closed: with no configured secret, anyone could POST forged Pub/Sub
+    // envelopes. Reject until GMAIL_PUBSUB_TOKEN is set rather than accepting
+    // unauthenticated webhooks.
+    console.error("[webhooks/gmail] GMAIL_PUBSUB_TOKEN not configured — rejecting webhook (fail closed).");
+    return new NextResponse("webhook not configured", { status: 503 });
+  }
+  if (secretToken !== expectedToken) {
     return new NextResponse("forbidden", { status: 403 });
   }
 
@@ -173,10 +178,27 @@ export async function POST(req: Request) {
     await updateGmail(webhookUsername, { historyId: newHistoryId });
     return NextResponse.json({ ok: true, processed });
   } catch (e) {
-    // On 404 HISTORY_NOT_FOUND (startHistoryId too old) just reset baseline.
-    console.error("Gmail history.list error:", e instanceof Error ? e.message : e);
-    await updateGmail(webhookUsername, { historyId: newHistoryId });
-    return NextResponse.json({ ok: true, reset: true });
+    const status =
+      (e as { code?: number })?.code ??
+      (e as { status?: number })?.status ??
+      (e as { response?: { status?: number } })?.response?.status;
+    const msg = e instanceof Error ? e.message : String(e);
+    const isHistoryGone =
+      status === 404 || /HISTORY_NOT_FOUND|not found/i.test(msg);
+
+    if (isHistoryGone) {
+      // Baseline too old — Gmail dropped the history window. We can't recover the
+      // gap, but advancing to the new historyId lets future deltas flow.
+      console.warn(`[gmail-webhook] history baseline too old for ${webhookUsername} — resetting to ${newHistoryId}`);
+      await updateGmail(webhookUsername, { historyId: newHistoryId });
+      return NextResponse.json({ ok: true, reset: true });
+    }
+
+    // Transient error (Google 5xx, timeout, token refresh hiccup). Do NOT
+    // advance the baseline — that would PERMANENTLY skip every message in this
+    // history window. Return 5xx so Pub/Sub redelivers.
+    console.error(`[gmail-webhook] transient history.list error for ${webhookUsername} — NOT advancing baseline:`, msg);
+    return NextResponse.json({ ok: false, error: "transient — will retry" }, { status: 503 });
   }
 }
 

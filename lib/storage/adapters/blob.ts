@@ -56,35 +56,110 @@ async function resolveUrl(pathname: string): Promise<string | null> {
 
 // ── Public adapter functions ─────────────────────────────────────────────────
 
+/**
+ * Thrown when a blob read fails for a reason OTHER than the blob being missing
+ * (network error, 5xx, 403, corrupt JSON). Callers doing a read-modify-write
+ * MUST let this propagate — coercing it to an empty fallback and then writing
+ * would durably wipe the user's real data.
+ */
+export class BlobReadError extends Error {
+  constructor(message: string, readonly cause?: unknown) {
+    super(message);
+    this.name = "BlobReadError";
+  }
+}
+
+/** Thrown when a write would collapse a substantial collection to empty. */
+export class BlobShrinkGuardError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "BlobShrinkGuardError";
+  }
+}
+
 export async function blobReadJson<T>(
   scope: string,
   key: string,
   fallback: T
 ): Promise<T> {
+  const pathname = blobPathname(scope, key);
+
+  let url: string | null;
   try {
-    const pathname = blobPathname(scope, key);
-    const url = await resolveUrl(pathname);
-    if (!url) return fallback;
-
-    const res = await fetchBlob(url);
-    if (!res.ok) return fallback;
-
-    const data = await res.json();
-    // Preserve fallback type semantics: array fallback expects array result
-    return (
-      Array.isArray(fallback) ? (Array.isArray(data) ? data : fallback) : data
-    ) as T;
-  } catch {
-    return fallback;
+    url = await resolveUrl(pathname);
+  } catch (err) {
+    // list() failing is a transient service error, NOT "missing" — never coerce
+    // to the empty fallback or a read-modify-write could overwrite real data.
+    throw new BlobReadError(`blob list failed for ${pathname}`, err);
   }
+  if (!url) return fallback; // genuinely absent → empty fallback is correct
+
+  let res: Response;
+  try {
+    res = await fetchBlob(url);
+  } catch (err) {
+    throw new BlobReadError(`blob fetch threw for ${pathname}`, err);
+  }
+  if (res.status === 404) return fallback; // raced deletion → treat as missing
+  if (!res.ok) {
+    throw new BlobReadError(`blob fetch ${res.status} for ${pathname}`);
+  }
+
+  let data: unknown;
+  try {
+    data = await res.json();
+  } catch (err) {
+    // The blob EXISTS but its JSON is corrupt/partial. Throwing preserves it;
+    // returning empty here would let the next write overwrite it with nothing.
+    throw new BlobReadError(`blob JSON parse failed for ${pathname}`, err);
+  }
+
+  // Preserve fallback type semantics: array fallback expects array result
+  return (
+    Array.isArray(fallback) ? (Array.isArray(data) ? data : fallback) : data
+  ) as T;
 }
+
+/** Item count for shrink-guard purposes; null = not a guarded shape (scalar/string). */
+function countItems(data: unknown): number | null {
+  if (Array.isArray(data)) return data.length;
+  if (data && typeof data === "object") return Object.keys(data).length;
+  return null;
+}
+
+/** Minimum prior item count that makes an empty overwrite "suspicious". 0 disables. */
+const SHRINK_GUARD_MIN = Number.parseInt(process.env.BLOB_SHRINK_GUARD_MIN ?? "5", 10);
 
 export async function blobWriteJson<T>(
   scope: string,
   key: string,
-  data: T
+  data: T,
+  opts?: { allowShrink?: boolean }
 ): Promise<void> {
   const pathname = blobPathname(scope, key);
+
+  // Shrink tripwire — backstop against the "failed read → wrote []" wipe.
+  // Only engages when the NEW value is empty; the common (non-empty) write path
+  // pays zero extra cost. An intentional bulk-clear passes { allowShrink: true }.
+  if (!opts?.allowShrink && SHRINK_GUARD_MIN > 0 && countItems(data) === 0) {
+    let oldCount: number | null;
+    try {
+      const existing = await blobReadJson<unknown>(scope, key, null);
+      oldCount = countItems(existing);
+    } catch (err) {
+      // Can't verify prior contents → fail SAFE: refuse the empty overwrite.
+      console.error(`[blob] shrink-guard: refusing empty overwrite of ${pathname} — prior read failed:`, err instanceof Error ? err.message : err);
+      throw new BlobShrinkGuardError(`Refusing empty overwrite of ${pathname}: could not verify prior contents.`);
+    }
+    if (oldCount !== null && oldCount >= SHRINK_GUARD_MIN) {
+      console.error(`[blob] shrink-guard: refusing to overwrite ${pathname} (${oldCount} items) with empty.`);
+      throw new BlobShrinkGuardError(
+        `Refusing to overwrite ${pathname} (${oldCount} items) with an empty value. ` +
+        `Pass { allowShrink: true } if this clear is intentional.`
+      );
+    }
+  }
+
   const blob = await put(pathname, JSON.stringify(data), {
     access: "private",
     addRandomSuffix: false,

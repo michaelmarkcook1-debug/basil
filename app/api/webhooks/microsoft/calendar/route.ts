@@ -50,10 +50,11 @@ export async function POST(req: Request) {
     const state = await getWatchState(webhookUsername);
     const expectedClientState = state.calendar?.clientState;
 
-    // Verify clientState to prevent spoofed notifications
-    if (expectedClientState && notification.clientState !== expectedClientState) {
+    // Verify clientState to prevent spoofed notifications. Fail closed: a
+    // missing stored clientState means we can't authenticate this notification.
+    if (!expectedClientState || notification.clientState !== expectedClientState) {
       console.error(
-        "[ms-calendar-webhook] clientState mismatch — ignoring notification",
+        "[ms-calendar-webhook] clientState missing or mismatch — ignoring notification",
         { subscriptionId: notification.subscriptionId, user: webhookUsername }
       );
       continue;
