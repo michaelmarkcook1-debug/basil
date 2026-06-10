@@ -81,7 +81,7 @@ function ContactList({
           onClick={() => onSelect(c.id)}
           className={`w-full flex items-center gap-3 rounded-lg px-3 py-2.5 text-left transition-colors ${
             selected === c.id
-              ? "bg-[oklch(0.72_0.15_85)]/10 border border-[oklch(0.72_0.15_85)]/30"
+              ? "bg-gold/10 border border-gold/30"
               : "hover:bg-accent/50 border border-transparent"
           }`}
         >
@@ -107,8 +107,8 @@ function ContactList({
             variant="outline"
             className={`text-[12px] shrink-0 ${
               c.type === "internal"
-                ? "border-blue-400 text-blue-600"
-                : "border-amber-400 text-amber-600"
+                ? "border-signal-info-border text-signal-info"
+                : "border-signal-warning-border text-signal-warning"
             }`}
           >
             {c.type === "internal" ? "internal" : "external"}
@@ -391,9 +391,9 @@ function ContactDetail({
                     value={nameInput}
                     onChange={e => setNameInput(e.target.value)}
                     onKeyDown={e => { if (e.key === "Enter") saveName(); if (e.key === "Escape") setEditingName(false); }}
-                    className="text-xl font-semibold bg-transparent border-b-2 border-[oklch(0.72_0.15_85)] outline-none w-48"
+                    className="text-xl font-semibold bg-transparent border-b-2 border-gold outline-none w-48"
                   />
-                  <button onClick={saveName} disabled={nameSaving} className="text-emerald-600 hover:text-emerald-700 disabled:opacity-50">
+                  <button onClick={saveName} disabled={nameSaving} className="text-signal-positive hover:text-signal-positive disabled:opacity-50">
                     <Check className="h-4 w-4" />
                   </button>
                   <button onClick={() => setEditingName(false)} className="text-muted-foreground hover:text-foreground">
@@ -419,7 +419,7 @@ function ContactDetail({
                   )}
                 </div>
               )}
-              <p className="text-sm text-[oklch(0.72_0.15_85)]">{contact.title}</p>
+              <p className="text-sm text-gold">{contact.title}</p>
               <p className="text-sm text-muted-foreground">{contact.company}</p>
               {contact.phone && (
                 <p className="text-sm text-muted-foreground flex items-center gap-1 mt-0.5">
@@ -431,7 +431,7 @@ function ContactDetail({
             <div className="flex items-center gap-2 shrink-0">
               <Badge
                 variant="outline"
-                className="text-[12px] gap-1 border-[oklch(0.72_0.15_85)]/40 text-[oklch(0.58_0.15_85)]"
+                className="text-[12px] gap-1 border-gold/40 text-[oklch(0.58_0.15_85)]"
               >
                 {contact.directory === "work" ? (
                   <Briefcase className="h-3 w-3" />
@@ -473,7 +473,7 @@ function ContactDetail({
           </div>
           <div className="flex flex-wrap gap-1.5 mt-3">
             {contact.tags.map((tag) => (
-              <Badge key={tag} variant="outline" className="text-[12px] border-[oklch(0.72_0.15_85)]/30 text-[oklch(0.72_0.15_85)]">
+              <Badge key={tag} variant="outline" className="text-[12px] border-gold/30 text-gold">
                 {tag}
               </Badge>
             ))}
@@ -482,7 +482,7 @@ function ContactDetail({
       </div>
 
       {/* Basil profile generator */}
-      <div className="rounded-xl ring-1 ring-[oklch(0.72_0.15_85)]/25 bg-[oklch(0.72_0.15_85)]/[0.04] p-4 space-y-3">
+      <div className="rounded-xl ring-1 ring-gold/25 bg-gold/[0.04] p-4 space-y-3">
         <div className="flex items-start justify-between gap-3 flex-wrap">
           <div>
             <p className="text-sm font-semibold flex items-center gap-1.5">
@@ -526,7 +526,7 @@ function ContactDetail({
               <Button
                 size="sm"
                 onClick={() => setGenOpen(true)}
-                className="gap-1.5 bg-[oklch(0.72_0.15_85)] text-[oklch(0.18_0.04_250)] hover:bg-[oklch(0.78_0.12_85)]"
+                className="gap-1.5 bg-gold text-[oklch(0.18_0.04_250)] hover:bg-[oklch(0.78_0.12_85)]"
               >
                 <Wand2 className="h-3.5 w-3.5" />
                 {override?.generatedAt ? "Regenerate" : "Generate profile"}
@@ -557,7 +557,7 @@ function ContactDetail({
                   genLoading ||
                   (contact.directory === "personal" && !genNotes.trim())
                 }
-                className="gap-1.5 bg-[oklch(0.72_0.15_85)] text-[oklch(0.18_0.04_250)] hover:bg-[oklch(0.78_0.12_85)]"
+                className="gap-1.5 bg-gold text-[oklch(0.18_0.04_250)] hover:bg-[oklch(0.78_0.12_85)]"
               >
                 {genLoading ? (
                   <>
@@ -600,8 +600,8 @@ function ContactDetail({
           <div className="space-y-3">
             {/* Canonical field extractions — contact details the AI pulled from notes */}
             {canonicalFields && Object.values(canonicalFields).some((v) => v) && (
-              <div className="rounded-lg bg-emerald-500/10 ring-1 ring-emerald-500/20 p-3 space-y-1.5">
-                <p className="text-[12px] font-semibold text-emerald-700 dark:text-emerald-400 flex items-center gap-1.5">
+              <div className="rounded-lg bg-signal-positive-subtle ring-1 ring-signal-positive/20 p-3 space-y-1.5">
+                <p className="text-[12px] font-semibold text-signal-positive flex items-center gap-1.5">
                   <Check className="h-3 w-3" />
                   Contact details to update on save
                 </p>
@@ -653,7 +653,7 @@ function ContactDetail({
                   size="sm"
                   onClick={acceptPreview}
                   disabled={saveState === "saving"}
-                  className="gap-1.5 bg-[oklch(0.72_0.15_85)] text-[oklch(0.18_0.04_250)] hover:bg-[oklch(0.78_0.12_85)] disabled:opacity-70"
+                  className="gap-1.5 bg-gold text-[oklch(0.18_0.04_250)] hover:bg-[oklch(0.78_0.12_85)] disabled:opacity-70"
                 >
                   {saveState === "saving" ? (
                     <><Loader2 className="h-3.5 w-3.5 animate-spin" />Saving to Basil…</>
@@ -711,7 +711,7 @@ function ContactDetail({
         <TabsContent value="profile" className="space-y-4 mt-4">
           <Card>
             <CardHeader className="pb-2">
-              <CardTitle className="text-xs font-semibold tracking-widest uppercase text-[oklch(0.72_0.15_85)]">
+              <CardTitle className="text-xs font-semibold tracking-widest uppercase text-gold">
                 Relationship
               </CardTitle>
             </CardHeader>
@@ -721,7 +721,7 @@ function ContactDetail({
           </Card>
           <Card>
             <CardHeader className="pb-2">
-              <CardTitle className="text-xs font-semibold tracking-widest uppercase text-[oklch(0.72_0.15_85)]">
+              <CardTitle className="text-xs font-semibold tracking-widest uppercase text-gold">
                 Company Context
               </CardTitle>
             </CardHeader>
@@ -732,10 +732,10 @@ function ContactDetail({
         </TabsContent>
 
         <TabsContent value="personality" className="space-y-4 mt-4">
-          <Card className="border-l-4 border-l-[oklch(0.72_0.15_85)]">
+          <Card className="border-l-4 border-l-gold">
             <CardHeader className="pb-2">
               <CardTitle className="text-xs font-semibold tracking-widest uppercase flex items-center gap-1.5">
-                <Brain className="h-3.5 w-3.5 text-[oklch(0.72_0.15_85)]" /> Personality
+                <Brain className="h-3.5 w-3.5 text-gold" /> Personality
               </CardTitle>
             </CardHeader>
             <CardContent>
@@ -745,7 +745,7 @@ function ContactDetail({
           <Card className="border-l-4 border-l-emerald-500">
             <CardHeader className="pb-2">
               <CardTitle className="text-xs font-semibold tracking-widest uppercase flex items-center gap-1.5">
-                <CheckSquare className="h-3.5 w-3.5 text-emerald-500" /> What Makes Them Tick
+                <CheckSquare className="h-3.5 w-3.5 text-signal-positive" /> What Makes Them Tick
               </CardTitle>
             </CardHeader>
             <CardContent>
@@ -755,7 +755,7 @@ function ContactDetail({
           <Card className="border-l-4 border-l-amber-500">
             <CardHeader className="pb-2">
               <CardTitle className="text-xs font-semibold tracking-widest uppercase flex items-center gap-1.5">
-                <AlertTriangle className="h-3.5 w-3.5 text-amber-500" /> Watch Out
+                <AlertTriangle className="h-3.5 w-3.5 text-signal-warning" /> Watch Out
               </CardTitle>
             </CardHeader>
             <CardContent>
@@ -769,7 +769,7 @@ function ContactDetail({
           {liveItems.length > 0 && (
             <Card className="border-l-4 border-l-emerald-500">
               <CardHeader className="pb-2">
-                <CardTitle className="text-xs font-semibold tracking-widest uppercase text-emerald-600 flex items-center gap-1.5">
+                <CardTitle className="text-xs font-semibold tracking-widest uppercase text-signal-positive flex items-center gap-1.5">
                   <Wifi className="h-3.5 w-3.5" /> Live Activity
                   {lastInteraction && daysSince !== null && (
                     <span className="text-[12px] font-normal text-muted-foreground normal-case tracking-normal ml-1">
@@ -782,7 +782,7 @@ function ContactDetail({
                 <ul className="space-y-2 text-sm">
                   {liveItems.slice(0, 6).map((item, i) => (
                     <li key={i} className="flex gap-2 leading-relaxed">
-                      <span className="text-emerald-500 mt-1.5 h-1.5 w-1.5 rounded-full bg-emerald-500 shrink-0" />
+                      <span className="text-signal-positive mt-1.5 h-1.5 w-1.5 rounded-full bg-signal-positive shrink-0" />
                       <span className="text-foreground/90">{item}</span>
                     </li>
                   ))}
@@ -794,7 +794,7 @@ function ContactDetail({
                 )}
                 {zoomCadence && (
                   <p className="text-[12px] text-muted-foreground mt-1.5 flex items-center gap-1.5">
-                    <span className="inline-block h-1.5 w-1.5 rounded-full bg-blue-500 shrink-0" />
+                    <span className="inline-block h-1.5 w-1.5 rounded-full bg-signal-info shrink-0" />
                     Zoom cadence: <span className="font-medium text-foreground">{zoomCadence}</span>
                     {zoomMeetingCount && zoomMeetingCount > 0 && (
                       <span className="text-muted-foreground/60">({zoomMeetingCount} meeting{zoomMeetingCount !== 1 ? "s" : ""} / 30d)</span>
@@ -809,7 +809,7 @@ function ContactDetail({
           {override?.toneHistory && override.toneHistory.length > 0 && (
             <Card className="border-l-4 border-l-violet-400">
               <CardHeader className="pb-2">
-                <CardTitle className="text-xs font-semibold tracking-widest uppercase text-violet-600 flex items-center gap-1.5">
+                <CardTitle className="text-xs font-semibold tracking-widest uppercase text-signal-info flex items-center gap-1.5">
                   <MessageCircle className="h-3.5 w-3.5" /> Tone &amp; Attitude
                 </CardTitle>
               </CardHeader>
@@ -819,17 +819,17 @@ function ContactDetail({
                     <li key={i} className="flex items-start gap-2 text-sm">
                       <span className={`mt-1 h-2 w-2 rounded-full shrink-0 ${
                         obs.direction === "warming"
-                          ? "bg-emerald-500"
+                          ? "bg-signal-positive"
                           : obs.direction === "cooling"
-                          ? "bg-amber-500"
+                          ? "bg-signal-warning"
                           : "bg-slate-400"
                       }`} />
                       <div className="min-w-0">
                         <span className={`inline-block text-xs font-semibold rounded px-1.5 py-0.5 mr-2 ${
                           obs.direction === "warming"
-                            ? "bg-emerald-50 text-emerald-700"
+                            ? "bg-signal-positive-subtle text-signal-positive"
                             : obs.direction === "cooling"
-                            ? "bg-amber-50 text-amber-700"
+                            ? "bg-signal-warning-subtle text-signal-warning"
                             : "bg-slate-100 text-slate-600"
                         }`}>
                           {obs.direction === "warming" ? "↑ Warming" : obs.direction === "cooling" ? "↓ Cooling" : "→ Neutral"}
@@ -850,7 +850,7 @@ function ContactDetail({
               persona was authored. Shown as a historical note alongside live data. */}
           <Card>
             <CardHeader className="pb-2">
-              <CardTitle className="text-xs font-semibold tracking-widest uppercase text-[oklch(0.72_0.15_85)]">
+              <CardTitle className="text-xs font-semibold tracking-widest uppercase text-gold">
                 {liveItems.length > 0 ? "Background & recent history" : "Recent Activity"}
               </CardTitle>
             </CardHeader>
@@ -1218,7 +1218,7 @@ export default function ContactsPage() {
                 onClick={() => setActiveDirectory(dir)}
                 className={`flex items-center justify-center gap-1.5 py-2.5 text-[12px] font-semibold uppercase tracking-[0.18em] transition-colors ${
                   active
-                    ? "text-[oklch(0.58_0.15_85)] border-b-2 border-[oklch(0.72_0.15_85)] bg-[oklch(0.72_0.15_85)]/[0.06]"
+                    ? "text-[oklch(0.58_0.15_85)] border-b-2 border-gold bg-gold/[0.06]"
                     : "text-muted-foreground hover:text-foreground"
                 }`}
                 aria-pressed={active}
@@ -1249,7 +1249,7 @@ export default function ContactsPage() {
             <button
               onClick={refreshActivity}
               disabled={activityLoading}
-              className="flex items-center gap-1 text-xs text-muted-foreground hover:text-[oklch(0.72_0.15_85)] transition-colors disabled:opacity-50"
+              className="flex items-center gap-1 text-xs text-muted-foreground hover:text-gold transition-colors disabled:opacity-50"
               title="Refresh from Calendar, Gmail & Slack"
             >
               {activityLoading ? (
@@ -1301,7 +1301,7 @@ export default function ContactsPage() {
             >
               <Flame className="h-3 w-3" /> Relationship Health
               {isLive && !healthCollapsed && (
-                <Badge className="bg-emerald-500/15 text-emerald-500 border-emerald-500/30 text-[12px] ml-1 py-0 px-1 gap-0.5">
+                <Badge className="bg-signal-positive-subtle text-signal-positive border-signal-positive/30 text-[12px] ml-1 py-0 px-1 gap-0.5">
                   <Wifi className="h-2 w-2" /> Live
                 </Badge>
               )}
@@ -1313,7 +1313,7 @@ export default function ContactsPage() {
               <button
                 onClick={refreshActivity}
                 disabled={activityLoading}
-                className="text-muted-foreground/50 hover:text-[oklch(0.72_0.15_85)] transition-colors"
+                className="text-muted-foreground/50 hover:text-gold transition-colors"
                 title="Refresh from Calendar, Gmail & Slack"
               >
                 {activityLoading ? (
@@ -1353,7 +1353,7 @@ export default function ContactsPage() {
                       return weekdays;
                     })()
                   : 999;
-                const ringColor = days <= 5 ? "ring-emerald-500" : days <= 10 ? "ring-amber-500" : "ring-red-500";
+                const ringColor = days <= 5 ? "ring-signal-positive" : days <= 10 ? "ring-signal-warning" : "ring-signal-critical";
                 const liveSources = getLiveSources(c.id);
                 const liveItems = getLiveItems(c.id);
                 return (
@@ -1379,7 +1379,7 @@ export default function ContactsPage() {
                         {liveSources.length > 0 ? ` (${liveSources.join(", ")})` : ""}
                       </p>
                       {getZoomCadence(c.id) && (
-                        <p className="text-blue-400 mt-0.5">
+                        <p className="text-signal-info mt-0.5">
                           Zoom: {getZoomCadence(c.id)} ({getZoomMeetingCount(c.id)} meetings/30d)
                         </p>
                       )}
@@ -1409,7 +1409,7 @@ export default function ContactsPage() {
             <button
               onClick={refreshSuggestions}
               disabled={suggestLoading}
-              className="text-muted-foreground/50 hover:text-[oklch(0.72_0.15_85)] transition-colors"
+              className="text-muted-foreground/50 hover:text-gold transition-colors"
               title="Scan recent email & Slack for people not yet in contacts"
             >
               {suggestLoading ? (
@@ -1452,14 +1452,14 @@ export default function ContactsPage() {
                   <div className="flex items-center gap-0.5 opacity-60 group-hover:opacity-100">
                     <button
                       onClick={() => handleAddSuggestion(s)}
-                      className="rounded p-1 hover:bg-emerald-500/20 hover:text-emerald-600 transition-colors"
+                      className="rounded p-1 bg-signal-positive-subtle hover:text-signal-positive transition-colors"
                       title={`Add ${s.displayName} as a contact`}
                     >
                       <Plus className="h-3 w-3" />
                     </button>
                     <button
                       onClick={() => handleDismiss(s.id)}
-                      className="rounded p-1 hover:bg-rose-500/20 hover:text-rose-600 transition-colors"
+                      className="rounded p-1 bg-signal-critical-subtle hover:text-signal-critical transition-colors"
                       title="Dismiss"
                     >
                       <X className="h-3 w-3" />

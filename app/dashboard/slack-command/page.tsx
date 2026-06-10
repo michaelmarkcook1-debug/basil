@@ -84,32 +84,32 @@ const SIGNAL_META: Record<
   reply_needed: {
     label: "Reply needed",
     icon: MessageSquare,
-    colour: "text-blue-600",
-    bgColour: "bg-blue-50 border-blue-200",
+    colour: "text-signal-info",
+    bgColour: "bg-signal-info-subtle border-signal-info-border",
   },
   blocker: {
     label: "Blocker",
     icon: AlertTriangle,
-    colour: "text-red-600",
-    bgColour: "bg-red-50 border-red-200",
+    colour: "text-signal-critical",
+    bgColour: "bg-signal-critical-subtle border-signal-critical-border",
   },
   promise_made: {
     label: "Promise made",
     icon: Zap,
-    colour: "text-violet-600",
-    bgColour: "bg-violet-50 border-violet-200",
+    colour: "text-signal-info",
+    bgColour: "bg-signal-info-subtle border-signal-info-border",
   },
   decision_pending: {
     label: "Decision pending",
     icon: Hash,
-    colour: "text-amber-600",
-    bgColour: "bg-amber-50 border-amber-200",
+    colour: "text-signal-warning",
+    bgColour: "bg-signal-warning-subtle border-signal-warning-border",
   },
   stale_thread: {
     label: "Stale thread",
     icon: RefreshCw,
-    colour: "text-orange-500",
-    bgColour: "bg-orange-50 border-orange-200",
+    colour: "text-signal-warning",
+    bgColour: "bg-signal-warning-subtle border-signal-warning-border",
   },
   channel_heat: {
     label: "Channel heat",
@@ -120,15 +120,15 @@ const SIGNAL_META: Record<
   person_needs_attention: {
     label: "Person needs attention",
     icon: Users,
-    colour: "text-emerald-600",
-    bgColour: "bg-emerald-50 border-emerald-200",
+    colour: "text-signal-positive",
+    bgColour: "bg-signal-positive-subtle border-signal-positive-border",
   },
 };
 
 const URGENCY_BADGE: Record<Signal["urgency"], string> = {
-  critical: "bg-red-100 text-red-700 border-red-200",
-  high: "bg-amber-100 text-amber-700 border-amber-200",
-  medium: "bg-blue-100 text-blue-700 border-blue-200",
+  critical: "bg-signal-critical-subtle text-signal-critical border-signal-critical-border",
+  high: "bg-signal-warning-subtle text-signal-warning border-signal-warning-border",
+  medium: "bg-signal-info-subtle text-signal-info border-signal-info-border",
   low: "bg-gray-100 text-gray-600 border-gray-200",
 };
 
@@ -236,7 +236,7 @@ function SignalCard({ signal }: { signal: Signal }) {
               disabled={converting !== null || done !== null}
               className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-md text-xs font-medium border transition-all
                 ${done === target
-                  ? "bg-emerald-50 border-emerald-200 text-emerald-700"
+                  ? "bg-signal-positive-subtle border-signal-positive-border text-signal-positive"
                   : "bg-white/80 border-black/10 text-muted-foreground hover:text-foreground hover:border-black/20 disabled:opacity-50 disabled:cursor-not-allowed"
                 }`}
             >
@@ -251,7 +251,7 @@ function SignalCard({ signal }: { signal: Signal }) {
         </div>
 
         {convError && (
-          <p className="text-xs text-red-600">{convError}</p>
+          <p className="text-xs text-signal-critical">{convError}</p>
         )}
       </CardContent>
     </Card>
@@ -270,7 +270,7 @@ function MissingEnvPanel() {
       </p>
       <a
         href="/dashboard/settings"
-        className="inline-flex items-center gap-2 rounded-lg bg-[oklch(0.72_0.15_85)] px-4 py-2 text-sm font-medium text-white hover:opacity-90"
+        className="inline-flex items-center gap-2 rounded-lg bg-gold px-4 py-2 text-sm font-medium text-white hover:opacity-90"
       >
         <Settings className="h-4 w-4" />
         Open Settings
@@ -289,7 +289,7 @@ function NotConnectedPanel() {
       </p>
       <a
         href="/dashboard/settings"
-        className="inline-flex items-center gap-2 rounded-lg bg-[oklch(0.72_0.15_85)] px-4 py-2 text-sm font-medium text-white hover:opacity-90"
+        className="inline-flex items-center gap-2 rounded-lg bg-gold px-4 py-2 text-sm font-medium text-white hover:opacity-90"
       >
         Connect Slack <ArrowRight className="h-4 w-4" />
       </a>
@@ -300,14 +300,14 @@ function NotConnectedPanel() {
 function AuthExpiredPanel() {
   return (
     <div className="rounded-2xl basil-card p-12 text-center space-y-4">
-      <AlertTriangle className="h-12 w-12 mx-auto text-amber-400" />
+      <AlertTriangle className="h-12 w-12 mx-auto text-signal-warning" />
       <h2 className="basil-display text-2xl">Slack token expired</h2>
       <p className="text-sm text-muted-foreground max-w-md mx-auto">
         Your Slack connection needs to be re-authorised. Go to Settings to reconnect.
       </p>
       <a
         href="/dashboard/settings"
-        className="inline-flex items-center gap-2 rounded-lg bg-amber-500 px-4 py-2 text-sm font-medium text-white hover:opacity-90"
+        className="inline-flex items-center gap-2 rounded-lg bg-signal-warning px-4 py-2 text-sm font-medium text-white hover:opacity-90"
       >
         Reconnect Slack <ArrowRight className="h-4 w-4" />
       </a>
@@ -318,7 +318,7 @@ function AuthExpiredPanel() {
 function EmptyPanel() {
   return (
     <div className="rounded-2xl basil-card p-12 text-center space-y-3">
-      <Check className="h-12 w-12 mx-auto text-emerald-400" />
+      <Check className="h-12 w-12 mx-auto text-signal-positive" />
       <h2 className="basil-display text-2xl">All clear</h2>
       <p className="text-sm text-muted-foreground max-w-md mx-auto">
         No signals requiring your attention right now. Basil will surface anything that needs you next time you refresh.
@@ -387,7 +387,7 @@ export default function SlackCommandPage() {
             Slack Command Centre
           </p>
           <h1 className="basil-display text-3xl sm:text-5xl leading-[1.05] text-foreground">
-            Signal before noise<span className="text-[oklch(0.72_0.15_85)]">.</span>
+            Signal before noise<span className="text-gold">.</span>
           </h1>
           <p className="text-sm text-muted-foreground max-w-2xl leading-relaxed">
             Basil reads Slack as your operating layer — replies, blockers, promises, stale threads, and channel heat. Not to read everything. To know what needs you.

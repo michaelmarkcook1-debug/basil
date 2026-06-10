@@ -30,23 +30,23 @@ import type { HealthColor, HealthTile, SystemHealthReport } from "@/lib/system/h
 // ── Color primitives ──────────────────────────────────────────────────────────
 
 const DOT_CLASS: Record<HealthColor, string> = {
-  green: "bg-emerald-500",
-  amber: "bg-amber-400",
-  red:   "bg-red-500",
+  green: "bg-signal-positive",
+  amber: "bg-signal-warning",
+  red:   "bg-signal-critical",
   grey:  "bg-zinc-300",
 };
 
 const BADGE_CLASS: Record<HealthColor, string> = {
-  green: "bg-emerald-50 text-emerald-700 border border-emerald-200",
-  amber: "bg-amber-50  text-amber-700  border border-amber-200",
-  red:   "bg-red-50    text-red-700    border border-red-200",
+  green: "bg-signal-positive-subtle text-signal-positive border border-signal-positive-border",
+  amber: "bg-signal-warning-subtle  text-signal-warning  border border-signal-warning-border",
+  red:   "bg-signal-critical-subtle    text-signal-critical    border border-signal-critical-border",
   grey:  "bg-zinc-50   text-zinc-500   border border-zinc-200",
 };
 
 const ICON: Record<HealthColor, React.ReactNode> = {
-  green: <CheckCircle2 className="h-3.5 w-3.5 text-emerald-500 shrink-0" />,
-  amber: <AlertTriangle className="h-3.5 w-3.5 text-amber-400 shrink-0" />,
-  red:   <XCircle className="h-3.5 w-3.5 text-red-500 shrink-0" />,
+  green: <CheckCircle2 className="h-3.5 w-3.5 text-signal-positive shrink-0" />,
+  amber: <AlertTriangle className="h-3.5 w-3.5 text-signal-warning shrink-0" />,
+  red:   <XCircle className="h-3.5 w-3.5 text-signal-critical shrink-0" />,
   grey:  <Circle className="h-3.5 w-3.5 text-zinc-300 shrink-0" />,
 };
 
@@ -96,9 +96,9 @@ function SummaryBanner({
   else                      summaryText = "All systems healthy";
 
   const bannerClass: Record<HealthColor, string> = {
-    green: "bg-emerald-50 border-emerald-200 text-emerald-800",
-    amber: "bg-amber-50  border-amber-200  text-amber-800",
-    red:   "bg-red-50    border-red-200    text-red-800",
+    green: "bg-signal-positive-subtle border-signal-positive-border text-signal-positive",
+    amber: "bg-signal-warning-subtle  border-signal-warning-border  text-signal-warning",
+    red:   "bg-signal-critical-subtle    border-signal-critical-border    text-signal-critical",
     grey:  "bg-zinc-50   border-zinc-200   text-zinc-600",
   };
 
@@ -188,7 +188,7 @@ function TileRow({ tile }: { tile: HealthTile }) {
                   key={s.label}
                   className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-medium ${
                     s.ok
-                      ? "bg-emerald-50 text-emerald-700 border border-emerald-200"
+                      ? "bg-signal-positive-subtle text-signal-positive border border-signal-positive-border"
                       : "bg-zinc-100 text-zinc-500 border border-zinc-200"
                   }`}
                 >
@@ -250,13 +250,13 @@ function Section({
           : <ChevronRight className="h-3 w-3 text-muted-foreground" />}
         {/* Issue count pill */}
         {tiles.filter((t) => t.color === "red").length > 0 && (
-          <span className="ml-1 inline-flex items-center rounded-full bg-red-100 text-red-700 text-xs font-semibold px-1.5 py-0.5">
+          <span className="ml-1 inline-flex items-center rounded-full bg-signal-critical-subtle text-signal-critical text-xs font-semibold px-1.5 py-0.5">
             {tiles.filter((t) => t.color === "red").length}
           </span>
         )}
         {tiles.filter((t) => t.color === "red").length === 0 &&
           tiles.filter((t) => t.color === "amber").length > 0 && (
-          <span className="ml-1 inline-flex items-center rounded-full bg-amber-100 text-amber-700 text-xs font-semibold px-1.5 py-0.5">
+          <span className="ml-1 inline-flex items-center rounded-full bg-signal-warning-subtle text-signal-warning text-xs font-semibold px-1.5 py-0.5">
             {tiles.filter((t) => t.color === "amber").length}
           </span>
         )}
@@ -340,23 +340,23 @@ function SyncButton({
         onClick={() => void trigger()}
         disabled={state === "running"}
         className={`gap-1.5 h-7 text-[12px] ${
-          state === "done" ? "border-emerald-300 text-emerald-700" :
-          state === "error" ? "border-red-300 text-red-600" : ""
+          state === "done" ? "border-signal-positive-border text-signal-positive" :
+          state === "error" ? "border-signal-critical-border text-signal-critical" : ""
         }`}
       >
         {state === "running" ? (
           <RefreshCw className="h-3 w-3 animate-spin" />
         ) : state === "done" ? (
-          <CheckCircle2 className="h-3 w-3 text-emerald-500" />
+          <CheckCircle2 className="h-3 w-3 text-signal-positive" />
         ) : state === "error" ? (
-          <XCircle className="h-3 w-3 text-red-500" />
+          <XCircle className="h-3 w-3 text-signal-critical" />
         ) : (
           <Icon className="h-3 w-3" />
         )}
         {state === "running" ? "Syncing…" : label}
       </Button>
       {msg && (
-        <span className={`text-xs ${state === "error" ? "text-red-500" : "text-muted-foreground"}`}>
+        <span className={`text-xs ${state === "error" ? "text-signal-critical" : "text-muted-foreground"}`}>
           {msg}
         </span>
       )}
@@ -439,7 +439,7 @@ export function HealthPanel() {
 
         {/* Error state */}
         {error && (
-          <div className="rounded-lg bg-red-50 border border-red-200 px-3 py-2 text-[13px] text-red-700 flex items-center gap-2">
+          <div className="rounded-lg bg-signal-critical-subtle border border-signal-critical-border px-3 py-2 text-[13px] text-signal-critical flex items-center gap-2">
             <XCircle className="h-4 w-4 shrink-0" />
             {error}
           </div>

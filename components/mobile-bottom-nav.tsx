@@ -54,13 +54,13 @@ export function MobileBottomNav({ onMoreClick }: MobileBottomNavProps) {
             >
               {/* Active: top pip */}
               {active && (
-                <span className="absolute top-0 left-1/2 -translate-x-1/2 h-[2px] w-8 rounded-full bg-[oklch(0.72_0.15_85)]" />
+                <span className="absolute top-0 left-1/2 -translate-x-1/2 h-[2px] w-8 rounded-full bg-gold" />
               )}
               <Icon
                 className={cn(
                   "h-[20px] w-[20px] transition-colors",
                   active
-                    ? "text-[oklch(0.72_0.15_85)]"
+                    ? "text-gold"
                     : "text-sidebar-foreground/70"
                 )}
                 strokeWidth={active ? 2 : 1.75}
@@ -69,7 +69,7 @@ export function MobileBottomNav({ onMoreClick }: MobileBottomNavProps) {
                 className={cn(
                   "text-xs font-medium tracking-tight transition-colors",
                   active
-                    ? "text-[oklch(0.72_0.15_85)]"
+                    ? "text-gold"
                     : "text-sidebar-foreground/65"
                 )}
               >
@@ -85,13 +85,13 @@ export function MobileBottomNav({ onMoreClick }: MobileBottomNavProps) {
           className="relative flex-1 flex flex-col items-center justify-center gap-1 transition-colors"
         >
           {moreActive && (
-            <span className="absolute top-0 left-1/2 -translate-x-1/2 h-[2px] w-8 rounded-full bg-[oklch(0.72_0.15_85)]" />
+            <span className="absolute top-0 left-1/2 -translate-x-1/2 h-[2px] w-8 rounded-full bg-gold" />
           )}
           <MoreHorizontal
             className={cn(
               "h-[20px] w-[20px] transition-colors",
               moreActive
-                ? "text-[oklch(0.72_0.15_85)]"
+                ? "text-gold"
                 : "text-sidebar-foreground/70"
             )}
             strokeWidth={1.75}
@@ -100,7 +100,7 @@ export function MobileBottomNav({ onMoreClick }: MobileBottomNavProps) {
             className={cn(
               "text-xs font-medium tracking-tight transition-colors",
               moreActive
-                ? "text-[oklch(0.72_0.15_85)]"
+                ? "text-gold"
                 : "text-sidebar-foreground/65"
             )}
           >

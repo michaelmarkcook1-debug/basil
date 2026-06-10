@@ -408,8 +408,8 @@ export default function SchedulePage() {
   return (
     <div className="h-full flex flex-col overflow-hidden">
       {/* ── Top bar ──────────────────────────────────────────────────────── */}
-      <div className="flex items-center gap-3 px-4 h-12 border-b border-border/40 shrink-0 bg-background/80 backdrop-blur-sm">
-        <CalendarPlus className="h-4 w-4 text-[oklch(0.72_0.15_85)] shrink-0" />
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-1 px-4 py-2 min-h-12 border-b border-border/40 shrink-0 bg-background/80 backdrop-blur-sm">
+        <CalendarPlus className="h-4 w-4 text-gold shrink-0" />
         <span className="font-semibold text-sm">Schedule</span>
 
         <div className="flex-1" />
@@ -443,7 +443,7 @@ export default function SchedulePage() {
         {!connected && !loading && (
           <Link
             href="/dashboard/settings"
-            className="flex items-center gap-1.5 text-xs text-amber-600 bg-amber-50 border border-amber-200/60 px-2.5 py-1 rounded-md hover:bg-amber-100 transition-colors"
+            className="flex items-center gap-1.5 text-xs text-signal-warning bg-signal-warning-subtle border border-signal-warning-border/60 px-2.5 py-1 rounded-md hover:bg-signal-warning-subtle transition-colors"
           >
             <Unplug className="h-3 w-3" /> Calendar not connected
           </Link>
@@ -451,10 +451,10 @@ export default function SchedulePage() {
       </div>
 
       {/* ── Body ─────────────────────────────────────────────────────────── */}
-      <div className="flex flex-1 min-h-0 overflow-hidden">
+      <div className="flex flex-col md:flex-row flex-1 min-h-0 overflow-y-auto md:overflow-hidden">
 
         {/* ── Left sidebar ─────────────────────────────────────────────── */}
-        <aside className="w-60 border-r border-border/40 flex flex-col overflow-hidden shrink-0 bg-sidebar/20">
+        <aside className="w-full md:w-60 border-b md:border-b-0 md:border-r border-border/40 flex flex-col overflow-hidden shrink-0 bg-sidebar/20">
 
           {/* Mini calendar */}
           <div className="p-3 shrink-0">
@@ -487,9 +487,9 @@ export default function SchedulePage() {
                       onClick={() => setSelectedDay(day)}
                       className={`h-7 w-full rounded flex flex-col items-center justify-center text-xs font-medium relative transition-colors
                         ${isSelected
-                          ? "bg-[oklch(0.72_0.15_85)] text-[oklch(0.18_0.04_250)]"
+                          ? "bg-gold text-[oklch(0.18_0.04_250)]"
                           : isToday
-                            ? "ring-1 ring-[oklch(0.72_0.15_85)] text-[oklch(0.55_0.15_85)] font-bold"
+                            ? "ring-1 ring-gold text-[oklch(0.55_0.15_85)] font-bold"
                             : "text-foreground hover:bg-accent/50"
                         }`}
                     >
@@ -497,8 +497,8 @@ export default function SchedulePage() {
                       {/* Event indicator dots */}
                       {(hasCal || hasProp) && !isSelected && (
                         <div className="flex gap-0.5 absolute bottom-0.5">
-                          {hasCal && <span className="w-1 h-1 rounded-full bg-[oklch(0.72_0.15_85)]/70" />}
-                          {hasProp && <span className="w-1 h-1 rounded-full bg-amber-400" />}
+                          {hasCal && <span className="w-1 h-1 rounded-full bg-gold/70" />}
+                          {hasProp && <span className="w-1 h-1 rounded-full bg-signal-warning" />}
                         </div>
                       )}
                     </button>
@@ -539,21 +539,21 @@ export default function SchedulePage() {
                 )}
                 {/* Proposed for this day */}
                 {selectedProposed.length > 0 && (
-                  <div className="mt-2 pt-2 border-t border-amber-300/30">
-                    <p className="text-xs font-semibold uppercase tracking-wider text-amber-600 mb-1.5">
+                  <div className="mt-2 pt-2 border-t border-signal-warning-border/30">
+                    <p className="text-xs font-semibold uppercase tracking-wider text-signal-warning mb-1.5">
                       Proposed ({selectedProposed.length})
                     </p>
                     {selectedProposed.map((p, i) => {
                       const globalIndex = proposed.indexOf(p);
                       return (
-                        <div key={i} className="rounded-md p-2 mb-1.5 bg-amber-500/5 border border-dashed border-amber-300/40">
+                        <div key={i} className="rounded-md p-2 mb-1.5 bg-signal-warning-subtle border border-dashed border-signal-warning-border/40">
                           <p className="text-xs font-medium truncate">{p.title}</p>
                           <p className="text-xs text-muted-foreground">{p.startTime} · {p.duration}min</p>
                           <div className="flex gap-1.5 mt-1.5">
                             <button
                               disabled={approving === globalIndex}
                               onClick={() => handleApprove(globalIndex)}
-                              className="flex items-center gap-1 text-xs font-medium px-2 py-0.5 rounded bg-emerald-500 text-white hover:bg-emerald-600 disabled:opacity-50 transition-colors"
+                              className="flex items-center gap-1 text-xs font-medium px-2 py-0.5 rounded bg-signal-positive text-white hover:bg-signal-positive disabled:opacity-50 transition-colors"
                             >
                               {approving === globalIndex ? <Loader2 className="h-2.5 w-2.5 animate-spin" /> : <Check className="h-2.5 w-2.5" />}
                               Approve
@@ -578,8 +578,8 @@ export default function SchedulePage() {
 
           {/* Pending proposals (global) — if any outside selected day */}
           {pendingProposals.filter((p) => p.date !== selectedDateStr).length > 0 && (
-            <div className="border-t border-amber-300/30 px-3 py-2 shrink-0">
-              <p className="text-xs font-semibold uppercase tracking-wider text-amber-600 mb-1.5">
+            <div className="border-t border-signal-warning-border/30 px-3 py-2 shrink-0">
+              <p className="text-xs font-semibold uppercase tracking-wider text-signal-warning mb-1.5">
                 Other pending ({pendingProposals.filter((p) => p.date !== selectedDateStr).length})
               </p>
               <div className="space-y-1 max-h-24 overflow-y-auto">
@@ -590,7 +590,7 @@ export default function SchedulePage() {
                       const d = new Date(p.date + "T12:00:00");
                       setYear(d.getFullYear()); setMonth(d.getMonth()); setSelectedDay(d.getDate());
                     }}>
-                      <span className="w-1.5 h-1.5 rounded-full bg-amber-400 shrink-0" />
+                      <span className="w-1.5 h-1.5 rounded-full bg-signal-warning shrink-0" />
                       <span className="truncate">{p.date} — {p.title}</span>
                     </div>
                   ))}
@@ -625,7 +625,7 @@ export default function SchedulePage() {
                         form?.requestSubmit();
                       });
                     }}
-                    className="text-xs px-2 py-1 rounded-md border border-[oklch(0.72_0.15_85)]/25 bg-[oklch(0.72_0.15_85)]/5 text-[oklch(0.55_0.12_85)] hover:bg-[oklch(0.72_0.15_85)]/15 transition-colors text-left leading-tight"
+                    className="text-xs px-2 py-1 rounded-md border border-gold/25 bg-gold/5 text-[oklch(0.55_0.12_85)] hover:bg-gold/15 transition-colors text-left leading-tight"
                   >
                     {q}
                   </button>
@@ -647,7 +647,7 @@ export default function SchedulePage() {
                   type="submit"
                   size="sm"
                   disabled={basilLoading || !basilInput.trim()}
-                  className="h-6 text-xs shrink-0 bg-[oklch(0.72_0.15_85)] text-[oklch(0.18_0.04_250)] hover:bg-[oklch(0.78_0.12_85)] gap-1 px-2"
+                  className="h-6 text-xs shrink-0 bg-gold text-[oklch(0.18_0.04_250)] hover:bg-[oklch(0.78_0.12_85)] gap-1 px-2"
                 >
                   {basilLoading ? <Loader2 className="h-3 w-3 animate-spin" /> : <Send className="h-3 w-3" />}
                   Send
@@ -663,7 +663,7 @@ export default function SchedulePage() {
         </aside>
 
         {/* ── Main: full-width DayView ────────────────────────────────── */}
-        <main className="flex-1 min-w-0 flex flex-col overflow-hidden">
+        <main className="flex-1 min-w-0 flex flex-col overflow-hidden min-h-[70vh] md:min-h-0">
           {/* Day header bar */}
           <div className="flex items-center justify-between px-4 h-10 border-b border-border/40 shrink-0 bg-background/60">
             <div className="flex items-center gap-3">

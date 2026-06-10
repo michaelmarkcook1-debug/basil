@@ -45,11 +45,11 @@ const PRIORITY_LABELS: Record<number, string> = {
 function PriorityDot({ priority, className }: { priority: number; className?: string }) {
   const color =
     priority === 1
-      ? "text-red-500"
+      ? "text-signal-critical"
       : priority === 2
-      ? "text-orange-500"
+      ? "text-signal-warning"
       : priority === 3
-      ? "text-amber-500"
+      ? "text-signal-warning"
       : priority === 4
       ? "text-slate-400"
       : "text-slate-300";
@@ -61,13 +61,13 @@ function PriorityDot({ priority, className }: { priority: number; className?: st
 function StateChip({ state }: { state: { name: string; type: string } }) {
   const cls =
     state.type === "completed"
-      ? "text-green-600 bg-green-50 border-green-200"
+      ? "text-signal-positive bg-signal-positive-subtle border-signal-positive-border"
       : state.type === "started"
-      ? "text-blue-600 bg-blue-50 border-blue-200"
+      ? "text-signal-info bg-signal-info-subtle border-signal-info-border"
       : state.type === "cancelled"
       ? "text-slate-400 bg-slate-100 border-slate-200"
       : state.type === "triage"
-      ? "text-purple-600 bg-purple-50 border-purple-200"
+      ? "text-signal-info bg-signal-info-subtle border-signal-info-border"
       : "text-slate-600 bg-slate-100 border-slate-200";
   return (
     <span className={cn("inline-flex items-center rounded-full border px-2 py-0.5 text-xs font-medium", cls)}>
@@ -148,7 +148,7 @@ function IssueCard({
     <Card
       className={cn(
         "rounded-lg border border-border/60 cursor-pointer transition-all hover:border-border group",
-        selected && "border-[oklch(0.72_0.15_85)]/40 bg-[oklch(0.72_0.15_85)]/[0.03]",
+        selected && "border-gold/40 bg-gold/[0.03]",
         isDone && "opacity-55 hover:opacity-80"
       )}
       onClick={() => onSelect(issue)}
@@ -196,7 +196,7 @@ function IssueCard({
           {issue.assignee && (
             <span
               title={`Assigned to ${issue.assignee.name}`}
-              className="hidden sm:inline-flex h-5 w-5 items-center justify-center rounded-full bg-[oklch(0.72_0.15_85)]/15 text-[10px] font-semibold text-[oklch(0.55_0.12_85)]"
+              className="hidden sm:inline-flex h-5 w-5 items-center justify-center rounded-full bg-gold/15 text-[10px] font-semibold text-[oklch(0.55_0.12_85)]"
             >
               {issue.assignee.name.split(" ").map((w) => w[0]).join("").slice(0, 2).toUpperCase()}
             </span>
@@ -289,7 +289,7 @@ function NotificationCard({
         "rounded-lg border transition-all",
         isRead
           ? "border-border/40 bg-background/50"
-          : "border-[oklch(0.72_0.15_85)]/25 bg-[oklch(0.72_0.15_85)]/[0.03]"
+          : "border-gold/25 bg-gold/[0.03]"
       )}
     >
       <CardContent className="p-3 space-y-2">
@@ -299,7 +299,7 @@ function NotificationCard({
           <span
             className={cn(
               "mt-1.5 h-1.5 w-1.5 rounded-full shrink-0",
-              isRead ? "bg-transparent" : "bg-[oklch(0.72_0.15_85)]"
+              isRead ? "bg-transparent" : "bg-gold"
             )}
           />
           <div className="flex-1 min-w-0 space-y-0.5">
@@ -323,7 +323,7 @@ function NotificationCard({
                 href={notif.issue.url}
                 target="_blank"
                 rel="noopener noreferrer"
-                className="block text-sm font-medium text-foreground hover:text-[oklch(0.72_0.15_85)] transition-colors truncate"
+                className="block text-sm font-medium text-foreground hover:text-gold transition-colors truncate"
               >
                 <span className="font-mono text-xs text-muted-foreground mr-1.5">
                   {notif.issue.identifier}
@@ -378,7 +378,7 @@ function NotificationCard({
           {/* Delete / archive */}
           <button
             onClick={() => onDelete(notif.id)}
-            className="ml-auto flex items-center gap-1 rounded px-2 py-1 text-xs text-muted-foreground/50 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-950/20 transition-colors"
+            className="ml-auto flex items-center gap-1 rounded px-2 py-1 text-xs text-muted-foreground/50 hover:text-signal-critical hover:bg-signal-critical-subtle transition-colors"
             title="Archive notification"
           >
             <Trash2 className="h-3 w-3" />
@@ -422,7 +422,7 @@ function InboxReplyPanel({
   }
 
   return (
-    <Card className="rounded-lg border border-[oklch(0.72_0.15_85)]/30 bg-[oklch(0.72_0.15_85)]/[0.02]">
+    <Card className="rounded-lg border border-gold/30 bg-gold/[0.02]">
       <CardContent className="p-3 space-y-2">
         <div className="flex items-center justify-between">
           <p className="text-xs font-medium text-muted-foreground">
@@ -434,7 +434,7 @@ function InboxReplyPanel({
           </button>
         </div>
         {notif.comment?.body && (
-          <blockquote className="border-l-2 border-[oklch(0.72_0.15_85)]/40 pl-2 text-xs text-muted-foreground/70 line-clamp-2">
+          <blockquote className="border-l-2 border-gold/40 pl-2 text-xs text-muted-foreground/70 line-clamp-2">
             {notif.comment.body}
           </blockquote>
         )}
@@ -459,7 +459,7 @@ function InboxReplyPanel({
             className={cn(
               "h-9 w-9 rounded-md border flex items-center justify-center shrink-0 transition-colors",
               body.trim()
-                ? "border-[oklch(0.72_0.15_85)]/40 bg-[oklch(0.72_0.15_85)]/10 text-[oklch(0.55_0.15_85)] hover:bg-[oklch(0.72_0.15_85)]/20"
+                ? "border-gold/40 bg-gold/10 text-[oklch(0.55_0.15_85)] hover:bg-gold/20"
                 : "border-border text-muted-foreground/40"
             )}
             title="Send (⌘↵)"
@@ -864,7 +864,7 @@ export default function LinearPage() {
     return (
       <div className="p-4 sm:p-6 lg:p-8">
         <header className="flex items-center gap-3 mb-8">
-          <Triangle className="h-5 w-5 text-[oklch(0.72_0.15_85)]" />
+          <Triangle className="h-5 w-5 text-gold" />
           <div>
             <h1 className="text-2xl font-semibold tracking-tight">Linear</h1>
             <p className="text-sm text-muted-foreground mt-0.5">Issues, projects and blockers</p>
@@ -876,7 +876,7 @@ export default function LinearPage() {
             <p className="text-sm font-medium">Linear not connected</p>
             <p className="text-sm text-muted-foreground">
               Add your Linear API key in{" "}
-              <a href="/dashboard/settings" className="text-[oklch(0.72_0.15_85)] hover:underline">
+              <a href="/dashboard/settings" className="text-gold hover:underline">
                 Settings
               </a>{" "}
               to get started.
@@ -897,7 +897,7 @@ export default function LinearPage() {
       {/* Header */}
       <header className="flex items-start justify-between gap-4">
         <div className="flex items-center gap-3">
-          <Triangle className="h-5 w-5 text-[oklch(0.72_0.15_85)] shrink-0" />
+          <Triangle className="h-5 w-5 text-gold shrink-0" />
           <div>
             <h1 className="text-2xl font-semibold tracking-tight">Linear</h1>
             <p className="text-sm text-muted-foreground mt-0.5">Issues, projects and blockers</p>
@@ -915,7 +915,7 @@ export default function LinearPage() {
           {activeTab === "issues" && (
             <Button
               size="sm"
-              className="bg-[oklch(0.72_0.15_85)] hover:bg-[oklch(0.78_0.12_85)] text-[oklch(0.18_0.04_250)] gap-1.5"
+              className="bg-gold hover:bg-[oklch(0.78_0.12_85)] text-[oklch(0.18_0.04_250)] gap-1.5"
               onClick={() => {
                 setShowNewForm((v) => !v);
                 if (teams.length > 0 && !newForm.teamId) {
@@ -937,7 +937,7 @@ export default function LinearPage() {
           className={cn(
             "flex items-center gap-1.5 px-3 py-2 text-sm font-medium border-b-2 transition-colors -mb-px",
             activeTab === "issues"
-              ? "border-[oklch(0.72_0.15_85)] text-foreground"
+              ? "border-gold text-foreground"
               : "border-transparent text-muted-foreground hover:text-foreground"
           )}
         >
@@ -949,14 +949,14 @@ export default function LinearPage() {
           className={cn(
             "flex items-center gap-1.5 px-3 py-2 text-sm font-medium border-b-2 transition-colors -mb-px",
             activeTab === "inbox"
-              ? "border-[oklch(0.72_0.15_85)] text-foreground"
+              ? "border-gold text-foreground"
               : "border-transparent text-muted-foreground hover:text-foreground"
           )}
         >
           <div className="relative">
             <Bell className="h-3.5 w-3.5" />
             {unreadCount > 0 && (
-              <span className="absolute -top-1 -right-1.5 h-3.5 w-3.5 rounded-full bg-[oklch(0.72_0.15_85)] text-[oklch(0.18_0.04_250)] text-[8px] font-bold flex items-center justify-center">
+              <span className="absolute -top-1 -right-1.5 h-3.5 w-3.5 rounded-full bg-gold text-[oklch(0.18_0.04_250)] text-[8px] font-bold flex items-center justify-center">
                 {unreadCount > 9 ? "9+" : unreadCount}
               </span>
             )}
@@ -1037,7 +1037,7 @@ export default function LinearPage() {
 
       {/* New issue form */}
       {showNewForm && (
-        <Card className="rounded-lg border border-[oklch(0.72_0.15_85)]/30">
+        <Card className="rounded-lg border border-gold/30">
           <CardContent className="p-4 space-y-3">
             <div className="flex items-center justify-between">
               <p className="text-sm font-medium">New Issue</p>
@@ -1151,7 +1151,7 @@ export default function LinearPage() {
                 size="sm"
                 disabled={creating || !newForm.title.trim() || !newForm.teamId}
                 onClick={() => void handleCreate()}
-                className="bg-[oklch(0.72_0.15_85)] text-[oklch(0.18_0.04_250)] hover:bg-[oklch(0.78_0.12_85)]"
+                className="bg-gold text-[oklch(0.18_0.04_250)] hover:bg-[oklch(0.78_0.12_85)]"
               >
                 {creating ? "Creating…" : "Create"}
               </Button>
@@ -1175,7 +1175,7 @@ export default function LinearPage() {
           value={search}
           onChange={(e) => setSearch(e.target.value)}
           placeholder="Search issues by title, identifier, team, or assignee…"
-          className="w-full h-10 rounded-md border border-border bg-background pl-10 pr-3 text-sm outline-none focus:ring-2 focus:ring-[oklch(0.72_0.15_85)]/40"
+          className="w-full h-10 rounded-md border border-border bg-background pl-10 pr-3 text-sm outline-none focus:ring-2 focus:ring-gold/40"
         />
         {search && (
           <button
@@ -1228,7 +1228,7 @@ export default function LinearPage() {
           className={cn(
             "h-9 rounded-md border px-3 text-sm font-medium transition-colors",
             assigneeIsMe
-              ? "border-[oklch(0.72_0.15_85)]/40 bg-[oklch(0.72_0.15_85)]/10 text-[oklch(0.55_0.15_85)]"
+              ? "border-gold/40 bg-gold/10 text-[oklch(0.55_0.15_85)]"
               : "border-border bg-background text-muted-foreground hover:text-foreground"
           )}
         >
@@ -1303,7 +1303,7 @@ export default function LinearPage() {
                     href={selectedIssue.url}
                     target="_blank"
                     rel="noopener noreferrer"
-                    className="text-muted-foreground/60 hover:text-[oklch(0.72_0.15_85)] transition-colors"
+                    className="text-muted-foreground/60 hover:text-gold transition-colors"
                     title="Open in Linear"
                   >
                     <ExternalLink className="h-3.5 w-3.5" />
@@ -1335,7 +1335,7 @@ export default function LinearPage() {
                 />
               ) : (
                 <button
-                  className="w-full text-left text-sm font-medium leading-snug hover:text-[oklch(0.72_0.15_85)] transition-colors group flex items-start gap-1"
+                  className="w-full text-left text-sm font-medium leading-snug hover:text-gold transition-colors group flex items-start gap-1"
                   onClick={() => setEditingTitle(true)}
                   title="Click to edit title"
                 >
@@ -1396,7 +1396,7 @@ export default function LinearPage() {
                         className={cn(
                           "flex items-center gap-1.5 rounded-md border px-2.5 py-1 text-xs font-medium transition-colors",
                           active
-                            ? "border-[oklch(0.72_0.15_85)]/40 bg-[oklch(0.72_0.15_85)]/10 text-foreground"
+                            ? "border-gold/40 bg-gold/10 text-foreground"
                             : "border-border text-muted-foreground hover:text-foreground hover:border-border/80"
                         )}
                       >
@@ -1493,7 +1493,7 @@ export default function LinearPage() {
                   size="sm"
                   disabled={saving}
                   onClick={() => void handleSave()}
-                  className="bg-[oklch(0.72_0.15_85)] text-[oklch(0.18_0.04_250)] hover:bg-[oklch(0.78_0.12_85)]"
+                  className="bg-gold text-[oklch(0.18_0.04_250)] hover:bg-[oklch(0.78_0.12_85)]"
                 >
                   {saving ? "Saving…" : "Save"}
                 </Button>
@@ -1565,7 +1565,7 @@ export default function LinearPage() {
                       <div key={c.id} className="space-y-1">
                         <div className="flex items-center gap-2">
                           {/* Avatar initial */}
-                          <span className="inline-flex h-5 w-5 items-center justify-center rounded-full bg-[oklch(0.72_0.15_85)]/15 text-xs font-semibold text-[oklch(0.55_0.15_85)] shrink-0">
+                          <span className="inline-flex h-5 w-5 items-center justify-center rounded-full bg-gold/15 text-xs font-semibold text-[oklch(0.55_0.15_85)] shrink-0">
                             {c.user.name.charAt(0).toUpperCase()}
                           </span>
                           <span className="text-xs font-medium text-foreground">{c.user.name}</span>
@@ -1607,7 +1607,7 @@ export default function LinearPage() {
                     className={cn(
                       "h-9 w-9 rounded-md border flex items-center justify-center shrink-0 transition-colors",
                       replyBody.trim()
-                        ? "border-[oklch(0.72_0.15_85)]/40 bg-[oklch(0.72_0.15_85)]/10 text-[oklch(0.55_0.15_85)] hover:bg-[oklch(0.72_0.15_85)]/20"
+                        ? "border-gold/40 bg-gold/10 text-[oklch(0.55_0.15_85)] hover:bg-gold/20"
                         : "border-border text-muted-foreground/40"
                     )}
                     title="Send comment (⌘↵)"

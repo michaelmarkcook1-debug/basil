@@ -147,13 +147,13 @@ function StateBadge({ state, mode }: { state?: IntegrationState | "loading"; mod
     return <Badge variant="secondary" className="gap-1 text-xs"><Loader2 className="h-3 w-3 animate-spin" />Checking</Badge>;
   }
   if (state === "connected") {
-    return <Badge className="bg-emerald-100 text-emerald-800 border-emerald-300 gap-1 text-xs font-semibold"><CheckCircle2 className="h-3 w-3" />Connected</Badge>;
+    return <Badge className="bg-signal-positive-subtle text-signal-positive border-signal-positive-border gap-1 text-xs font-semibold"><CheckCircle2 className="h-3 w-3" />Connected</Badge>;
   }
   if (state === "permission_missing" || state === "token_expired") {
-    return <Badge className="bg-amber-100 text-amber-800 border-amber-400 gap-1 text-xs font-semibold"><AlertTriangle className="h-3 w-3" />Needs re-auth</Badge>;
+    return <Badge className="bg-signal-warning-subtle text-signal-warning border-signal-warning-border gap-1 text-xs font-semibold"><AlertTriangle className="h-3 w-3" />Needs re-auth</Badge>;
   }
   if (state === "error") {
-    return <Badge className="bg-red-100 text-red-800 border-red-400 gap-1 text-xs font-semibold"><XCircle className="h-3 w-3" />Error</Badge>;
+    return <Badge className="bg-signal-critical-subtle text-signal-critical border-signal-critical-border gap-1 text-xs font-semibold"><XCircle className="h-3 w-3" />Error</Badge>;
   }
   return <Badge className="bg-slate-100 text-slate-600 border-slate-300 gap-1 text-xs"><XCircle className="h-3 w-3" />Not connected</Badge>;
 }
@@ -184,7 +184,7 @@ function EnvPill({ value, copied, setCopied }: { value: string; copied: boolean;
       title="Click to copy"
     >
       {value}
-      {copied ? <ClipboardCheck className="h-3 w-3 text-emerald-600" /> : <Copy className="h-3 w-3 text-muted-foreground" />}
+      {copied ? <ClipboardCheck className="h-3 w-3 text-signal-positive" /> : <Copy className="h-3 w-3 text-muted-foreground" />}
     </button>
   );
 }
@@ -227,39 +227,39 @@ function ReadinessTab() {
   return (
     <div className="space-y-4">
       {/* Score banner */}
-      <div className={`rounded-xl border-2 px-5 py-4 flex items-center justify-between gap-4 ${report.score === 100 ? "border-emerald-300 bg-emerald-50" : report.blockers.length > 0 ? "border-red-300 bg-red-50" : "border-amber-300 bg-amber-50"}`}>
+      <div className={`rounded-xl border-2 px-5 py-4 flex items-center justify-between gap-4 ${report.score === 100 ? "border-signal-positive-border bg-signal-positive-subtle" : report.blockers.length > 0 ? "border-signal-critical-border bg-signal-critical-subtle" : "border-signal-warning-border bg-signal-warning-subtle"}`}>
         <div className="space-y-0.5">
-          <p className={`text-sm font-bold ${report.score === 100 ? "text-emerald-800" : report.blockers.length > 0 ? "text-red-800" : "text-amber-800"}`}>
+          <p className={`text-sm font-bold ${report.score === 100 ? "text-signal-positive" : report.blockers.length > 0 ? "text-signal-critical" : "text-signal-warning"}`}>
             {report.score === 100 ? "Basil is fully configured" : report.blockers.length > 0 ? "Action required — blockers detected" : "Almost there — warnings to review"}
           </p>
-          <p className={`text-xs font-medium ${report.score === 100 ? "text-emerald-700" : report.blockers.length > 0 ? "text-red-700" : "text-amber-700"}`}>
+          <p className={`text-xs font-medium ${report.score === 100 ? "text-signal-positive" : report.blockers.length > 0 ? "text-signal-critical" : "text-signal-warning"}`}>
             {report.checks.filter((c) => c.ok).length} of {report.checks.length} checks passing
           </p>
         </div>
-        <div className={`text-3xl font-black tabular-nums ${report.score === 100 ? "text-emerald-600" : report.blockers.length > 0 ? "text-red-600" : "text-amber-600"}`}>
+        <div className={`text-3xl font-black tabular-nums ${report.score === 100 ? "text-signal-positive" : report.blockers.length > 0 ? "text-signal-critical" : "text-signal-warning"}`}>
           {report.score}%
         </div>
       </div>
 
       {/* Blocker banners */}
       {encryptionCheck && !encryptionCheck.ok && (
-        <div className="rounded-xl border-2 border-red-400 bg-red-50 px-5 py-4 flex items-start gap-3">
-          <AlertTriangle className="h-5 w-5 text-red-600 shrink-0 mt-0.5" />
+        <div className="rounded-xl border-2 border-signal-critical-border bg-signal-critical-subtle px-5 py-4 flex items-start gap-3">
+          <AlertTriangle className="h-5 w-5 text-signal-critical shrink-0 mt-0.5" />
           <div>
-            <p className="text-sm font-bold text-red-800">Token encryption key missing — credentials cannot be saved securely.</p>
-            <p className="text-xs text-red-700 mt-1 font-medium">Set <code className="bg-red-100 border border-red-200 rounded px-1">BASIL_TOKEN_ENCRYPTION_KEY</code> in Vercel env vars.</p>
+            <p className="text-sm font-bold text-signal-critical">Token encryption key missing — credentials cannot be saved securely.</p>
+            <p className="text-xs text-signal-critical mt-1 font-medium">Set <code className="bg-signal-critical-subtle border border-signal-critical-border rounded px-1">BASIL_TOKEN_ENCRYPTION_KEY</code> in Vercel env vars.</p>
           </div>
         </div>
       )}
 
       {modelCheck && !modelCheck.ok && (
-        <div className="rounded-xl border-2 border-red-400 bg-red-50 px-5 py-4 flex items-start gap-3">
-          <AlertTriangle className="h-5 w-5 text-red-600 shrink-0 mt-0.5" />
+        <div className="rounded-xl border-2 border-signal-critical-border bg-signal-critical-subtle px-5 py-4 flex items-start gap-3">
+          <AlertTriangle className="h-5 w-5 text-signal-critical shrink-0 mt-0.5" />
           <div>
-            <p className="text-sm font-bold text-red-800">AI brain not configured — Chat and briefings will not work.</p>
-            <p className="text-xs text-red-700 mt-1 font-medium">
-              Add <code className="bg-red-100 border border-red-200 rounded px-1">openai_basilv2</code> (value: your OpenAI API key) in Vercel env vars, or run{" "}
-              <code className="bg-red-100 border border-red-200 rounded px-1">vercel env pull .env.local</code> for Vercel AI Gateway.
+            <p className="text-sm font-bold text-signal-critical">AI brain not configured — Chat and briefings will not work.</p>
+            <p className="text-xs text-signal-critical mt-1 font-medium">
+              Add <code className="bg-signal-critical-subtle border border-signal-critical-border rounded px-1">openai_basilv2</code> (value: your OpenAI API key) in Vercel env vars, or run{" "}
+              <code className="bg-signal-critical-subtle border border-signal-critical-border rounded px-1">vercel env pull .env.local</code> for Vercel AI Gateway.
             </p>
           </div>
         </div>
@@ -274,19 +274,19 @@ function ReadinessTab() {
               check.ok
                 ? "border-l-emerald-400 bg-card"
                 : check.severity === "blocker"
-                ? "border-l-red-500 bg-red-50/60"
+                ? "border-l-red-500 bg-signal-critical-subtle/60"
                 : check.severity === "warning"
-                ? "border-l-amber-400 bg-amber-50/40"
+                ? "border-l-amber-400 bg-signal-warning-subtle"
                 : "border-l-slate-300 bg-card"
             }`}
           >
             <div className="shrink-0 mt-0.5">
               {check.ok ? (
-                <CheckCircle2 className="h-4 w-4 text-emerald-600" />
+                <CheckCircle2 className="h-4 w-4 text-signal-positive" />
               ) : check.severity === "blocker" ? (
-                <AlertTriangle className="h-4 w-4 text-red-600" />
+                <AlertTriangle className="h-4 w-4 text-signal-critical" />
               ) : check.severity === "warning" ? (
-                <AlertTriangle className="h-4 w-4 text-amber-500" />
+                <AlertTriangle className="h-4 w-4 text-signal-warning" />
               ) : (
                 <Info className="h-4 w-4 text-muted-foreground" />
               )}
@@ -298,9 +298,9 @@ function ReadinessTab() {
                   <Badge
                     className={
                       check.severity === "blocker"
-                        ? "bg-red-100 text-red-700 border-red-300 text-xs font-semibold"
+                        ? "bg-signal-critical-subtle text-signal-critical border-signal-critical-border text-xs font-semibold"
                         : check.severity === "warning"
-                        ? "bg-amber-100 text-amber-800 border-amber-300 text-xs font-semibold"
+                        ? "bg-signal-warning-subtle text-signal-warning border-signal-warning-border text-xs font-semibold"
                         : "bg-muted text-muted-foreground text-xs"
                     }
                   >
@@ -310,18 +310,18 @@ function ReadinessTab() {
               </div>
               <p className="text-xs text-muted-foreground mt-0.5">{check.detail}</p>
               {!check.ok && check.action && (
-                <p className={`text-xs mt-1 font-medium ${check.severity === "blocker" ? "text-red-700" : check.severity === "warning" ? "text-amber-700" : "text-muted-foreground"}`}>
+                <p className={`text-xs mt-1 font-medium ${check.severity === "blocker" ? "text-signal-critical" : check.severity === "warning" ? "text-signal-warning" : "text-muted-foreground"}`}>
                   Fix: {check.action}
                 </p>
               )}
             </div>
             <div className="shrink-0">
               {check.ok ? (
-                <span className="text-xs font-bold text-emerald-600">Pass</span>
+                <span className="text-xs font-bold text-signal-positive">Pass</span>
               ) : check.severity === "blocker" ? (
-                <span className="text-xs font-bold text-red-600">Blocker</span>
+                <span className="text-xs font-bold text-signal-critical">Blocker</span>
               ) : check.severity === "warning" ? (
-                <span className="text-xs font-bold text-amber-600">Warn</span>
+                <span className="text-xs font-bold text-signal-warning">Warn</span>
               ) : (
                 <span className="text-xs font-medium text-muted-foreground">Info</span>
               )}
@@ -416,7 +416,7 @@ function StigApiTab({
   return (
     <div className="space-y-4">
       {/* ── Brain status card ────────────────────────────────────────────── */}
-      <Card className="border-[oklch(0.72_0.15_85)]/30 bg-[oklch(0.72_0.15_85)]/[0.04] shadow-sm">
+      <Card className="border-gold/30 bg-gold/[0.04] shadow-sm">
         <CardHeader className="pb-3">
           <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
             <div>
@@ -429,15 +429,15 @@ function StigApiTab({
               </p>
             </div>
             <div className="flex flex-wrap gap-2">
-              <Badge className={status?.embedded ? "bg-emerald-100 text-emerald-700 border-emerald-200" : "bg-amber-100 text-amber-700 border-amber-200"}>
+              <Badge className={status?.embedded ? "bg-signal-positive-subtle text-signal-positive border-signal-positive-border" : "bg-signal-warning-subtle text-signal-warning border-signal-warning-border"}>
                 {status?.embedded ? "Embedded" : "Checking"}
               </Badge>
-              <Badge className={modelReady ? "bg-emerald-100 text-emerald-800 border-emerald-300 font-semibold" : "bg-red-100 text-red-800 border-red-400 font-semibold"}>
+              <Badge className={modelReady ? "bg-signal-positive-subtle text-signal-positive border-signal-positive-border font-semibold" : "bg-signal-critical-subtle text-signal-critical border-signal-critical-border font-semibold"}>
                 {modelReady
                   ? (openaiReady ? "OpenAI ready" : "Gateway ready")
                   : "AI brain missing"}
               </Badge>
-              <Badge className={tokenReady ? "bg-emerald-100 text-emerald-700 border-emerald-200" : "bg-muted text-muted-foreground"}>
+              <Badge className={tokenReady ? "bg-signal-positive-subtle text-signal-positive border-signal-positive-border" : "bg-muted text-muted-foreground"}>
                 {tokenReady ? "Phone token ready" : "Phone token off"}
               </Badge>
             </div>
@@ -445,35 +445,35 @@ function StigApiTab({
         </CardHeader>
         <CardContent className="space-y-4">
           {!modelReady && (
-            <div className="rounded-lg border-2 border-red-300 bg-red-50 p-3 text-xs text-red-800 flex items-start gap-2">
-              <AlertTriangle className="h-4 w-4 shrink-0 text-red-600 mt-0.5" />
+            <div className="rounded-lg border-2 border-signal-critical-border bg-signal-critical-subtle p-3 text-xs text-signal-critical flex items-start gap-2">
+              <AlertTriangle className="h-4 w-4 shrink-0 text-signal-critical mt-0.5" />
               <div>
                 <strong className="font-bold">AI brain not configured.</strong>{" "}Set{" "}
                 <EnvPill value="openai_basilv2" copied={copied === "openai_basilv2"} setCopied={setCopied} />{" "}
-                (value: your OpenAI API key) in Vercel env vars. Or run <code className="bg-red-100 border border-red-200 rounded px-1">vercel env pull .env.local</code> for Vercel AI Gateway.
+                (value: your OpenAI API key) in Vercel env vars. Or run <code className="bg-signal-critical-subtle border border-signal-critical-border rounded px-1">vercel env pull .env.local</code> for Vercel AI Gateway.
               </div>
             </div>
           )}
           {modelReady && (
-            <div className="rounded-lg border border-emerald-200 bg-emerald-50 p-3 text-xs text-emerald-800 flex items-center justify-between gap-3 flex-wrap">
+            <div className="rounded-lg border border-signal-positive-border bg-signal-positive-subtle p-3 text-xs text-signal-positive flex items-center justify-between gap-3 flex-wrap">
               <div>
                 <strong>{openaiReady ? "OpenAI direct" : "Vercel AI Gateway"}</strong> is ready.
                 {providerMode === "openai_direct" && status?.model?.default && (
-                  <span className="ml-1">Model: <code className="bg-emerald-100 rounded px-1">{status.model.default}</code></span>
+                  <span className="ml-1">Model: <code className="bg-signal-positive-subtle rounded px-1">{status.model.default}</code></span>
                 )}
               </div>
               <button
                 type="button"
                 onClick={() => void testBrain()}
                 disabled={testing}
-                className="shrink-0 rounded-md border border-emerald-300 bg-white/60 px-2.5 py-1 text-xs font-medium text-emerald-800 hover:bg-white disabled:opacity-50"
+                className="shrink-0 rounded-md border border-signal-positive-border bg-white/60 px-2.5 py-1 text-xs font-medium text-signal-positive hover:bg-white disabled:opacity-50"
               >
                 {testing ? "Testing…" : "Test brain →"}
               </button>
             </div>
           )}
           {testResult && (
-            <div className={`rounded-lg border p-3 text-xs ${testResult.ok ? "border-emerald-200 bg-emerald-50 text-emerald-800" : "border-red-200 bg-red-50 text-red-800"}`}>
+            <div className={`rounded-lg border p-3 text-xs ${testResult.ok ? "border-signal-positive-border bg-signal-positive-subtle text-signal-positive" : "border-signal-critical-border bg-signal-critical-subtle text-signal-critical"}`}>
               {testResult.ok
                 ? <>✓ AI responded in {testResult.durationMs}ms ({testResult.providerMode ?? "direct"}): <em>&ldquo;{testResult.text}&rdquo;</em></>
                 : <>✗ Test failed: {testResult.error ?? "unknown error"}</>}
@@ -562,8 +562,8 @@ function StigApiTab({
                   <CardTitle className="text-sm font-semibold flex items-center gap-2">
                     Siri Shortcut setup
                     {tokenReady
-                      ? <Badge className="bg-emerald-100 text-emerald-700 border-emerald-200 text-xs">Token ready</Badge>
-                      : <Badge className="bg-amber-100 text-amber-800 border-amber-200 text-xs">Token needed</Badge>}
+                      ? <Badge className="bg-signal-positive-subtle text-signal-positive border-signal-positive-border text-xs">Token ready</Badge>
+                      : <Badge className="bg-signal-warning-subtle text-signal-warning border-signal-warning-border text-xs">Token needed</Badge>}
                   </CardTitle>
                   <p className="mt-0.5 text-xs text-muted-foreground">
                     Say &ldquo;Hey Siri, ask Basil&rdquo; — Basil answers out loud in 3–5 seconds.
@@ -594,12 +594,12 @@ function StigApiTab({
             {/* Step 1: Token */}
             <div className="space-y-2">
               <div className="flex items-center gap-2">
-                <span className={`flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-xs font-bold ${tokenReady ? "bg-emerald-500 text-white" : "bg-slate-200 text-slate-700"}`}>1</span>
+                <span className={`flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-xs font-bold ${tokenReady ? "bg-signal-positive text-white" : "bg-slate-200 text-slate-700"}`}>1</span>
                 <p className="text-sm font-semibold">Configure token auth</p>
-                {tokenReady && <CheckCircle2 className="h-3.5 w-3.5 text-emerald-500" />}
+                {tokenReady && <CheckCircle2 className="h-3.5 w-3.5 text-signal-positive" />}
               </div>
               {tokenReady ? (
-                <p className="ml-7 text-xs text-emerald-700">
+                <p className="ml-7 text-xs text-signal-positive">
                   ✓ Token auth is configured. Siri can authenticate without a browser session.
                 </p>
               ) : (
@@ -638,7 +638,7 @@ function StigApiTab({
                       onClick={() => copyText(siriEndpoint, setCopied)}
                       className="shrink-0 inline-flex items-center gap-1 rounded-md border px-2.5 py-1.5 text-xs font-medium hover:bg-muted/60"
                     >
-                      {copied === siriEndpoint ? <ClipboardCheck className="h-3 w-3 text-emerald-600" /> : <Copy className="h-3 w-3" />}
+                      {copied === siriEndpoint ? <ClipboardCheck className="h-3 w-3 text-signal-positive" /> : <Copy className="h-3 w-3" />}
                       {copied === siriEndpoint ? "Copied" : "Copy URL"}
                     </button>
                   )}
@@ -659,7 +659,7 @@ function StigApiTab({
                 <div className="space-y-2">
                   {/* Action 1 */}
                   <div className="rounded-lg border bg-card p-3 flex items-start gap-3">
-                    <div className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md bg-blue-100 text-blue-700">
+                    <div className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md bg-signal-info-subtle text-signal-info">
                       <Mic className="h-3.5 w-3.5" />
                     </div>
                     <div className="space-y-0.5">
@@ -670,7 +670,7 @@ function StigApiTab({
 
                   {/* Action 2 */}
                   <div className="rounded-lg border bg-card p-3 flex items-start gap-3">
-                    <div className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md bg-violet-100 text-violet-700">
+                    <div className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md bg-signal-info-subtle text-signal-info">
                       <Globe2 className="h-3.5 w-3.5" />
                     </div>
                     <div className="space-y-1.5 flex-1 min-w-0">
@@ -688,7 +688,7 @@ function StigApiTab({
                           <span className="shrink-0 font-medium text-foreground/70 w-14">Body</span>
                           <div className="space-y-0.5">
                             <p className="font-mono">JSON</p>
-                            <p className="font-mono">question → <em className="not-italic bg-blue-50 border border-blue-200 rounded px-1 text-blue-700">Dictated Text</em> (select from variables)</p>
+                            <p className="font-mono">question → <em className="not-italic bg-signal-info-subtle border border-signal-info-border rounded px-1 text-signal-info">Dictated Text</em> (select from variables)</p>
                           </div>
                         </div>
                         <div className="flex gap-2">
@@ -701,7 +701,7 @@ function StigApiTab({
 
                   {/* Action 3 */}
                   <div className="rounded-lg border bg-card p-3 flex items-start gap-3">
-                    <div className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md bg-emerald-100 text-emerald-700">
+                    <div className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md bg-signal-positive-subtle text-signal-positive">
                       <Apple className="h-3.5 w-3.5" />
                     </div>
                     <div className="space-y-0.5">
@@ -752,12 +752,12 @@ function StigApiTab({
                 disabled={siriTesting}
                 className="shrink-0 inline-flex items-center gap-1.5 rounded-md border px-3 py-1.5 text-xs font-medium hover:bg-muted/60 disabled:opacity-50"
               >
-                <Mic className={`h-3.5 w-3.5 ${siriTesting ? "animate-pulse text-red-500" : ""}`} />
+                <Mic className={`h-3.5 w-3.5 ${siriTesting ? "animate-pulse text-signal-critical" : ""}`} />
                 {siriTesting ? "Asking Basil…" : "Ask Basil a test question →"}
               </button>
             </div>
             {siriResult && (
-              <div className={`rounded-lg border p-3 text-xs ${siriResult.ok ? "border-emerald-200 bg-emerald-50 text-emerald-800" : "border-red-200 bg-red-50 text-red-800"}`}>
+              <div className={`rounded-lg border p-3 text-xs ${siriResult.ok ? "border-signal-positive-border bg-signal-positive-subtle text-signal-positive" : "border-signal-critical-border bg-signal-critical-subtle text-signal-critical"}`}>
                 {siriResult.ok
                   ? <><span className="font-semibold">Basil says:</span> {siriResult.text}</>
                   : <><span className="font-semibold">Error:</span> {siriResult.error}</>}
@@ -795,13 +795,13 @@ function ConnectionCard({
       <CardHeader className="pb-3">
         <div className="flex items-start justify-between gap-3">
           <div className="flex items-start gap-3">
-            <div className={`rounded-lg p-2 ${isConnected(app.status) ? "bg-emerald-100 text-emerald-700" : "bg-muted text-muted-foreground"}`}>
+            <div className={`rounded-lg p-2 ${isConnected(app.status) ? "bg-signal-positive-subtle text-signal-positive" : "bg-muted text-muted-foreground"}`}>
               <Icon className="h-4 w-4" />
             </div>
             <div>
               <CardTitle className="text-sm font-semibold flex flex-wrap items-center gap-2">
                 {app.name}
-                {app.priority === "primary" && <Badge className="bg-emerald-700 text-white border-0 text-xs">Primary</Badge>}
+                {app.priority === "primary" && <Badge className="bg-signal-positive text-white border-0 text-xs">Primary</Badge>}
               </CardTitle>
               <p className="mt-1 text-xs text-muted-foreground leading-snug">{app.role}</p>
             </div>
@@ -811,7 +811,7 @@ function ConnectionCard({
       </CardHeader>
       <CardContent className="space-y-3">
         {app.status?.error && (
-          <p className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-800 font-medium">{app.status.error}</p>
+          <p className="rounded-md border border-signal-critical-border bg-signal-critical-subtle px-3 py-2 text-xs text-signal-critical font-medium">{app.status.error}</p>
         )}
 
         {app.setup && app.setup.length > 0 && (
@@ -836,7 +836,7 @@ function ConnectionCard({
                 Connect
               </Button>
             </div>
-            {linearError && <p className="text-xs text-red-600">{linearError}</p>}
+            {linearError && <p className="text-xs text-signal-critical">{linearError}</p>}
             <a className="inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground underline" href="https://linear.app/settings/api" target="_blank" rel="noreferrer">
               Get Linear API key <ExternalLink className="h-3 w-3" />
             </a>
@@ -873,7 +873,7 @@ function ConnectionCard({
             Open WhatsApp import
           </Button>
         ) : app.mode === "manual" ? (
-          <Badge className="bg-amber-100 text-amber-700 border-amber-200">Manual / import only</Badge>
+          <Badge className="bg-signal-warning-subtle text-signal-warning border-signal-warning-border">Manual / import only</Badge>
         ) : (
           <Badge variant="secondary">Planned</Badge>
         )}
@@ -1287,7 +1287,7 @@ export default function SettingsPage() {
       <header className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
         <div>
           <div className="flex items-center gap-2">
-            <Settings className="h-6 w-6 text-[oklch(0.72_0.15_85)]" />
+            <Settings className="h-6 w-6 text-gold" />
             <h1 className="text-2xl font-semibold tracking-tight">Settings & integrations</h1>
           </div>
           <p className="mt-1 max-w-2xl text-sm text-muted-foreground">
@@ -1297,11 +1297,11 @@ export default function SettingsPage() {
         <div className="flex flex-wrap gap-2">
           {statuses !== null && (
             <Badge variant="secondary" className="h-9 px-3 text-sm font-medium">
-              <CheckCircle2 className="mr-1.5 h-3.5 w-3.5 text-emerald-600" />{connectedApps} connected
+              <CheckCircle2 className="mr-1.5 h-3.5 w-3.5 text-signal-positive" />{connectedApps} connected
             </Badge>
           )}
           {needsAttention > 0 && (
-            <Badge className="h-9 bg-amber-100 px-3 text-amber-900 border-amber-400 font-semibold text-sm">
+            <Badge className="h-9 bg-signal-warning-subtle px-3 text-signal-warning border-signal-warning-border font-semibold text-sm">
               <AlertTriangle className="mr-1.5 h-3.5 w-3.5" />{needsAttention} need attention
             </Badge>
           )}
@@ -1313,10 +1313,10 @@ export default function SettingsPage() {
       </header>
 
       {notice && (
-        <div className={`flex items-start gap-2.5 rounded-xl border px-4 py-3 text-sm font-medium ${notice.type === "success" ? "border-emerald-300 bg-emerald-50 text-emerald-800" : "border-red-300 bg-red-50 text-red-800"}`}>
+        <div className={`flex items-start gap-2.5 rounded-xl border px-4 py-3 text-sm font-medium ${notice.type === "success" ? "border-signal-positive-border bg-signal-positive-subtle text-signal-positive" : "border-signal-critical-border bg-signal-critical-subtle text-signal-critical"}`}>
           {notice.type === "success"
-            ? <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-emerald-600" />
-            : <XCircle className="mt-0.5 h-4 w-4 shrink-0 text-red-500" />}
+            ? <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-signal-positive" />
+            : <XCircle className="mt-0.5 h-4 w-4 shrink-0 text-signal-critical" />}
           {notice.message}
           <button type="button" onClick={() => setNotice(null)} className="ml-auto shrink-0 opacity-60 hover:opacity-100">✕</button>
         </div>
@@ -1329,13 +1329,13 @@ export default function SettingsPage() {
         const isGreen = score === 100;
         const isRed = !brainReady;
         const colorClass = isGreen
-          ? "border-emerald-300 bg-emerald-50"
+          ? "border-signal-positive-border bg-signal-positive-subtle"
           : isRed
-          ? "border-red-300 bg-red-50"
-          : "border-amber-300 bg-amber-50";
-        const textClass = isGreen ? "text-emerald-800" : isRed ? "text-red-800" : "text-amber-800";
-        const subTextClass = isGreen ? "text-emerald-700" : isRed ? "text-red-700" : "text-amber-700";
-        const scoreClass = isGreen ? "text-emerald-600" : isRed ? "text-red-600" : "text-amber-600";
+          ? "border-signal-critical-border bg-signal-critical-subtle"
+          : "border-signal-warning-border bg-signal-warning-subtle";
+        const textClass = isGreen ? "text-signal-positive" : isRed ? "text-signal-critical" : "text-signal-warning";
+        const subTextClass = isGreen ? "text-signal-positive" : isRed ? "text-signal-critical" : "text-signal-warning";
+        const scoreClass = isGreen ? "text-signal-positive" : isRed ? "text-signal-critical" : "text-signal-warning";
         const headline = isGreen
           ? "All core systems ready"
           : isRed
@@ -1350,7 +1350,7 @@ export default function SettingsPage() {
         return (
           <div className={`flex items-center justify-between gap-4 rounded-xl border-2 px-5 py-3 ${colorClass}`}>
             <div className="flex items-start gap-3">
-              <Icon className={`h-5 w-5 shrink-0 mt-0.5 ${isGreen ? "text-emerald-600" : isRed ? "text-red-600" : "text-amber-600"}`} />
+              <Icon className={`h-5 w-5 shrink-0 mt-0.5 ${isGreen ? "text-signal-positive" : isRed ? "text-signal-critical" : "text-signal-warning"}`} />
               <div>
                 <p className={`text-sm font-bold ${textClass}`}>{headline}</p>
                 <p className={`text-xs ${subTextClass}`}>{subline}</p>
@@ -1451,7 +1451,7 @@ export default function SettingsPage() {
               <p className="text-xs text-muted-foreground">Used in prompts, daily briefing time boundaries and scheduling logic.</p>
             </CardHeader>
             <CardContent className="space-y-4">
-              {profileError && <p className="rounded-md bg-red-50 px-3 py-2 text-xs text-red-700">{profileError}</p>}
+              {profileError && <p className="rounded-md bg-signal-critical-subtle px-3 py-2 text-xs text-signal-critical">{profileError}</p>}
               <div className="grid gap-3 md:grid-cols-2">
                 <label className="space-y-1.5 text-xs font-medium text-muted-foreground">
                   Name
@@ -1595,9 +1595,9 @@ export default function SettingsPage() {
               </CardContent>
             </Card>
 
-            <Card className="border-red-200 shadow-sm">
+            <Card className="border-signal-critical-border shadow-sm">
               <CardHeader className="pb-3">
-                <CardTitle className="text-base font-semibold text-red-600 flex items-center gap-2">
+                <CardTitle className="text-base font-semibold text-signal-critical flex items-center gap-2">
                   <Trash2 className="h-4 w-4" />
                   Danger zone
                 </CardTitle>

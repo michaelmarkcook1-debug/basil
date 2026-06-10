@@ -75,8 +75,8 @@ const ACTION_DRAFT_DEFAULT: ActionFormDraft = {
 function PriorityBadge({ priority }: { priority?: ActionItem["priority"] }) {
   if (!priority) return null;
   const styles: Record<NonNullable<ActionItem["priority"]>, string> = {
-    high: "bg-red-100 text-red-700 border-red-200",
-    medium: "bg-amber-100 text-amber-700 border-amber-200",
+    high: "bg-signal-critical-subtle text-signal-critical border-signal-critical-border",
+    medium: "bg-signal-warning-subtle text-signal-warning border-signal-warning-border",
     low: "bg-slate-100 text-slate-600 border-slate-200",
   };
   return (
@@ -121,7 +121,7 @@ function ExpiryBadge({ expiresAt }: { expiresAt?: string }) {
       : minLeft < 240
         ? `⏱ ${Math.floor(minLeft / 60)}h ${minLeft % 60}m`
         : `⏱ expires ${new Date(expiresAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}`;
-  const urgency = minLeft < 30 ? "bg-red-100 text-red-700 border-red-200" : minLeft < 120 ? "bg-amber-100 text-amber-700 border-amber-200" : "bg-slate-100 text-slate-600 border-slate-200";
+  const urgency = minLeft < 30 ? "bg-signal-critical-subtle text-signal-critical border-signal-critical-border" : minLeft < 120 ? "bg-signal-warning-subtle text-signal-warning border-signal-warning-border" : "bg-slate-100 text-slate-600 border-slate-200";
   return (
     <span className={`inline-flex items-center rounded-full border px-2 py-0.5 text-xs font-medium ${urgency}`} title={`Expires at ${new Date(expiresAt).toLocaleString()}`}>
       {label}
@@ -133,7 +133,7 @@ function ConfidenceDot({ confidence }: { confidence?: number }) {
   if (confidence === undefined) return null;
   const pct = Math.round(confidence * 100);
   const color =
-    pct >= 80 ? "bg-emerald-500" : pct >= 60 ? "bg-amber-400" : "bg-red-400";
+    pct >= 80 ? "bg-signal-positive" : pct >= 60 ? "bg-signal-warning" : "bg-signal-critical";
   return (
     <span
       className={`inline-block h-1.5 w-1.5 rounded-full ${color} shrink-0`}
@@ -144,12 +144,12 @@ function ConfidenceDot({ confidence }: { confidence?: number }) {
 
 function SourceBadge({ source }: { source: ActionItem["source"] }) {
   const styles: Record<ActionItem["source"], string> = {
-    meeting: "bg-purple-100 text-purple-700",
-    slack:   "bg-green-100 text-green-700",
-    email:   "bg-blue-100 text-blue-700",
+    meeting: "bg-signal-info-subtle text-signal-info",
+    slack:   "bg-signal-positive-subtle text-signal-positive",
+    email:   "bg-signal-info-subtle text-signal-info",
     manual:  "bg-slate-100 text-slate-600",
     chat:    "bg-indigo-100 text-indigo-700",
-    linear:  "bg-violet-100 text-violet-700",
+    linear:  "bg-signal-info-subtle text-signal-info",
   };
   return (
     <span
@@ -163,7 +163,7 @@ function SourceBadge({ source }: { source: ActionItem["source"] }) {
 /** Amber pill shown on actions that need user confirmation before being trusted. */
 function NeedsReviewBadge() {
   return (
-    <span className="inline-flex items-center gap-1 rounded-full border border-amber-300 bg-amber-50 px-2 py-0.5 text-xs font-medium text-amber-700">
+    <span className="inline-flex items-center gap-1 rounded-full border border-signal-warning-border bg-signal-warning-subtle px-2 py-0.5 text-xs font-medium text-signal-warning">
       <ShieldQuestion className="h-2.5 w-2.5" />
       Review
     </span>
@@ -174,9 +174,9 @@ function NeedsReviewBadge() {
 function CategoryChip({ category }: { category?: ActionCategory }) {
   if (!category) return null;
   const styles: Record<ActionCategory, { cls: string; label: string; Icon: React.ComponentType<{ className?: string }> }> = {
-    critical: { cls: "bg-red-50 text-red-700 border-red-200",    label: "Critical", Icon: Briefcase },
-    admin:    { cls: "bg-sky-50  text-sky-700  border-sky-200",   label: "Admin",    Icon: ClipboardList },
-    personal: { cls: "bg-teal-50 text-teal-700 border-teal-200", label: "Personal", Icon: User },
+    critical: { cls: "bg-signal-critical-subtle text-signal-critical border-signal-critical-border",    label: "Critical", Icon: Briefcase },
+    admin:    { cls: "bg-signal-info-subtle  text-signal-info  border-signal-info-border",   label: "Admin",    Icon: ClipboardList },
+    personal: { cls: "bg-signal-positive-subtle text-signal-positive border-signal-positive-border", label: "Personal", Icon: User },
   };
   const { cls, label, Icon } = styles[category];
   return (
@@ -192,7 +192,7 @@ function DecisionRequiredBadge({ onClick }: { onClick?: () => void }) {
   return (
     <button
       onClick={onClick}
-      className="inline-flex items-center gap-1 rounded-full border border-violet-300 bg-violet-50 px-2 py-0.5 text-xs font-medium text-violet-700 hover:bg-violet-100 transition-colors cursor-pointer"
+      className="inline-flex items-center gap-1 rounded-full border border-signal-info-border bg-signal-info-subtle px-2 py-0.5 text-xs font-medium text-signal-info hover:bg-signal-info-subtle transition-colors cursor-pointer"
       title="A decision needs to be made — click to log it"
     >
       <GitBranch className="h-2.5 w-2.5" />
@@ -260,8 +260,8 @@ function ActionCard({
           onClick={() => onToggle(action.id)}
           className={`mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded border transition-colors ${
             action.status === "done"
-              ? "bg-emerald-500 border-emerald-500 text-white"
-              : "border-border hover:border-[oklch(0.72_0.15_85)]"
+              ? "bg-signal-positive border-signal-positive text-white"
+              : "border-border hover:border-gold"
           }`}
         >
           {action.status === "done" && <Check className="h-3 w-3" />}
@@ -298,9 +298,9 @@ function ActionCard({
               <span
                 className={`text-xs font-medium ${
                   isOverdue
-                    ? "text-red-500"
+                    ? "text-signal-critical"
                     : isDueToday
-                    ? "text-amber-500"
+                    ? "text-signal-warning"
                     : "text-muted-foreground"
                 }`}
               >
@@ -310,7 +310,7 @@ function ActionCard({
 
             {/* Stalled indicator */}
             {stalled && (
-              <span className="inline-flex items-center gap-1 text-xs text-amber-600 font-medium">
+              <span className="inline-flex items-center gap-1 text-xs text-signal-warning font-medium">
                 <Clock className="h-3 w-3" />
                 Stalled
               </span>
@@ -512,7 +512,7 @@ function CompletedActionsPanel({ items, todayStr }: { items: ActionItem[]; today
   return (
     <div className="sticky top-4 space-y-3">
       <div className="flex items-center gap-2">
-        <CheckCircle2 className="h-4 w-4 text-emerald-500" />
+        <CheckCircle2 className="h-4 w-4 text-signal-positive" />
         <span className="text-sm font-semibold">Completed</span>
         <span className="text-xs text-muted-foreground">({items.length})</span>
       </div>
@@ -528,7 +528,7 @@ function CompletedActionsPanel({ items, todayStr }: { items: ActionItem[]; today
                   key={a.id}
                   className="flex items-start gap-2 py-1.5 border-b border-border/30 last:border-0"
                 >
-                  <Check className="h-3 w-3 text-emerald-500 mt-0.5 shrink-0" />
+                  <Check className="h-3 w-3 text-signal-positive mt-0.5 shrink-0" />
                   <div className="min-w-0 flex-1">
                     <p className="text-xs text-muted-foreground leading-snug line-clamp-2">{a.text}</p>
                     {a.owner && (
@@ -570,11 +570,11 @@ const QUADRANTS: Array<{
     verb: "DO",
     urgent: true,
     important: true,
-    bg: "bg-red-500/[0.03]",
-    border: "border-red-400/30",
-    headerBg: "bg-red-500/[0.07]",
-    headerText: "text-red-600",
-    badgeBg: "bg-red-100 text-red-700",
+    bg: "bg-signal-critical/[0.03]",
+    border: "border-signal-critical-border/30",
+    headerBg: "bg-signal-critical/[0.07]",
+    headerText: "text-signal-critical",
+    badgeBg: "bg-signal-critical-subtle text-signal-critical",
     Icon: Zap,
   },
   {
@@ -584,11 +584,11 @@ const QUADRANTS: Array<{
     verb: "PLAN",
     urgent: false,
     important: true,
-    bg: "bg-emerald-500/[0.03]",
-    border: "border-emerald-400/30",
-    headerBg: "bg-emerald-500/[0.07]",
-    headerText: "text-emerald-600",
-    badgeBg: "bg-emerald-100 text-emerald-700",
+    bg: "bg-signal-positive/[0.03]",
+    border: "border-signal-positive-border/30",
+    headerBg: "bg-signal-positive/[0.07]",
+    headerText: "text-signal-positive",
+    badgeBg: "bg-signal-positive-subtle text-signal-positive",
     Icon: Calendar,
   },
   {
@@ -598,11 +598,11 @@ const QUADRANTS: Array<{
     verb: "DELEGATE",
     urgent: true,
     important: false,
-    bg: "bg-amber-500/[0.03]",
-    border: "border-amber-400/30",
-    headerBg: "bg-amber-500/[0.07]",
-    headerText: "text-amber-600",
-    badgeBg: "bg-amber-100 text-amber-700",
+    bg: "bg-signal-warning/[0.03]",
+    border: "border-signal-warning-border/30",
+    headerBg: "bg-signal-warning/[0.07]",
+    headerText: "text-signal-warning",
+    badgeBg: "bg-signal-warning-subtle text-signal-warning",
     Icon: ArrowRight,
   },
   {
@@ -640,10 +640,10 @@ function MatrixActionRow({
     <div className="flex items-start gap-2 py-2 border-b border-border/25 last:border-0 group">
       <button
         onClick={() => onToggle(action.id)}
-        className="mt-0.5 shrink-0 h-4 w-4 rounded border border-border/60 flex items-center justify-center hover:border-emerald-500 transition-colors"
+        className="mt-0.5 shrink-0 h-4 w-4 rounded border border-border/60 flex items-center justify-center hover:border-signal-positive transition-colors"
         title="Mark done"
       >
-        {action.status === "done" && <Check className="h-2.5 w-2.5 text-emerald-500" />}
+        {action.status === "done" && <Check className="h-2.5 w-2.5 text-signal-positive" />}
       </button>
       <div className="flex-1 min-w-0">
         {/* Action text — lifted from text-[12px] to text-sm so the matrix view
@@ -655,7 +655,7 @@ function MatrixActionRow({
         <div className="flex items-center gap-2 mt-1 flex-wrap">
           <ExpiryBadge expiresAt={action.expiresAt} />
           {action.dueDate && (
-            <span className={`text-xs font-medium ${isOverdue ? "text-red-500" : "text-muted-foreground"}`}>
+            <span className={`text-xs font-medium ${isOverdue ? "text-signal-critical" : "text-muted-foreground"}`}>
               {isOverdue ? "⚠ " : ""}{formatDueDate(action.dueDate)}
             </span>
           )}
@@ -677,7 +677,7 @@ function MatrixActionRow({
       </div>
       <button
         onClick={() => onDelete(action.id)}
-        className="shrink-0 opacity-0 group-hover:opacity-100 transition-opacity p-0.5 hover:text-red-500"
+        className="shrink-0 opacity-0 group-hover:opacity-100 transition-opacity p-0.5 hover:text-signal-critical"
         title="Delete"
       >
         <Trash2 className="h-3 w-3" />
@@ -716,10 +716,10 @@ function MatrixView({
       <div className="flex items-center justify-between gap-3 flex-wrap">
         <div className="flex items-center gap-4 text-xs text-muted-foreground/60 font-medium">
           <span className="flex items-center gap-1">
-            <span className="w-2 h-2 rounded-full bg-red-400 inline-block" /> Urgent
+            <span className="w-2 h-2 rounded-full bg-signal-critical inline-block" /> Urgent
           </span>
           <span className="flex items-center gap-1">
-            <span className="w-2 h-2 rounded-full bg-emerald-400 inline-block" /> Important
+            <span className="w-2 h-2 rounded-full bg-signal-positive inline-block" /> Important
           </span>
           {classifiedCount > 0 && (
             <span className="text-muted-foreground/40">{classifiedCount}/{open.length} classified</span>
@@ -728,7 +728,7 @@ function MatrixView({
         <button
           onClick={onClassify}
           disabled={classifying || open.length === 0}
-          className="inline-flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-lg bg-[oklch(0.72_0.15_85)]/[0.10] text-[oklch(0.58_0.15_85)] hover:bg-[oklch(0.72_0.15_85)]/[0.18] border border-[oklch(0.72_0.15_85)]/20 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+          className="inline-flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-lg bg-gold/[0.10] text-[oklch(0.58_0.15_85)] hover:bg-gold/[0.18] border border-gold/20 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
         >
           {classifying ? (
             <><Loader2 className="h-3 w-3 animate-spin" />Classifying…</>
@@ -742,10 +742,10 @@ function MatrixView({
       {classifyStatus && (
         <div className={`flex items-start gap-2 rounded-lg px-3 py-2.5 text-[12px] ${
           classifyStatus.type === "error"
-            ? "bg-red-50 border border-red-200 text-red-700"
+            ? "bg-signal-critical-subtle border border-signal-critical-border text-signal-critical"
             : classifyStatus.type === "warning"
-              ? "bg-amber-50 border border-amber-200 text-amber-700"
-              : "bg-emerald-50 border border-emerald-200 text-emerald-700"
+              ? "bg-signal-warning-subtle border border-signal-warning-border text-signal-warning"
+              : "bg-signal-positive-subtle border border-signal-positive-border text-signal-positive"
         }`}>
           <span>{classifyStatus.type === "error" ? "⚠ " : classifyStatus.type === "warning" ? "ℹ " : "✓ "}</span>
           <span>{classifyStatus.message}</span>
@@ -1246,7 +1246,7 @@ export default function ActionsPage() {
       <header className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-semibold tracking-tight flex items-center gap-2">
-            <ListChecks className="h-6 w-6 text-[oklch(0.72_0.15_85)]" />
+            <ListChecks className="h-6 w-6 text-gold" />
             Action Tracker
           </h1>
           <p className="text-sm text-muted-foreground mt-1">
@@ -1257,15 +1257,15 @@ export default function ActionsPage() {
           {/* View mode toggle */}
           <div className="hidden sm:flex rounded-lg border border-border overflow-hidden text-xs">
             <button
-              className={`px-3 py-1.5 font-medium transition-colors ${viewMode === "timeline" ? "bg-[oklch(0.72_0.15_85)] text-[oklch(0.18_0.04_250)]" : "bg-background text-muted-foreground hover:text-foreground"}`}
+              className={`px-3 py-1.5 font-medium transition-colors ${viewMode === "timeline" ? "bg-gold text-[oklch(0.18_0.04_250)]" : "bg-background text-muted-foreground hover:text-foreground"}`}
               onClick={() => setViewMode("timeline")}
             >Timeline</button>
             <button
-              className={`px-3 py-1.5 font-medium transition-colors ${viewMode === "category" ? "bg-[oklch(0.72_0.15_85)] text-[oklch(0.18_0.04_250)]" : "bg-background text-muted-foreground hover:text-foreground"}`}
+              className={`px-3 py-1.5 font-medium transition-colors ${viewMode === "category" ? "bg-gold text-[oklch(0.18_0.04_250)]" : "bg-background text-muted-foreground hover:text-foreground"}`}
               onClick={() => setViewMode("category")}
             >By Category</button>
             <button
-              className={`px-3 py-1.5 font-medium transition-colors flex items-center gap-1 ${viewMode === "matrix" ? "bg-[oklch(0.72_0.15_85)] text-[oklch(0.18_0.04_250)]" : "bg-background text-muted-foreground hover:text-foreground"}`}
+              className={`px-3 py-1.5 font-medium transition-colors flex items-center gap-1 ${viewMode === "matrix" ? "bg-gold text-[oklch(0.18_0.04_250)]" : "bg-background text-muted-foreground hover:text-foreground"}`}
               onClick={() => setViewMode("matrix")}
             >
               <LayoutGrid className="h-3 w-3" />
@@ -1274,7 +1274,7 @@ export default function ActionsPage() {
           </div>
           <Button
             size="sm"
-            className="bg-[oklch(0.72_0.15_85)] hover:bg-[oklch(0.78_0.12_85)] text-[oklch(0.18_0.04_250)] gap-1.5"
+            className="bg-gold hover:bg-[oklch(0.78_0.12_85)] text-[oklch(0.18_0.04_250)] gap-1.5"
             onClick={() => setForm(f => ({ ...f, showForm: !f.showForm }))}
           >
             <Plus className="h-3.5 w-3.5" />
@@ -1285,7 +1285,7 @@ export default function ActionsPage() {
 
       {/* Add form */}
       {form.showForm && (
-        <Card className="border-[oklch(0.72_0.15_85)]/30">
+        <Card className="border-gold/30">
           <CardContent className="p-4 space-y-3">
             <Textarea
               placeholder="What needs to be done?"
@@ -1331,7 +1331,7 @@ export default function ActionsPage() {
               <Button
                 size="sm"
                 onClick={handleAdd}
-                className="bg-[oklch(0.72_0.15_85)] text-[oklch(0.18_0.04_250)] hover:bg-[oklch(0.78_0.12_85)]"
+                className="bg-gold text-[oklch(0.18_0.04_250)] hover:bg-[oklch(0.78_0.12_85)]"
               >
                 Save
               </Button>
@@ -1402,7 +1402,7 @@ export default function ActionsPage() {
           <div className="flex items-center justify-center gap-3 flex-wrap">
             <button
               onClick={() => setForm(f => ({ ...f, showForm: true }))}
-              className="inline-flex items-center gap-1.5 rounded-lg bg-[oklch(0.72_0.15_85)] text-[oklch(0.18_0.04_250)] text-sm font-semibold px-4 py-2 hover:brightness-105 transition"
+              className="inline-flex items-center gap-1.5 rounded-lg bg-gold text-[oklch(0.18_0.04_250)] text-sm font-semibold px-4 py-2 hover:brightness-105 transition"
             >
               <Plus className="h-4 w-4" />
               Add action
@@ -1418,7 +1418,7 @@ export default function ActionsPage() {
           {reviewItems.length > 0 && (
             <CollapsibleSection
               label="Needs Review"
-              accent="text-amber-600"
+              accent="text-signal-warning"
               items={reviewItems}
               defaultOpen={true}
               onToggle={toggleDone}
@@ -1435,7 +1435,7 @@ export default function ActionsPage() {
           {decisionNeeded.length > 0 && (
             <CollapsibleSection
               label="Decision Needed"
-              accent="text-violet-600"
+              accent="text-signal-info"
               items={decisionNeeded}
               defaultOpen={true}
               onToggle={toggleDone}
@@ -1451,7 +1451,7 @@ export default function ActionsPage() {
           {/* Critical / role + project */}
           <CollapsibleSection
             label="Critical — Role & Project"
-            accent="text-red-600"
+            accent="text-signal-critical"
             items={critical}
             defaultOpen={true}
             onToggle={toggleDone}
@@ -1464,7 +1464,7 @@ export default function ActionsPage() {
           {/* Admin */}
           <CollapsibleSection
             label="Admin & Operations"
-            accent="text-sky-600"
+            accent="text-signal-info"
             items={adminActs}
             defaultOpen={true}
             onToggle={toggleDone}
@@ -1477,7 +1477,7 @@ export default function ActionsPage() {
           {/* Personal */}
           <CollapsibleSection
             label="Personal"
-            accent="text-teal-600"
+            accent="text-signal-positive"
             items={personal}
             defaultOpen={true}
             onToggle={toggleDone}
@@ -1534,7 +1534,7 @@ export default function ActionsPage() {
           {statusFilter !== "review" && reviewItems.length > 0 && (
             <CollapsibleSection
               label="Needs Review"
-              accent="text-amber-600"
+              accent="text-signal-warning"
               items={reviewItems}
               defaultOpen={true}
               onToggle={toggleDone}
@@ -1564,7 +1564,7 @@ export default function ActionsPage() {
               )}
               <CollapsibleSection
                 label="Needs Review"
-                accent="text-amber-600"
+                accent="text-signal-warning"
                 items={filtered}
                 defaultOpen={true}
                 onToggle={toggleDone}
@@ -1583,7 +1583,7 @@ export default function ActionsPage() {
               {/* Overdue */}
               {overdue.length > 0 && (
                 <div>
-                  <SectionHeading label="Overdue" count={overdue.length} accent="text-red-500" />
+                  <SectionHeading label="Overdue" count={overdue.length} accent="text-signal-critical" />
                   <div className="space-y-2">
                     {overdue.map((a) => (
                       <ActionCard
@@ -1605,7 +1605,7 @@ export default function ActionsPage() {
               {/* Due today */}
               {dueToday.length > 0 && (
                 <div>
-                  <SectionHeading label="Due Today" count={dueToday.length} accent="text-amber-500" />
+                  <SectionHeading label="Due Today" count={dueToday.length} accent="text-signal-warning" />
                   <div className="space-y-2">
                     {dueToday.map((a) => (
                       <ActionCard
@@ -1671,7 +1671,7 @@ export default function ActionsPage() {
               {/* Stalled — collapsed by default */}
               <CollapsibleSection
                 label="Stalled"
-                accent="text-amber-500"
+                accent="text-signal-warning"
                 items={stalled}
                 defaultOpen={false}
                 onToggle={toggleDone}
@@ -1728,7 +1728,7 @@ export default function ActionsPage() {
           <span className="max-w-[260px] truncate opacity-80">{undoEntry.label}</span>
           <button
             onClick={handleUndo}
-            className="ml-1 text-[oklch(0.72_0.15_85)] hover:text-[oklch(0.80_0.15_85)] font-semibold transition-colors"
+            className="ml-1 text-gold hover:text-[oklch(0.80_0.15_85)] font-semibold transition-colors"
           >
             Undo
           </button>

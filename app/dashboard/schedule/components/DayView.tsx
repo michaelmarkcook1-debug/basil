@@ -115,11 +115,11 @@ const HOURS = Array.from({ length: GRID_END_H - GRID_START_H }, (_, i) => GRID_S
 
 // Palette for attendee avatars
 const AVATAR_COLORS = [
-  "bg-blue-500/20 text-blue-600 dark:text-blue-300",
-  "bg-violet-500/20 text-violet-600 dark:text-violet-300",
-  "bg-emerald-500/20 text-emerald-600 dark:text-emerald-300",
-  "bg-amber-500/20 text-amber-700 dark:text-amber-300",
-  "bg-rose-500/20 text-rose-600 dark:text-rose-300",
+  "bg-signal-info-subtle text-signal-info",
+  "bg-signal-info-subtle text-signal-info",
+  "bg-signal-positive-subtle text-signal-positive",
+  "bg-signal-warning-subtle text-signal-warning",
+  "bg-signal-critical-subtle text-signal-critical",
   "bg-cyan-500/20 text-cyan-600 dark:text-cyan-300",
 ];
 
@@ -158,21 +158,21 @@ function EventBlock({
   const top    = eventTop(displayStart);
   const height = eventHeight(displayStart, displayEnd);
 
-  let bg   = "bg-[oklch(0.72_0.15_85)]/20 border-[oklch(0.72_0.15_85)]/50";
+  let bg   = "bg-gold/20 border-gold/50";
   let text = "text-[oklch(0.4_0.1_85)] dark:text-[oklch(0.8_0.12_85)]";
   const lower = event.summary.toLowerCase();
   if (lower.includes("focus") || lower.includes("deep work")) {
-    bg   = "bg-blue-500/10 border-blue-400/40";
-    text = "text-blue-700 dark:text-blue-300";
+    bg   = "bg-signal-info-subtle border-signal-info-border/40";
+    text = "text-signal-info";
   } else if (lower.includes("lunch") || lower.includes("break")) {
-    bg   = "bg-emerald-500/10 border-emerald-400/40";
-    text = "text-emerald-700 dark:text-emerald-300";
+    bg   = "bg-signal-positive-subtle border-signal-positive-border/40";
+    text = "text-signal-positive";
   }
 
   return (
     <div
       className={`absolute left-0 right-2 rounded-md border px-2 py-1 select-none group
-        ${bg} ${dragging ? "opacity-70 shadow-lg ring-2 ring-[oklch(0.72_0.15_85)] z-20" : "hover:shadow-md hover:brightness-105 z-10"}
+        ${bg} ${dragging ? "opacity-70 shadow-lg ring-2 ring-gold z-20" : "hover:shadow-md hover:brightness-105 z-10"}
         transition-all cursor-pointer active:cursor-grabbing`}
       style={{ top: `${top}px`, height: `${height}px`, minHeight: `${MIN_DURATION * PX_PER_MIN}px` }}
       onMouseDown={(e) => { e.stopPropagation(); onDragStart(e, event.id); }}
@@ -204,7 +204,7 @@ function EventBlock({
           )}
         </div>
         {event.hasVideo && height >= 36 && (
-          <Video className="h-3 w-3 text-blue-400 shrink-0 mt-0.5" />
+          <Video className="h-3 w-3 text-signal-info shrink-0 mt-0.5" />
         )}
       </div>
 
@@ -327,7 +327,7 @@ function EventDetailPopover({
       {/* Popover card */}
       <div className="relative w-full max-w-sm bg-card border border-border rounded-xl shadow-2xl overflow-hidden">
         {/* Colour accent bar */}
-        <div className="h-1 w-full bg-[oklch(0.72_0.15_85)]" />
+        <div className="h-1 w-full bg-gold" />
 
         <div className="p-5 space-y-4">
           {/* Header */}
@@ -374,9 +374,9 @@ function EventDetailPopover({
                 {(["accepted", "tentative", "declined"] as const).map((s) => {
                   const active = rsvpStatus === s;
                   const cfg = {
-                    accepted:  { label: "Accept",   icon: CheckCircle2, active: "bg-emerald-500 text-white border-emerald-500", hover: "hover:bg-emerald-50 hover:border-emerald-400 hover:text-emerald-700" },
-                    tentative: { label: "Maybe",    icon: HelpCircle,   active: "bg-amber-400 text-white border-amber-400",    hover: "hover:bg-amber-50 hover:border-amber-400 hover:text-amber-700" },
-                    declined:  { label: "Decline",  icon: XCircle,      active: "bg-red-500 text-white border-red-500",        hover: "hover:bg-red-50 hover:border-red-400 hover:text-red-700" },
+                    accepted:  { label: "Accept",   icon: CheckCircle2, active: "bg-signal-positive text-white border-signal-positive", hover: "hover:bg-signal-positive-subtle hover:border-signal-positive-border hover:text-signal-positive" },
+                    tentative: { label: "Maybe",    icon: HelpCircle,   active: "bg-signal-warning text-white border-signal-warning-border",    hover: "hover:bg-signal-warning-subtle hover:border-signal-warning-border hover:text-signal-warning" },
+                    declined:  { label: "Decline",  icon: XCircle,      active: "bg-signal-critical text-white border-signal-critical",        hover: "hover:bg-signal-critical-subtle hover:border-signal-critical-border hover:text-signal-critical" },
                   }[s];
                   const Icon = cfg.icon;
                   return (
@@ -402,7 +402,7 @@ function EventDetailPopover({
 
           {/* Time */}
           <div className="flex items-center gap-2 text-sm text-muted-foreground">
-            <Clock className="h-4 w-4 shrink-0 text-[oklch(0.72_0.15_85)]" />
+            <Clock className="h-4 w-4 shrink-0 text-gold" />
             <span>
               {minToTime(startMin)} – {minToTime(endMin)}
               <span className="ml-1.5 text-xs opacity-70">({durationLabel(dur)})</span>
@@ -412,7 +412,7 @@ function EventDetailPopover({
           {/* Location */}
           {event.location && !event.videoLink && (
             <div className="flex items-start gap-2 text-sm text-muted-foreground">
-              <MapPin className="h-4 w-4 shrink-0 mt-0.5 text-[oklch(0.72_0.15_85)]" />
+              <MapPin className="h-4 w-4 shrink-0 mt-0.5 text-gold" />
               <span className="leading-snug">{event.location}</span>
             </div>
           )}
@@ -425,7 +425,7 @@ function EventDetailPopover({
                 target="_blank"
                 rel="noopener noreferrer"
                 className="flex-1 flex items-center justify-center gap-1.5 h-9 rounded-md text-sm font-medium
-                  bg-[oklch(0.72_0.15_85)] text-[oklch(0.18_0.04_250)] hover:bg-[oklch(0.78_0.12_85)] transition-colors"
+                  bg-gold text-[oklch(0.18_0.04_250)] hover:bg-[oklch(0.78_0.12_85)] transition-colors"
               >
                 <Video className="h-4 w-4" />
                 {videoLabel}
@@ -436,7 +436,7 @@ function EventDetailPopover({
                 className="h-9 w-9 flex items-center justify-center rounded-md border border-border text-muted-foreground hover:text-foreground hover:bg-accent transition-colors"
                 title="Copy link"
               >
-                {copied ? <Check className="h-3.5 w-3.5 text-emerald-500" /> : <Copy className="h-3.5 w-3.5" />}
+                {copied ? <Check className="h-3.5 w-3.5 text-signal-positive" /> : <Copy className="h-3.5 w-3.5" />}
               </button>
             </div>
           )}
@@ -480,7 +480,7 @@ function EventDetailPopover({
               {hasMoreDesc && (
                 <button
                   onClick={() => setDescExpanded(!descExpanded)}
-                  className="flex items-center gap-0.5 text-xs text-[oklch(0.55_0.12_85)] hover:text-[oklch(0.72_0.15_85)] transition-colors"
+                  className="flex items-center gap-0.5 text-xs text-[oklch(0.55_0.12_85)] hover:text-gold transition-colors"
                 >
                   {descExpanded ? <><ChevronUp className="h-3 w-3" /> Show less</> : <><ChevronDown className="h-3 w-3" /> Show more</>}
                 </button>
@@ -496,8 +496,8 @@ function EventDetailPopover({
               href={`/dashboard/meetings/${event.id}`}
               onClick={onClose}
               className="flex items-center justify-center gap-2 w-full h-9 rounded-md text-sm font-medium
-                bg-[oklch(0.72_0.15_85)]/10 text-[oklch(0.55_0.12_85)] border border-[oklch(0.72_0.15_85)]/25
-                hover:bg-[oklch(0.72_0.15_85)]/20 transition-colors"
+                bg-gold/10 text-[oklch(0.55_0.12_85)] border border-gold/25
+                hover:bg-gold/20 transition-colors"
             >
               <Sparkles className="h-3.5 w-3.5" />
               Create meeting brief
@@ -522,7 +522,7 @@ function EventDetailPopover({
                     rows={3}
                     placeholder="Type your message…"
                     className="w-full text-sm rounded-md border border-border bg-muted/30 px-3 py-2
-                      outline-none resize-none focus:ring-2 focus:ring-[oklch(0.72_0.15_85)]/40
+                      outline-none resize-none focus:ring-2 focus:ring-gold/40
                       placeholder:text-muted-foreground/40"
                   />
                   <div className="flex items-center justify-between gap-2">
@@ -539,7 +539,7 @@ function EventDetailPopover({
                       onClick={handleReply}
                       disabled={replySending || !replyMessage.trim()}
                       className="flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium
-                        bg-[oklch(0.72_0.15_85)] text-[oklch(0.18_0.04_250)]
+                        bg-gold text-[oklch(0.18_0.04_250)]
                         hover:bg-[oklch(0.78_0.12_85)] disabled:opacity-50 transition-colors"
                     >
                       {replySent ? <><Check className="h-3 w-3" /> Sent</> : replySending ? <Loader2 className="h-3 w-3 animate-spin" /> : <><Send className="h-3 w-3" /> Send</>}
@@ -568,7 +568,7 @@ function EventDetailPopover({
                     autoFocus
                     placeholder="email@example.com, another@example.com"
                     className="w-full text-sm rounded-md border border-border bg-muted/30 px-3 py-1.5
-                      outline-none focus:ring-2 focus:ring-[oklch(0.72_0.15_85)]/40
+                      outline-none focus:ring-2 focus:ring-gold/40
                       placeholder:text-muted-foreground/40"
                   />
                   <p className="text-xs text-muted-foreground">Separate multiple addresses with commas</p>
@@ -579,7 +579,7 @@ function EventDetailPopover({
                       border border-border text-muted-foreground hover:text-foreground hover:bg-accent
                       disabled:opacity-50 transition-colors"
                   >
-                    {forwardDone ? <><Check className="h-3 w-3 text-emerald-500" /> Forwarded</> : forwarding ? <Loader2 className="h-3 w-3 animate-spin" /> : <><Forward className="h-3 w-3" /> Forward</>}
+                    {forwardDone ? <><Check className="h-3 w-3 text-signal-positive" /> Forwarded</> : forwarding ? <Loader2 className="h-3 w-3 animate-spin" /> : <><Forward className="h-3 w-3" /> Forward</>}
                   </button>
                 </div>
               )}
@@ -785,7 +785,7 @@ function SmartSlotPicker({
         type="button"
         onClick={findTimes}
         disabled={disabled}
-        className="flex items-center gap-1.5 text-xs font-medium text-[oklch(0.55_0.12_85)] hover:text-[oklch(0.72_0.15_85)] disabled:text-muted-foreground/40 disabled:cursor-not-allowed transition-colors"
+        className="flex items-center gap-1.5 text-xs font-medium text-[oklch(0.55_0.12_85)] hover:text-gold disabled:text-muted-foreground/40 disabled:cursor-not-allowed transition-colors"
         title={emails.length === 0 ? "Add an attendee email first" : "Check everyone's calendars"}
       >
         {loading ? (
@@ -800,7 +800,7 @@ function SmartSlotPicker({
       {slots !== null && (
         <div className="rounded-md border border-border/60 bg-muted/30 p-2 space-y-1.5">
           {error && (
-            <p className="text-xs text-amber-600">{error}</p>
+            <p className="text-xs text-signal-warning">{error}</p>
           )}
           {slots.length === 0 && !error && (
             <p className="text-xs text-muted-foreground italic">
@@ -830,7 +830,7 @@ function SmartSlotPicker({
                       type="button"
                       onClick={() => onChoose(dateStr, startTime)}
                       title={tooltip}
-                      className="inline-flex items-center gap-1.5 rounded-md border border-[oklch(0.72_0.15_85)]/30 bg-[oklch(0.72_0.15_85)]/5 hover:bg-[oklch(0.72_0.15_85)]/15 px-2.5 py-1 text-xs font-medium text-[oklch(0.55_0.12_85)] transition-colors"
+                      className="inline-flex items-center gap-1.5 rounded-md border border-gold/30 bg-gold/5 hover:bg-gold/15 px-2.5 py-1 text-xs font-medium text-[oklch(0.55_0.12_85)] transition-colors"
                     >
                       <Clock className="h-3 w-3" />
                       {slot.label}
@@ -973,9 +973,9 @@ function EditModal({
               type="checkbox"
               checked={state.addVideoCall}
               onChange={(e) => onChange({ addVideoCall: e.target.checked })}
-              className="h-4 w-4 rounded border-input accent-[oklch(0.72_0.15_85)]"
+              className="h-4 w-4 rounded border-input accent-gold"
             />
-            <Video className="h-3.5 w-3.5 text-[oklch(0.72_0.15_85)]" />
+            <Video className="h-3.5 w-3.5 text-gold" />
             <span className="text-xs font-medium">Add video call</span>
             {!state.videoLink.trim() && state.addVideoCall && (
               <span className="text-xs text-muted-foreground">
@@ -1007,7 +1007,7 @@ function EditModal({
           <Button
             onClick={onSave}
             disabled={saving || !state.title.trim()}
-            className="flex-1 h-9 bg-[oklch(0.72_0.15_85)] text-[oklch(0.18_0.04_250)] hover:bg-[oklch(0.78_0.12_85)] gap-1.5"
+            className="flex-1 h-9 bg-gold text-[oklch(0.18_0.04_250)] hover:bg-[oklch(0.78_0.12_85)] gap-1.5"
           >
             {saving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Save className="h-3.5 w-3.5" />}
             {isNew ? "Create" : "Save changes"}
@@ -1300,7 +1300,7 @@ export function DayView({
         </p>
         <button
           onClick={() => openNew()}
-          className="flex items-center gap-1.5 text-xs font-medium px-2.5 py-1 rounded-md border border-[oklch(0.72_0.15_85)]/30 text-[oklch(0.55_0.12_85)] hover:bg-[oklch(0.72_0.15_85)]/10 hover:text-[oklch(0.72_0.15_85)] transition-colors"
+          className="flex items-center gap-1.5 text-xs font-medium px-2.5 py-1 rounded-md border border-gold/30 text-[oklch(0.55_0.12_85)] hover:bg-gold/10 hover:text-gold transition-colors"
         >
           <Plus className="h-3.5 w-3.5" /> Add event
         </button>
@@ -1437,8 +1437,8 @@ function CurrentTimeIndicator() {
   return (
     <div className="absolute left-0 right-0 z-30 pointer-events-none" style={{ top: `${top}px` }}>
       <div className="flex items-center gap-1">
-        <div className="w-2 h-2 rounded-full bg-red-500 shrink-0 -ml-1" />
-        <div className="flex-1 h-px bg-red-500/70" />
+        <div className="w-2 h-2 rounded-full bg-signal-critical shrink-0 -ml-1" />
+        <div className="flex-1 h-px bg-signal-critical/70" />
       </div>
     </div>
   );

@@ -69,18 +69,18 @@ const SOURCE_LABEL: Record<string, string> = {
 };
 
 const SOURCE_COLOR: Record<string, string> = {
-  meeting: "bg-purple-100 text-purple-700 border-purple-200",
-  slack:   "bg-yellow-100 text-yellow-700 border-yellow-200",
-  email:   "bg-blue-100 text-blue-700 border-blue-200",
+  meeting: "bg-signal-info-subtle text-signal-info border-signal-info-border",
+  slack:   "bg-signal-warning-subtle text-signal-warning border-signal-warning-border",
+  email:   "bg-signal-info-subtle text-signal-info border-signal-info-border",
   manual:  "bg-gray-100 text-gray-600 border-gray-200",
-  chat:    "bg-emerald-100 text-emerald-700 border-emerald-200",
+  chat:    "bg-signal-positive-subtle text-signal-positive border-signal-positive-border",
 };
 
 function ConfidenceDot({ confidence }: { confidence?: number }) {
   if (confidence === undefined) return null;
   const pct = Math.round(confidence * 100);
   const color =
-    pct >= 80 ? "bg-emerald-400" : pct >= 60 ? "bg-yellow-400" : "bg-red-400";
+    pct >= 80 ? "bg-signal-positive" : pct >= 60 ? "bg-signal-warning" : "bg-signal-critical";
   return (
     <span
       title={`Extraction confidence: ${pct}%`}
@@ -91,7 +91,7 @@ function ConfidenceDot({ confidence }: { confidence?: number }) {
 
 function NeedsReviewBadge() {
   return (
-    <span className="inline-flex items-center gap-1 rounded-full bg-amber-100 border border-amber-200 px-2 py-0.5 text-xs font-medium text-amber-700">
+    <span className="inline-flex items-center gap-1 rounded-full bg-signal-warning-subtle border border-signal-warning-border px-2 py-0.5 text-xs font-medium text-signal-warning">
       <ShieldQuestion className="h-3 w-3" />
       Needs review
     </span>
@@ -173,8 +173,8 @@ function DecisionCard({
                   onClick={() => onToggleSuperseded(d.id)}
                   className={`p-0.5 transition-colors ${
                     d.status === "active"
-                      ? "text-muted-foreground/50 hover:text-emerald-600"
-                      : "text-emerald-600 hover:text-muted-foreground"
+                      ? "text-muted-foreground/50 hover:text-signal-positive"
+                      : "text-signal-positive hover:text-muted-foreground"
                   }`}
                   title={d.status === "active" ? "Mark resolved" : "Reactivate"}
                 >
@@ -226,7 +226,7 @@ function DecisionCard({
                 variant="outline"
                 className={
                   d.status === "active"
-                    ? "border-emerald-400 text-emerald-600 text-xs h-4 px-1.5"
+                    ? "border-signal-positive-border text-signal-positive text-xs h-4 px-1.5"
                     : "text-xs h-4 px-1.5"
                 }
               >
@@ -278,7 +278,7 @@ function DecisionCard({
               <div className="mt-3 space-y-2.5 border-t pt-3">
                 {d.rationale && (
                   <div className="flex gap-2">
-                    <Lightbulb className="h-3.5 w-3.5 text-yellow-500 mt-0.5 shrink-0" />
+                    <Lightbulb className="h-3.5 w-3.5 text-signal-warning mt-0.5 shrink-0" />
                     <div>
                       <p className="text-xs font-medium text-muted-foreground mb-0.5">Rationale</p>
                       <p className="text-sm">{d.rationale}</p>
@@ -288,7 +288,7 @@ function DecisionCard({
 
                 {d.alternatives && d.alternatives.length > 0 && (
                   <div className="flex gap-2">
-                    <GitBranch className="h-3.5 w-3.5 text-blue-400 mt-0.5 shrink-0" />
+                    <GitBranch className="h-3.5 w-3.5 text-signal-info mt-0.5 shrink-0" />
                     <div>
                       <p className="text-xs font-medium text-muted-foreground mb-0.5">
                         Alternatives considered
@@ -421,7 +421,7 @@ function ResolvedDecisionsPanel({ items, todayStr }: { items: Decision[]; todayS
   return (
     <div className="sticky top-4 space-y-3">
       <div className="flex items-center gap-2">
-        <CheckCircle2 className="h-4 w-4 text-emerald-500" />
+        <CheckCircle2 className="h-4 w-4 text-signal-positive" />
         <span className="text-sm font-semibold">Resolved</span>
         <span className="text-xs text-muted-foreground">({items.length})</span>
       </div>
@@ -437,7 +437,7 @@ function ResolvedDecisionsPanel({ items, todayStr }: { items: Decision[]; todayS
                   key={d.id}
                   className="flex items-start gap-2 py-1.5 border-b border-border/30 last:border-0"
                 >
-                  <Check className="h-3 w-3 text-emerald-500 mt-0.5 shrink-0" />
+                  <Check className="h-3 w-3 text-signal-positive mt-0.5 shrink-0" />
                   <div className="min-w-0 flex-1">
                     <p className="text-xs text-muted-foreground leading-snug line-clamp-2">
                       {d.title || d.text}
@@ -700,7 +700,7 @@ export default function DecisionsPage() {
       <header className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-semibold tracking-tight flex items-center gap-2">
-            <Scale className="h-6 w-6 text-[oklch(0.72_0.15_85)]" />
+            <Scale className="h-6 w-6 text-gold" />
             Decision Log
           </h1>
           <p className="text-sm text-muted-foreground mt-1">
@@ -719,12 +719,12 @@ export default function DecisionsPage() {
       </header>
 
       {form.showForm && (
-        <Card className="border-[oklch(0.72_0.15_85)]/30">
+        <Card className="border-gold/30">
           <CardContent className="p-4 space-y-3">
             {/* Context banner when arriving from Actions page */}
             {sourceActionId && (
-              <div className="flex items-start gap-2 rounded-lg bg-violet-50 border border-violet-200 px-3 py-2 text-[12px] text-violet-800">
-                <GitBranch className="h-3.5 w-3.5 mt-0.5 shrink-0 text-violet-500" />
+              <div className="flex items-start gap-2 rounded-lg bg-signal-info-subtle border border-signal-info-border px-3 py-2 text-[12px] text-signal-info">
+                <GitBranch className="h-3.5 w-3.5 mt-0.5 shrink-0 text-signal-info" />
                 <span>Logging a decision from your Actions list. Once saved, the action will be marked resolved.</span>
               </div>
             )}
@@ -768,7 +768,7 @@ export default function DecisionsPage() {
               <Button
                 size="sm"
                 onClick={handleAdd}
-                className="bg-[oklch(0.72_0.15_85)] text-[oklch(0.18_0.04_250)] hover:bg-[oklch(0.78_0.12_85)]"
+                className="bg-gold text-[oklch(0.18_0.04_250)] hover:bg-[oklch(0.78_0.12_85)]"
               >
                 Save
               </Button>
@@ -797,10 +797,10 @@ export default function DecisionsPage() {
 
       {/* ── Needs Review decisions ──────────────────────────────────────────── */}
       {reviewDecisions.length > 0 && (
-        <div className="space-y-3 rounded-lg border border-amber-200 bg-amber-50/40 p-3">
+        <div className="space-y-3 rounded-lg border border-signal-warning-border bg-signal-warning-subtle p-3">
           <div className="flex items-center gap-2">
-            <ShieldQuestion className="h-3.5 w-3.5 text-amber-500" />
-            <span className="text-xs font-semibold uppercase tracking-wide text-amber-700">
+            <ShieldQuestion className="h-3.5 w-3.5 text-signal-warning" />
+            <span className="text-xs font-semibold uppercase tracking-wide text-signal-warning">
               Needs Review · {reviewDecisions.length}
             </span>
           </div>

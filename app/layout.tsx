@@ -110,7 +110,11 @@ export default function RootLayout({
       className={`${geistSans.variable} ${geistMono.variable} ${fraunces.variable} ${instrumentSerif.variable} h-full antialiased`}
     >
       <body className="min-h-full flex flex-col basil-surface text-foreground">
-        <ThemeProvider attribute="class" defaultTheme="dark" enableSystem={false}>
+        {/* Dark-only for v1: the light fork was a never-designed identity that
+            rendered half-broken (light shell, hardcoded-dark cards). forcedTheme
+            pins the .dark class and ignores any persisted preference until a
+            light identity is actually designed. */}
+        <ThemeProvider attribute="class" forcedTheme="dark" defaultTheme="dark" enableSystem={false}>
           <TooltipProvider>
             {children}
           </TooltipProvider>

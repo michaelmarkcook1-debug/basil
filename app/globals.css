@@ -258,6 +258,27 @@ html:has(.auth-shell) {
   --radius-2xl: calc(var(--radius) * 1.8);
   --radius-3xl: calc(var(--radius) * 2.2);
   --radius-4xl: calc(var(--radius) * 2.6);
+
+  /* Basil identity + signal tokens as first-class utilities (bg-gold,
+     text-signal-critical, border-signal-warning-border, …). One gold; four
+     signal hues — color only ever means something. */
+  --color-gold: var(--gold);
+  --color-gold-muted: var(--gold-muted);
+  --color-gold-subtle: var(--gold-subtle);
+  --color-signal-critical: var(--signal-critical);
+  --color-signal-critical-subtle: var(--signal-critical-subtle);
+  --color-signal-critical-border: var(--signal-critical-border);
+  --color-signal-warning: var(--signal-warning);
+  --color-signal-warning-subtle: var(--signal-warning-subtle);
+  --color-signal-warning-border: var(--signal-warning-border);
+  --color-signal-positive: var(--signal-positive);
+  --color-signal-positive-subtle: var(--signal-positive-subtle);
+  --color-signal-positive-border: var(--signal-positive-border);
+  --color-signal-info: var(--signal-info);
+  --color-signal-info-subtle: var(--signal-info-subtle);
+  --color-signal-info-border: var(--signal-info-border);
+  --color-signal-neutral: var(--signal-neutral);
+  --color-signal-neutral-subtle: var(--signal-neutral-subtle);
 }
 
 /* ─── Light mode — warm stone / cream ────────────────────────────────────── */

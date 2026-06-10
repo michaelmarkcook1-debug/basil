@@ -78,7 +78,7 @@ function CalendarMeetingPicker({ events }: { events: CalEvent[] }) {
     <div className="mb-2">
       <button
         onClick={() => setOpen((v) => !v)}
-        className="flex items-center gap-2 text-sm font-medium text-[oklch(0.72_0.15_85)] hover:underline"
+        className="flex items-center gap-2 text-sm font-medium text-gold hover:underline"
       >
         <Search className="h-4 w-4" />
         Prep a specific meeting
@@ -86,7 +86,7 @@ function CalendarMeetingPicker({ events }: { events: CalEvent[] }) {
       </button>
 
       {open && (
-        <Card className="mt-3 border-[oklch(0.72_0.15_85)]/30">
+        <Card className="mt-3 border-gold/30">
           <CardContent className="p-4 space-y-3">
             <p className="text-xs text-muted-foreground">
               Select any upcoming calendar event to generate a prep cheatsheet.
@@ -99,7 +99,7 @@ function CalendarMeetingPicker({ events }: { events: CalEvent[] }) {
               onChange={(e) => setQuery(e.target.value)}
               placeholder="Search by title, attendee, or day…"
               autoFocus
-              className="w-full rounded-md border border-border bg-background px-3 py-1.5 text-sm outline-none focus:ring-2 focus:ring-[oklch(0.72_0.15_85)]/40"
+              className="w-full rounded-md border border-border bg-background px-3 py-1.5 text-sm outline-none focus:ring-2 focus:ring-gold/40"
             />
 
             {/* Event list */}
@@ -139,7 +139,7 @@ function CalendarMeetingPicker({ events }: { events: CalEvent[] }) {
                     {/* Indicators */}
                     <div className="flex items-center gap-1.5 shrink-0">
                       {event.hasVideo && <Video className="h-3.5 w-3.5 text-muted-foreground" />}
-                      <Sparkles className="h-3.5 w-3.5 text-[oklch(0.72_0.15_85)]" />
+                      <Sparkles className="h-3.5 w-3.5 text-gold" />
                     </div>
                   </button>
                 ))
@@ -201,7 +201,7 @@ function ManualPrepForm({ onSaved }: { onSaved: (prep: ManualPrep) => void }) {
     <div className="mt-4">
       <button
         onClick={() => setOpen((v) => !v)}
-        className="flex items-center gap-2 text-sm font-medium text-[oklch(0.72_0.15_85)] hover:underline"
+        className="flex items-center gap-2 text-sm font-medium text-gold hover:underline"
       >
         <Plus className="h-4 w-4" />
         Manual meeting note
@@ -209,7 +209,7 @@ function ManualPrepForm({ onSaved }: { onSaved: (prep: ManualPrep) => void }) {
       </button>
 
       {open && (
-        <Card className="mt-3 border-[oklch(0.72_0.15_85)]/30">
+        <Card className="mt-3 border-gold/30">
           <CardContent className="p-4">
             <form onSubmit={handleSubmit} className="space-y-3">
               <div>
@@ -220,7 +220,7 @@ function ManualPrepForm({ onSaved }: { onSaved: (prep: ManualPrep) => void }) {
                   value={form.title}
                   onChange={(e) => setForm((f) => ({ ...f, title: e.target.value }))}
                   placeholder="e.g. Q2 review with Acme"
-                  className="w-full rounded-md border border-border bg-background px-3 py-1.5 text-sm outline-none focus:ring-2 focus:ring-[oklch(0.72_0.15_85)]/40"
+                  className="w-full rounded-md border border-border bg-background px-3 py-1.5 text-sm outline-none focus:ring-2 focus:ring-gold/40"
                 />
               </div>
               <div>
@@ -230,7 +230,7 @@ function ManualPrepForm({ onSaved }: { onSaved: (prep: ManualPrep) => void }) {
                   type="datetime-local"
                   value={form.datetime}
                   onChange={(e) => setForm((f) => ({ ...f, datetime: e.target.value }))}
-                  className="w-full rounded-md border border-border bg-background px-3 py-1.5 text-sm outline-none focus:ring-2 focus:ring-[oklch(0.72_0.15_85)]/40"
+                  className="w-full rounded-md border border-border bg-background px-3 py-1.5 text-sm outline-none focus:ring-2 focus:ring-gold/40"
                 />
               </div>
               <div>
@@ -243,7 +243,7 @@ function ManualPrepForm({ onSaved }: { onSaved: (prep: ManualPrep) => void }) {
                   value={form.attendees}
                   onChange={(e) => setForm((f) => ({ ...f, attendees: e.target.value }))}
                   placeholder="e.g. Alice, Bob, carol@example.com"
-                  className="w-full rounded-md border border-border bg-background px-3 py-1.5 text-sm outline-none focus:ring-2 focus:ring-[oklch(0.72_0.15_85)]/40"
+                  className="w-full rounded-md border border-border bg-background px-3 py-1.5 text-sm outline-none focus:ring-2 focus:ring-gold/40"
                 />
               </div>
               <div>
@@ -253,7 +253,7 @@ function ManualPrepForm({ onSaved }: { onSaved: (prep: ManualPrep) => void }) {
                   onChange={(e) => setForm((f) => ({ ...f, context: e.target.value }))}
                   placeholder="Background, open questions, relevant history…"
                   rows={3}
-                  className="w-full rounded-md border border-border bg-background px-3 py-1.5 text-sm outline-none focus:ring-2 focus:ring-[oklch(0.72_0.15_85)]/40 resize-none"
+                  className="w-full rounded-md border border-border bg-background px-3 py-1.5 text-sm outline-none focus:ring-2 focus:ring-gold/40 resize-none"
                 />
               </div>
               <div>
@@ -263,7 +263,7 @@ function ManualPrepForm({ onSaved }: { onSaved: (prep: ManualPrep) => void }) {
                   value={form.outcome}
                   onChange={(e) => setForm((f) => ({ ...f, outcome: e.target.value }))}
                   placeholder="e.g. Agree on Q3 budget"
-                  className="w-full rounded-md border border-border bg-background px-3 py-1.5 text-sm outline-none focus:ring-2 focus:ring-[oklch(0.72_0.15_85)]/40"
+                  className="w-full rounded-md border border-border bg-background px-3 py-1.5 text-sm outline-none focus:ring-2 focus:ring-gold/40"
                 />
               </div>
               <div className="flex gap-2 pt-1">
@@ -293,7 +293,7 @@ function ManualPrepList({ preps }: { preps: ManualPrep[] }) {
         <Card key={prep.id} className="border-border/60">
           <CardContent className="p-4">
             <div className="flex items-start gap-3">
-              <CalendarCheck className="h-4 w-4 text-[oklch(0.72_0.15_85)] mt-0.5 shrink-0" />
+              <CalendarCheck className="h-4 w-4 text-gold mt-0.5 shrink-0" />
               <div className="min-w-0">
                 <p className="font-medium text-sm">{prep.title}</p>
                 {prep.datetime && (
@@ -462,7 +462,7 @@ export default function MeetingsPage() {
     <div className="p-4 sm:p-6 lg:p-8 space-y-6 pb-8">
       <header>
         <h1 className="text-2xl font-semibold tracking-tight flex items-center gap-2">
-          <CalendarCheck className="h-6 w-6 text-[oklch(0.72_0.15_85)]" />
+          <CalendarCheck className="h-6 w-6 text-gold" />
           Meeting Prep
         </h1>
         <p className="text-sm text-muted-foreground mt-1">
@@ -488,20 +488,20 @@ export default function MeetingsPage() {
                 onClick={() => setActiveTab(tab.id)}
                 className={`relative flex items-center gap-2 px-4 py-2.5 text-sm font-medium transition-colors
                   ${active
-                    ? "text-[oklch(0.72_0.15_85)]"
+                    ? "text-gold"
                     : "text-muted-foreground hover:text-foreground"}`}
               >
                 {tab.label}
                 {tab.count > 0 && (
                   <span className={`inline-flex items-center justify-center min-w-[20px] h-5 px-1.5 rounded-full text-xs font-semibold
                     ${active
-                      ? "bg-[oklch(0.72_0.15_85)]/15 text-[oklch(0.55_0.12_85)]"
+                      ? "bg-gold/15 text-[oklch(0.55_0.12_85)]"
                       : "bg-muted text-muted-foreground"}`}>
                     {tab.count}
                   </span>
                 )}
                 {active && (
-                  <span className="absolute -bottom-px left-2 right-2 h-0.5 rounded-t-full bg-[oklch(0.72_0.15_85)]" />
+                  <span className="absolute -bottom-px left-2 right-2 h-0.5 rounded-t-full bg-gold" />
                 )}
               </button>
             );
@@ -544,7 +544,7 @@ export default function MeetingsPage() {
                   <Card key={mem.id} className="border-border/60 hover:border-border transition-colors">
                     <CardContent className="p-4">
                       <div className="flex items-start gap-3">
-                        <Video className="h-4 w-4 text-[oklch(0.72_0.15_85)] mt-1 shrink-0" />
+                        <Video className="h-4 w-4 text-gold mt-1 shrink-0" />
                         <div className="min-w-0 flex-1 space-y-2">
                           {/* Title row */}
                           <p className="font-medium text-sm leading-snug">{title}</p>
@@ -623,7 +623,7 @@ export default function MeetingsPage() {
       ) : !connected ? (
         /* ── Not connected ───────────────────────────────────────────────────── */
         <div className="space-y-6">
-          <Card className="border-[oklch(0.72_0.15_85)]/30">
+          <Card className="border-gold/30">
             <CardContent className="py-10 text-center">
               <Unplug className="h-10 w-10 text-muted-foreground/40 mx-auto mb-3" />
               <p className="font-medium">Google Calendar is not connected.</p>
@@ -664,7 +664,7 @@ export default function MeetingsPage() {
             dayOrder.map((dayLabel) => (
               <div key={dayLabel}>
                 <div className="flex items-center gap-2 mb-3">
-                  <h2 className="text-sm font-bold uppercase tracking-wider text-[oklch(0.72_0.15_85)]">
+                  <h2 className="text-sm font-bold uppercase tracking-wider text-gold">
                     {dayLabel}
                   </h2>
                   <div className="flex-1 h-px bg-border" />
@@ -712,7 +712,7 @@ export default function MeetingsPage() {
                             </div>
 
                             {/* Prep CTA */}
-                            <div className="flex items-center gap-1.5 rounded-full bg-[oklch(0.72_0.15_85)]/10 text-[oklch(0.55_0.15_85)] px-3 py-1.5 text-xs font-semibold shrink-0 transition-colors hover:bg-[oklch(0.72_0.15_85)]/20">
+                            <div className="flex items-center gap-1.5 rounded-full bg-gold/10 text-[oklch(0.55_0.15_85)] px-3 py-1.5 text-xs font-semibold shrink-0 transition-colors hover:bg-gold/20">
                               <Sparkles className="h-3.5 w-3.5" />
                               Prep
                             </div>

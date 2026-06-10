@@ -91,15 +91,15 @@ interface PrepData {
 function priorityStyle(priority: string): { border: string; badge: string } {
   const p = (priority || "").toLowerCase();
   if (/respond today|higher priority|urgent|critical|blocker|today/.test(p)) {
-    return { border: "border-l-red-500", badge: "border-red-400 text-red-600 bg-red-50" };
+    return { border: "border-l-red-500", badge: "border-signal-critical-border text-signal-critical bg-signal-critical-subtle" };
   }
   if (/verify|watch|alert|important|pending|awaiting|responding/.test(p)) {
-    return { border: "border-l-amber-500", badge: "border-amber-400 text-amber-600 bg-amber-50" };
+    return { border: "border-l-amber-500", badge: "border-signal-warning-border text-signal-warning bg-signal-warning-subtle" };
   }
   if (/park|low|fyi|note|backlog|defer/.test(p)) {
     return { border: "border-l-slate-400", badge: "border-slate-300 text-slate-600 bg-slate-50" };
   }
-  return { border: "border-l-[oklch(0.72_0.15_85)]", badge: "border-[oklch(0.72_0.15_85)]/50 text-[oklch(0.58_0.15_85)] bg-[oklch(0.72_0.15_85)]/10" };
+  return { border: "border-l-gold", badge: "border-gold/50 text-[oklch(0.58_0.15_85)] bg-gold/10" };
 }
 
 function SectionHeader({ icon: Icon, label, color }: { icon: typeof Phone; label: string; color: string }) {
@@ -268,11 +268,11 @@ export default function MeetingPrepPage() {
       {/* Header — matches Mike's format */}
       <header className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3">
         <div className="space-y-1 min-w-0">
-          <p className="text-xs font-semibold tracking-widest uppercase text-[oklch(0.72_0.15_85)]">
+          <p className="text-xs font-semibold tracking-widest uppercase text-gold">
             Example Holdings · Meeting Prep
           </p>
           <h1 className="text-xl font-semibold break-words">{meta?.title}</h1>
-          <div className="flex items-center gap-2 text-sm text-[oklch(0.72_0.15_85)] flex-wrap">
+          <div className="flex items-center gap-2 text-sm text-gold flex-wrap">
             {meta?.dateLabel && <span>{meta.dateLabel}</span>}
             {meta?.dateLabel && meta?.time && <span>·</span>}
             {meta?.time && <><Clock className="h-3.5 w-3.5" />{meta.time} UK</>}
@@ -283,7 +283,7 @@ export default function MeetingPrepPage() {
         <Button
           onClick={generate}
           disabled={loading}
-          className="bg-[oklch(0.72_0.15_85)] text-[oklch(0.18_0.04_250)] hover:bg-[oklch(0.78_0.12_85)] gap-1.5 shrink-0 self-start"
+          className="bg-gold text-[oklch(0.18_0.04_250)] hover:bg-[oklch(0.78_0.12_85)] gap-1.5 shrink-0 self-start"
         >
           {loading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Zap className="h-3.5 w-3.5" />}
           {loading ? "Generating..." : prep ? "Regenerate" : "Generate Prep"}
@@ -328,9 +328,9 @@ export default function MeetingPrepPage() {
               <SectionHeader
                 icon={Phone}
                 label={`From Today's Calls — ${prep.fromTodaysCalls.map(c => c.title.split(" — ")[0]).join(" & ")}`}
-                color="text-amber-500"
+                color="text-signal-warning"
               />
-              <Card className="border-l-4 border-l-amber-500 border-t-0 border-r-0 border-b-0 bg-amber-50/60 dark:bg-amber-500/5">
+              <Card className="border-l-4 border-l-amber-500 border-t-0 border-r-0 border-b-0 bg-signal-warning-subtle/60">
                 <CardContent className="p-4 space-y-3">
                   {prep.fromTodaysCalls.map((c, i) => (
                     <div key={i}>
@@ -346,7 +346,7 @@ export default function MeetingPrepPage() {
           {/* Context — navy-tinted card (kept for backward-compat with any existing data) */}
           {prep.contextNote && (
             <div>
-              <SectionHeader icon={Phone} label="Context" color="text-[oklch(0.72_0.15_85)]" />
+              <SectionHeader icon={Phone} label="Context" color="text-gold" />
               <Card className="bg-[oklch(0.28_0.06_250)]/5 border-[oklch(0.28_0.06_250)]/20">
                 <CardContent className="p-4">
                   <p className="text-sm leading-relaxed">{prep.contextNote}</p>
@@ -358,7 +358,7 @@ export default function MeetingPrepPage() {
           {/* Attendee Insights — navy-tinted */}
           {prep.attendeeInsights && prep.attendeeInsights.length > 0 && (
             <div>
-              <SectionHeader icon={UserCircle} label="Quick Profile" color="text-[oklch(0.72_0.15_85)]" />
+              <SectionHeader icon={UserCircle} label="Quick Profile" color="text-gold" />
               <div className="space-y-2">
                 {prep.attendeeInsights.map((a, i) => (
                   <Card key={i} className="bg-[oklch(0.28_0.06_250)]/5 border-[oklch(0.28_0.06_250)]/20">
@@ -375,7 +375,7 @@ export default function MeetingPrepPage() {
           {/* Topics to Raise — amber header, gold left-borders, colored priority tags */}
           {prep.topicsToRaise && prep.topicsToRaise.length > 0 && (
             <div>
-              <SectionHeader icon={CircleDot} label="Topics to Raise" color="text-amber-500" />
+              <SectionHeader icon={CircleDot} label="Topics to Raise" color="text-signal-warning" />
               <div className="space-y-3">
                 {prep.topicsToRaise.map((topic, i) => {
                   const style = priorityStyle(topic.priority);
@@ -402,13 +402,13 @@ export default function MeetingPrepPage() {
           {/* Suggested Questions — blue */}
           {prep.suggestedQuestions && prep.suggestedQuestions.length > 0 && (
             <div>
-              <SectionHeader icon={HelpCircle} label="Questions to Ask" color="text-sky-500" />
-              <Card className="border-l-4 border-l-sky-400 border-t-0 border-r-0 border-b-0 bg-sky-50/60 dark:bg-sky-500/5">
+              <SectionHeader icon={HelpCircle} label="Questions to Ask" color="text-signal-info" />
+              <Card className="border-l-4 border-l-sky-400 border-t-0 border-r-0 border-b-0 bg-signal-info-subtle/60">
                 <CardContent className="p-4">
                   <ul className="space-y-1.5 text-sm">
                     {prep.suggestedQuestions.map((q, i) => (
                       <li key={i} className="flex gap-2">
-                        <span className="text-sky-400 shrink-0">?</span>
+                        <span className="text-signal-info shrink-0">?</span>
                         <span>{q}</span>
                       </li>
                     ))}
@@ -421,12 +421,12 @@ export default function MeetingPrepPage() {
           {/* Things to Land — green */}
           {prep.thingsToLand && prep.thingsToLand.length > 0 && (
             <div>
-              <SectionHeader icon={CheckSquare} label="Things to Land" color="text-emerald-600" />
-              <Card className="border-l-4 border-l-emerald-500 border-t-0 border-r-0 border-b-0 bg-emerald-500/5">
+              <SectionHeader icon={CheckSquare} label="Things to Land" color="text-signal-positive" />
+              <Card className="border-l-4 border-l-emerald-500 border-t-0 border-r-0 border-b-0 bg-signal-positive-subtle">
                 <CardContent className="p-4">
                   <ul className="space-y-1.5 text-sm">
                     {prep.thingsToLand.map((item, i) => (
-                      <li key={i} className="flex gap-2"><span className="text-emerald-500">•</span> {item}</li>
+                      <li key={i} className="flex gap-2"><span className="text-signal-positive">•</span> {item}</li>
                     ))}
                   </ul>
                 </CardContent>
@@ -437,12 +437,12 @@ export default function MeetingPrepPage() {
           {/* Watch Outs — amber/red */}
           {prep.watchOuts && prep.watchOuts.length > 0 && (
             <div>
-              <SectionHeader icon={AlertTriangle} label="Watch Outs" color="text-amber-500" />
-              <Card className="border-l-4 border-l-amber-500 border-t-0 border-r-0 border-b-0 bg-amber-500/5">
+              <SectionHeader icon={AlertTriangle} label="Watch Outs" color="text-signal-warning" />
+              <Card className="border-l-4 border-l-amber-500 border-t-0 border-r-0 border-b-0 bg-signal-warning-subtle">
                 <CardContent className="p-4">
                   <ul className="space-y-1.5 text-sm">
                     {prep.watchOuts.map((item, i) => (
-                      <li key={i} className="flex gap-2"><span className="text-amber-500">•</span> {item}</li>
+                      <li key={i} className="flex gap-2"><span className="text-signal-warning">•</span> {item}</li>
                     ))}
                   </ul>
                 </CardContent>
@@ -453,8 +453,8 @@ export default function MeetingPrepPage() {
           {/* Unresolved Risks — explicitly source-backed risks */}
           {prep.unresolvedRisks && prep.unresolvedRisks.length > 0 && (
             <div>
-              <SectionHeader icon={ShieldAlert} label="Unresolved Risks" color="text-red-500" />
-              <Card className="border-l-4 border-l-red-500 border-t-0 border-r-0 border-b-0 bg-red-50/40 dark:bg-red-500/5">
+              <SectionHeader icon={ShieldAlert} label="Unresolved Risks" color="text-signal-critical" />
+              <Card className="border-l-4 border-l-red-500 border-t-0 border-r-0 border-b-0 bg-signal-critical-subtle">
                 <CardContent className="p-4">
                   <ul className="space-y-2.5 text-sm">
                     {prep.unresolvedRisks.map((r, i) => (
@@ -493,14 +493,14 @@ export default function MeetingPrepPage() {
                     a.status === "overdue" ||
                     (a.status === "open" && !!a.dueDate && a.dueDate < todayLocal);
                   return (
-                    <Card key={a.id} className={`border-l-4 border-t-0 border-r-0 border-b-0 ${isOverdue ? "border-l-red-400 bg-red-50/30 dark:bg-red-500/5" : a.priority === "high" ? "border-l-amber-400 bg-amber-50/20 dark:bg-amber-500/5" : "border-l-slate-300 bg-muted/20"}`}>
+                    <Card key={a.id} className={`border-l-4 border-t-0 border-r-0 border-b-0 ${isOverdue ? "border-l-red-400 bg-signal-critical-subtle" : a.priority === "high" ? "border-l-amber-400 bg-signal-warning-subtle" : "border-l-slate-300 bg-muted/20"}`}>
                       <CardContent className="py-2.5 px-4 flex items-start gap-2">
                         <div className="flex-1 min-w-0">
                           <p className="text-sm text-foreground/90">{a.text}</p>
                           <p className="text-xs text-muted-foreground mt-0.5 flex items-center gap-1.5">
-                            {isOverdue && <span className="text-red-500 font-medium">OVERDUE</span>}
+                            {isOverdue && <span className="text-signal-critical font-medium">OVERDUE</span>}
                             {!isOverdue && a.dueDate && <span>due {a.dueDate}</span>}
-                            {a.priority === "high" && !isOverdue && <span className="text-amber-600 font-medium">high priority</span>}
+                            {a.priority === "high" && !isOverdue && <span className="text-signal-warning font-medium">high priority</span>}
                             {a.owner && a.owner !== selfName && <span>· {a.owner}</span>}
                           </p>
                         </div>
@@ -560,7 +560,7 @@ export default function MeetingPrepPage() {
       )}
 
       {!loading && !prep && !error && (
-        <Card className="border-[oklch(0.72_0.15_85)]/30">
+        <Card className="border-gold/30">
           <CardContent className="py-12 text-center">
             <p className="font-medium">Click &quot;Generate Prep&quot; to get your cheatsheet</p>
             <p className="text-sm text-muted-foreground mt-1">Basil will pull context from contact profiles and generate strategic talking points.</p>

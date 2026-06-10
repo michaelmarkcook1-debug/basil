@@ -10,7 +10,7 @@ import { useRouter } from "next/navigation";
  * Shows every component in its key states so the system is reviewable
  * and designers can see the full range of trust expressions.
  *
- * Live at: /dashboard/trust
+ * Live at: /admin/trust (admin-only design-system reference — mock data)
  */
 
 import {

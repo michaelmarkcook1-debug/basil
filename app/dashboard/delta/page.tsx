@@ -32,17 +32,17 @@ const SEVERITY_CONFIG: Record<
   { bar: string; barWidth: string; bg?: string; ring?: string }
 > = {
   critical: {
-    bar: "bg-red-500",
+    bar: "bg-signal-critical",
     barWidth: "w-1",
-    bg: "bg-red-500/[0.04] dark:bg-red-950/20",
-    ring: "ring-1 ring-red-500/15",
+    bg: "bg-signal-critical/[0.04]",
+    ring: "ring-1 ring-signal-critical/15",
   },
   high: {
-    bar: "bg-amber-500",
+    bar: "bg-signal-warning",
     barWidth: "w-[3px]",
   },
   medium: {
-    bar: "bg-blue-500",
+    bar: "bg-signal-info",
     barWidth: "w-[3px]",
   },
   low: {
@@ -309,7 +309,7 @@ function BucketSection({
             {events.length} change{events.length !== 1 ? "s" : ""}
           </span>
           {criticalCount > 0 ? (
-            <span className="inline-flex items-center gap-1 text-xs font-medium text-red-500">
+            <span className="inline-flex items-center gap-1 text-xs font-medium text-signal-critical">
               <Circle className="h-1.5 w-1.5 fill-current" />
               {criticalCount} critical
             </span>
@@ -476,7 +476,7 @@ export default function WhatChangedPage() {
 
       {/* ── Error ── */}
       {error ? (
-        <div className="basil-card p-4 border-red-500/20 bg-red-500/5 text-sm text-red-600 dark:text-red-400">
+        <div className="basil-card p-4 border-signal-critical/20 bg-signal-critical-subtle text-sm text-signal-critical">
           {error}
         </div>
       ) : null}

@@ -69,37 +69,37 @@ export const STATE_CONFIG: Record<
   strengthening: {
     label:       "Strengthening",
     shortLabel:  "Strengthening",
-    colorClass:  "text-emerald-600 dark:text-emerald-400",
-    bgClass:     "bg-emerald-500/8 dark:bg-emerald-950/30",
-    borderClass: "border-emerald-500/20",
-    dotClass:    "bg-emerald-500",
+    colorClass:  "text-signal-positive",
+    bgClass:     "bg-signal-positive/8",
+    borderClass: "border-signal-positive/20",
+    dotClass:    "bg-signal-positive",
     description: "Engagement is growing. Interaction frequency and response cadence are increasing.",
   },
   stable: {
     label:       "Stable",
     shortLabel:  "Stable",
-    colorClass:  "text-blue-600 dark:text-blue-400",
-    bgClass:     "bg-blue-500/8 dark:bg-blue-950/30",
-    borderClass: "border-blue-500/20",
-    dotClass:    "bg-blue-500",
+    colorClass:  "text-signal-info",
+    bgClass:     "bg-signal-info/8",
+    borderClass: "border-signal-info/20",
+    dotClass:    "bg-signal-info",
     description: "Consistent engagement. Commitments are being met. No action required.",
   },
   cooling: {
     label:       "Cooling",
     shortLabel:  "Cooling",
-    colorClass:  "text-amber-600 dark:text-amber-400",
-    bgClass:     "bg-amber-500/8 dark:bg-amber-950/30",
-    borderClass: "border-amber-500/20",
-    dotClass:    "bg-amber-500",
+    colorClass:  "text-signal-warning",
+    bgClass:     "bg-signal-warning/8",
+    borderClass: "border-signal-warning/20",
+    dotClass:    "bg-signal-warning",
     description: "Engagement is declining. Response latency or interaction frequency has decreased.",
   },
   critical: {
     label:       "Critical",
     shortLabel:  "Critical",
-    colorClass:  "text-red-600 dark:text-red-400",
-    bgClass:     "bg-red-500/8 dark:bg-red-950/30",
-    borderClass: "border-red-500/20",
-    dotClass:    "bg-red-500",
+    colorClass:  "text-signal-critical",
+    bgClass:     "bg-signal-critical/8",
+    borderClass: "border-signal-critical/20",
+    dotClass:    "bg-signal-critical",
     description: "Multiple concerning signals. Immediate attention is warranted.",
   },
   disengaged: {
@@ -123,10 +123,10 @@ export const STATE_CONFIG: Record<
 };
 
 const SIGNAL_STATUS_BAR: Record<SignalStatus, string> = {
-  healthy: "bg-emerald-500",
-  neutral: "bg-blue-400",
-  warning: "bg-amber-500",
-  critical: "bg-red-500",
+  healthy: "bg-signal-positive",
+  neutral: "bg-signal-info",
+  warning: "bg-signal-warning",
+  critical: "bg-signal-critical",
 };
 
 const ALERT_ICON: Record<AlertSeverity, React.ReactNode> = {
@@ -137,8 +137,8 @@ const ALERT_ICON: Record<AlertSeverity, React.ReactNode> = {
 
 const ALERT_COLOR: Record<AlertSeverity, string> = {
   info:     "text-muted-foreground",
-  warning:  "text-amber-600 dark:text-amber-400",
-  critical: "text-red-600 dark:text-red-400",
+  warning:  "text-signal-warning",
+  critical: "text-signal-critical",
 };
 
 const DIMENSION_ICON: Record<HealthDimension, React.ReactNode> = {
@@ -241,8 +241,8 @@ export function SilenceIndicator({
     <span
       className={cn(
         "inline-flex items-center gap-1 text-xs tabular-nums",
-        urgency === "critical" ? "text-red-500" :
-        urgency === "warning"  ? "text-amber-500" :
+        urgency === "critical" ? "text-signal-critical" :
+        urgency === "warning"  ? "text-signal-warning" :
         "text-muted-foreground",
         className
       )}
@@ -275,8 +275,8 @@ function SignalBar({ signal }: { signal: HealthSignal }) {
               className={cn(
                 "text-xs",
                 signal.trend === "improving"
-                  ? "text-emerald-500"
-                  : "text-amber-500"
+                  ? "text-signal-positive"
+                  : "text-signal-warning"
               )}
             >
               {TREND_ICON[signal.trend]}
@@ -305,8 +305,8 @@ function SignalBar({ signal }: { signal: HealthSignal }) {
         <span
           className={cn(
             "text-[12px] tabular-nums",
-            signal.status === "critical" ? "text-red-600 dark:text-red-400 font-medium" :
-            signal.status === "warning"  ? "text-amber-600 dark:text-amber-400 font-medium" :
+            signal.status === "critical" ? "text-signal-critical font-medium" :
+            signal.status === "warning"  ? "text-signal-warning font-medium" :
             "text-foreground/70"
           )}
         >
@@ -342,9 +342,9 @@ export function RelationshipAlerts({
           className={cn(
             "flex items-start gap-2 rounded-md px-2.5 py-2 text-xs",
             alert.severity === "critical"
-              ? "bg-red-500/8 border border-red-500/20"
+              ? "bg-signal-critical/8 border border-signal-critical/20"
               : alert.severity === "warning"
-              ? "bg-amber-500/8 border border-amber-500/20"
+              ? "bg-signal-warning/8 border border-signal-warning/20"
               : "bg-muted/40 border border-border/40"
           )}
         >
@@ -419,7 +419,7 @@ export function ThreadHealthPanel({
             {cfg.label}
           </span>
           {criticalAlerts.length > 0 ? (
-            <span className="inline-flex items-center justify-center h-4 min-w-4 px-1 rounded-full bg-red-500 text-white text-xs font-bold">
+            <span className="inline-flex items-center justify-center h-4 min-w-4 px-1 rounded-full bg-signal-critical text-white text-xs font-bold">
               {criticalAlerts.length}
             </span>
           ) : null}
@@ -428,8 +428,8 @@ export function ThreadHealthPanel({
         {/* Trend */}
         <div className={cn(
           "flex items-center gap-1 text-[12px] font-medium shrink-0",
-          health.trend === "improving" ? "text-emerald-600 dark:text-emerald-400" :
-          health.trend === "declining" ? "text-amber-600 dark:text-amber-400" :
+          health.trend === "improving" ? "text-signal-positive" :
+          health.trend === "declining" ? "text-signal-warning" :
           "text-muted-foreground"
         )}>
           {TREND_ICON[health.trend]}
@@ -540,7 +540,7 @@ export function RelationshipHealthRow({
           <SilenceIndicator daysSince={contact.daysSinceContact} />
         ) : null}
         {contact.unresolvedCommitments > 0 ? (
-          <p className="text-xs text-amber-600 dark:text-amber-400">
+          <p className="text-xs text-signal-warning">
             {contact.unresolvedCommitments} open
           </p>
         ) : null}
@@ -596,11 +596,11 @@ export function RelationshipHealthGrid({
             {title}
           </span>
           {criticalCount > 0 ? (
-            <span className="inline-flex items-center justify-center h-4 min-w-4 px-1 rounded-full bg-red-500 text-white text-xs font-bold">
+            <span className="inline-flex items-center justify-center h-4 min-w-4 px-1 rounded-full bg-signal-critical text-white text-xs font-bold">
               {criticalCount}
             </span>
           ) : coolingCount > 0 ? (
-            <span className="inline-flex items-center justify-center h-4 min-w-4 px-1 rounded-full bg-amber-500/20 text-amber-600 dark:text-amber-400 text-xs font-semibold border border-amber-500/30">
+            <span className="inline-flex items-center justify-center h-4 min-w-4 px-1 rounded-full bg-signal-warning-subtle text-signal-warning text-xs font-semibold border border-signal-warning/30">
               {coolingCount}
             </span>
           ) : null}
@@ -805,8 +805,8 @@ export function HealthScoreArc({ health, size = 120, className }: HealthScoreArc
             className={cn(
               "text-xs flex items-center justify-center gap-0.5 mt-0.5",
               trend === "improving"
-                ? "text-emerald-500"
-                : "text-amber-500"
+                ? "text-signal-positive"
+                : "text-signal-warning"
             )}
           >
             {TREND_ICON[trend]}
@@ -957,8 +957,8 @@ export function HealthStateCard({
               className={cn(
                 "text-xs flex items-center gap-0.5 font-medium",
                 health.trend === "improving"
-                  ? "text-emerald-600 dark:text-emerald-400"
-                  : "text-amber-600 dark:text-amber-400"
+                  ? "text-signal-positive"
+                  : "text-signal-warning"
               )}
             >
               {TREND_ICON[health.trend]}
@@ -994,9 +994,9 @@ export function HealthStateCard({
                 <span
                   className={cn(
                     "shrink-0",
-                    signal.status === "critical" ? "text-red-500" :
-                    signal.status === "warning"  ? "text-amber-500" :
-                    signal.status === "healthy"  ? "text-emerald-500" :
+                    signal.status === "critical" ? "text-signal-critical" :
+                    signal.status === "warning"  ? "text-signal-warning" :
+                    signal.status === "healthy"  ? "text-signal-positive" :
                     "text-muted-foreground/40"
                   )}
                 >
@@ -1008,9 +1008,9 @@ export function HealthStateCard({
                 <span
                   className={cn(
                     "text-xs tabular-nums shrink-0 font-medium",
-                    signal.status === "critical" ? "text-red-600 dark:text-red-400" :
-                    signal.status === "warning"  ? "text-amber-600 dark:text-amber-400" :
-                    signal.status === "healthy"  ? "text-emerald-600 dark:text-emerald-400" :
+                    signal.status === "critical" ? "text-signal-critical" :
+                    signal.status === "warning"  ? "text-signal-warning" :
+                    signal.status === "healthy"  ? "text-signal-positive" :
                     "text-foreground/55"
                   )}
                 >
@@ -1054,7 +1054,7 @@ export function HealthStateCard({
       ) : health.reliable ? (
         <div className="px-3 py-2 border-t border-border/25 bg-card/20">
           <p className="text-xs text-muted-foreground/50 flex items-center gap-1.5">
-            <span className="h-1.5 w-1.5 rounded-full bg-emerald-500/50 shrink-0" />
+            <span className="h-1.5 w-1.5 rounded-full bg-signal-positive/50 shrink-0" />
             No operational concerns
           </p>
         </div>

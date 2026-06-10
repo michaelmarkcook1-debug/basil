@@ -25,17 +25,17 @@ import type { CanonicalProject, ProjectPriority, ProjectStatus, ProjectTruthData
 import { renderSlackText } from "@/lib/slack/render";
 
 const PRIORITY_STYLES: Record<ProjectPriority, string> = {
-  critical: "bg-red-500/10 text-red-600 ring-1 ring-red-500/30",
-  high: "bg-orange-500/10 text-orange-600 ring-1 ring-orange-500/30",
-  medium: "bg-amber-500/10 text-amber-600 ring-1 ring-amber-500/30",
+  critical: "bg-signal-critical-subtle text-signal-critical ring-1 ring-signal-critical/30",
+  high: "bg-signal-warning-subtle text-signal-warning ring-1 ring-signal-warning/30",
+  medium: "bg-signal-warning-subtle text-signal-warning ring-1 ring-signal-warning/30",
   low: "bg-muted text-muted-foreground",
 };
 
 const STATUS_STYLES: Record<ProjectStatus, string> = {
-  blocked: "bg-red-500/10 text-red-600 ring-1 ring-red-500/30",
-  stalled: "bg-orange-500/10 text-orange-600 ring-1 ring-orange-500/30",
-  "needs-review": "bg-violet-500/10 text-violet-600 ring-1 ring-violet-500/30",
-  moving: "bg-emerald-500/10 text-emerald-600 ring-1 ring-emerald-500/30",
+  blocked: "bg-signal-critical-subtle text-signal-critical ring-1 ring-signal-critical/30",
+  stalled: "bg-signal-warning-subtle text-signal-warning ring-1 ring-signal-warning/30",
+  "needs-review": "bg-signal-info-subtle text-signal-info ring-1 ring-signal-info/30",
+  moving: "bg-signal-positive-subtle text-signal-positive ring-1 ring-signal-positive/30",
   quiet: "bg-muted text-muted-foreground",
 };
 
@@ -57,7 +57,7 @@ function StatCard({
           </p>
           <p className="text-2xl font-semibold mt-1">{value}</p>
         </div>
-        <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-[oklch(0.72_0.15_85)]/10 text-[oklch(0.58_0.15_85)]">
+        <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-gold/10 text-[oklch(0.58_0.15_85)]">
           <Icon className="h-5 w-5" />
         </span>
       </CardContent>
@@ -122,11 +122,11 @@ function ProjectCard({ project }: { project: CanonicalProject }) {
         </div>
 
         {project.riskNotes.length > 0 && (
-          <div className="rounded-xl border border-red-200/70 bg-red-500/[0.04] p-3">
+          <div className="rounded-xl border border-signal-critical-border/70 bg-signal-critical/[0.04] p-3">
             <div className="flex items-start gap-2">
-              <ShieldAlert className="h-4 w-4 text-red-600 shrink-0 mt-0.5" />
+              <ShieldAlert className="h-4 w-4 text-signal-critical shrink-0 mt-0.5" />
               <div>
-                <p className="text-xs uppercase tracking-[0.18em] text-red-600 font-medium">
+                <p className="text-xs uppercase tracking-[0.18em] text-signal-critical font-medium">
                   Risks / blockers
                 </p>
                 <ul className="mt-2 space-y-1.5">
@@ -275,7 +275,7 @@ export default function ProjectsPage() {
             Project Truth Layer
           </p>
           <h1 className="basil-display text-3xl sm:text-5xl leading-[1.05] text-foreground">
-            What you are actually working on<span className="text-[oklch(0.72_0.15_85)]">.</span>
+            What you are actually working on<span className="text-gold">.</span>
           </h1>
           <p className="text-sm text-muted-foreground max-w-2xl leading-relaxed">
             Basil clusters Slack, Linear, actions, decisions, memory, and AI work into one canonical project ledger. No more six assistants each inventing their own universe.
@@ -351,7 +351,7 @@ export default function ProjectsPage() {
               <Button
                 size="sm"
                 onClick={() => setShowCreateForm(true)}
-                className="bg-[oklch(0.72_0.15_85)] text-[oklch(0.18_0.04_250)] hover:bg-[oklch(0.78_0.12_85)] gap-2"
+                className="bg-gold text-[oklch(0.18_0.04_250)] hover:bg-[oklch(0.78_0.12_85)] gap-2"
               >
                 <Plus className="h-4 w-4" />
                 Create project manually
@@ -373,12 +373,12 @@ export default function ProjectsPage() {
               </div>
 
               {createError && (
-                <p className="rounded-md bg-red-50 px-3 py-2 text-xs text-red-700">{createError}</p>
+                <p className="rounded-md bg-signal-critical-subtle px-3 py-2 text-xs text-signal-critical">{createError}</p>
               )}
 
               <div className="space-y-3">
                 <label className="block space-y-1.5 text-xs font-medium text-muted-foreground">
-                  Project name <span className="text-red-500">*</span>
+                  Project name <span className="text-signal-critical">*</span>
                   <Input
                     value={createForm.name}
                     onChange={(e) => setCreateForm((f) => ({ ...f, name: e.target.value }))}
@@ -402,7 +402,7 @@ export default function ProjectsPage() {
                   <select
                     value={createForm.priority}
                     onChange={(e) => setCreateForm((f) => ({ ...f, priority: e.target.value as CreateProjectForm["priority"] }))}
-                    className="mt-1 block w-full rounded-md border border-input bg-background px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-[oklch(0.72_0.15_85)]"
+                    className="mt-1 block w-full rounded-md border border-input bg-background px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-gold"
                   >
                     <option value="critical">Critical</option>
                     <option value="high">High</option>

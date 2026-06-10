@@ -24,9 +24,9 @@ import { PLATFORM_LABELS } from "@/lib/ai-projects/types";
 // ── Styles helpers ────────────────────────────────────────────────────────────
 
 const IMPORTANCE_STYLES: Record<string, string> = {
-  critical: "bg-red-500/10 text-red-600 ring-1 ring-red-500/30",
-  high:     "bg-orange-500/10 text-orange-600 ring-1 ring-orange-500/30",
-  medium:   "bg-amber-500/10 text-amber-600 ring-1 ring-amber-500/30",
+  critical: "bg-signal-critical-subtle text-signal-critical ring-1 ring-signal-critical/30",
+  high:     "bg-signal-warning-subtle text-signal-warning ring-1 ring-signal-warning/30",
+  medium:   "bg-signal-warning-subtle text-signal-warning ring-1 ring-signal-warning/30",
   low:      "bg-muted text-muted-foreground",
 };
 
@@ -35,13 +35,13 @@ const IMPORTANCE_ORDER: Record<string, number> = {
 };
 
 const PLATFORM_BADGE_STYLES: Partial<Record<Platform, string>> = {
-  "claude-code": "bg-violet-500/10 text-violet-600",
-  "claude-chat": "bg-violet-500/10 text-violet-500",
-  "claude-cowork": "bg-violet-500/10 text-violet-600",
+  "claude-code": "bg-signal-info-subtle text-signal-info",
+  "claude-chat": "bg-signal-info-subtle text-signal-info",
+  "claude-cowork": "bg-signal-info-subtle text-signal-info",
   "github":      "bg-zinc-500/10 text-zinc-600",
   "vercel":      "bg-zinc-900/10 text-zinc-800 dark:bg-zinc-100/10 dark:text-zinc-200",
-  "linear":      "bg-violet-500/10 text-violet-600",
-  "chatgpt":     "bg-emerald-500/10 text-emerald-600",
+  "linear":      "bg-signal-info-subtle text-signal-info",
+  "chatgpt":     "bg-signal-positive-subtle text-signal-positive",
 };
 
 function platformBadgeStyle(platform: Platform): string {
@@ -89,7 +89,7 @@ function PlatformStatusBar({ data }: { data: AIProjectsData }) {
           className={cn(
             "shrink-0 flex flex-col items-center gap-1.5 rounded-xl border px-4 py-3 min-w-[90px]",
             status.connected && status.scraped
-              ? "border-amber-200 bg-amber-50/60"
+              ? "border-signal-warning-border bg-signal-warning-subtle/60"
               : "border-border bg-card"
           )}
         >
@@ -99,10 +99,10 @@ function PlatformStatusBar({ data }: { data: AIProjectsData }) {
               "h-2 w-2 rounded-full",
               status.connected
                 ? status.error
-                  ? "bg-red-500"
+                  ? "bg-signal-critical"
                   : status.scraped
-                    ? "bg-amber-400"
-                    : "bg-emerald-500"
+                    ? "bg-signal-warning"
+                    : "bg-signal-positive"
                 : "bg-muted-foreground/30"
             )}
           />
@@ -110,7 +110,7 @@ function PlatformStatusBar({ data }: { data: AIProjectsData }) {
             {status.label}
           </span>
           {status.connected && status.scraped && (
-            <span className="text-xs text-amber-600 font-medium text-center leading-tight">
+            <span className="text-xs text-signal-warning font-medium text-center leading-tight">
               scraped
             </span>
           )}
@@ -124,13 +124,13 @@ function PlatformStatusBar({ data }: { data: AIProjectsData }) {
               href={status.setupUrl}
               target="_blank"
               rel="noreferrer"
-              className="text-xs text-[oklch(0.72_0.15_85)] hover:underline"
+              className="text-xs text-gold hover:underline"
             >
               Setup
             </a>
           )}
           {status.error && (
-            <span className="text-xs text-red-600 text-center">{status.error}</span>
+            <span className="text-xs text-signal-critical text-center">{status.error}</span>
           )}
         </div>
       ))}
@@ -169,7 +169,7 @@ function ProjectRow({
           {PLATFORM_LABELS[project.platform]}
         </span>
         {isScraped && (
-          <span className="rounded px-1.5 py-0.5 text-xs font-medium bg-amber-100 text-amber-700 border border-amber-200">
+          <span className="rounded px-1.5 py-0.5 text-xs font-medium bg-signal-warning-subtle text-signal-warning border border-signal-warning-border">
             scraped
           </span>
         )}
@@ -214,7 +214,7 @@ function ProjectRow({
         <button
           onClick={() => onHide(project.id)}
           title="Hide project"
-          className="text-muted-foreground hover:text-red-600 transition-colors"
+          className="text-muted-foreground hover:text-signal-critical transition-colors"
         >
           <Trash2 className="h-3.5 w-3.5" />
         </button>
@@ -233,7 +233,7 @@ function ProjectRow({
               href={project.url}
               target="_blank"
               rel="noreferrer"
-              className="flex items-center gap-1.5 rounded-lg bg-[oklch(0.72_0.15_85)] px-3 py-1.5 text-xs font-medium text-[oklch(0.18_0.04_250)] hover:bg-[oklch(0.78_0.12_85)]"
+              className="flex items-center gap-1.5 rounded-lg bg-gold px-3 py-1.5 text-xs font-medium text-[oklch(0.18_0.04_250)] hover:bg-[oklch(0.78_0.12_85)]"
             >
               <ExternalLink className="h-3 w-3" />
               Go
@@ -242,13 +242,13 @@ function ProjectRow({
           <div className="flex gap-1.5 pt-1">
             <button
               onClick={() => { onCategoryChange(project.id, "work"); setShowPopover(false); }}
-              className="flex-1 rounded-lg border border-border px-2 py-1 text-xs hover:bg-blue-500/10 hover:text-blue-600 hover:border-blue-300 transition-colors"
+              className="flex-1 rounded-lg border border-border px-2 py-1 text-xs bg-signal-info-subtle hover:text-signal-info hover:border-signal-info-border transition-colors"
             >
               Mark as work
             </button>
             <button
               onClick={() => { onCategoryChange(project.id, "personal"); setShowPopover(false); }}
-              className="flex-1 rounded-lg border border-border px-2 py-1 text-xs hover:bg-purple-500/10 hover:text-purple-600 hover:border-purple-300 transition-colors"
+              className="flex-1 rounded-lg border border-border px-2 py-1 text-xs bg-signal-info-subtle hover:text-signal-info hover:border-signal-info-border transition-colors"
             >
               Mark as personal
             </button>
@@ -299,7 +299,7 @@ function ProjectColumn({
           <select
             value={sort}
             onChange={(e) => setSort(e.target.value as SortOption)}
-            className="appearance-none rounded-md border border-border bg-background px-2 py-1 pr-6 text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-[oklch(0.72_0.15_85)]"
+            className="appearance-none rounded-md border border-border bg-background px-2 py-1 pr-6 text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-gold"
           >
             <option value="recency">By recency</option>
             <option value="importance">By importance</option>
@@ -473,7 +473,7 @@ export default function AIProjectsPage() {
       <div className="flex items-center justify-between gap-4 flex-wrap">
         <div>
           <h1 className="text-2xl font-semibold tracking-tight flex items-center gap-2">
-            <BrainCircuit className="h-6 w-6 text-[oklch(0.72_0.15_85)]" />
+            <BrainCircuit className="h-6 w-6 text-gold" />
             AI Projects
           </h1>
           <p className="text-sm text-muted-foreground mt-1">
@@ -494,7 +494,7 @@ export default function AIProjectsPage() {
             onClick={handleSync}
             disabled={syncing}
             size="sm"
-            className="gap-1.5 bg-[oklch(0.72_0.15_85)] text-[oklch(0.18_0.04_250)] hover:bg-[oklch(0.78_0.12_85)]"
+            className="gap-1.5 bg-gold text-[oklch(0.18_0.04_250)] hover:bg-[oklch(0.78_0.12_85)]"
           >
             {syncing ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RefreshCw className="h-3.5 w-3.5" />}
             Sync all
@@ -516,7 +516,7 @@ export default function AIProjectsPage() {
             </button>
           </div>
 
-          {logError && <p className="rounded-md bg-red-50 px-3 py-2 text-xs text-red-700">{logError}</p>}
+          {logError && <p className="rounded-md bg-signal-critical-subtle px-3 py-2 text-xs text-signal-critical">{logError}</p>}
 
           <div className="grid gap-3 sm:grid-cols-2">
             <label className="block space-y-1.5 text-xs font-medium text-muted-foreground">
@@ -524,7 +524,7 @@ export default function AIProjectsPage() {
               <select
                 value={logForm.platform}
                 onChange={(e) => setLogForm((f) => ({ ...f, platform: e.target.value }))}
-                className="mt-1 block w-full rounded-md border border-input bg-background px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-[oklch(0.72_0.15_85)]"
+                className="mt-1 block w-full rounded-md border border-input bg-background px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-gold"
               >
                 <option value="claude-code">Claude Code</option>
                 <option value="claude-chat">Claude Chat</option>
@@ -539,7 +539,7 @@ export default function AIProjectsPage() {
             </label>
 
             <label className="block space-y-1.5 text-xs font-medium text-muted-foreground">
-              Project / task name <span className="text-red-500">*</span>
+              Project / task name <span className="text-signal-critical">*</span>
               <Input
                 value={logForm.name}
                 onChange={(e) => setLogForm((f) => ({ ...f, name: e.target.value }))}
@@ -562,7 +562,7 @@ export default function AIProjectsPage() {
               <select
                 value={logForm.importance}
                 onChange={(e) => setLogForm((f) => ({ ...f, importance: e.target.value }))}
-                className="mt-1 block w-full rounded-md border border-input bg-background px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-[oklch(0.72_0.15_85)]"
+                className="mt-1 block w-full rounded-md border border-input bg-background px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-gold"
               >
                 <option value="critical">Critical</option>
                 <option value="high">High</option>
@@ -576,7 +576,7 @@ export default function AIProjectsPage() {
               <select
                 value={logForm.category}
                 onChange={(e) => setLogForm((f) => ({ ...f, category: e.target.value }))}
-                className="mt-1 block w-full rounded-md border border-input bg-background px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-[oklch(0.72_0.15_85)]"
+                className="mt-1 block w-full rounded-md border border-input bg-background px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-gold"
               >
                 <option value="work">Work</option>
                 <option value="personal">Personal</option>

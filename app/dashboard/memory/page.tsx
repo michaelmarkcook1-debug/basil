@@ -40,30 +40,30 @@ const KIND_STYLE: Record<
 > = {
   preference: {
     Icon: Heart,
-    text: "text-rose-600",
-    ring: "ring-rose-500/40",
-    bg: "bg-rose-500/[0.05]",
+    text: "text-signal-critical",
+    ring: "ring-signal-critical/40",
+    bg: "bg-signal-critical/[0.05]",
     hint: "How you like Basil to behave",
   },
   person: {
     Icon: User,
-    text: "text-blue-600",
-    ring: "ring-blue-500/40",
-    bg: "bg-blue-500/[0.05]",
+    text: "text-signal-info",
+    ring: "ring-signal-info/40",
+    bg: "bg-signal-info/[0.05]",
     hint: "Notes on the people around you",
   },
   context: {
     Icon: Compass,
     text: "text-[oklch(0.58_0.15_85)]",
-    ring: "ring-[oklch(0.72_0.15_85)]/50",
-    bg: "bg-[oklch(0.72_0.15_85)]/[0.05]",
+    ring: "ring-gold/50",
+    bg: "bg-gold/[0.05]",
     hint: "Active situation or ongoing thread",
   },
   fact: {
     Icon: Bookmark,
-    text: "text-emerald-600",
-    ring: "ring-emerald-500/40",
-    bg: "bg-emerald-500/[0.05]",
+    text: "text-signal-positive",
+    ring: "ring-signal-positive/40",
+    bg: "bg-signal-positive/[0.05]",
     hint: "Durable, verifiable detail",
   },
 };
@@ -368,8 +368,8 @@ export default function MemoryPage() {
         </p>
         <h1 className="basil-display text-2xl sm:text-4xl lg:text-5xl leading-[1.05] text-foreground">
           What Basil{" "}
-          <span className="italic text-[oklch(0.72_0.15_85)]">remembers</span>
-          <span className="text-[oklch(0.72_0.15_85)]">.</span>
+          <span className="italic text-gold">remembers</span>
+          <span className="text-gold">.</span>
         </h1>
         <p className="text-sm text-muted-foreground max-w-2xl leading-relaxed">
           Everything Basil has learned about you, the people around you, and how
@@ -386,12 +386,12 @@ export default function MemoryPage() {
 
       {/* Error banner */}
       {loadError && (
-        <div className="flex items-center gap-3 rounded-lg bg-amber-50 border border-amber-200 px-4 py-3">
-          <AlertTriangle className="h-4 w-4 text-amber-600 shrink-0" />
-          <p className="text-sm text-amber-800">
+        <div className="flex items-center gap-3 rounded-lg bg-signal-warning-subtle border border-signal-warning-border px-4 py-3">
+          <AlertTriangle className="h-4 w-4 text-signal-warning shrink-0" />
+          <p className="text-sm text-signal-warning">
             Couldn&apos;t reach the server — showing cached memories. Your data is safe.
           </p>
-          <button onClick={load} className="ml-auto text-xs text-amber-700 underline shrink-0">Retry</button>
+          <button onClick={load} className="ml-auto text-xs text-signal-warning underline shrink-0">Retry</button>
         </div>
       )}
 
@@ -404,7 +404,7 @@ export default function MemoryPage() {
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             placeholder="Search memories…"
-            className="w-full h-10 rounded-lg border border-border bg-background pl-9 pr-3 text-[16px] sm:text-sm focus:outline-none focus:border-[oklch(0.72_0.15_85)]/40 focus:ring-4 focus:ring-[oklch(0.72_0.15_85)]/10"
+            className="w-full h-10 rounded-lg border border-border bg-background pl-9 pr-3 text-[16px] sm:text-sm focus:outline-none focus:border-gold/40 focus:ring-4 focus:ring-gold/10"
           />
         </div>
         <button
@@ -433,14 +433,14 @@ export default function MemoryPage() {
         </button>
         <button
           onClick={() => setShowForm((v) => !v)}
-          className="inline-flex items-center gap-1.5 rounded-lg bg-[oklch(0.72_0.15_85)] text-[oklch(0.18_0.04_250)] text-sm font-semibold px-3.5 py-2 hover:brightness-105 transition"
+          className="inline-flex items-center gap-1.5 rounded-lg bg-gold text-[oklch(0.18_0.04_250)] text-sm font-semibold px-3.5 py-2 hover:brightness-105 transition"
         >
           <Plus className="h-4 w-4" />
           {showForm ? "Cancel" : "Add memory"}
         </button>
       </div>
       {purgeResult && (
-        <div className="flex items-center gap-2 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs text-emerald-700">
+        <div className="flex items-center gap-2 rounded-lg border border-signal-positive-border bg-signal-positive-subtle px-3 py-2 text-xs text-signal-positive">
           <CheckCircle2 className="h-3.5 w-3.5 shrink-0" />
           {purgeResult.removed === 0
             ? "No outdated facts found — memory looks clean."
@@ -451,7 +451,7 @@ export default function MemoryPage() {
       {/* ── Sticky extraction banner — shown whenever importing, even if panel is scrolled ── */}
       {importing && (
         <div className="sticky top-0 z-50 -mx-4 sm:-mx-6 lg:-mx-10 px-4 sm:px-6 lg:px-10">
-          <div className="flex items-center gap-3 bg-amber-500 text-amber-950 px-4 py-3 shadow-lg">
+          <div className="flex items-center gap-3 bg-signal-warning text-signal-warning px-4 py-3 shadow-lg">
             <Loader2 className="h-4 w-4 animate-spin shrink-0" />
             <p className="text-sm font-semibold flex-1">
               Extraction in progress — keep this tab open and active.
@@ -489,9 +489,9 @@ export default function MemoryPage() {
 
           {/* Tab-hidden warning — shown if user switched away mid-extraction */}
           {importTabWarning && importing && (
-            <div className="flex items-start gap-3 rounded-lg bg-amber-50 border border-amber-300 px-4 py-3">
-              <AlertTriangle className="h-4 w-4 text-amber-600 shrink-0 mt-0.5" />
-              <p className="text-sm text-amber-800">
+            <div className="flex items-start gap-3 rounded-lg bg-signal-warning-subtle border border-signal-warning-border px-4 py-3">
+              <AlertTriangle className="h-4 w-4 text-signal-warning shrink-0 mt-0.5" />
+              <p className="text-sm text-signal-warning">
                 <span className="font-semibold">You switched away from this tab.</span>{" "}
                 The extraction may have been interrupted by the browser. If it fails, come back and try again — keep this tab in the foreground while extracting.
               </p>
@@ -499,17 +499,17 @@ export default function MemoryPage() {
           )}
 
           {importResult ? (
-            <div className="flex items-center gap-3 rounded-lg bg-emerald-50 border border-emerald-200 px-4 py-3">
-              <CheckCircle2 className="h-5 w-5 text-emerald-600 shrink-0" />
+            <div className="flex items-center gap-3 rounded-lg bg-signal-positive-subtle border border-signal-positive-border px-4 py-3">
+              <CheckCircle2 className="h-5 w-5 text-signal-positive shrink-0" />
               <div>
-                <p className="text-sm font-medium text-emerald-800">
+                <p className="text-sm font-medium text-signal-positive">
                   {importResult.count === 0
                     ? "No memorable information found in that text."
                     : `${importResult.count} memor${importResult.count === 1 ? "y" : "ies"} extracted and saved.`}
                 </p>
                 <button
                   onClick={() => { setImportResult(null); clearImportText(); setLoadedFileNames([]); }}
-                  className="text-xs text-emerald-600 underline mt-0.5"
+                  className="text-xs text-signal-positive underline mt-0.5"
                 >
                   Import more
                 </button>
@@ -561,7 +561,7 @@ export default function MemoryPage() {
                   </span>
                 )}
                 {!filesLoading && loadedFileNames.length > 0 && (
-                  <span className="text-xs text-emerald-600 flex items-center gap-1">
+                  <span className="text-xs text-signal-positive flex items-center gap-1">
                     <CheckCircle2 className="h-3.5 w-3.5" />
                     {loadedFileNames.length} file{loadedFileNames.length !== 1 ? "s" : ""} loaded
                   </span>
@@ -585,10 +585,10 @@ export default function MemoryPage() {
                 onChange={(e) => { setImportText(e.target.value); setLoadedFileNames([]); }}
                 placeholder={"Paste a conversation here…\n\nWorks with:\n• ChatGPT, Claude.ai, Gemini, Copilot, Perplexity\n• Any plain-text conversation or document\n• Or upload files / folders above"}
                 rows={10}
-                className="w-full rounded-lg border border-border bg-background px-3.5 py-2.5 text-sm resize-y focus:outline-none focus:border-[oklch(0.72_0.15_85)]/40 focus:ring-4 focus:ring-[oklch(0.72_0.15_85)]/10 placeholder:text-muted-foreground/50 font-mono text-xs leading-relaxed"
+                className="w-full rounded-lg border border-border bg-background px-3.5 py-2.5 text-sm resize-y focus:outline-none focus:border-gold/40 focus:ring-4 focus:ring-gold/10 placeholder:text-muted-foreground/50 font-mono text-xs leading-relaxed"
               />
               {importError && (
-                <p className="text-xs text-red-600 flex items-center gap-1.5">
+                <p className="text-xs text-signal-critical flex items-center gap-1.5">
                   <X className="h-3 w-3" /> {importError}
                 </p>
               )}
@@ -597,7 +597,7 @@ export default function MemoryPage() {
                   <button
                     type="submit"
                     disabled={importing || filesLoading || importText.trim().length < 10}
-                    className="inline-flex items-center gap-1.5 rounded-lg bg-[oklch(0.72_0.15_85)] text-[oklch(0.18_0.04_250)] text-sm font-semibold px-4 py-2 hover:brightness-105 transition disabled:opacity-40"
+                    className="inline-flex items-center gap-1.5 rounded-lg bg-gold text-[oklch(0.18_0.04_250)] text-sm font-semibold px-4 py-2 hover:brightness-105 transition disabled:opacity-40"
                   >
                     {importing ? (
                       <><Loader2 className="h-4 w-4 animate-spin" /> Extracting…</>
@@ -612,7 +612,7 @@ export default function MemoryPage() {
                   </p>
                 </div>
                 {importing ? (
-                  <p className="text-xs text-amber-600 font-medium flex items-center gap-1.5">
+                  <p className="text-xs text-signal-warning font-medium flex items-center gap-1.5">
                     <AlertTriangle className="h-3 w-3 shrink-0" />
                     Keep this tab open — switching away may interrupt extraction.
                   </p>
@@ -661,7 +661,7 @@ export default function MemoryPage() {
       ) : filtered.length === 0 ? (
         search || filter !== "all" ? (
           <div className="text-center py-16">
-            <Sparkles className="h-8 w-8 text-[oklch(0.72_0.15_85)]/50 mx-auto mb-3" />
+            <Sparkles className="h-8 w-8 text-gold/50 mx-auto mb-3" />
             <p className="text-sm text-muted-foreground">No memories match that filter.</p>
           </div>
         ) : (
@@ -675,7 +675,7 @@ export default function MemoryPage() {
             <div className="flex items-center justify-center gap-3 flex-wrap">
               <button
                 onClick={() => setShowForm(true)}
-                className="inline-flex items-center gap-1.5 rounded-lg bg-[oklch(0.72_0.15_85)] text-[oklch(0.18_0.04_250)] text-sm font-semibold px-4 py-2 hover:brightness-105 transition"
+                className="inline-flex items-center gap-1.5 rounded-lg bg-gold text-[oklch(0.18_0.04_250)] text-sm font-semibold px-4 py-2 hover:brightness-105 transition"
               >
                 <Plus className="h-4 w-4" />
                 Add memory
@@ -733,14 +733,14 @@ function TabChip({
         className={cn(
           "ml-1.5 inline-flex items-center justify-center h-4 min-w-4 rounded-full px-1 text-[12px] font-mono tabular-nums",
           active
-            ? "bg-[oklch(0.72_0.15_85)]/15 text-[oklch(0.72_0.15_85)]"
+            ? "bg-gold/15 text-gold"
             : "bg-muted text-muted-foreground"
         )}
       >
         {count}
       </span>
       {active && (
-        <span className="absolute -bottom-[1px] left-2 right-2 h-[2px] bg-[oklch(0.72_0.15_85)] rounded-full" />
+        <span className="absolute -bottom-[1px] left-2 right-2 h-[2px] bg-gold rounded-full" />
       )}
     </button>
   );
@@ -852,7 +852,7 @@ function MemoryRow({
           value={editContent}
           onChange={(e) => setEditContent(e.target.value)}
           rows={2}
-          className="w-full rounded-md border border-border bg-background px-2.5 py-1.5 text-sm resize-none focus:outline-none focus:border-[oklch(0.72_0.15_85)]/40 focus:ring-2 focus:ring-[oklch(0.72_0.15_85)]/10"
+          className="w-full rounded-md border border-border bg-background px-2.5 py-1.5 text-sm resize-none focus:outline-none focus:border-gold/40 focus:ring-2 focus:ring-gold/10"
           onKeyDown={(e) => {
             if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) saveEdit();
             if (e.key === "Escape") cancelEdit();
@@ -865,7 +865,7 @@ function MemoryRow({
             value={editEntity}
             onChange={(e) => setEditEntity(e.target.value)}
             placeholder={editKind === "person" ? "Person's name" : "Project / topic"}
-            className="w-full h-8 rounded-md border border-border bg-background px-2.5 text-sm focus:outline-none focus:border-[oklch(0.72_0.15_85)]/40"
+            className="w-full h-8 rounded-md border border-border bg-background px-2.5 text-sm focus:outline-none focus:border-gold/40"
           />
         )}
 
@@ -873,7 +873,7 @@ function MemoryRow({
           <button
             onClick={saveEdit}
             disabled={saving || !editContent.trim()}
-            className="inline-flex items-center gap-1 rounded-md bg-[oklch(0.72_0.15_85)] text-[oklch(0.18_0.04_250)] text-xs font-semibold px-3 py-1.5 hover:brightness-105 transition disabled:opacity-50"
+            className="inline-flex items-center gap-1 rounded-md bg-gold text-[oklch(0.18_0.04_250)] text-xs font-semibold px-3 py-1.5 hover:brightness-105 transition disabled:opacity-50"
           >
             {saving ? <Loader2 className="h-3 w-3 animate-spin" /> : <Check className="h-3 w-3" />}
             Save
@@ -921,10 +921,10 @@ function MemoryRow({
       <div className="flex items-center gap-1 shrink-0">
         {confirmDelete ? (
           <>
-            <span className="text-xs text-rose-600 font-medium mr-1">Remove?</span>
+            <span className="text-xs text-signal-critical font-medium mr-1">Remove?</span>
             <button
               onClick={confirmAndDelete}
-              className="inline-flex items-center gap-1 rounded-md bg-rose-600 text-white text-xs font-semibold px-2 py-1 hover:bg-rose-700 transition"
+              className="inline-flex items-center gap-1 rounded-md bg-signal-critical text-white text-xs font-semibold px-2 py-1 hover:bg-signal-critical transition"
             >
               <Trash2 className="h-3 w-3" />
               Yes
@@ -948,7 +948,7 @@ function MemoryRow({
             </button>
             <button
               onClick={requestDelete}
-              className="opacity-0 group-hover:opacity-100 transition-opacity text-muted-foreground hover:text-rose-600 p-1 rounded-md"
+              className="opacity-0 group-hover:opacity-100 transition-opacity text-muted-foreground hover:text-signal-critical p-1 rounded-md"
               aria-label="Forget this memory"
               title="Forget this"
             >
@@ -1012,10 +1012,10 @@ function NewMemoryForm({
   };
 
   return (
-    <Card className="border-[oklch(0.72_0.15_85)]/30">
+    <Card className="border-gold/30">
       <CardHeader className="pb-2">
         <CardTitle className="text-sm font-medium flex items-center gap-2">
-          <Sparkles className="h-4 w-4 text-[oklch(0.72_0.15_85)]" />
+          <Sparkles className="h-4 w-4 text-gold" />
           Tell Basil something new
         </CardTitle>
       </CardHeader>
@@ -1051,7 +1051,7 @@ function NewMemoryForm({
             onChange={(e) => setContent(e.target.value)}
             placeholder="e.g. Michael prefers Zoom over Google Meet for all video calls."
             rows={3}
-            className="w-full rounded-lg border border-border bg-background px-3 py-2 text-[16px] sm:text-sm resize-y focus:outline-none focus:border-[oklch(0.72_0.15_85)]/40 focus:ring-4 focus:ring-[oklch(0.72_0.15_85)]/10"
+            className="w-full rounded-lg border border-border bg-background px-3 py-2 text-[16px] sm:text-sm resize-y focus:outline-none focus:border-gold/40 focus:ring-4 focus:ring-gold/10"
             autoFocus
           />
           {(kind === "person" || kind === "context") && (
@@ -1064,14 +1064,14 @@ function NewMemoryForm({
                   ? "Who is this about? (e.g. a teammate's name)"
                   : "What is this about? (e.g. a product launch)"
               }
-              className="w-full h-10 rounded-lg border border-border bg-background px-3 text-[16px] sm:text-sm focus:outline-none focus:border-[oklch(0.72_0.15_85)]/40 focus:ring-4 focus:ring-[oklch(0.72_0.15_85)]/10"
+              className="w-full h-10 rounded-lg border border-border bg-background px-3 text-[16px] sm:text-sm focus:outline-none focus:border-gold/40 focus:ring-4 focus:ring-gold/10"
             />
           )}
           <div className="flex items-center gap-2">
             <button
               type="submit"
               disabled={!content.trim() || saving}
-              className="inline-flex items-center gap-1.5 rounded-md bg-[oklch(0.72_0.15_85)] text-[oklch(0.18_0.04_250)] text-sm font-semibold px-3.5 py-2 hover:brightness-105 transition disabled:opacity-50"
+              className="inline-flex items-center gap-1.5 rounded-md bg-gold text-[oklch(0.18_0.04_250)] text-sm font-semibold px-3.5 py-2 hover:brightness-105 transition disabled:opacity-50"
             >
               {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />}
               Remember

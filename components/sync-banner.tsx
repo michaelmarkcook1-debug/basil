@@ -38,10 +38,10 @@ export function SyncBanner() {
   if (!syncing || dismissed) return null;
 
   return (
-    <div className="sticky top-0 z-30 flex items-center gap-2.5 px-4 py-2 text-[0.8125rem] border-b border-[#C8A96B]/25 bg-[#0B1730]/95 backdrop-blur supports-[backdrop-filter]:bg-[#0B1730]/80">
+    <div className="sticky top-0 z-30 flex items-center gap-2.5 px-4 py-2 text-[0.8125rem] border-b border-gold/25 bg-[#0B1730]/95 backdrop-blur supports-[backdrop-filter]:bg-[#0B1730]/80">
       <span className="relative flex h-2 w-2 shrink-0">
-        <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-[#C8A96B] opacity-60" />
-        <span className="relative inline-flex h-2 w-2 rounded-full bg-[#C8A96B]" />
+        <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-gold opacity-60" />
+        <span className="relative inline-flex h-2 w-2 rounded-full bg-gold" />
       </span>
       <span className="text-foreground/80">
         Basil is pulling in your recent activity — your first briefing will appear here shortly.

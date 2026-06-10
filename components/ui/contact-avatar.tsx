@@ -5,7 +5,7 @@ import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 interface ContactAvatarProps {
   /** Display initials shown in the fallback (e.g. "MC"). */
   initials: string;
-  /** Tailwind bg class for the fallback circle (e.g. "bg-blue-500"). */
+  /** Tailwind bg class for the fallback circle (e.g. "bg-signal-info"). */
   color: string;
   /** URL to the contact's headshot. AvatarImage falls back to initials on error (e.g. Gravatar 404). */
   photoUrl?: string;

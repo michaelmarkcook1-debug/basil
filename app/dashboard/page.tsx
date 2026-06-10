@@ -252,7 +252,7 @@ function AiConfidenceWidget({ signalCount, contactCount }: { signalCount: number
   const color = score >= 4 ? "#1F8A70" : score >= 3 ? "#D9A441" : "#D96C5F";
 
   return (
-    <div className="shrink-0 flex flex-col items-end gap-1">
+    <div className="shrink-0 flex flex-col items-start sm:items-end gap-1">
       <p className="text-[9px] uppercase tracking-[0.22em] text-[#AAB3C5]/50 font-semibold">
         AI Confidence
       </p>
@@ -285,14 +285,14 @@ function MetricBar({ metrics, loading }: {
   loading: boolean;
 }) {
   return (
-    <div className="relative flex items-stretch overflow-hidden" style={{
+    <div className="relative flex items-stretch overflow-x-auto overflow-y-hidden snap-x snap-mandatory" style={{
       background: "linear-gradient(180deg, rgba(14,11,8,0.90) 0%, rgba(10,8,6,0.85) 100%)",
       border: "1px solid rgba(180,140,55,0.10)",
       borderRadius: "10px",
       boxShadow: "0 0 0 1px rgba(0,0,0,0.5) inset, 0 8px 32px rgba(0,0,0,0.40)",
     }}>
       {metrics.map((m, i) => (
-        <div key={m.label} className="relative flex items-stretch flex-1">
+        <div key={m.label} className="relative flex items-stretch flex-1 min-w-[128px] snap-start">
           {i > 0 && (
             <div className="absolute left-0 top-[15%] bottom-[15%]" style={{ width: 1, background: "rgba(180,140,55,0.09)" }} />
           )}
@@ -412,7 +412,7 @@ function PanelModal({ title, onClose, children, wide }: {
         }}
       >
         {/* Modal header */}
-        <div className="flex items-center justify-between px-6 py-4 border-b border-[#C8A96B]/10 shrink-0">
+        <div className="flex items-center justify-between px-6 py-4 border-b border-gold/10 shrink-0">
           <h2 className="text-[13px] font-semibold uppercase tracking-[0.18em] text-[#AAB3C5]/70">
             {title}
           </h2>
@@ -479,14 +479,14 @@ function BriefingPanel({ briefing, loading, briefingLoading, onExpand }: {
             {briefing?.generatedAt ? (
               <>
                 <p className="text-xs text-[#AAB3C5]/40">Briefing ready</p>
-                <Link href="/dashboard/briefing" className="mt-2 inline-flex items-center gap-1 text-xs text-[#C8A96B]/70 hover:text-[#C8A96B]">
+                <Link href="/dashboard/briefing" className="mt-2 inline-flex items-center gap-1 text-xs text-gold/70 hover:text-gold">
                   Read full briefing <ArrowRight size={9} />
                 </Link>
               </>
             ) : (
               <>
                 <p className="text-xs text-[#AAB3C5]/40">No briefing yet</p>
-                <Link href="/dashboard/briefing" className="mt-2 inline-flex items-center gap-1 text-xs text-[#C8A96B]/70 hover:text-[#C8A96B]">
+                <Link href="/dashboard/briefing" className="mt-2 inline-flex items-center gap-1 text-xs text-gold/70 hover:text-gold">
                   Generate briefing <ArrowRight size={9} />
                 </Link>
               </>
@@ -509,7 +509,7 @@ function BriefingPanel({ briefing, loading, briefingLoading, onExpand }: {
           })
         )}
         {briefing?.generatedAt && !isLoading && (
-          <p className="text-[9px] text-[#AAB3C5]/25 pt-1 border-t border-[#C8A96B]/[0.05]">
+          <p className="text-[9px] text-[#AAB3C5]/25 pt-1 border-t border-gold/[0.05]">
             Generated {relTime(briefing.generatedAt)}
           </p>
         )}
@@ -535,7 +535,7 @@ function SchedulePanel({ events, loading, onExpand }: { events: CalendarEvent[];
 
   return (
     <Panel title="Upcoming Schedule" href="/dashboard/schedule" linkLabel="Prepare for next →" onExpand={onExpand}>
-      <div className="divide-y divide-[#C8A96B]/[0.07]">
+      <div className="divide-y divide-gold/[0.07]">
         {loading ? (
           <div className="px-4 py-3 space-y-3">
             {[1,2,3].map(i => (
@@ -563,11 +563,11 @@ function SchedulePanel({ events, loading, onExpand }: { events: CalendarEvent[];
                 key={ev.id}
                 className={cn(
                   "flex items-start gap-3 px-4 py-2.5",
-                  isCurrent && "bg-[#C8A96B]/[0.05]"
+                  isCurrent && "bg-gold/[0.05]"
                 )}
               >
                 <div className="shrink-0 text-right w-14">
-                  <p className={cn("text-xs font-medium tabular-nums leading-none", isCurrent ? "text-[#C8A96B]" : isPast ? "text-[#AAB3C5]/30" : "text-[#AAB3C5]/65")}>
+                  <p className={cn("text-xs font-medium tabular-nums leading-none", isCurrent ? "text-gold" : isPast ? "text-[#AAB3C5]/30" : "text-[#AAB3C5]/65")}>
                     {fmtEventTime(ev.start, tz)}
                   </p>
                   {dur > 0 && (
@@ -576,7 +576,7 @@ function SchedulePanel({ events, loading, onExpand }: { events: CalendarEvent[];
                 </div>
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-1.5">
-                    {isCurrent && <span className="h-1.5 w-1.5 rounded-full bg-[#C8A96B] animate-pulse shrink-0" />}
+                    {isCurrent && <span className="h-1.5 w-1.5 rounded-full bg-gold animate-pulse shrink-0" />}
                     {ev.hasVideo && <Video size={10} className="shrink-0 text-[#5CB8FF]/60" />}
                     <p className={cn(
                       "text-[12px] font-medium leading-none truncate",
@@ -869,7 +869,7 @@ function ThreadsPanel({ signals, loading, onExpand }: { signals: RankedSignal[];
 
   return (
     <Panel title="Recent Threads" href="/dashboard/signals" linkLabel="View all threads" onExpand={onExpand}>
-      <div className="divide-y divide-[#C8A96B]/[0.07]">
+      <div className="divide-y divide-gold/[0.07]">
         {loading ? (
           <div className="px-4 py-3 space-y-3">
             {[1,2,3].map(i => (
@@ -893,7 +893,7 @@ function ThreadsPanel({ signals, loading, onExpand }: { signals: RankedSignal[];
             const srcColor = SOURCE_COLOR[srcKey] ?? "#AAB3C5";
             const srcIcon  = SOURCE_ICON[srcKey]  ?? <Zap size={11} />;
             return (
-              <div key={s.id} className="flex items-start gap-3 px-4 py-3 hover:bg-[#C8A96B]/[0.03] transition-colors">
+              <div key={s.id} className="flex items-start gap-3 px-4 py-3 hover:bg-gold/[0.03] transition-colors">
                 <div
                   className="shrink-0 h-6 w-6 rounded-md flex items-center justify-center mt-0.5"
                   style={{ background: `${srcColor}15`, color: srcColor }}
@@ -1039,9 +1039,9 @@ function IntelligencePanel({ signals, actions, loading, onExpand }: {
   return (
     <Panel title="Basil Intelligence" href="/dashboard/signals" linkLabel="View all signals" onExpand={onExpand}>
       <div className="px-4 py-3 space-y-2.5">
-        <div className="flex items-center gap-2 mb-3 pb-2.5 border-b border-[#C8A96B]/[0.07]">
-          <div className="h-6 w-6 rounded-md bg-[#C8A96B]/12 flex items-center justify-center">
-            <Brain size={13} className="text-[#C8A96B]" />
+        <div className="flex items-center gap-2 mb-3 pb-2.5 border-b border-gold/[0.07]">
+          <div className="h-6 w-6 rounded-md bg-gold/12 flex items-center justify-center">
+            <Brain size={13} className="text-gold" />
           </div>
           <p className="text-xs text-[#AAB3C5]/50">
             {loading ? "Analysing..." : `${insights.length} insight${insights.length !== 1 ? "s" : ""} detected`}
@@ -1130,7 +1130,7 @@ function ExpandedBriefingContent({ briefing }: { briefing: BriefingData | null }
     <div className="px-6 py-12 text-center">
       <Newspaper size={28} className="text-[#AAB3C5]/20 mx-auto mb-3" />
       <p className="text-[13px] text-[#AAB3C5]/40">No briefing generated yet</p>
-      <Link href="/dashboard/briefing" className="mt-3 inline-flex items-center gap-1.5 text-xs text-[#C8A96B]/70 hover:text-[#C8A96B]">
+      <Link href="/dashboard/briefing" className="mt-3 inline-flex items-center gap-1.5 text-xs text-gold/70 hover:text-gold">
         Generate briefing <ArrowRight size={10} />
       </Link>
     </div>
@@ -1142,7 +1142,7 @@ function ExpandedBriefingContent({ briefing }: { briefing: BriefingData | null }
   return (
     <div className="px-6 py-5 space-y-5">
       {briefing.summary && (
-        <p className="text-[14px] text-[#F3EFE7]/75 leading-relaxed border-l-2 border-[#C8A96B]/30 pl-4">
+        <p className="text-[14px] text-[#F3EFE7]/75 leading-relaxed border-l-2 border-gold/30 pl-4">
           {briefing.summary}
         </p>
       )}
@@ -1165,7 +1165,7 @@ function ExpandedBriefingContent({ briefing }: { briefing: BriefingData | null }
         </div>
       )}
       {briefing.generatedAt && (
-        <p className="text-xs text-[#AAB3C5]/25 pt-2 border-t border-[#C8A96B]/[0.06]">
+        <p className="text-xs text-[#AAB3C5]/25 pt-2 border-t border-gold/[0.06]">
           Generated {relTime(briefing.generatedAt)}
         </p>
       )}
@@ -1200,7 +1200,7 @@ function ExpandedScheduleContent({ events }: { events: CalendarEvent[] }) {
     <div className="px-6 py-4 space-y-5">
       {groups.map(({ label, events: grpEvents }) => (
         <div key={label}>
-          <p className="text-xs font-bold uppercase tracking-[0.2em] text-[#C8A96B]/50 mb-2">{label}</p>
+          <p className="text-xs font-bold uppercase tracking-[0.2em] text-gold/50 mb-2">{label}</p>
           <div className="space-y-1">
             {grpEvents.map(ev => {
               const isPast    = new Date(ev.end ?? ev.start).getTime() < now;
@@ -1209,17 +1209,17 @@ function ExpandedScheduleContent({ events }: { events: CalendarEvent[] }) {
               return (
                 <div key={ev.id} className={cn(
                   "flex items-start gap-4 rounded-xl px-4 py-3",
-                  isCurrent ? "bg-[#C8A96B]/[0.07]" : "hover:bg-white/[0.02]"
+                  isCurrent ? "bg-gold/[0.07]" : "hover:bg-white/[0.02]"
                 )}>
                   <div className="shrink-0 w-16 text-right">
-                    <p className={cn("text-[12px] font-medium tabular-nums", isCurrent ? "text-[#C8A96B]" : isPast ? "text-[#AAB3C5]/30" : "text-[#AAB3C5]/65")}>
+                    <p className={cn("text-[12px] font-medium tabular-nums", isCurrent ? "text-gold" : isPast ? "text-[#AAB3C5]/30" : "text-[#AAB3C5]/65")}>
                       {fmtEventTime(ev.start, tz)}
                     </p>
                     {dur > 0 && <p className="text-xs text-[#AAB3C5]/30">{dur}m</p>}
                   </div>
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-1.5">
-                      {isCurrent && <span className="h-1.5 w-1.5 rounded-full bg-[#C8A96B] animate-pulse shrink-0" />}
+                      {isCurrent && <span className="h-1.5 w-1.5 rounded-full bg-gold animate-pulse shrink-0" />}
                       {ev.hasVideo && <Video size={11} className="shrink-0 text-[#5CB8FF]/60" />}
                       <p className={cn("text-[13px] font-medium truncate", isPast ? "text-[#F3EFE7]/30 line-through" : "text-[#F3EFE7]/85")}>
                         {ev.summary}
@@ -1359,14 +1359,14 @@ function ExpandedThreadsContent({ signals }: { signals: RankedSignal[] }) {
     </div>
   );
   return (
-    <div className="divide-y divide-[#C8A96B]/[0.07]">
+    <div className="divide-y divide-gold/[0.07]">
       {signals.map(s => {
         const srcKey   = radarKey(s.source);
         const srcColor = SOURCE_COLOR[srcKey] ?? "#AAB3C5";
         const srcIcon  = SOURCE_ICON[srcKey]  ?? <Zap size={12} />;
         const score    = s.ranking?.score ?? 0;
         return (
-          <div key={s.id} className="flex items-start gap-4 px-6 py-3.5 hover:bg-[#C8A96B]/[0.03] transition-colors">
+          <div key={s.id} className="flex items-start gap-4 px-6 py-3.5 hover:bg-gold/[0.03] transition-colors">
             <div className="shrink-0 h-7 w-7 rounded-lg flex items-center justify-center mt-0.5"
               style={{ background: `${srcColor}15`, color: srcColor }}>
               {srcIcon}
@@ -1378,7 +1378,7 @@ function ExpandedThreadsContent({ signals }: { signals: RankedSignal[] }) {
                 {s.participants?.slice(0, 3).map((p, pi) =>
                   p.canonicalId ? (
                     <Link key={pi} href={`/dashboard/contacts?highlight=${p.canonicalId}`}
-                      className="text-xs text-[#C8A96B]/60 hover:text-[#C8A96B] transition-colors">
+                      className="text-xs text-gold/60 hover:text-gold transition-colors">
                       {p.name}
                     </Link>
                   ) : (
@@ -1417,7 +1417,7 @@ function ExpandedRelationshipsContent({ contacts }: { contacts: RelContact[] }) 
     </div>
   );
   return (
-    <div className="divide-y divide-[#C8A96B]/[0.07]">
+    <div className="divide-y divide-gold/[0.07]">
       {sorted.map(c => {
         const trend = c.trend ?? "stable";
         const meta  = TREND_META[trend] ?? TREND_META.stable;
@@ -1425,7 +1425,7 @@ function ExpandedRelationshipsContent({ contacts }: { contacts: RelContact[] }) 
           ? Math.floor((Date.now() - new Date(c.lastInteraction).getTime()) / 86400000)
           : null;
         return (
-          <div key={c.contactId} className="flex items-center gap-4 px-6 py-3 hover:bg-[#C8A96B]/[0.03] transition-colors">
+          <div key={c.contactId} className="flex items-center gap-4 px-6 py-3 hover:bg-gold/[0.03] transition-colors">
             <div className="shrink-0 h-9 w-9 rounded-full flex items-center justify-center border"
               style={{ background: `${meta.color}12`, borderColor: `${meta.color}25`, color: meta.color }}>
               <span className="text-xs font-bold">{initials(c.name)}</span>
@@ -1560,7 +1560,7 @@ function LinearPanel({
   // Priority dot colour — matches the engineering signal language: red urgent → blue low.
   const PRIORITY_COLOUR: Record<number, string> = {
     1: "bg-[#D96C5F]",   // urgent
-    2: "bg-[#D9A441]",   // high
+    2: "bg-gold-muted",   // high
     3: "bg-[#5CB8FF]/70",// normal
     4: "bg-[#AAB3C5]/50",// low
     0: "bg-white/15",    // none
@@ -1579,7 +1579,7 @@ function LinearPanel({
           <p className="text-xs text-[#AAB3C5]/50">Linear not connected</p>
           <Link
             href="/dashboard/settings"
-            className="inline-block text-xs text-[#C8A96B] hover:underline"
+            className="inline-block text-xs text-gold hover:underline"
           >
             Connect in Settings →
           </Link>
@@ -1602,7 +1602,7 @@ function LinearPanel({
           <p className="text-xs text-[#AAB3C5]/40">No open issues</p>
         </div>
       ) : (
-        <div className="divide-y divide-[#C8A96B]/[0.07]">
+        <div className="divide-y divide-gold/[0.07]">
           {sorted.map((issue) => (
             <a
               key={issue.id}
@@ -1631,7 +1631,7 @@ function LinearPanel({
                   <span className="truncate">{issue.state.name}</span>
                   {issue.team?.name && <span>· {issue.team.name}</span>}
                   {issue.dueDate && (
-                    <span className="text-[#D9A441]/70">· due {issue.dueDate}</span>
+                    <span className="text-gold-muted/70">· due {issue.dueDate}</span>
                   )}
                 </div>
               </div>
@@ -1757,10 +1757,10 @@ export default function DashboardPage() {
     <div className="min-h-full">
 
       {/* ── Hero header ──────────────────────────────────────────────────────── */}
-      <div className="relative overflow-hidden px-8 pt-14 pb-12">
+      <div className="relative overflow-hidden px-5 sm:px-8 pt-10 sm:pt-14 pb-8 sm:pb-12">
         <HeroLight />
 
-        <div className="relative flex items-start justify-between gap-6" style={{ zIndex: 1 }}>
+        <div className="relative flex flex-col sm:flex-row items-start sm:justify-between gap-6" style={{ zIndex: 1 }}>
           <div>
             {/* Greeting eyebrow */}
             <div className="flex items-center gap-2.5 mb-5" suppressHydrationWarning>

@@ -324,8 +324,8 @@ export function ExtraContextInput({
         onClick={() => setOpen(true)}
         disabled={disabled}
         className={cn(
-          "inline-flex items-center gap-1.5 rounded-full border border-dashed border-border bg-transparent px-3 py-1.5 text-[12px] font-medium text-muted-foreground hover:border-[oklch(0.72_0.15_85)]/60 hover:text-foreground transition",
-          hasContent && "border-[oklch(0.72_0.15_85)]/60 text-foreground"
+          "inline-flex items-center gap-1.5 rounded-full border border-dashed border-border bg-transparent px-3 py-1.5 text-[12px] font-medium text-muted-foreground hover:border-gold/60 hover:text-foreground transition",
+          hasContent && "border-gold/60 text-foreground"
         )}
       >
         <Paperclip className="h-3.5 w-3.5" />
@@ -342,13 +342,13 @@ export function ExtraContextInput({
       className={cn(
         "relative rounded-xl ring-1 bg-background/50 p-4 space-y-3 transition",
         dragActive
-          ? "ring-2 ring-[oklch(0.72_0.15_85)] bg-[oklch(0.72_0.15_85)]/5"
+          ? "ring-2 ring-gold bg-gold/5"
           : "ring-border"
       )}
     >
       {dragActive && (
-        <div className="pointer-events-none absolute inset-0 z-10 flex items-center justify-center rounded-xl bg-[oklch(0.72_0.15_85)]/10 backdrop-blur-[1px]">
-          <div className="flex items-center gap-2 rounded-full bg-[oklch(0.72_0.15_85)] px-4 py-2 text-[oklch(0.18_0.04_250)] text-sm font-semibold">
+        <div className="pointer-events-none absolute inset-0 z-10 flex items-center justify-center rounded-xl bg-gold/10 backdrop-blur-[1px]">
+          <div className="flex items-center gap-2 rounded-full bg-gold px-4 py-2 text-[oklch(0.18_0.04_250)] text-sm font-semibold">
             <UploadCloud className="h-4 w-4" />
             Drop to attach
           </div>

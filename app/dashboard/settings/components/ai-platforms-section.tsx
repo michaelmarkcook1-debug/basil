@@ -167,13 +167,13 @@ const PLATFORMS: PlatformDef[] = [
 ];
 
 function StateBadge({ state, mode }: { state?: IntegrationState; mode?: ConnectMode }) {
-  if (mode === "manual") return <Badge className="bg-amber-100 text-amber-700 border-amber-200">Manual</Badge>;
-  if (mode === "import") return <Badge className="bg-blue-100 text-blue-700 border-blue-200"><Upload className="h-3 w-3 mr-1" />Import</Badge>;
+  if (mode === "manual") return <Badge className="bg-signal-warning-subtle text-signal-warning border-signal-warning-border">Manual</Badge>;
+  if (mode === "import") return <Badge className="bg-signal-info-subtle text-signal-info border-signal-info-border"><Upload className="h-3 w-3 mr-1" />Import</Badge>;
   if (mode === "planned") return <Badge variant="secondary">Planned</Badge>;
   if (!state) return <Badge variant="secondary"><Loader2 className="h-3 w-3 mr-1 animate-spin" />Checking</Badge>;
-  if (state === "connected") return <Badge className="bg-emerald-100 text-emerald-700 border-emerald-200"><CheckCircle2 className="h-3 w-3 mr-1" />Connected</Badge>;
-  if (state === "error") return <Badge className="bg-red-100 text-red-700 border-red-200"><AlertTriangle className="h-3 w-3 mr-1" />Error</Badge>;
-  if (state === "permission_missing" || state === "token_expired") return <Badge className="bg-amber-100 text-amber-700 border-amber-200"><AlertTriangle className="h-3 w-3 mr-1" />Needs attention</Badge>;
+  if (state === "connected") return <Badge className="bg-signal-positive-subtle text-signal-positive border-signal-positive-border"><CheckCircle2 className="h-3 w-3 mr-1" />Connected</Badge>;
+  if (state === "error") return <Badge className="bg-signal-critical-subtle text-signal-critical border-signal-critical-border"><AlertTriangle className="h-3 w-3 mr-1" />Error</Badge>;
+  if (state === "permission_missing" || state === "token_expired") return <Badge className="bg-signal-warning-subtle text-signal-warning border-signal-warning-border"><AlertTriangle className="h-3 w-3 mr-1" />Needs attention</Badge>;
   return <Badge variant="secondary"><XCircle className="h-3 w-3 mr-1" />Not connected</Badge>;
 }
 
@@ -310,7 +310,7 @@ function PlatformCard({
         {def.notes.map((note) => (
           <p key={note} className="text-xs text-muted-foreground">• {note}</p>
         ))}
-        {status?.label && <p className="text-xs text-emerald-700">Verified: {status.label}</p>}
+        {status?.label && <p className="text-xs text-signal-positive">Verified: {status.label}</p>}
         {projectStatus?.itemCount !== undefined && (
           <p className="text-xs text-muted-foreground">Project items: {projectStatus.itemCount}</p>
         )}
@@ -318,7 +318,7 @@ function PlatformCard({
           <p className="text-xs text-muted-foreground">Last sync: {humanTime(projectStatus.lastSyncedAt)}</p>
         )}
         {(status?.error || projectStatus?.error || message) && (
-          <p className={`text-xs rounded-md px-2 py-1 ${connected ? "bg-emerald-50 text-emerald-700" : "bg-amber-50 text-amber-800"}`}>
+          <p className={`text-xs rounded-md px-2 py-1 ${connected ? "bg-signal-positive-subtle text-signal-positive" : "bg-signal-warning-subtle text-signal-warning"}`}>
             {message ?? status?.error ?? projectStatus?.error}
           </p>
         )}
@@ -456,12 +456,12 @@ export function AIPlatformsSection() {
   }, [credentials, projects]);
 
   return (
-    <Card className="shadow-sm border-amber-200/60">
+    <Card className="shadow-sm border-signal-warning-border/60">
       <CardHeader className="pb-4">
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <div>
             <CardTitle className="text-base font-semibold flex items-center gap-2">
-              <Cpu className="h-4 w-4 text-[oklch(0.72_0.15_85)]" />
+              <Cpu className="h-4 w-4 text-gold" />
               AI Command Centre connections
               {loading && <Loader2 className="h-3.5 w-3.5 animate-spin text-muted-foreground" />}
             </CardTitle>

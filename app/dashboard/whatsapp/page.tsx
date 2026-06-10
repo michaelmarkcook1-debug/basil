@@ -429,7 +429,7 @@ export default function WhatsAppPage() {
       <header className="flex items-start justify-between gap-4 flex-wrap">
         <div>
           <h1 className="text-2xl font-semibold tracking-tight flex items-center gap-2">
-            <MessageCircle className="h-6 w-6 text-[oklch(0.72_0.15_85)]" />
+            <MessageCircle className="h-6 w-6 text-gold" />
             WhatsApp
           </h1>
           <p className="text-sm text-muted-foreground mt-1 max-w-2xl leading-relaxed">
@@ -445,7 +445,7 @@ export default function WhatsAppPage() {
                 variant={snapshot ? "outline" : "default"}
                 size="sm"
                 onClick={startImport}
-                className={`gap-1.5 ${!snapshot ? "bg-[oklch(0.72_0.15_85)] text-[oklch(0.18_0.04_250)] hover:bg-[oklch(0.78_0.12_85)]" : ""}`}
+                className={`gap-1.5 ${!snapshot ? "bg-gold text-[oklch(0.18_0.04_250)] hover:bg-[oklch(0.78_0.12_85)]" : ""}`}
               >
                 {snapshot ? (
                   <RefreshCw className="h-3.5 w-3.5" />
@@ -471,10 +471,10 @@ export default function WhatsAppPage() {
       </header>
 
       {/* Safety note — always shown above the action area */}
-      <div className="rounded-xl ring-1 ring-amber-500/30 bg-amber-500/5 p-4 flex gap-3 items-start">
-        <ShieldAlert className="h-4 w-4 text-amber-600 shrink-0 mt-0.5" />
+      <div className="rounded-xl ring-1 ring-signal-warning/30 bg-signal-warning-subtle p-4 flex gap-3 items-start">
+        <ShieldAlert className="h-4 w-4 text-signal-warning shrink-0 mt-0.5" />
         <div className="text-[13px] text-foreground/85 leading-relaxed">
-          <p className="font-semibold text-amber-600 mb-1">
+          <p className="font-semibold text-signal-warning mb-1">
             This uses an unofficial WhatsApp protocol.
           </p>
           <p>
@@ -513,7 +513,7 @@ export default function WhatsAppPage() {
 
       {/* ── PROGRESS / QR ── */}
       {inProgress && status && (
-        <Card className="border-[oklch(0.72_0.15_85)]/30">
+        <Card className="border-gold/30">
           <CardContent className="p-6 space-y-4">
             <div className="flex items-center gap-3">
               <Loader2 className="h-5 w-5 text-[oklch(0.58_0.15_85)] animate-spin" />
@@ -541,18 +541,18 @@ export default function WhatsAppPage() {
               <div className="flex flex-col items-center gap-3 py-4">
                 {/* Stale QR warning + restart button */}
                 {qrSecondsLeft === 0 && (
-                  <div className="rounded-lg bg-amber-50 border border-amber-200 px-4 py-3 text-[13px] text-amber-800 flex flex-col items-center gap-2 text-center">
+                  <div className="rounded-lg bg-signal-warning-subtle border border-signal-warning-border px-4 py-3 text-[13px] text-signal-warning flex flex-col items-center gap-2 text-center">
                     <div className="flex items-center gap-2">
                       <AlertTriangle className="h-4 w-4 shrink-0" />
                       QR expired — a fresh one should appear shortly. If not, restart the import.
                     </div>
-                    <Button size="sm" variant="outline" onClick={startImport} className="gap-1.5 border-amber-400 text-amber-800 hover:bg-amber-100">
+                    <Button size="sm" variant="outline" onClick={startImport} className="gap-1.5 border-signal-warning-border text-signal-warning hover:bg-signal-warning-subtle">
                       <RefreshCw className="h-3.5 w-3.5" />
                       Get a new QR
                     </Button>
                   </div>
                 )}
-                <div className={`relative rounded-xl ring-1 bg-white p-3 shadow-sm transition-all ${qrSecondsLeft === 0 ? "ring-amber-400 opacity-40 grayscale" : "ring-border"}`}>
+                <div className={`relative rounded-xl ring-1 bg-white p-3 shadow-sm transition-all ${qrSecondsLeft === 0 ? "ring-signal-warning opacity-40 grayscale" : "ring-border"}`}>
                   { }
                   <img
                     src={(status.qrDataUrl || stickyQrUrl)!}
@@ -562,7 +562,7 @@ export default function WhatsAppPage() {
                 </div>
                 {/* Expiry countdown */}
                 {qrSecondsLeft !== null && qrSecondsLeft > 0 && (
-                  <div className={`text-[12px] font-mono tabular-nums ${qrSecondsLeft <= 10 ? "text-amber-600 font-semibold" : "text-muted-foreground"}`}>
+                  <div className={`text-[12px] font-mono tabular-nums ${qrSecondsLeft <= 10 ? "text-signal-warning font-semibold" : "text-muted-foreground"}`}>
                     Scan within {qrSecondsLeft}s — code refreshes automatically
                   </div>
                 )}
@@ -631,11 +631,11 @@ export default function WhatsAppPage() {
 
       {/* ── IDLE TIMEOUT ERROR ── shown when after() task crashes silently */}
       {idleTimeoutError && (
-        <Card className="border-amber-400/40 bg-amber-500/5">
+        <Card className="border-signal-warning-border/40 bg-signal-warning-subtle">
           <CardContent className="p-5 flex gap-3 items-start">
-            <AlertTriangle className="h-4 w-4 text-amber-600 mt-0.5 shrink-0" />
+            <AlertTriangle className="h-4 w-4 text-signal-warning mt-0.5 shrink-0" />
             <div className="flex-1">
-              <p className="font-semibold text-amber-700">Import failed to start</p>
+              <p className="font-semibold text-signal-warning">Import failed to start</p>
               <p className="text-sm text-muted-foreground mt-1">
                 The import job did not start within 10 seconds. This is likely a Vercel
                 environment limitation — the background task may not support long-running
@@ -646,7 +646,7 @@ export default function WhatsAppPage() {
                 size="sm"
                 variant="outline"
                 onClick={cancelAndReset}
-                className="mt-3 gap-1.5 border-amber-400 text-amber-700 hover:bg-amber-50"
+                className="mt-3 gap-1.5 border-signal-warning-border text-signal-warning hover:bg-signal-warning-subtle"
               >
                 <RefreshCw className="h-3.5 w-3.5" />
                 Dismiss
@@ -689,7 +689,7 @@ export default function WhatsAppPage() {
                   {importPreview.added > 0 && (
                     <Badge
                       variant="outline"
-                      className="text-[12px] gap-1 border-emerald-400 text-emerald-600 bg-emerald-50"
+                      className="text-[12px] gap-1 border-signal-positive-border text-signal-positive bg-signal-positive-subtle"
                     >
                       <Check className="h-3 w-3" />
                       {importPreview.added} new contact{importPreview.added === 1 ? "" : "s"} added
@@ -698,7 +698,7 @@ export default function WhatsAppPage() {
                   {(importPreview.updated ?? 0) > 0 && (
                     <Badge
                       variant="outline"
-                      className="text-[12px] gap-1 border-blue-400 text-blue-600 bg-blue-50"
+                      className="text-[12px] gap-1 border-signal-info-border text-signal-info bg-signal-info-subtle"
                       title="Existing contacts whose names, phone numbers, or other fields were updated with richer values from this import."
                     >
                       <Check className="h-3 w-3" />
@@ -717,7 +717,7 @@ export default function WhatsAppPage() {
                   {(importPreview.unresolved ?? 0) > 0 && (
                     <Badge
                       variant="outline"
-                      className="text-[12px] gap-1 border-amber-400 text-amber-700 bg-amber-50"
+                      className="text-[12px] gap-1 border-signal-warning-border text-signal-warning bg-signal-warning-subtle"
                       title="These contacts aren't in your phone's address book and didn't send you a message during the import. Re-scan after they message you to get their names."
                     >
                       <AlertTriangle className="h-3 w-3" />
@@ -733,7 +733,7 @@ export default function WhatsAppPage() {
                       </span>
                       <div className="w-full h-1 rounded-full bg-muted overflow-hidden">
                         <div
-                          className="h-full bg-[oklch(0.72_0.15_85)] rounded-full transition-all duration-300"
+                          className="h-full bg-gold rounded-full transition-all duration-300"
                           style={{ width: `${Math.round((profileProgress.done / profileProgress.total) * 100)}%` }}
                         />
                       </div>
@@ -788,12 +788,12 @@ export default function WhatsAppPage() {
                           <button
                             onClick={() => setSelectedChatId(c.id)}
                             className={`w-full text-left px-3 py-2.5 flex gap-2 items-start hover:bg-accent/40 transition-colors ${
-                              selected ? "bg-[oklch(0.72_0.15_85)]/10" : ""
+                              selected ? "bg-gold/10" : ""
                             }`}
                           >
                             <div
                               className={`h-9 w-9 rounded-full flex items-center justify-center text-xs font-semibold text-white shrink-0 ${
-                                c.isGroup ? "bg-violet-500" : "bg-emerald-600"
+                                c.isGroup ? "bg-signal-info" : "bg-signal-positive"
                               }`}
                             >
                               {c.isGroup ? (
@@ -849,9 +849,9 @@ export default function WhatsAppPage() {
                 <>
                   <div className="px-5 py-3 border-b border-border flex items-center gap-2">
                     {chat.isGroup ? (
-                      <Users className="h-4 w-4 text-violet-500" />
+                      <Users className="h-4 w-4 text-signal-info" />
                     ) : (
-                      <MessageCircle className="h-4 w-4 text-emerald-600" />
+                      <MessageCircle className="h-4 w-4 text-signal-positive" />
                     )}
                     <p className="font-semibold text-sm">{chat.name}</p>
                     <span className="text-[12px] text-muted-foreground ml-auto font-mono tabular-nums">
@@ -872,7 +872,7 @@ export default function WhatsAppPage() {
                           <div
                             className={`max-w-[80%] rounded-lg px-3 py-2 text-sm leading-relaxed ${
                               m.fromMe
-                                ? "bg-[oklch(0.72_0.15_85)]/20 text-foreground"
+                                ? "bg-gold/20 text-foreground"
                                 : "bg-muted/60 text-foreground/90"
                             }`}
                           >

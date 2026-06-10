@@ -70,64 +70,64 @@ const sections: SectionDef[] = [
     key: "criticalToday",
     label: "Critical Today",
     icon: Flame,
-    bg: "bg-red-500/[0.04]",
-    accent: "bg-red-500",
-    fg: "text-red-600",
-    ring: "ring-red-500/25",
+    bg: "bg-signal-critical/[0.04]",
+    accent: "bg-signal-critical",
+    fg: "text-signal-critical",
+    ring: "ring-signal-critical/25",
   },
   {
     key: "projectRadar",
     label: "Project Radar",
     icon: FolderKanban,
-    bg: "bg-emerald-500/[0.04]",
-    accent: "bg-emerald-500",
-    fg: "text-emerald-600",
-    ring: "ring-emerald-500/25",
+    bg: "bg-signal-positive/[0.04]",
+    accent: "bg-signal-positive",
+    fg: "text-signal-positive",
+    ring: "ring-signal-positive/25",
   },
   {
     key: "followUps",
     label: "Follow-ups Required",
     icon: ArrowUpRight,
-    bg: "bg-amber-500/[0.04]",
-    accent: "bg-amber-500",
-    fg: "text-amber-600",
-    ring: "ring-amber-500/25",
+    bg: "bg-signal-warning/[0.04]",
+    accent: "bg-signal-warning",
+    fg: "text-signal-warning",
+    ring: "ring-signal-warning/25",
   },
   {
     key: "decisionsToWatch",
     label: "Decisions to Watch",
     icon: Scale,
-    bg: "bg-violet-500/[0.04]",
-    accent: "bg-violet-500",
-    fg: "text-violet-600",
-    ring: "ring-violet-500/25",
+    bg: "bg-signal-info/[0.04]",
+    accent: "bg-signal-info",
+    fg: "text-signal-info",
+    ring: "ring-signal-info/25",
   },
   {
     key: "meetingsNeedingPrep",
     label: "Meetings Needing Prep",
     icon: Calendar,
-    bg: "bg-[oklch(0.72_0.15_85)]/[0.04]",
-    accent: "bg-[oklch(0.72_0.15_85)]",
+    bg: "bg-gold/[0.04]",
+    accent: "bg-gold",
     fg: "text-[oklch(0.58_0.15_85)]",
-    ring: "ring-[oklch(0.72_0.15_85)]/25",
+    ring: "ring-gold/25",
   },
   {
     key: "peopleAndAccounts",
     label: "People & Accounts",
     icon: Users,
-    bg: "bg-teal-500/[0.04]",
-    accent: "bg-teal-500",
-    fg: "text-teal-600",
-    ring: "ring-teal-500/25",
+    bg: "bg-signal-positive/[0.04]",
+    accent: "bg-signal-positive",
+    fg: "text-signal-positive",
+    ring: "ring-signal-positive/25",
   },
   {
     key: "inboxSlack",
     label: "Inbox & Slack",
     icon: Inbox,
-    bg: "bg-blue-500/[0.04]",
-    accent: "bg-blue-500",
-    fg: "text-blue-600",
-    ring: "ring-blue-500/25",
+    bg: "bg-signal-info/[0.04]",
+    accent: "bg-signal-info",
+    fg: "text-signal-info",
+    ring: "ring-signal-info/25",
   },
 ];
 
@@ -500,7 +500,7 @@ export default function BriefingPage() {
           </p>
           <h1 className="basil-display text-3xl sm:text-5xl lg:text-6xl leading-[1.05] text-foreground">
             {today.split(",")[0]}
-            <span className="text-[oklch(0.72_0.15_85)]">.</span>
+            <span className="text-gold">.</span>
           </h1>
           <p className="text-base text-muted-foreground">
             {today.split(",").slice(1).join(",").trim()} · Prepared by Basil
@@ -510,7 +510,7 @@ export default function BriefingPage() {
           onClick={() => generate()}
           disabled={loading}
           size="lg"
-          className="bg-[oklch(0.72_0.15_85)] text-[oklch(0.18_0.04_250)] hover:bg-[oklch(0.78_0.12_85)] gap-2 shadow-md shadow-[oklch(0.72_0.15_85)]/20 h-11 px-5"
+          className="bg-gold text-[oklch(0.18_0.04_250)] hover:bg-[oklch(0.78_0.12_85)] gap-2 shadow-md shadow-gold/20 h-11 px-5"
         >
           {loading ? (
             <>
@@ -543,12 +543,12 @@ export default function BriefingPage() {
                 "inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[12px] font-medium",
                 "transition-all duration-150 border",
                 active
-                  ? "bg-[oklch(0.72_0.15_85)]/[0.12] text-[oklch(0.72_0.15_85)] border-[oklch(0.72_0.15_85)]/25"
+                  ? "bg-gold/[0.12] text-gold border-gold/25"
                   : "bg-transparent text-muted-foreground/60 border-border/30 hover:border-border/60 hover:text-muted-foreground"
               )}
             >
               {active && (
-                <span className="h-1.5 w-1.5 rounded-full bg-[oklch(0.72_0.15_85)] shrink-0" />
+                <span className="h-1.5 w-1.5 rounded-full bg-gold shrink-0" />
               )}
               {t.label}
             </button>
@@ -561,7 +561,7 @@ export default function BriefingPage() {
         <div className={cn(
           "rounded-xl border px-5 py-4 space-y-3",
           readiness.brain === "missing"
-            ? "border-red-200 bg-red-50/60"
+            ? "border-signal-critical-border bg-signal-critical-subtle/60"
             : "border-border/50 bg-muted/30"
         )}>
           <button
@@ -570,11 +570,11 @@ export default function BriefingPage() {
           >
             <span className="flex items-center gap-2">
               {readiness.brain === "missing" ? (
-                <XCircle className="h-4 w-4 text-red-500" />
+                <XCircle className="h-4 w-4 text-signal-critical" />
               ) : (
-                <CheckCircle2 className="h-4 w-4 text-emerald-500" />
+                <CheckCircle2 className="h-4 w-4 text-signal-positive" />
               )}
-              <span className={readiness.brain === "missing" ? "text-red-700" : "text-foreground"}>
+              <span className={readiness.brain === "missing" ? "text-signal-critical" : "text-foreground"}>
                 {readiness.brain === "missing"
                   ? "Brain missing — briefing will fail"
                   : `Brain ready · ${readiness.brainModel ?? "OpenAI"}`}
@@ -606,14 +606,14 @@ export default function BriefingPage() {
               ].map(({ label, value, state }) => (
                 <div key={label} className="flex items-center gap-2 text-xs">
                   {state === "ok" ? (
-                    <CheckCircle2 className="h-3.5 w-3.5 text-emerald-400 shrink-0" />
+                    <CheckCircle2 className="h-3.5 w-3.5 text-signal-positive shrink-0" />
                   ) : (
-                    <MinusCircle className="h-3.5 w-3.5 text-amber-400 shrink-0" />
+                    <MinusCircle className="h-3.5 w-3.5 text-signal-warning shrink-0" />
                   )}
                   <span className="text-muted-foreground">{label}:</span>
                   <span className={cn(
                     "font-medium",
-                    state === "disconnected" ? "text-amber-600" : "text-foreground"
+                    state === "disconnected" ? "text-signal-warning" : "text-foreground"
                   )}>{value}</span>
                 </div>
               ))}
@@ -621,9 +621,9 @@ export default function BriefingPage() {
           )}
 
           {readiness.brain === "missing" && (
-            <p className="text-xs text-red-600 pt-1">
+            <p className="text-xs text-signal-critical pt-1">
               Missing: <code className="font-mono">BASIL_LLM_KEY</code> (Anthropic API key) in Vercel environment variables.
-              {" "}<a href="/dashboard/settings?tab=brain" className="underline font-medium hover:text-red-800">Configure brain →</a>
+              {" "}<a href="/dashboard/settings?tab=brain" className="underline font-medium hover:text-signal-critical">Configure brain →</a>
             </p>
           )}
         </div>
@@ -647,19 +647,19 @@ export default function BriefingPage() {
            pulled from calendar, email, Slack, actions, decisions, and projects.
       ──────────────────────────────────────────────────────────────────────── */}
       {(stigLoading || stigRead) && (
-        <div className="rounded-2xl border border-[oklch(0.72_0.15_85)]/20 bg-[oklch(0.72_0.15_85)]/[0.03] overflow-hidden">
+        <div className="rounded-2xl border border-gold/20 bg-gold/[0.03] overflow-hidden">
           {/* Header row */}
           <button
             onClick={() => setStigExpanded((v) => !v)}
-            className="w-full flex items-center justify-between gap-3 px-5 py-3.5 hover:bg-[oklch(0.72_0.15_85)]/[0.04] transition-colors"
+            className="w-full flex items-center justify-between gap-3 px-5 py-3.5 hover:bg-gold/[0.04] transition-colors"
           >
             <span className="flex items-center gap-2.5">
               {stigLoading ? (
-                <Radio className="h-3.5 w-3.5 animate-pulse text-[oklch(0.72_0.15_85)]" />
+                <Radio className="h-3.5 w-3.5 animate-pulse text-gold" />
               ) : (
-                <Brain className="h-3.5 w-3.5 text-[oklch(0.72_0.15_85)]" />
+                <Brain className="h-3.5 w-3.5 text-gold" />
               )}
-              <span className="text-[12px] font-semibold tracking-wide uppercase text-[oklch(0.72_0.15_85)]">
+              <span className="text-[12px] font-semibold tracking-wide uppercase text-gold">
                 Basil&apos;s Operational Read
               </span>
               {stigLoading && (
@@ -690,13 +690,13 @@ export default function BriefingPage() {
                 </div>
               )}
               {stigRead && (
-                <div className="prose prose-sm max-w-none text-[13px] text-foreground/80 leading-relaxed [&_h2]:text-xs [&_h2]:font-semibold [&_h2]:uppercase [&_h2]:tracking-wider [&_h2]:text-[oklch(0.72_0.15_85)] [&_h2]:mt-4 [&_h2]:mb-1 [&_ul]:pl-4 [&_li]:my-0.5">
+                <div className="prose prose-sm max-w-none text-[13px] text-foreground/80 leading-relaxed [&_h2]:text-xs [&_h2]:font-semibold [&_h2]:uppercase [&_h2]:tracking-wider [&_h2]:text-gold [&_h2]:mt-4 [&_h2]:mb-1 [&_ul]:pl-4 [&_li]:my-0.5">
                   {stigRead.briefing.split("\n").map((line, i) => {
                     const trimmed = line.trim();
                     if (!trimmed) return <br key={i} />;
                     if (trimmed.startsWith("## ")) {
                       return (
-                        <h2 key={i} className="text-xs font-semibold uppercase tracking-wider text-[oklch(0.72_0.15_85)] mt-4 mb-1 first:mt-0">
+                        <h2 key={i} className="text-xs font-semibold uppercase tracking-wider text-gold mt-4 mb-1 first:mt-0">
                           {trimmed.replace(/^## /, "")}
                         </h2>
                       );
@@ -731,14 +731,14 @@ export default function BriefingPage() {
       {/* Staleness banner — shown when actions/decisions/memory changed after
           this briefing was generated. Does not auto-regenerate (too expensive). */}
       {isStale && briefing && !loading && (
-        <div className="flex items-start gap-3 rounded-xl border border-amber-200/70 bg-amber-50/70 px-5 py-3.5">
-          <AlertTriangle className="h-4 w-4 text-amber-500 shrink-0 mt-0.5" />
-          <p className="text-sm text-amber-700 leading-relaxed">
+        <div className="flex items-start gap-3 rounded-xl border border-signal-warning-border/70 bg-signal-warning-subtle/70 px-5 py-3.5">
+          <AlertTriangle className="h-4 w-4 text-signal-warning shrink-0 mt-0.5" />
+          <p className="text-sm text-signal-warning leading-relaxed">
             Actions or decisions have changed since this briefing was generated.
             {" "}
             <button
               onClick={() => generate()}
-              className="font-semibold underline underline-offset-2 hover:text-amber-900 transition-colors"
+              className="font-semibold underline underline-offset-2 hover:text-signal-warning transition-colors"
             >
               Regenerate
             </button>
@@ -802,7 +802,7 @@ export default function BriefingPage() {
             {isStale && (
               <>
                 <span className="text-border/40">·</span>
-                <span className="text-amber-500/70">data changed since generation</span>
+                <span className="text-signal-warning/70">data changed since generation</span>
               </>
             )}
           </div>
@@ -875,7 +875,7 @@ export default function BriefingPage() {
                     </p>
                   )}
                   {briefing.sourceAttribution.unavailable.length > 0 && (
-                    <p className="text-amber-600/80">
+                    <p className="text-signal-warning/80">
                       <span className="font-medium">Not available: </span>
                       {briefing.sourceAttribution.unavailable.join(" · ")}
                     </p>
@@ -890,7 +890,7 @@ export default function BriefingPage() {
                       className={cn(
                         "inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium ring-1",
                         s.status === "error" || s.status === "missing"
-                          ? "bg-amber-50 text-amber-700 ring-amber-300/60"
+                          ? "bg-signal-warning-subtle text-signal-warning ring-signal-warning/60"
                           : "bg-muted text-muted-foreground ring-border/40"
                       )}
                     >
@@ -915,8 +915,8 @@ export default function BriefingPage() {
             }}
           />
           <div className="relative">
-            <div className="h-14 w-14 rounded-xl bg-[oklch(0.72_0.15_85)]/10 flex items-center justify-center mx-auto mb-5 ring-1 ring-[oklch(0.72_0.15_85)]/20">
-              <Newspaper className="h-6 w-6 text-[oklch(0.72_0.15_85)]/70" />
+            <div className="h-14 w-14 rounded-xl bg-gold/10 flex items-center justify-center mx-auto mb-5 ring-1 ring-gold/20">
+              <Newspaper className="h-6 w-6 text-gold/70" />
             </div>
             <h2 className="basil-display text-2xl mb-2">Ready for your briefing</h2>
             <p className="text-sm text-muted-foreground max-w-xs mx-auto leading-relaxed">

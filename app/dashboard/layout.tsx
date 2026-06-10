@@ -4,7 +4,6 @@ import { useState, useEffect } from "react";
 import { AppSidebar } from "@/components/app-sidebar";
 import { MobileBottomNav } from "@/components/mobile-bottom-nav";
 import { Sheet, SheetContent } from "@/components/ui/sheet";
-import { ThemeToggle } from "@/components/theme-toggle";
 import { clearSessionUsername } from "@/lib/session-user";
 import { Menu } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -99,17 +98,14 @@ export default function DashboardLayout({
           <header className="flex items-center h-14 px-4 bg-sidebar border-b border-sidebar-border shrink-0 pt-[env(safe-area-inset-top)]">
             <button
               onClick={() => setMobileOpen(true)}
-              className="rounded-md p-2 -ml-2 text-sidebar-foreground/60 hover:text-sidebar-foreground hover:bg-[#C8A96B]/[0.06] transition-colors"
+              className="rounded-md p-2 -ml-2 text-sidebar-foreground/60 hover:text-sidebar-foreground hover:bg-gold/[0.06] transition-colors"
               aria-label="Open navigation"
             >
               <Menu className="h-5 w-5" />
             </button>
             <div className="flex items-center gap-2 ml-2">
               <img src="/brand/basil-mark.png" alt="Basil" className="h-7 w-7 rounded-lg" />
-              <p className="basil-display text-base text-[#C8A96B]">Basil</p>
-            </div>
-            <div className="ml-auto flex items-center gap-1">
-              <ThemeToggle />
+              <p className="basil-display text-base text-gold">Basil</p>
             </div>
           </header>
         )}

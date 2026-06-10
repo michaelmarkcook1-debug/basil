@@ -564,7 +564,7 @@ function ChatPageInner() {
           autoComplete="off"
           autoCorrect="on"
           spellCheck
-          className="min-h-12 max-h-40 resize-none border-[oklch(0.72_0.15_85)]/20 focus-visible:ring-[oklch(0.72_0.15_85)] py-3 text-[16px] sm:text-sm"
+          className="min-h-12 max-h-40 resize-none border-gold/20 focus-visible:ring-gold py-3 text-[16px] sm:text-sm"
           rows={1}
         />
         <Button
@@ -572,7 +572,7 @@ function ChatPageInner() {
           size="icon"
           disabled={isActive || (!input.trim() && stagedFiles.length === 0)}
           aria-label="Send message"
-          className="h-12 w-12 shrink-0 bg-gradient-to-r from-[oklch(0.72_0.15_85)] to-[oklch(0.78_0.12_85)] hover:from-[oklch(0.78_0.12_85)] hover:to-[oklch(0.82_0.10_85)] text-white"
+          className="h-12 w-12 shrink-0 bg-gradient-to-r from-gold to-[oklch(0.78_0.12_85)] hover:from-[oklch(0.78_0.12_85)] hover:to-[oklch(0.82_0.10_85)] text-white"
         >
           <Send className="h-4 w-4" />
         </Button>
@@ -590,7 +590,7 @@ function ChatPageInner() {
               {message.role === "user" ? (
                 <User className="h-3.5 w-3.5" />
               ) : (
-                <Bot className="h-3.5 w-3.5 text-[oklch(0.72_0.15_85)]" />
+                <Bot className="h-3.5 w-3.5 text-gold" />
               )}
             </AvatarFallback>
           </Avatar>
@@ -618,7 +618,7 @@ function ChatPageInner() {
                           {saveState[actionKey] === "saving" ? (
                             <Loader2 className="h-3 w-3 animate-spin" />
                           ) : saveState[actionKey] === "saved" ? (
-                            <Check className="h-3 w-3 text-emerald-500" />
+                            <Check className="h-3 w-3 text-signal-positive" />
                           ) : (
                             <ListTodo className="h-3 w-3" />
                           )}
@@ -634,7 +634,7 @@ function ChatPageInner() {
                           {saveState[memoryKey] === "saving" ? (
                             <Loader2 className="h-3 w-3 animate-spin" />
                           ) : saveState[memoryKey] === "saved" ? (
-                            <Check className="h-3 w-3 text-emerald-500" />
+                            <Check className="h-3 w-3 text-signal-positive" />
                           ) : (
                             <BookMarked className="h-3 w-3" />
                           )}
@@ -686,10 +686,10 @@ function ChatPageInner() {
                   const approval = toolPart.approval as { id: string } | undefined;
                   const toolInput = toolPart.input as Record<string, unknown>;
                   return (
-                    <Card key={`${message.id}-${i}`} className="p-4 border-amber-500/40 bg-amber-500/5">
+                    <Card key={`${message.id}-${i}`} className="p-4 border-signal-warning/40 bg-signal-warning-subtle">
                       <div className="flex items-center gap-2 mb-3">
-                        <ShieldCheck className="h-4 w-4 text-amber-400" />
-                        <span className="text-sm font-medium text-amber-300">Approval needed</span>
+                        <ShieldCheck className="h-4 w-4 text-signal-warning" />
+                        <span className="text-sm font-medium text-signal-warning">Approval needed</span>
                       </div>
                       <div className="flex items-center gap-2 mb-2">
                         <IconComponent className="h-3.5 w-3.5 text-muted-foreground" />
@@ -728,7 +728,7 @@ function ChatPageInner() {
                     <IconComponent className="h-3 w-3" />
                     <span className="font-medium">{toolName.replace(/([A-Z])/g, " $1").trim()}</span>
                     {isPending && <Loader2 className="h-3 w-3 animate-spin" />}
-                    {isDone && <span className="text-emerald-600">✓</span>}
+                    {isDone && <span className="text-signal-positive">✓</span>}
                     {isDenied && <span className="text-destructive">denied</span>}
                   </div>
                 );
@@ -743,11 +743,11 @@ function ChatPageInner() {
         <div className="flex gap-3">
           <Avatar className="h-7 w-7 shrink-0 mt-0.5">
             <AvatarFallback className="text-xs bg-secondary">
-              <Bot className="h-3.5 w-3.5 text-[oklch(0.72_0.15_85)]" />
+              <Bot className="h-3.5 w-3.5 text-gold" />
             </AvatarFallback>
           </Avatar>
           <div className="flex items-center gap-2 text-sm text-muted-foreground">
-            <Loader2 className="h-3.5 w-3.5 animate-spin text-[oklch(0.72_0.15_85)]" />
+            <Loader2 className="h-3.5 w-3.5 animate-spin text-gold" />
             Thinking...
           </div>
         </div>
@@ -774,7 +774,7 @@ function ChatPageInner() {
             size="sm"
             onClick={clearChat}
             disabled={isActive || messages.length === 0}
-            className="gap-1.5 border-[oklch(0.72_0.15_85)]/30 text-[oklch(0.55_0.12_85)] hover:bg-[oklch(0.72_0.15_85)]/10 hover:text-[oklch(0.72_0.15_85)] hover:border-[oklch(0.72_0.15_85)]/50 disabled:opacity-40"
+            className="gap-1.5 border-gold/30 text-[oklch(0.55_0.12_85)] hover:bg-gold/10 hover:text-gold hover:border-gold/50 disabled:opacity-40"
             title="Start a fresh conversation and clear all visible history"
           >
             <MessageCirclePlus className="h-3.5 w-3.5" />
@@ -821,15 +821,15 @@ function ChatPageInner() {
       {/* Brain not configured — full blocking panel */}
       {brainReady === false && (
         <div className="flex flex-1 flex-col items-center justify-center px-6 py-16 text-center">
-          <div className="mb-4 flex h-14 w-14 items-center justify-center rounded-full border-2 border-red-300 bg-red-50">
-            <AlertTriangle className="h-7 w-7 text-red-500" />
+          <div className="mb-4 flex h-14 w-14 items-center justify-center rounded-full border-2 border-signal-critical-border bg-signal-critical-subtle">
+            <AlertTriangle className="h-7 w-7 text-signal-critical" />
           </div>
           <h2 className="text-xl font-semibold text-foreground">AI not reachable</h2>
           <p className="mt-2 max-w-sm text-sm text-muted-foreground">
             Basil couldn&apos;t reach the AI provider. Set one of the following environment variables in your Vercel project.
           </p>
-          <div className="mt-4 rounded-lg border border-red-200 bg-red-50 px-5 py-4 text-left text-sm text-red-800 space-y-1 w-full max-w-sm">
-            <p><code className="font-mono font-semibold">BASIL_LLM_KEY</code> — Anthropic API key <span className="text-red-500/70">(preferred)</span></p>
+          <div className="mt-4 rounded-lg border border-signal-critical-border bg-signal-critical-subtle px-5 py-4 text-left text-sm text-signal-critical space-y-1 w-full max-w-sm">
+            <p><code className="font-mono font-semibold">BASIL_LLM_KEY</code> — Anthropic API key <span className="text-signal-critical/70">(preferred)</span></p>
             <p><code className="font-mono font-semibold">AI_GATEWAY_API_KEY</code> — Vercel AI Gateway key</p>
           </div>
           <div className="mt-5 flex gap-3">
@@ -847,10 +847,10 @@ function ChatPageInner() {
         <>
           {/* Brain ready status bar */}
           {brainModel && (
-            <div className="mx-4 mt-2 flex items-center gap-2 rounded-lg border border-emerald-200 bg-emerald-50/50 px-3 py-1.5 text-xs text-emerald-700">
-              <div className="h-1.5 w-1.5 rounded-full bg-emerald-500 shrink-0" />
+            <div className="mx-4 mt-2 flex items-center gap-2 rounded-lg border border-signal-positive-border bg-signal-positive-subtle/50 px-3 py-1.5 text-xs text-signal-positive">
+              <div className="h-1.5 w-1.5 rounded-full bg-signal-positive shrink-0" />
               <span className="font-medium">AI ready</span>
-              <span className="text-emerald-600/70">·</span>
+              <span className="text-signal-positive/70">·</span>
               <span className="font-mono">{brainModel}</span>
             </div>
           )}
@@ -920,7 +920,7 @@ function ChatPageInner() {
                 {/* Welcome panel — shown when no messages yet */}
                 {messages.length === 0 && (
                   <div className="text-center">
-                    <div className="h-12 w-12 rounded-xl bg-gradient-to-br from-[oklch(0.72_0.15_85)] to-[oklch(0.78_0.12_85)] flex items-center justify-center mb-4 mx-auto">
+                    <div className="h-12 w-12 rounded-xl bg-gradient-to-br from-gold to-[oklch(0.78_0.12_85)] flex items-center justify-center mb-4 mx-auto">
                       <Bot className="h-6 w-6 text-white" />
                     </div>
                     <h2 className="text-lg font-medium">{firstName ? `Hey, ${firstName}` : "Hey"}</h2>
@@ -943,7 +943,7 @@ function ChatPageInner() {
                           key={suggestion}
                           variant="outline"
                           size="sm"
-                          className="border-[oklch(0.72_0.15_85)]/30 hover:bg-[oklch(0.72_0.15_85)]/10"
+                          className="border-gold/30 hover:bg-gold/10"
                           onClick={() => {
                             hasSentMessage.current = true;
                             sendMessage({ text: suggestion });
@@ -996,7 +996,7 @@ function ChatPageInner() {
                         key={suggestion}
                         variant="outline"
                         size="sm"
-                        className="border-[oklch(0.72_0.15_85)]/25 hover:bg-[oklch(0.72_0.15_85)]/10"
+                        className="border-gold/25 hover:bg-gold/10"
                         onClick={() => {
                           hasSentMessage.current = true;
                           sendMessage({ text: suggestion });
@@ -1009,7 +1009,7 @@ function ChatPageInner() {
                 )}
 
                 {/* Centered input box with subtle tinted background */}
-                <div className="w-full rounded-2xl border border-[oklch(0.72_0.15_85)]/20 bg-[oklch(0.97_0.008_85)] dark:bg-card/80 shadow-sm px-3 py-3">
+                <div className="w-full rounded-2xl border border-gold/20 bg-[oklch(0.97_0.008_85)] dark:bg-card/80 shadow-sm px-3 py-3">
                   {inputForm}
                 </div>
               </div>

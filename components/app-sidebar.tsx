@@ -68,14 +68,14 @@ function NavItem({ href, label, icon: Icon, active, expanded, onNavigate }: NavI
       className={cn(
         "group relative flex items-center gap-3 rounded-lg px-3 py-2.5 transition-all duration-150",
         active
-          ? "text-[#C8A96B] bg-[#C8A96B]/[0.08] ring-1 ring-inset ring-[#C8A96B]/15"
+          ? "text-gold bg-gold/[0.08] ring-1 ring-inset ring-gold/15"
           : "text-sidebar-foreground/70 hover:text-sidebar-foreground hover:bg-white/[0.04]"
       )}
     >
       {/* Active indicator — gold left rail */}
       <span
         className={cn(
-          "absolute left-0 top-1/2 h-[18px] w-[2px] -translate-y-1/2 rounded-r-full bg-[#C8A96B] transition-opacity duration-150",
+          "absolute left-0 top-1/2 h-[18px] w-[2px] -translate-y-1/2 rounded-r-full bg-gold transition-opacity duration-150",
           active ? "opacity-100" : "opacity-0"
         )}
       />
@@ -84,7 +84,7 @@ function NavItem({ href, label, icon: Icon, active, expanded, onNavigate }: NavI
         className={cn(
           "relative shrink-0 transition-colors duration-150",
           active
-            ? "text-[#C8A96B]"
+            ? "text-gold"
             // Lifted from /55 → /75 so the icon reads as part of the nav row,
             // not a faint hint of one. Group hover takes it to full.
             : "text-sidebar-foreground/75 group-hover:text-sidebar-foreground"
@@ -167,7 +167,7 @@ export function AppSidebar({
         />
         <div className={cn(expanded ? "block" : "hidden lg:block")}>
           <p
-            className="text-[15px] font-semibold leading-none tracking-[0.18em] text-[#C8A96B]"
+            className="text-[15px] font-semibold leading-none tracking-[0.18em] text-gold"
             style={{ fontFamily: "var(--font-geist-sans, sans-serif)" }}
           >
             BASIL
@@ -185,9 +185,9 @@ export function AppSidebar({
           onClick={onNavigate}
           className={cn(
             "flex items-center gap-2.5 w-full rounded-lg px-3 py-2.5 transition-all duration-150",
-            "border border-[#C8A96B]/30 bg-[#C8A96B]/[0.07]",
-            "text-[#C8A96B] hover:bg-[#C8A96B]/[0.12] hover:border-[#C8A96B]/50",
-            isActive("/dashboard/chat") && "bg-[#C8A96B]/[0.14] border-[#C8A96B]/50"
+            "border border-gold/30 bg-gold/[0.07]",
+            "text-gold hover:bg-gold/[0.12] hover:border-gold/50",
+            isActive("/dashboard/chat") && "bg-gold/[0.14] border-gold/50"
           )}
         >
           <MessageSquare size={16} strokeWidth={1.8} className="shrink-0" />
@@ -200,7 +200,7 @@ export function AppSidebar({
           href="/dashboard/chat"
           onClick={onNavigate}
           title="Ask Basil"
-          className="flex items-center justify-center w-full rounded-lg p-2.5 border border-[#C8A96B]/30 bg-[#C8A96B]/[0.07] text-[#C8A96B] hover:bg-[#C8A96B]/[0.12] transition-all"
+          className="flex items-center justify-center w-full rounded-lg p-2.5 border border-gold/30 bg-gold/[0.07] text-gold hover:bg-gold/[0.12] transition-all"
         >
           <MessageSquare size={16} strokeWidth={1.8} />
         </Link>
@@ -299,8 +299,8 @@ export function AppSidebar({
             onClick={onNavigate}
             className="flex items-center gap-2.5 px-3 py-2 rounded-lg hover:bg-white/[0.04] transition-colors group"
           >
-            <div className="shrink-0 h-7 w-7 rounded-full bg-[#C8A96B]/15 border border-[#C8A96B]/30 flex items-center justify-center">
-              <span className="text-xs font-bold text-[#C8A96B]">{userInitials}</span>
+            <div className="shrink-0 h-7 w-7 rounded-full bg-gold/15 border border-gold/30 flex items-center justify-center">
+              <span className="text-xs font-bold text-gold">{userInitials}</span>
             </div>
             <div className="flex-1 min-w-0">
               <p className="text-sm font-medium text-sidebar-foreground/85 leading-none truncate">{userName}</p>

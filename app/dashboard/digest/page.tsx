@@ -43,55 +43,55 @@ const sections: SectionDef[] = [
     key: "majorMeetings",
     label: "Major Meetings",
     icon: Calendar,
-    bg: "bg-[oklch(0.72_0.15_85)]/[0.04]",
-    accent: "bg-[oklch(0.72_0.15_85)]",
+    bg: "bg-gold/[0.04]",
+    accent: "bg-gold",
     fg: "text-[oklch(0.58_0.15_85)]",
-    ring: "ring-[oklch(0.72_0.15_85)]/25",
+    ring: "ring-gold/25",
   },
   {
     key: "whatChanged",
     label: "What Changed",
     icon: ListChecks,
-    bg: "bg-emerald-500/[0.04]",
-    accent: "bg-emerald-500",
-    fg: "text-emerald-600",
-    ring: "ring-emerald-500/25",
+    bg: "bg-signal-positive/[0.04]",
+    accent: "bg-signal-positive",
+    fg: "text-signal-positive",
+    ring: "ring-signal-positive/25",
   },
   {
     key: "decisionsLog",
     label: "Decisions",
     icon: Scale,
-    bg: "bg-violet-500/[0.04]",
-    accent: "bg-violet-500",
-    fg: "text-violet-600",
-    ring: "ring-violet-500/25",
+    bg: "bg-signal-info/[0.04]",
+    accent: "bg-signal-info",
+    fg: "text-signal-info",
+    ring: "ring-signal-info/25",
   },
   {
     key: "blockers",
     label: "Blockers & Risks",
     icon: AlertTriangle,
-    bg: "bg-red-500/[0.04]",
-    accent: "bg-red-500",
-    fg: "text-red-600",
-    ring: "ring-red-500/25",
+    bg: "bg-signal-critical/[0.04]",
+    accent: "bg-signal-critical",
+    fg: "text-signal-critical",
+    ring: "ring-signal-critical/25",
   },
   {
     key: "relationshipSignals",
     label: "Relationship Signals",
     icon: Users,
-    bg: "bg-teal-500/[0.04]",
-    accent: "bg-teal-500",
-    fg: "text-teal-600",
-    ring: "ring-teal-500/25",
+    bg: "bg-signal-positive/[0.04]",
+    accent: "bg-signal-positive",
+    fg: "text-signal-positive",
+    ring: "ring-signal-positive/25",
   },
   {
     key: "nextWeekNeeds",
     label: "Next Week Needs",
     icon: ArrowRight,
-    bg: "bg-amber-500/[0.04]",
-    accent: "bg-amber-500",
-    fg: "text-amber-600",
-    ring: "ring-amber-500/25",
+    bg: "bg-signal-warning/[0.04]",
+    accent: "bg-signal-warning",
+    fg: "text-signal-warning",
+    ring: "ring-signal-warning/25",
   },
 ];
 
@@ -246,7 +246,7 @@ export default function DigestPage() {
             <BarChart3 className="h-3.5 w-3.5" /> Weekly Summary
           </p>
           <h1 className="basil-display text-3xl sm:text-5xl lg:text-6xl leading-[1.05] text-foreground">
-            This Week<span className="text-[oklch(0.72_0.15_85)]">.</span>
+            This Week<span className="text-gold">.</span>
           </h1>
           <p className="text-base text-muted-foreground">
             {weekLabel} · Prepared by Basil
@@ -268,7 +268,7 @@ export default function DigestPage() {
             onClick={generate}
             disabled={loading}
             size="lg"
-            className="bg-[oklch(0.72_0.15_85)] text-[oklch(0.18_0.04_250)] hover:bg-[oklch(0.78_0.12_85)] gap-2 shadow-md shadow-[oklch(0.72_0.15_85)]/20 h-11 px-5"
+            className="bg-gold text-[oklch(0.18_0.04_250)] hover:bg-[oklch(0.78_0.12_85)] gap-2 shadow-md shadow-gold/20 h-11 px-5"
           >
             {loading ? (
               <>

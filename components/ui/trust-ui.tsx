@@ -88,26 +88,26 @@ const TIER_CFG: Record<
 > = {
   auto: {
     label: "Verified",
-    dotClass: "bg-emerald-500",
-    textClass: "text-emerald-600 dark:text-emerald-400",
-    bgClass: "bg-emerald-50/60 dark:bg-emerald-950/20",
-    borderClass: "border-emerald-200/60 dark:border-emerald-800/40",
+    dotClass: "bg-signal-positive",
+    textClass: "text-signal-positive",
+    bgClass: "bg-signal-positive-subtle/60",
+    borderClass: "border-signal-positive-border/60",
     icon: <ShieldCheck className="h-3.5 w-3.5" />,
   },
   review: {
     label: "Under review",
-    dotClass: "bg-amber-500",
-    textClass: "text-amber-600 dark:text-amber-400",
-    bgClass: "bg-amber-50/60 dark:bg-amber-950/20",
-    borderClass: "border-amber-200/60 dark:border-amber-800/40",
+    dotClass: "bg-signal-warning",
+    textClass: "text-signal-warning",
+    bgClass: "bg-signal-warning-subtle/60",
+    borderClass: "border-signal-warning-border/60",
     icon: <Shield className="h-3.5 w-3.5" />,
   },
   blocked: {
     label: "Low confidence",
-    dotClass: "bg-red-500",
-    textClass: "text-red-600 dark:text-red-400",
-    bgClass: "bg-red-50/60 dark:bg-red-950/20",
-    borderClass: "border-red-200/60 dark:border-red-800/40",
+    dotClass: "bg-signal-critical",
+    textClass: "text-signal-critical",
+    bgClass: "bg-signal-critical-subtle/60",
+    borderClass: "border-signal-critical-border/60",
     icon: <AlertTriangle className="h-3.5 w-3.5" />,
   },
 };
@@ -140,23 +140,23 @@ function confidenceCfg(value: number) {
     return {
       pct,
       label: "High confidence",
-      barClass: "bg-emerald-500",
-      textClass: "text-emerald-600 dark:text-emerald-400",
+      barClass: "bg-signal-positive",
+      textClass: "text-signal-positive",
       level: "high" as const,
     };
   if (pct >= 50)
     return {
       pct,
       label: "Medium confidence",
-      barClass: "bg-amber-500",
-      textClass: "text-amber-600 dark:text-amber-400",
+      barClass: "bg-signal-warning",
+      textClass: "text-signal-warning",
       level: "medium" as const,
     };
   return {
     pct,
     label: "Low confidence",
-    barClass: "bg-red-500",
-    textClass: "text-red-600 dark:text-red-400",
+    barClass: "bg-signal-critical",
+    textClass: "text-signal-critical",
     level: "low" as const,
   };
 }
@@ -327,7 +327,7 @@ export function FreshnessTag({
       className={cn(
         "inline-flex items-center gap-1 text-xs",
         isStale
-          ? "text-amber-600 dark:text-amber-400"
+          ? "text-signal-warning"
           : isAging
           ? "text-muted-foreground/80"
           : "text-muted-foreground",
@@ -367,9 +367,9 @@ export function FreshnessDecayBar({
 
   // Color the filled portion green → amber → red based on position
   const fillClass =
-    position < 0.25 ? "bg-emerald-500"
-    : position < 0.55 ? "bg-amber-400"
-    : "bg-red-400";
+    position < 0.25 ? "bg-signal-positive"
+    : position < 0.55 ? "bg-signal-warning"
+    : "bg-signal-critical";
 
   // Label at current position
   const label =
@@ -378,9 +378,9 @@ export function FreshnessDecayBar({
     : "Stale";
 
   const labelColorClass =
-    position < 0.25 ? "text-emerald-600 dark:text-emerald-400"
-    : position < 0.55 ? "text-amber-600 dark:text-amber-400"
-    : "text-red-500";
+    position < 0.25 ? "text-signal-positive"
+    : position < 0.55 ? "text-signal-warning"
+    : "text-signal-critical";
 
   return (
     <div className={cn("space-y-1.5", className)}>
@@ -399,9 +399,9 @@ export function FreshnessDecayBar({
         <div
           className={cn(
             "absolute top-1/2 -translate-y-1/2 h-3 w-3 rounded-full border-2 border-background shadow-sm transition-all duration-300",
-            position < 0.25 ? "bg-emerald-500"
-            : position < 0.55 ? "bg-amber-400"
-            : "bg-red-400"
+            position < 0.25 ? "bg-signal-positive"
+            : position < 0.55 ? "bg-signal-warning"
+            : "bg-signal-critical"
           )}
           style={{ left: `calc(${positionPct}% - 6px)` }}
         />
@@ -609,8 +609,8 @@ export function ContradictionAlert({
       className={cn(
         "rounded-lg border px-3 py-2.5 space-y-2.5",
         isHighSeverity
-          ? "border-red-200/70 bg-red-50/50 dark:border-red-800/40 dark:bg-red-950/20"
-          : "border-amber-200/70 bg-amber-50/50 dark:border-amber-800/40 dark:bg-amber-950/20",
+          ? "border-signal-critical-border/70 bg-signal-critical-subtle/50"
+          : "border-signal-warning-border/70 bg-signal-warning-subtle/50",
         className
       )}
     >
@@ -618,15 +618,15 @@ export function ContradictionAlert({
         <AlertTriangle
           className={cn(
             "h-3.5 w-3.5 shrink-0",
-            isHighSeverity ? "text-red-500" : "text-amber-500"
+            isHighSeverity ? "text-signal-critical" : "text-signal-warning"
           )}
         />
         <span
           className={cn(
             "text-[12px] font-semibold",
             isHighSeverity
-              ? "text-red-700 dark:text-red-400"
-              : "text-amber-700 dark:text-amber-400"
+              ? "text-signal-critical"
+              : "text-signal-warning"
           )}
         >
           Conflict detected
@@ -636,8 +636,8 @@ export function ContradictionAlert({
             className={cn(
               "text-xs font-mono",
               isHighSeverity
-                ? "text-red-600/60 dark:text-red-500/60"
-                : "text-amber-600/60 dark:text-amber-500/60"
+                ? "text-signal-critical/60"
+                : "text-signal-warning/60"
             )}
           >
             {conflicts!.length} conflicts
@@ -658,7 +658,7 @@ export function ContradictionAlert({
               Conflict on:{" "}
               <span className="font-medium text-foreground/90">{f.field}</span>
               {f.severity === "high" && (
-                <span className="ml-1.5 text-xs text-red-500">(high severity)</span>
+                <span className="ml-1.5 text-xs text-signal-critical">(high severity)</span>
               )}
             </p>
           </div>
@@ -715,17 +715,17 @@ export function ContradictionCard({
 
   const isHighSeverity = conflicts.some((c) => c.severity === "high");
   const borderColor = isHighSeverity
-    ? "border-red-300/60 dark:border-red-700/40"
-    : "border-amber-300/60 dark:border-amber-700/40";
+    ? "border-signal-critical-border/60"
+    : "border-signal-warning-border/60";
   const bgColor = isHighSeverity
-    ? "bg-red-50/40 dark:bg-red-950/15"
-    : "bg-amber-50/40 dark:bg-amber-950/15";
+    ? "bg-signal-critical-subtle"
+    : "bg-signal-warning-subtle";
   const accentColor = isHighSeverity
-    ? "bg-red-500"
-    : "bg-amber-500";
+    ? "bg-signal-critical"
+    : "bg-signal-warning";
   const headingColor = isHighSeverity
-    ? "text-red-700 dark:text-red-400"
-    : "text-amber-700 dark:text-amber-400";
+    ? "text-signal-critical"
+    : "text-signal-warning";
 
   return (
     <div
@@ -743,7 +743,7 @@ export function ContradictionCard({
           <AlertTriangle
             className={cn(
               "h-3.5 w-3.5 shrink-0",
-              isHighSeverity ? "text-red-500" : "text-amber-500"
+              isHighSeverity ? "text-signal-critical" : "text-signal-warning"
             )}
           />
           <span className={cn("text-[12px] font-semibold tracking-wide", headingColor)}>
@@ -918,7 +918,7 @@ export function TrustSummaryLine({ envelope, className }: TrustSummaryLineProps)
       {hasConflict && (
         <>
           {DOT_SEP}
-          <span className="inline-flex items-center gap-1 text-xs text-amber-500 dark:text-amber-400">
+          <span className="inline-flex items-center gap-1 text-xs text-signal-warning">
             <AlertTriangle className="h-2.5 w-2.5" />
             Conflict
           </span>
@@ -990,7 +990,7 @@ export function TrustStatusRow({
 
       {/* Conflict warning */}
       {hasConflict && (
-        <span className="ml-auto inline-flex items-center gap-1 text-xs text-amber-500">
+        <span className="ml-auto inline-flex items-center gap-1 text-xs text-signal-warning">
           <AlertTriangle className="h-2.5 w-2.5" />
           Conflict
         </span>
@@ -1105,25 +1105,25 @@ const BANNER_CFG: Record<
   }
 > = {
   verified: {
-    accentClass: "bg-emerald-500",
-    bgClass: "bg-emerald-50/40 dark:bg-emerald-950/15",
-    borderClass: "border-emerald-200/50 dark:border-emerald-800/30",
+    accentClass: "bg-signal-positive",
+    bgClass: "bg-signal-positive-subtle",
+    borderClass: "border-signal-positive-border/50",
     label: "Verified",
     sublabel: (s) => `${s ?? "This signal"} has been corroborated across multiple sources.`,
     icon: <ShieldCheck className="h-4 w-4" />,
   },
   uncertain: {
-    accentClass: "bg-amber-400",
-    bgClass: "bg-amber-50/40 dark:bg-amber-950/15",
-    borderClass: "border-amber-200/50 dark:border-amber-800/30",
+    accentClass: "bg-signal-warning",
+    bgClass: "bg-signal-warning-subtle",
+    borderClass: "border-signal-warning-border/50",
     label: "Needs review",
     sublabel: (s) => `${s ?? "This signal"} was extracted with lower confidence and needs verification.`,
     icon: <Shield className="h-4 w-4" />,
   },
   conflict: {
-    accentClass: "bg-red-500",
-    bgClass: "bg-red-50/40 dark:bg-red-950/15",
-    borderClass: "border-red-200/50 dark:border-red-800/30",
+    accentClass: "bg-signal-critical",
+    bgClass: "bg-signal-critical-subtle",
+    borderClass: "border-signal-critical-border/50",
     label: "Contradiction detected",
     sublabel: (s) => `${s ?? "Sources"} disagree — review the conflicting signals below.`,
     icon: <AlertTriangle className="h-4 w-4" />,
@@ -1163,10 +1163,10 @@ export function TrustBannerCard({
               className={cn(
                 "shrink-0",
                 variant === "verified"
-                  ? "text-emerald-600 dark:text-emerald-400"
+                  ? "text-signal-positive"
                   : variant === "uncertain"
-                  ? "text-amber-600 dark:text-amber-400"
-                  : "text-red-600 dark:text-red-400"
+                  ? "text-signal-warning"
+                  : "text-signal-critical"
               )}
             >
               {cfg.icon}
@@ -1176,10 +1176,10 @@ export function TrustBannerCard({
                 className={cn(
                   "text-[13px] font-semibold",
                   variant === "verified"
-                    ? "text-emerald-700 dark:text-emerald-400"
+                    ? "text-signal-positive"
                     : variant === "uncertain"
-                    ? "text-amber-700 dark:text-amber-400"
-                    : "text-red-700 dark:text-red-400"
+                    ? "text-signal-warning"
+                    : "text-signal-critical"
                 )}
               >
                 {cfg.label}
@@ -1295,7 +1295,7 @@ export function TrustInlineIndicator({
         >
           <TrustDot tier={envelope.trustTier} />
           {hasConflict && (
-            <AlertTriangle className="h-2.5 w-2.5 text-amber-500" />
+            <AlertTriangle className="h-2.5 w-2.5 text-signal-warning" />
           )}
         </button>
       </PopoverTrigger>
@@ -1354,13 +1354,13 @@ export function TrustReviewPrompt({
   return (
     <div
       className={cn(
-        "rounded-lg border border-amber-200/60 bg-amber-50/40 dark:border-amber-800/40 dark:bg-amber-950/15 px-3 py-2.5",
+        "rounded-lg border border-signal-warning-border/60 bg-signal-warning-subtle px-3 py-2.5",
         "flex items-center gap-3 flex-wrap",
         className
       )}
     >
-      <Shield className="h-3.5 w-3.5 text-amber-500 shrink-0" />
-      <span className="text-[12px] text-amber-700 dark:text-amber-400 flex-1 min-w-0">
+      <Shield className="h-3.5 w-3.5 text-signal-warning shrink-0" />
+      <span className="text-[12px] text-signal-warning flex-1 min-w-0">
         {extractionNote ?? l.prompt}
       </span>
       <div className="flex items-center gap-2 shrink-0">
@@ -1369,8 +1369,8 @@ export function TrustReviewPrompt({
           disabled={confirming}
           className={cn(
             "inline-flex items-center gap-1 rounded px-2.5 py-1 text-xs font-medium transition-colors",
-            "bg-emerald-50 text-emerald-700 hover:bg-emerald-100 border border-emerald-200/70",
-            "dark:bg-emerald-950/30 dark:text-emerald-400 dark:border-emerald-800/50 dark:hover:bg-emerald-950/50",
+            "bg-signal-positive-subtle text-signal-positive hover:bg-signal-positive-subtle border border-signal-positive-border/70",
+            "",
             "disabled:opacity-50"
           )}
         >
@@ -1381,8 +1381,8 @@ export function TrustReviewPrompt({
           onClick={onDismiss}
           className={cn(
             "inline-flex items-center gap-1 rounded px-2.5 py-1 text-xs font-medium transition-colors",
-            "bg-red-50 text-red-600 hover:bg-red-100 border border-red-200/70",
-            "dark:bg-red-950/30 dark:text-red-400 dark:border-red-800/50 dark:hover:bg-red-950/50"
+            "bg-signal-critical-subtle text-signal-critical hover:bg-signal-critical-subtle border border-signal-critical-border/70",
+            ""
           )}
         >
           <X className="h-2.5 w-2.5" />

@@ -30,14 +30,14 @@ type KnownSource =
   | "Chat";
 
 const SOURCE_STYLES: Record<KnownSource, string> = {
-  Gmail:     "bg-red-50    text-red-700    border-red-200    dark:bg-red-950/30    dark:text-red-400    dark:border-red-800/50",
-  Calendar:  "bg-blue-50   text-blue-700   border-blue-200   dark:bg-blue-950/30   dark:text-blue-400   dark:border-blue-800/50",
-  Slack:     "bg-amber-50  text-amber-700  border-amber-200  dark:bg-amber-950/30  dark:text-amber-400  dark:border-amber-800/50",
-  Zoom:      "bg-sky-50    text-sky-700    border-sky-200    dark:bg-sky-950/30    dark:text-sky-400    dark:border-sky-800/50",
-  WhatsApp:  "bg-emerald-50 text-emerald-700 border-emerald-200 dark:bg-emerald-950/30 dark:text-emerald-400 dark:border-emerald-800/50",
-  Microsoft: "bg-violet-50 text-violet-700 border-violet-200 dark:bg-violet-950/30 dark:text-violet-400 dark:border-violet-800/50",
+  Gmail:     "bg-signal-critical-subtle    text-signal-critical    border-signal-critical-border         ",
+  Calendar:  "bg-signal-info-subtle   text-signal-info   border-signal-info-border      ",
+  Slack:     "bg-signal-warning-subtle  text-signal-warning  border-signal-warning-border   ",
+  Zoom:      "bg-signal-info-subtle    text-signal-info    border-signal-info-border         ",
+  WhatsApp:  "bg-signal-positive-subtle text-signal-positive border-signal-positive-border",
+  Microsoft: "bg-signal-info-subtle text-signal-info border-signal-info-border",
   Manual:    "bg-slate-50  text-slate-600  border-slate-200  dark:bg-slate-900/40  dark:text-slate-400  dark:border-slate-700/50",
-  Chat:      "bg-[oklch(0.96_0.02_85)] text-[oklch(0.45_0.12_85)] border-[oklch(0.88_0.04_85)] dark:bg-[oklch(0.16_0.03_85)] dark:text-[oklch(0.72_0.15_85)] dark:border-[oklch(0.24_0.05_85)]",
+  Chat:      "bg-[oklch(0.96_0.02_85)] text-[oklch(0.45_0.12_85)] border-[oklch(0.88_0.04_85)] dark:bg-[oklch(0.16_0.03_85)] dark:text-gold dark:border-[oklch(0.24_0.05_85)]",
 };
 
 /** Parse a sourceRef string like "gmail:1abc2def" → human-readable label. */
@@ -198,10 +198,10 @@ export function ConfidenceLabel({ confidence, signalCount, className }: Confiden
   const pct = Math.round(confidence * 100);
   const { label, cls } =
     pct >= 80
-      ? { label: "High confidence",   cls: "text-emerald-700" }
+      ? { label: "High confidence",   cls: "text-signal-positive" }
       : pct >= 60
-        ? { label: "Medium confidence", cls: "text-amber-600"   }
-        : { label: "Low confidence",    cls: "text-red-500"     };
+        ? { label: "Medium confidence", cls: "text-signal-warning"   }
+        : { label: "Low confidence",    cls: "text-signal-critical"     };
 
   return (
     <span className={cn("text-xs font-medium", cls, className)}>
@@ -314,10 +314,10 @@ export function EvidencePanel({
     pct === undefined
       ? ""
       : pct >= 80
-        ? "text-emerald-700"
+        ? "text-signal-positive"
         : pct >= 60
-          ? "text-amber-600"
-          : "text-red-500";
+          ? "text-signal-warning"
+          : "text-signal-critical";
 
   return (
     <div className={cn("mt-1.5", className)}>
