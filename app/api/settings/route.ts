@@ -1,8 +1,27 @@
 import { NextResponse } from "next/server";
+import { z } from "zod";
 import { getSettings, patchSettings } from "@/lib/settings/store";
 import { getSessionUser, SKIP_AUTH } from "@/lib/auth";
 import { findByUsername } from "@/lib/users";
-import type { UserSettings } from "@/lib/settings/store";
+import { parseBody, apiError } from "@/lib/api/respond";
+
+/** Type-validates the patchable settings fields (semantic checks remain in patchSettings). */
+const SettingsPatchSchema = z.object({
+  name: z.string().max(200).optional(),
+  timezone: z.string().max(100).optional(),
+  workStart: z.string().max(10).optional(),
+  workEnd: z.string().max(10).optional(),
+  videoTool: z.string().max(100).optional(),
+  meetingUrl: z.string().max(500).optional(),
+  useIpTimezone: z.boolean().optional(),
+  githubToken: z.string().max(500).optional(),
+  openaiApiKey: z.string().max(500).optional(),
+  anthropicApiKey: z.string().max(500).optional(),
+  geminiApiKey: z.string().max(500).optional(),
+  pinnedSlackContacts: z.array(z.string().max(200)).max(100).optional(),
+  briefingEmail: z.boolean().optional(),
+  briefingSlack: z.boolean().optional(),
+});
 
 /** GET /api/settings — returns the full UserSettings object for the current user,
  *  extended with onboardingCompleted and profile fields from the user record. */
@@ -26,24 +45,18 @@ export async function GET() {
  */
 export async function PATCH(req: Request) {
   const username = (await getSessionUser());
-  if (!username) return NextResponse.json({ error: "Unauthorised" }, { status: 401 });
-  let body: Partial<UserSettings>;
-  try {
-    body = (await req.json()) as Partial<UserSettings>;
-  } catch {
-    return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 });
-  }
+  if (!username) return apiError("Unauthorised", "unauthorized", 401);
+
+  const parsed = await parseBody(req, SettingsPatchSchema);
+  if (!parsed.ok) return parsed.response;
 
   try {
-    const updated = await patchSettings(username, body);
+    const updated = await patchSettings(username, parsed.data);
     return NextResponse.json(updated);
   } catch (e) {
     const message = e instanceof Error ? e.message : "Update failed";
     console.error("[api/settings] PATCH failed:", message);
     const isValidationError = message.startsWith("Invalid ");
-    return NextResponse.json(
-      { error: message },
-      { status: isValidationError ? 400 : 500 }
-    );
+    return apiError(message, isValidationError ? "invalid_settings" : "internal_error", isValidationError ? 400 : 500);
   }
 }

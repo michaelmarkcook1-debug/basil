@@ -29,7 +29,7 @@ export interface DeliveryResult {
 }
 
 export async function deliverBriefing(username: string, briefing: Briefing): Promise<DeliveryResult> {
-  const settings = await getSettings(username).catch(() => null);
+  const settings = await getSettings(username).catch(() => null); // ci-ok: settings optional — delivery uses defaults when unreadable
   const firstName = settings?.name?.split(" ")[0] || username.split(/[@._]/)[0] || username;
 
   // Defaults: email ON (most users have one), Slack OFF (opt-in).
@@ -43,7 +43,7 @@ export async function deliverBriefing(username: string, briefing: Briefing): Pro
     if (!isEmailConfigured()) {
       email = "email-not-configured";
     } else {
-      const user = await findByUsername(username).catch(() => null);
+      const user = await findByUsername(username).catch(() => null); // ci-ok: best-effort — no email means email channel is skipped
       if (!user?.email) {
         email = "no-email";
       } else {
@@ -55,7 +55,7 @@ export async function deliverBriefing(username: string, briefing: Briefing): Pro
   }
 
   if (wantSlack) {
-    const cfg = await getSlackConfig(username).catch(() => null);
+    const cfg = await getSlackConfig(username).catch(() => null); // ci-ok: best-effort — not connected means Slack channel is skipped
     if (!cfg?.authUserId || !(cfg.userToken || cfg.botToken)) {
       slack = "slack-not-connected";
     } else {

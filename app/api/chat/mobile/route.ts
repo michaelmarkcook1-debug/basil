@@ -22,6 +22,7 @@ import { buildAssistantTools } from "@/lib/ai/tools";
 import { getSessionUser } from "@/lib/auth";
 import { getSettings } from "@/lib/settings/store";
 import { resolveTimezone } from "@/lib/timezone";
+import { checkRateLimitDurable } from "@/lib/rate-limit";
 
 interface IncomingMessage {
   id?: string;
@@ -30,10 +31,27 @@ interface IncomingMessage {
   content?: string;
 }
 
+// Match the web chat route's protections (this endpoint previously had neither).
+const MAX_BODY_BYTES = 200_000;
+const MOBILE_CHAT_RATE_LIMIT = 30; // per user per minute — shared with web chat
+
 export async function POST(req: Request) {
+  const contentLength = req.headers.get("content-length");
+  if (contentLength && parseInt(contentLength, 10) > MAX_BODY_BYTES) {
+    return Response.json({ error: "Request body too large (max 200 KB)" }, { status: 413 });
+  }
+
   const username = await getSessionUser();
   if (!username) {
     return Response.json({ error: "Unauthorised" }, { status: 401 });
+  }
+
+  const rl = await checkRateLimitDurable(`chat:${username}`, MOBILE_CHAT_RATE_LIMIT);
+  if (!rl.allowed) {
+    return Response.json(
+      { error: "Too many requests — slow down" },
+      { status: 429, headers: { "Retry-After": String(rl.retryAfter) } }
+    );
   }
 
   let rawMessages: IncomingMessage[];
