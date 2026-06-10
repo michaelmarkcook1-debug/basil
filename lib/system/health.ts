@@ -59,6 +59,13 @@ export interface HealthMeta {
     outlook_email: number;
     teams: number;
   };
+  /**
+   * Per-source errors from the most recent poll-ingest run. A source that
+   * errored (e.g. an expired token) would otherwise look like a quiet inbox —
+   * this lets the UI distinguish "connected but failing" from "no new signal"
+   * and prompt a reconnect. `fatal` marks auth errors that need re-OAuth.
+   */
+  lastPollErrors?: Record<string, { message: string; fatal: boolean }>;
 }
 
 // ── Public types ──────────────────────────────────────────────────────────────
@@ -631,6 +638,31 @@ export async function gatherSystemHealth(username: string): Promise<SystemHealth
             : undefined,
       }
     );
+  }
+
+  // ── Per-source ingest failures ──────────────────────────────────────────────
+  // A source that errored on the last poll (e.g. an expired token) surfaces as a
+  // tile with a reconnect CTA — so it's not invisible behind a zero count.
+  const SOURCE_LABEL: Record<string, string> = {
+    email: "Gmail ingest",
+    slack: "Slack ingest",
+    calendar: "Calendar ingest",
+    zoom_email: "Zoom email scan",
+    outlook_email: "Outlook ingest",
+    teams: "Teams ingest",
+  };
+  for (const [source, err] of Object.entries(healthMeta.lastPollErrors ?? {})) {
+    const label = SOURCE_LABEL[source] ?? source;
+    freshnessTiles.push({
+      id: `source-error-${source}`,
+      label,
+      color: err.fatal ? "red" : "amber",
+      statusText: err.fatal ? "Failing — reconnect" : "Temporarily failing",
+      lastCheckedAt: healthMeta.lastPollAt ?? now,
+      nextAction: err.fatal
+        ? `${label} is erroring (${err.message.slice(0, 80)}). Reconnect the integration in Settings → Apps.`
+        : `${label} hit a temporary error and will retry on the next sync.`,
+    });
   }
 
   // ── Overall color ─────────────────────────────────────────────────────────

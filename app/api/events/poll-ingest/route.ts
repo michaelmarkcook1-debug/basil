@@ -158,17 +158,27 @@ export async function POST(req: Request) {
   };
 
   // ── Parallel source fetch ────────────────────────────────────────────────────
-  // Zoom emails are fetched separately so they can be excluded from the regular
-  // email loop and processed with full-body extraction.
-  // Microsoft sources (Outlook + Teams) are fetched concurrently — they return
-  // empty arrays silently when Microsoft is not connected, so they never block.
+  // Each source error is RECORDED (not swallowed) so an expired token doesn't
+  // masquerade as a quiet inbox — the health panel can then show "connected but
+  // failing — reconnect" instead of a silent zero.
+  const sourceErrors: Record<string, { message: string; fatal: boolean }> = {};
+  const FATAL_AUTH = /invalid_grant|invalid_auth|token_revoked|token_expired|account_inactive|unauthorized|401|403|insufficient|invalid_credentials/i;
+  function track<T>(source: string, p: Promise<T[]>): Promise<T[]> {
+    return p.catch((err): T[] => {
+      const message = (err instanceof Error ? err.message : String(err)).slice(0, 200);
+      sourceErrors[source] = { message, fatal: FATAL_AUTH.test(message) };
+      console.error(`[poll-ingest] ${source} fetch failed for ${username}:`, message);
+      return [];
+    });
+  }
+
   const [emails, slacks, calEvents, zoomEmails, outlookEmails, teamsMessages, selfIdentity] = await Promise.all([
-    getRecentEmails(username, 20).catch(() => []),
-    getRecentSlackMessages(username, 30).catch(() => []),
-    getTodayEvents(username).catch(() => []),
-    searchEmails(username, ZOOM_GMAIL_QUERY, 25).catch(() => []),
-    getRecentOutlookMessages(username, 20, 2).catch(() => []),
-    getRecentTeamsMessages(username, 30, 3).catch(() => []),
+    track("email", getRecentEmails(username, 20)),
+    track("slack", getRecentSlackMessages(username, 30)),
+    track("calendar", getTodayEvents(username)),
+    track("zoom_email", searchEmails(username, ZOOM_GMAIL_QUERY, 25)),
+    track("outlook_email", getRecentOutlookMessages(username, 20, 2)),
+    track("teams", getRecentTeamsMessages(username, 30, 3)),
     getSelfIdentity(username),
   ]);
 
@@ -920,6 +930,8 @@ export async function POST(req: Request) {
           outlook_email: outlookEmails.length,
           teams:        teamsMessages.length,
         },
+        // Replace (don't merge) so a source that recovered clears its old error.
+        lastPollErrors: Object.keys(sourceErrors).length ? sourceErrors : undefined,
       });
     } catch (e) {
       // Non-fatal — health meta is advisory only.
@@ -939,6 +951,9 @@ export async function POST(req: Request) {
       outlook_email: outlookEmails.length,
       teams: teamsMessages.length,
     },
+    // Per-source failures (empty when all sources succeeded). A non-empty map
+    // means data may be stale despite a "successful" poll.
+    sourceErrors: Object.keys(sourceErrors).length ? sourceErrors : undefined,
     zoom: {
       detected: zoomEmails.length,
       ingested: zoomIngested,
