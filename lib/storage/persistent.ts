@@ -35,6 +35,7 @@
 import { promises as fs } from "node:fs";
 import path from "node:path";
 import { DATA_DIR } from "./paths";
+import { withLock } from "./lock";
 import {
   blobReadJson,
   blobWriteJson,
@@ -278,6 +279,39 @@ export async function writeStore<T>(
       `[storage] eventual write queued: ${scope ? scope + "/" : ""}${filename}`
     );
   }
+}
+
+/**
+ * Atomic read-modify-write.
+ *
+ * Acquires a lock on (subdir, filename), reads the CURRENT value (bypassing the
+ * /tmp cache so we never mutate stale data), applies `mutator`, and writes the
+ * result with strong durability — all serialized so two concurrent callers
+ * can't clobber each other. This is the fix for the last-write-wins data-loss
+ * class (concurrent signups, resurrecting done-actions). Use it for every
+ * read-modify-write on a shared collection.
+ *
+ * The lock is cross-instance when Upstash Redis is configured, in-process
+ * otherwise (still correct for a single instance).
+ *
+ * @param mutator   pure function from current value → next value
+ * @param fallback  value used when the file doesn't exist yet
+ * @returns the written (next) value
+ */
+export async function updateStore<T>(
+  filename: string,
+  mutator: (current: T) => T,
+  fallback: T,
+  subdir?: string,
+  options?: { allowShrink?: boolean }
+): Promise<T> {
+  const scope = subdir ?? "";
+  return withLock(`${scope}/${filename}`, async () => {
+    const current = await readStore<T>(filename, fallback, subdir, { fresh: true });
+    const next = mutator(current);
+    await writeStore(filename, next, subdir, { durability: "strong", allowShrink: options?.allowShrink });
+    return next;
+  });
 }
 
 /**

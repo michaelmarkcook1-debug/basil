@@ -29,6 +29,7 @@ import { createHash } from "node:crypto";
 import { encrypt, decrypt, isEnvelope } from "@/lib/storage/crypto";
 import type { EncryptedEnvelope } from "@/lib/storage/crypto";
 import { readStore, writeStore } from "@/lib/storage/persistent";
+import { withLock } from "@/lib/storage/lock";
 import type { User } from "@/lib/users";
 
 // ── Storage file names ────────────────────────────────────────────────────────
@@ -126,6 +127,26 @@ export async function readUserRecords(): Promise<User[]> {
 export async function writeUserRecords(users: User[]): Promise<void> {
   const envelope = encrypt(JSON.stringify(users));
   await writeStore(SECURE_USERS_FILE, envelope, undefined, { durability: "strong" });
+}
+
+/**
+ * Atomic read-modify-write of the user records under a cross-instance lock.
+ *
+ * ALL mutations of the user array (create / update / disable / revoke / delete)
+ * must go through this — otherwise two concurrent requests each read the array,
+ * mutate their own copy, and the last write wins, erasing the other's change
+ * (the "second signup deletes the first account" bug). The mutator receives the
+ * FRESH records read inside the lock and returns the next array.
+ */
+export async function mutateUserRecords(
+  mutator: (users: User[]) => User[] | Promise<User[]>
+): Promise<User[]> {
+  return withLock(SECURE_USERS_FILE, async () => {
+    const current = await readUserRecords();
+    const next = await mutator(current);
+    await writeUserRecords(next);
+    return next;
+  });
 }
 
 // ── Reset token record storage ────────────────────────────────────────────────

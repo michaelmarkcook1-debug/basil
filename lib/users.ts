@@ -9,7 +9,7 @@
  *   – All functions return full User objects internally for session validation.
  *   – Use toSafeUser() before including a User in any API response.
  */
-import { readUserRecords, writeUserRecords } from "@/lib/storage/secure-auth-store";
+import { readUserRecords, mutateUserRecords } from "@/lib/storage/secure-auth-store";
 import bcrypt from "bcryptjs";
 
 export interface UserProfile {
@@ -160,14 +160,13 @@ export async function validateCredentials(
 /** Internal: persist a new bcrypt hash for a user (used during auto-upgrade). */
 async function upgradePasswordHash(username: string, hash: string): Promise<void> {
   try {
-    const fileUsers = await readUserRecords();
-    const idx = fileUsers.findIndex(
-      (u) => u.username.toLowerCase() === username.toLowerCase()
-    );
-    if (idx !== -1) {
-      fileUsers[idx] = { ...fileUsers[idx], password: hash };
-      await writeUserRecords(fileUsers);
-    }
+    await mutateUserRecords((users) => {
+      const idx = users.findIndex((u) => u.username.toLowerCase() === username.toLowerCase());
+      if (idx === -1) return users;
+      const copy = [...users];
+      copy[idx] = { ...copy[idx], password: hash };
+      return copy;
+    });
   } catch {
     // Non-fatal — user can still log in; hash will be upgraded next time
   }
@@ -177,8 +176,6 @@ async function upgradePasswordHash(username: string, hash: string): Promise<void
 export async function createUser(
   data: Omit<User, "id" | "createdAt">
 ): Promise<User> {
-  const fileUsers = await readUserRecords();
-
   // Hash the password before storing
   const hashedPassword = await bcrypt.hash(data.password, BCRYPT_ROUNDS);
 
@@ -189,7 +186,14 @@ export async function createUser(
     createdAt: new Date().toISOString(),
   };
 
-  await writeUserRecords([...fileUsers, newUser]);
+  // Atomic append under lock — fresh-read inside the lock also closes the
+  // check-then-act race on a duplicate username (two simultaneous signups).
+  await mutateUserRecords((users) => {
+    if (users.some((u) => u.username.toLowerCase() === newUser.username.toLowerCase())) {
+      throw new Error("Username already taken");
+    }
+    return [...users, newUser];
+  });
   return newUser;
 }
 
@@ -198,20 +202,19 @@ export async function updateUser(
   username: string,
   patch: Partial<Omit<User, "id" | "username" | "createdAt">>
 ): Promise<void> {
-  const fileUsers = await readUserRecords();
-  const idx = fileUsers.findIndex((u) => u.username === username);
-  if (idx === -1) {
-    // env-admin user not yet in file — create their record first
+  await mutateUserRecords(async (users) => {
+    const idx = users.findIndex((u) => u.username === username);
+    if (idx !== -1) {
+      const copy = [...users];
+      copy[idx] = { ...copy[idx], ...patch };
+      return copy;
+    }
+    // env-admin user not yet in file — materialize their record first
     const allUsers = await getUsers();
     const user = allUsers.find((u) => u.username === username);
-    if (user) {
-      const updated = { ...user, ...patch };
-      await writeUserRecords([...fileUsers, updated]);
-    }
-    return;
-  }
-  fileUsers[idx] = { ...fileUsers[idx], ...patch };
-  await writeUserRecords(fileUsers);
+    if (user) return [...users, { ...user, ...patch }];
+    return users;
+  });
 }
 
 /** Change a user's password and invalidate all existing sessions by bumping sessionVersion. */
@@ -220,43 +223,48 @@ export async function changePassword(
   newPassword: string
 ): Promise<void> {
   const hashed = await bcrypt.hash(newPassword, BCRYPT_ROUNDS);
-  const fileUsers = await readUserRecords();
-  const idx = fileUsers.findIndex((u) => u.username.toLowerCase() === username.toLowerCase());
-  if (idx === -1) throw new Error("User not found");
-  const current = fileUsers[idx];
-  fileUsers[idx] = {
-    ...current,
-    password: hashed,
-    sessionVersion: (current.sessionVersion ?? 1) + 1,
-  };
-  await writeUserRecords(fileUsers);
+  await mutateUserRecords((users) => {
+    const idx = users.findIndex((u) => u.username.toLowerCase() === username.toLowerCase());
+    if (idx === -1) throw new Error("User not found");
+    const copy = [...users];
+    copy[idx] = {
+      ...copy[idx],
+      password: hashed,
+      sessionVersion: (copy[idx].sessionVersion ?? 1) + 1,
+    };
+    return copy;
+  });
 }
 
 /** Revoke all active sessions for a user by bumping their sessionVersion. */
 export async function revokeUserSessions(username: string): Promise<void> {
-  const fileUsers = await readUserRecords();
-  const idx = fileUsers.findIndex((u) => u.username.toLowerCase() === username.toLowerCase());
-  if (idx === -1) throw new Error("User not found");
-  const current = fileUsers[idx];
-  fileUsers[idx] = { ...current, sessionVersion: (current.sessionVersion ?? 1) + 1 };
-  await writeUserRecords(fileUsers);
+  await mutateUserRecords((users) => {
+    const idx = users.findIndex((u) => u.username.toLowerCase() === username.toLowerCase());
+    if (idx === -1) throw new Error("User not found");
+    const copy = [...users];
+    copy[idx] = { ...copy[idx], sessionVersion: (copy[idx].sessionVersion ?? 1) + 1 };
+    return copy;
+  });
 }
 
 /** Enable or disable a user account. */
 export async function setUserDisabled(username: string, disabled: boolean): Promise<void> {
-  const fileUsers = await readUserRecords();
-  const idx = fileUsers.findIndex((u) => u.username.toLowerCase() === username.toLowerCase());
-  if (idx === -1) throw new Error("User not found");
-  fileUsers[idx] = { ...fileUsers[idx], disabled };
-  await writeUserRecords(fileUsers);
+  await mutateUserRecords((users) => {
+    const idx = users.findIndex((u) => u.username.toLowerCase() === username.toLowerCase());
+    if (idx === -1) throw new Error("User not found");
+    const copy = [...users];
+    copy[idx] = { ...copy[idx], disabled };
+    return copy;
+  });
 }
 
 /** Delete a user account permanently. Cannot delete the env-admin. */
 export async function deleteUser(username: string): Promise<void> {
-  const fileUsers = await readUserRecords();
-  const filtered = fileUsers.filter((u) => u.username.toLowerCase() !== username.toLowerCase());
-  if (filtered.length === fileUsers.length) throw new Error("User not found in file store");
-  await writeUserRecords(filtered);
+  await mutateUserRecords((users) => {
+    const filtered = users.filter((u) => u.username.toLowerCase() !== username.toLowerCase());
+    if (filtered.length === users.length) throw new Error("User not found in file store");
+    return filtered;
+  });
 }
 
 /** Check whether a user is an admin (the primary account). */
