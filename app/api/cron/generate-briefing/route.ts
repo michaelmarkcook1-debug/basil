@@ -18,6 +18,7 @@ import { NextResponse } from "next/server";
 import { getUsers } from "@/lib/users";
 import { checkGlobalBudget } from "@/lib/ai/spend-guard";
 import { hasFeature } from "@/lib/billing/paywall";
+import { captureCronFailures } from "@/lib/observability/capture";
 
 export const dynamic = "force-dynamic";
 
@@ -84,6 +85,8 @@ export async function GET(req: Request) {
       console.error(`[cron/generate-briefing] ${user.username}: error — ${msg}`);
     }
   }
+
+  await captureCronFailures("generate-briefing", results);
 
   return NextResponse.json({
     ok: true,

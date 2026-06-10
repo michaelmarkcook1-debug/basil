@@ -23,6 +23,7 @@
 
 import { NextResponse } from "next/server";
 import { getUsers } from "@/lib/users";
+import { captureCronFailures } from "@/lib/observability/capture";
 
 export const dynamic = "force-dynamic";
 
@@ -71,6 +72,8 @@ export async function GET(req: Request) {
       console.error(`[cron/poll-ingest] ${user.username}: error — ${msg}`);
     }
   }
+
+  await captureCronFailures("poll-ingest", results);
 
   return NextResponse.json({
     ok: true,

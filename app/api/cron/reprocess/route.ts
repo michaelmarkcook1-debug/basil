@@ -15,6 +15,7 @@
 
 import { NextResponse } from "next/server";
 import { getUsers } from "@/lib/users";
+import { captureCronFailures } from "@/lib/observability/capture";
 
 export const dynamic = "force-dynamic";
 
@@ -58,6 +59,8 @@ export async function GET(req: Request) {
       console.error(`[cron/reprocess] ${user.username}: error — ${msg}`);
     }
   }
+
+  await captureCronFailures("reprocess", results);
 
   return NextResponse.json({
     ok: true,

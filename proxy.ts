@@ -24,6 +24,18 @@ const PROTECTED_PREFIXES = ["/dashboard", "/onboarding"];
 export async function proxy(req: NextRequest) {
   const { pathname } = req.nextUrl;
 
+  // Request correlation ID — propagated to downstream handlers (so logs/errors
+  // can reference it) and echoed on the response (so it appears alongside
+  // Vercel's own request logs). Reuse an upstream-supplied id if present.
+  const requestId = req.headers.get("x-basil-request-id") ?? crypto.randomUUID();
+  const fwdHeaders = new Headers(req.headers);
+  fwdHeaders.set("x-basil-request-id", requestId);
+  const next = () => {
+    const res = NextResponse.next({ request: { headers: fwdHeaders } });
+    res.headers.set("x-basil-request-id", requestId);
+    return res;
+  };
+
   const isProtected = PROTECTED_PREFIXES.some(
     (p) => pathname === p || pathname.startsWith(p + "/")
   );
@@ -33,7 +45,7 @@ export async function proxy(req: NextRequest) {
   // window.location.replace("/login"); if we then bounce them back to /dashboard
   // we get an infinite redirect loop when the session is valid as a JWT but
   // stale in the user store (e.g. after a password change or session version bump).
-  if (!isProtected) return NextResponse.next();
+  if (!isProtected) return next();
 
   // ── Validate session JWT ────────────────────────────────────────────────────
   const token = req.cookies.get(COOKIE_NAME)?.value;

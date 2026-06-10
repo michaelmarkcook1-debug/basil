@@ -53,8 +53,11 @@ export function secondsUntilPeriodEnd(): number {
 export async function appendSpendEvent(event: SpendEvent): Promise<void> {
   try {
     const filename = `${event.ts}-${randomUUID().slice(0, 8)}.json`;
+    // Strong durability: this log is the recoverable source of truth for AI
+    // spend, so it must land durably before the call returns — an eventual
+    // write can be lost when the function instance recycles.
     await writeStore(filename, event, `spend/${currentPeriod()}/events`, {
-      durability: "eventual",
+      durability: "strong",
     });
   } catch (err) {
     console.error("[spend-log] appendSpendEvent failed (non-fatal):", err instanceof Error ? err.message : err);
