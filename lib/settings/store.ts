@@ -49,6 +49,10 @@ export interface UserSettings {
    * Defaults to empty (no pins) so new users don't see someone else's contacts.
    */
   pinnedSlackContacts?: string[];
+  /** Deliver the daily briefing by email (default on when an email exists). */
+  briefingEmail?: boolean;
+  /** Deliver the daily briefing as a Slack DM (opt-in, default off). */
+  briefingSlack?: boolean;
 }
 
 /** Base defaults — used as fallback for any unset field. */
@@ -123,6 +127,7 @@ export async function patchSettings(
   const safe: Partial<UserSettings> = {};
   const keys: Array<keyof UserSettings> = [
     "name", "timezone", "workStart", "workEnd", "videoTool", "meetingUrl", "useIpTimezone", "githubToken", "openaiApiKey", "anthropicApiKey", "geminiApiKey", "pinnedSlackContacts",
+    "briefingEmail", "briefingSlack",
   ];
   for (const k of keys) {
     if (patch[k] !== undefined) {

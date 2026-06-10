@@ -19,6 +19,8 @@ import { getUsers } from "@/lib/users";
 import { checkGlobalBudget } from "@/lib/ai/spend-guard";
 import { hasFeature } from "@/lib/billing/paywall";
 import { captureCronFailures } from "@/lib/observability/capture";
+import { deliverBriefing } from "@/lib/briefing/delivery";
+import type { Briefing } from "@/lib/types/briefing";
 
 export const dynamic = "force-dynamic";
 
@@ -71,9 +73,15 @@ export async function GET(req: Request) {
       });
 
       if (res.ok) {
-        const data = await res.json() as { generatedAt?: string };
-        results[user.username] = { ok: true, generatedAt: data.generatedAt };
-        console.log(`[cron/generate-briefing] ${user.username}: generated at ${data.generatedAt}`);
+        const briefing = await res.json() as Briefing;
+        // Push it to the user's enabled channels (email / Slack DM) — the brief
+        // arrives instead of waiting to be pulled up. Best-effort.
+        const delivery = await deliverBriefing(user.username, briefing).catch((err) => {
+          console.error(`[cron/generate-briefing] delivery failed for ${user.username}:`, err instanceof Error ? err.message : err);
+          return { email: "error", slack: "error" };
+        });
+        results[user.username] = { ok: true, generatedAt: briefing.generatedAt, delivery };
+        console.log(`[cron/generate-briefing] ${user.username}: generated at ${briefing.generatedAt} (email=${delivery.email} slack=${delivery.slack})`);
       } else {
         const text = await res.text();
         results[user.username] = { ok: false, status: res.status, error: text.slice(0, 200) };

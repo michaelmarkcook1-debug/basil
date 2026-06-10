@@ -114,6 +114,8 @@ interface UserSettings {
   videoTool: string;
   meetingUrl: string;
   useIpTimezone?: boolean;
+  briefingEmail?: boolean;
+  briefingSlack?: boolean;
   profile?: {
     firstName?: string;
     surname?: string;
@@ -1064,6 +1066,8 @@ export default function SettingsPage() {
           videoTool: draft.videoTool,
           meetingUrl: draft.meetingUrl,
           useIpTimezone: draft.useIpTimezone,
+          briefingEmail: draft.briefingEmail,
+          briefingSlack: draft.briefingSlack,
         }),
       });
       const data = await res.json() as UserSettings & { error?: string };
@@ -1488,6 +1492,35 @@ export default function SettingsPage() {
                   Save profile
                 </Button>
               </div>
+            </CardContent>
+          </Card>
+
+          <Card className="shadow-sm mt-6">
+            <CardHeader className="pb-3">
+              <CardTitle className="text-base font-semibold">Daily briefing delivery</CardTitle>
+              <p className="text-xs text-muted-foreground">Have your morning briefing delivered to you — instead of opening Basil to read it.</p>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              <label className="flex items-center gap-2 text-sm text-muted-foreground">
+                <input
+                  type="checkbox"
+                  checked={draft?.briefingEmail ?? true}
+                  onChange={(e) => setDraft((d) => d ? { ...d, briefingEmail: e.target.checked } : d)}
+                />
+                Email me my daily briefing
+              </label>
+              <label className="flex items-center gap-2 text-sm text-muted-foreground">
+                <input
+                  type="checkbox"
+                  checked={draft?.briefingSlack ?? false}
+                  onChange={(e) => setDraft((d) => d ? { ...d, briefingSlack: e.target.checked } : d)}
+                />
+                Send my daily briefing as a Slack DM
+              </label>
+              <Button size="sm" onClick={saveProfile} disabled={savingProfile || !draft}>
+                {savingProfile ? <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" /> : null}
+                Save delivery preferences
+              </Button>
             </CardContent>
           </Card>
         </TabsContent>
