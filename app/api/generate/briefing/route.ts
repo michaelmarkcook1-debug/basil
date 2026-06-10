@@ -30,7 +30,7 @@ import {
   type SlackMessage,
 } from "@/lib/slack/client";
 import { getSessionUser } from "@/lib/auth";
-import { getUsers, isAdminUser } from "@/lib/users";
+import { resolveCronUser } from "@/lib/cron/identity";
 import { listActions, isActionStalled } from "@/lib/actions/store";
 import { listDecisions } from "@/lib/decisions/store";
 import { getZoomSummariesFromGmail } from "@/lib/google/zoom-summaries";
@@ -78,9 +78,7 @@ export async function DELETE(req: Request) {
 
   let username: string | null = null;
   if (isCronCall) {
-    const users = await getUsers();
-    const adminUser = users.find((u) => isAdminUser(u.username)) ?? users[0];
-    username = adminUser?.username ?? null;
+    username = await resolveCronUser(req);
   } else {
     username = await getSessionUser();
   }
@@ -188,9 +186,7 @@ export async function POST(req: Request) {
 
   let username: string | null = null;
   if (isCronCall) {
-    const users = await getUsers();
-    const adminUser = users.find((u) => isAdminUser(u.username)) ?? users[0];
-    username = adminUser?.username ?? null;
+    username = await resolveCronUser(req);
     if (!username) return Response.json({ error: "No users configured" }, { status: 503 });
   } else {
     username = await getSessionUser();

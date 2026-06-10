@@ -61,19 +61,39 @@ function isBcryptHash(s: string): boolean {
   return /^\$2[aby]\$\d+\$/.test(s);
 }
 
+/** Local-dev-only bootstrap password — NEVER used in production (see getUsers). */
+const DEV_BOOTSTRAP_PASSWORD = "execauto2024"; // ci-ok: dev-only, gated out of production below
+
 /** Read all registered users, merging in any env-var admin account. */
 export async function getUsers(): Promise<User[]> {
   const fileUsers = await readUserRecords();
 
-  // Backward-compat: honour ADMIN_USERNAME + APP_PASSWORD if set and not
-  // already in the file store.
+  // Bootstrap admin: ADMIN_USERNAME + APP_PASSWORD synthesize an initial login
+  // when no file-based admin exists yet.
   const adminUsername = process.env.ADMIN_USERNAME || "admin"; // ci-ok: ADMIN_USERNAME required in production; "admin" is the documented bootstrap default
-  const adminPassword = process.env.APP_PASSWORD || "execauto2024";
+  const isProd = process.env.NODE_ENV === "production";
+
+  // SECURITY: in production we NEVER fall back to a built-in default password.
+  // A deploy that forgets to set APP_PASSWORD gets NO bootstrap admin (a safe
+  // lockout) instead of a publicly-known admin/execauto2024 login. The default
+  // is only ever used for local-dev convenience.
+  const adminPassword = process.env.APP_PASSWORD || (isProd ? null : DEV_BOOTSTRAP_PASSWORD);
+
   const alreadyInFile = fileUsers.some(
     (u) => u.username.toLowerCase() === adminUsername.toLowerCase()
   );
 
   if (!alreadyInFile) {
+    if (!adminPassword) {
+      // Production, no APP_PASSWORD, and no registered admin → no login is
+      // possible. Fail loud (and safe) rather than minting a known-credential
+      // account that anyone could use.
+      console.error(
+        "[users] APP_PASSWORD is not set and no registered admin exists — the bootstrap admin is DISABLED. " +
+        "Set APP_PASSWORD in the environment to enable the initial admin login."
+      );
+      return fileUsers;
+    }
     const envAdmin: User = {
       id: "env-admin",
       name: "Admin",

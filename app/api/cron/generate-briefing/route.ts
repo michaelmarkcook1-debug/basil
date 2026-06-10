@@ -53,17 +53,18 @@ export async function GET(req: Request) {
         continue;
       }
 
-      // First delete the stale cache so POST always regenerates
-      await fetch(`${host}/api/generate/briefing`, {
-        method: "DELETE",
-        headers: { authorization: `Bearer ${cronSecret}` },
-      });
-
+      // Write-then-swap: the briefing POST regenerates from scratch and
+      // overwrites the cache ONLY after generation succeeds. So we deliberately
+      // do NOT pre-DELETE — if generation fails (AI outage, source error), the
+      // user keeps yesterday's briefing instead of being left with nothing.
+      // x-basil-username makes the worker generate THIS user's briefing (without
+      // it, every cron call collapses onto the admin — the core bug this fixes).
       const res = await fetch(`${host}/api/generate/briefing`, {
         method: "POST",
         headers: {
           "content-type": "application/json",
           authorization: `Bearer ${cronSecret}`,
+          "x-basil-username": user.username,
         },
         body: JSON.stringify({}),
       });

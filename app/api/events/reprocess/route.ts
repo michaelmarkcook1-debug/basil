@@ -12,7 +12,7 @@ import { classifyTeams, shouldMaterializeSlack as shouldMaterializeTeams } from 
 import { materializeTeamsIntelligence } from "@/lib/teams/materialize-teams";
 import { forceFlushSnapshot } from "@/lib/storage/persistent";
 import { getSessionUser } from "@/lib/auth";
-import { getUsers, isAdminUser } from "@/lib/users";
+import { resolveCronUser } from "@/lib/cron/identity";
 import { getSelfIdentity } from "@/lib/self-identity";
 import { hashContent } from "@/lib/ingest/content-hash";
 import { recordIngest } from "@/lib/ingest/index";
@@ -43,9 +43,7 @@ export async function POST(req: Request) {
 
   let username: string | null = null;
   if (isCronCall) {
-    const users = await getUsers();
-    const adminUser = users.find((u) => isAdminUser(u.username)) ?? users[0];
-    username = adminUser?.username ?? null;
+    username = await resolveCronUser(req);
     if (!username) return NextResponse.json({ error: "No users configured" }, { status: 503 });
   } else {
     username = await getSessionUser();

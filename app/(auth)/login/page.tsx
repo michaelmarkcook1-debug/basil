@@ -62,9 +62,6 @@ export default function LoginPage() {
   const [fpIdentifier, setFpIdentifier] = useState("");
   const [fpLoading,    setFpLoading]    = useState(false);
   const [fpError,      setFpError]      = useState("");
-  const [resetUrl,     setResetUrl]     = useState("");
-  const [emailSent,    setEmailSent]    = useState(false);
-  const [copied,       setCopied]       = useState(false);
 
   const [showGuide, setShowGuide] = useState(false);
 
@@ -108,28 +105,15 @@ export default function LoginPage() {
     });
 
     if (res.ok) {
-      const data = await res.json() as { ok: boolean; emailSent?: boolean; resetUrl?: string };
-      if (!data.resetUrl) {
-        setFpError("No account found with that email or username.");
-        setFpLoading(false);
-        return;
-      }
-      setResetUrl(data.resetUrl);
-      setEmailSent(data.emailSent ?? false);
+      // Enumeration-safe: the API returns the same shape whether or not the
+      // account exists, and never returns the reset link. Always show the same
+      // neutral confirmation.
       setView("forgot-sent");
     } else {
       const data = await res.json().catch(() => ({})) as { error?: string };
       setFpError(data.error || "Something went wrong — please try again.");
     }
     setFpLoading(false);
-  }
-
-  async function copyResetUrl() {
-    try {
-      await navigator.clipboard.writeText(resetUrl);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 2000);
-    } catch { /* fallback: the URL is displayed inline */ }
   }
 
   return (
@@ -268,49 +252,24 @@ export default function LoginPage() {
           </>
         )}
 
-        {/* ── Reset sent ── */}
+        {/* ── Reset sent (enumeration-safe — same message regardless of account) ── */}
         {view === "forgot-sent" && (
           <>
-            <div className="text-4xl text-center mb-3">{emailSent ? "📬" : "🔑"}</div>
+            <div className="text-4xl text-center mb-3">📬</div>
             <h2
               className="text-xl font-medium text-center mb-1"
               style={{ fontFamily: "var(--font-fraunces), Georgia, serif", color: "var(--c-auth-text)" }}
             >
-              {emailSent ? "Check your email" : "Reset link ready"}
+              Check your email
             </h2>
             <p className="text-[0.8125rem] text-center mb-5" style={{ color: "var(--c-auth-muted)", opacity: 0.6 }}>
-              {emailSent
-                ? "A reset link has been sent. It expires in 1 hour."
-                : "Copy or open the link below. It expires in 1 hour."}
+              If an account exists for that email or username, we&apos;ve sent a password reset
+              link. It expires in 1 hour. Don&apos;t see it? Check your spam folder.
             </p>
-            {resetUrl && (
-              <>
-                <div
-                  className="rounded-lg px-3.5 py-2.5 text-xs font-mono break-all select-all cursor-text mb-3"
-                  style={{ background: "rgba(7,17,31,0.6)", border: "1px solid rgba(255,255,255,0.08)", color: "var(--c-auth-muted)" }}
-                >
-                  {resetUrl}
-                </div>
-                <button
-                  type="button" onClick={copyResetUrl}
-                  className="auth-btn auth-btn-ghost mb-2"
-                  style={{ fontSize: "0.8125rem" }}
-                >
-                  {copied ? "✓ Copied!" : "Copy link"}
-                </button>
-                <a
-                  href={resetUrl}
-                  className="auth-btn auth-btn-gold block text-center no-underline"
-                  style={{ fontSize: "0.8125rem" }}
-                >
-                  Open reset link →
-                </a>
-              </>
-            )}
             <p className="text-center text-[0.8125rem] mt-5" style={{ color: "var(--c-auth-muted)", opacity: 0.4 }}>
               <button
                 type="button"
-                onClick={() => { setView("login"); setFpIdentifier(""); setResetUrl(""); setEmailSent(false); }}
+                onClick={() => { setView("login"); setFpIdentifier(""); }}
                 className="hover:opacity-80 transition-opacity"
               >
                 ← Back to sign in

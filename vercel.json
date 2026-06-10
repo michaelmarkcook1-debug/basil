@@ -15,7 +15,7 @@
       "schedule": "45 5 * * *"
     },
     {
-      "path": "/api/events/reprocess",
+      "path": "/api/cron/reprocess",
       "schedule": "0 6 * * *"
     },
     {

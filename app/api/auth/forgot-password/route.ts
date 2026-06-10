@@ -3,13 +3,17 @@
  *
  * Accepts { email } or { username } and issues a password-reset link.
  *
- * Delivery priority:
- *  1. Resend email  — when RESEND_API_KEY is set and the user has an email address
- *  2. Response body — resetUrl always returned so admin / UI can copy it as fallback
+ * Delivery:
+ *  - Resend email when RESEND_API_KEY is set and the user has an email address.
+ *  - The reset URL is NEVER returned in the HTTP response — that would let
+ *    anyone who knows a target's email reset their password (account takeover).
+ *  - For no-email / self-hosted setups, the URL is logged server-side so an
+ *    operator can retrieve it from the logs; it never crosses the network to
+ *    the caller.
  *
  * Security:
- *  - Same success message regardless of whether the account exists (prevents enumeration)
- *  - resetUrl always present in response (safe — fallback for no-email setups)
+ *  - Same success shape regardless of whether the account exists (prevents enumeration)
+ *  - Reset URL never present in the response body
  *  - Rate-limited: 10 req/min per IP
  */
 
@@ -121,5 +125,13 @@ export async function POST(req: Request) {
 
   const emailSent = user.email ? await sendResetEmail(user.email, user.name, resetUrl) : false;
 
-  return NextResponse.json({ ok: true, emailSent, resetUrl });
+  // SECURITY: never return resetUrl to the caller — that is an unauthenticated
+  // account-takeover. When email delivery didn't happen (no Resend key or the
+  // account has no email), log the link server-side so a self-hosted operator
+  // can still complete the reset from their own logs.
+  if (!emailSent) {
+    console.info(`[forgot-password] reset link for ${user.username} (email not sent): ${resetUrl}`);
+  }
+
+  return NextResponse.json({ ok: true, emailSent });
 }
