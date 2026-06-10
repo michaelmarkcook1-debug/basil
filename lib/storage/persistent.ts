@@ -59,26 +59,39 @@ import {
   envFlush,
   isVercelEnvAdapterAvailable,
 } from "./adapters/vercel-env";
+import {
+  isPostgresEnabled,
+  pgReadJson,
+  pgWriteJson,
+  pgDeleteJson,
+  pgListJson,
+} from "./adapters/postgres";
 
 // ── Backend selection ─────────────────────────────────────────────────────────
 //
 // Priority:
-//  1. Vercel Blob  — when BLOB_READ_WRITE_TOKEN is set (durable object storage)
-//  2. Vercel Env   — when VERCEL_TOKEN + credentials are set (BASIL_DATA snapshot)
-//  3. Local FS     — local dev / fallback
+//  1. Postgres     — when DATABASE_URL is set (durable transactional database)
+//  2. Vercel Blob  — when BLOB_READ_WRITE_TOKEN is set (durable object storage)
+//  3. Vercel Env   — when VERCEL_TOKEN + credentials are set (BASIL_DATA snapshot)
+//  4. Local FS     — local dev / fallback
 //
-// The Vercel Env adapter survives cold starts because it reads from the env var
-// on each new instance. Writes are propagated back via the Vercel API so future
-// cold starts get the latest snapshot.
+// Postgres, when configured, is the single consistent source of truth — it
+// bypasses the /tmp write-through cache entirely (no cross-instance staleness)
+// and makes durability immediate. The other backends are unchanged.
+
+/** True when Postgres (DATABASE_URL) is configured — the preferred backend. */
+function isPgEnabled(): boolean {
+  return isPostgresEnabled();
+}
 
 /** True when Vercel Blob is configured (production). */
 function isBlobEnabled(): boolean {
-  return !!process.env.BLOB_READ_WRITE_TOKEN;
+  return !isPgEnabled() && !!process.env.BLOB_READ_WRITE_TOKEN;
 }
 
 /** True when the Vercel Env (BASIL_DATA) adapter can be used. */
 function isEnvEnabled(): boolean {
-  return !isBlobEnabled() && isVercelEnvAdapterAvailable();
+  return !isPgEnabled() && !isBlobEnabled() && isVercelEnvAdapterAvailable();
 }
 
 // ── Migration (runs once per cold start if needed) ───────────────────────────
@@ -186,6 +199,11 @@ export async function readStore<T>(
 ): Promise<T> {
   const scope = subdir ?? "";
 
+  // Postgres is the consistent source of truth — always fresh, no /tmp cache.
+  if (isPgEnabled()) {
+    return pgReadJson(scope, filename, fallback);
+  }
+
   // Run migration once (no-op on subsequent calls or if already done)
   await maybeRunMigration();
 
@@ -240,6 +258,11 @@ export async function writeStore<T>(
 ): Promise<void> {
   const scope = subdir ?? "";
   const durability = options?.durability ?? "eventual";
+
+  // Postgres: a single upsert is immediately durable (no /tmp, no write queue).
+  if (isPgEnabled()) {
+    return pgWriteJson(scope, filename, data);
+  }
 
   if (!isBlobEnabled() && !isEnvEnabled()) {
     // Local dev: filesystem only (sync, no queue needed)
@@ -326,6 +349,10 @@ export async function deleteStore(
 ): Promise<void> {
   const scope = subdir ?? "";
 
+  if (isPgEnabled()) {
+    return pgDeleteJson(scope, filename);
+  }
+
   if (!isBlobEnabled() && !isEnvEnabled()) {
     return fsDeleteJson(scope, filename);
   }
@@ -350,6 +377,10 @@ export async function deleteStore(
  */
 export async function listStore(subdir?: string): Promise<string[]> {
   const scope = subdir ?? "";
+
+  if (isPgEnabled()) {
+    return pgListJson(scope);
+  }
 
   if (!isBlobEnabled() && !isEnvEnabled()) {
     return fsListJson(scope);
@@ -415,6 +446,19 @@ export async function purgeUserData(username: string): Promise<{ deleted: number
     await fs.rm(tmpUserDir, { recursive: true, force: true });
   } catch (err) {
     console.warn("[storage/purge] /tmp cache clear failed:", err instanceof Error ? err.message : err);
+  }
+
+  // Postgres backend: delete every row under the user's scope.
+  if (isPgEnabled()) {
+    try {
+      const { pgPurgeUserData } = await import("./adapters/postgres");
+      const deleted = await pgPurgeUserData(username);
+      console.info(`[storage/purge] postgres purge complete for ${username}: ${deleted} row(s) deleted`);
+      return { deleted };
+    } catch (err) {
+      console.error("[storage/purge] postgres purge failed:", err instanceof Error ? err.message : err);
+      return { deleted: 0 };
+    }
   }
 
   if (isEnvEnabled()) {

@@ -51,7 +51,7 @@ const nextConfig: NextConfig = {
   // time and blows up because we don't install them. Treating Baileys as a
   // server-side external module makes Node's native require handle it — the
   // optional imports fail silently as intended.
-  serverExternalPackages: ["@whiskeysockets/baileys"],
+  serverExternalPackages: ["@whiskeysockets/baileys", "pg"],
 
   headers() {
     return Promise.resolve([
