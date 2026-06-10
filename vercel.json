@@ -3,6 +3,10 @@
   "alias": ["ag-contracts.vercel.app"],
   "crons": [
     {
+      "path": "/api/cron/backup",
+      "schedule": "30 2 * * *"
+    },
+    {
       "path": "/api/cron/renew-subscriptions",
       "schedule": "0 3 * * *"
     },

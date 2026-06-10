@@ -27,6 +27,7 @@ import {
   Globe2,
   Hash,
   Info,
+  Download,
   KeyRound,
   Loader2,
   Lock,
@@ -1536,6 +1537,28 @@ export default function SettingsPage() {
                   <RefreshCw className={`h-3.5 w-3.5 ${reprocessing ? "animate-spin" : ""}`} />
                   Re-process recent events
                 </Button>
+              </CardContent>
+            </Card>
+
+            <Card className="shadow-sm">
+              <CardHeader className="pb-3">
+                <CardTitle className="text-base font-semibold flex items-center gap-2">
+                  <Download className="h-4 w-4" />
+                  Your data
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-3">
+                <p className="text-sm text-muted-foreground">
+                  Download everything Basil has stored for your account — settings, memory,
+                  contacts, actions, decisions and more — as a single JSON file. Keep a copy
+                  for your records or for data portability.
+                </p>
+                <a href="/api/profile/export" download>
+                  <Button variant="outline">
+                    <Download className="mr-1 h-3.5 w-3.5" />
+                    Export my data
+                  </Button>
+                </a>
               </CardContent>
             </Card>
 
