@@ -39,6 +39,13 @@ const securityHeaders = [
 ];
 
 const nextConfig: NextConfig = {
+  // Pin the workspace root — a stray package-lock.json in the home directory
+  // otherwise makes Turbopack infer /Users/<user> as the root, which breaks
+  // module resolution (e.g. tailwindcss) in `next dev`.
+  turbopack: {
+    root: __dirname,
+  },
+
   // Baileys has optional peer deps (jimp, sharp) that it loads dynamically
   // inside try/catch blocks. The bundler still tries to resolve them at build
   // time and blows up because we don't install them. Treating Baileys as a
