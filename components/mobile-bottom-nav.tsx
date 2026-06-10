@@ -3,20 +3,21 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import {
-  Home,
-  ListTodo,
-  Newspaper,
-  CalendarDays,
+  Sparkles,
+  Radio,
+  CalendarCheck,
+  MessageSquare,
   MoreHorizontal,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
-// Primary 4 tabs — the rest live behind "More" to keep the bar clean
+// Primary 4 tabs — the day's most-used surfaces, with Ask Basil promoted to a
+// first-class tab. People / Commitments / Memory live behind "More" (the drawer).
 const TABS = [
-  { href: "/dashboard",          label: "Home",      icon: Home },
-  { href: "/dashboard/briefing", label: "Briefing",  icon: Newspaper },
-  { href: "/dashboard/actions",  label: "Actions",   icon: ListTodo },
-  { href: "/dashboard/schedule", label: "Schedule",  icon: CalendarDays },
+  { href: "/dashboard",          label: "Today",     icon: Sparkles },
+  { href: "/dashboard/signals",  label: "Signals",   icon: Radio },
+  { href: "/dashboard/meetings", label: "Meetings",  icon: CalendarCheck },
+  { href: "/dashboard/chat",     label: "Ask Basil", icon: MessageSquare },
 ] as const;
 
 interface MobileBottomNavProps {

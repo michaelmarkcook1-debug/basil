@@ -4,16 +4,19 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
 import {
-  Home,
-  Newspaper,
-  ListTodo,
-  Scale,
-  CalendarDays,
+  Sparkles,
+  Radio,
   CalendarCheck,
   Users,
+  CheckSquare,
   Brain,
-  Radio,
-  Zap,
+  Newspaper,
+  CalendarDays,
+  Scale,
+  FileText,
+  Folder,
+  MessageCircle,
+  ChevronDown,
   MessageSquare,
   Search,
   Settings,
@@ -21,25 +24,28 @@ import {
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
-// ── Navigation structure ───────────────────────────────────────────────────────
-// All pages a user regularly needs — nothing buried in sub-menus.
+// ── Navigation structure — six surfaces, organized around the user's day ────────
+// Today (the brief), Signals, Meetings, People, Commitments, Memory.
+// Ask Basil is an overlay/CTA, not a destination.
 
 const PRIMARY_NAV = [
-  { href: "/dashboard",           label: "Home",          icon: Home },
-  { href: "/dashboard/briefing",  label: "Briefing",      icon: Newspaper },
-  { href: "/dashboard/actions",   label: "Actions",       icon: ListTodo },
-  { href: "/dashboard/decisions", label: "Decisions",     icon: Scale },
-  { href: "/dashboard/schedule",  label: "Schedule",      icon: CalendarDays },
-  { href: "/dashboard/meetings",  label: "Meeting Prep",  icon: CalendarCheck },
-  { href: "/dashboard/contacts",  label: "Relationships", icon: Users },
-  { href: "/dashboard/memory",    label: "Memory",        icon: Brain },
+  { href: "/dashboard",           label: "Today",        icon: Sparkles },
+  { href: "/dashboard/signals",   label: "Signals",      icon: Radio },
+  { href: "/dashboard/meetings",  label: "Meetings",     icon: CalendarCheck },
+  { href: "/dashboard/contacts",  label: "People",       icon: Users },
+  { href: "/dashboard/actions",   label: "Commitments",  icon: CheckSquare },
+  { href: "/dashboard/memory",    label: "Memory",       icon: Brain },
 ] as const;
 
-// Linear remains reachable via the home page panel and the Cmd-K palette —
-// it doesn't need a dedicated nav slot.
-
-const SECONDARY_NAV = [
-  { href: "/dashboard/signals",   label: "Signals",       icon: Radio },
+// Pages absorbed into a primary surface in the redesign, still reachable here
+// (and via Cmd-K) until their contents are merged into tabs of the parent.
+const MORE_NAV = [
+  { href: "/dashboard/briefing",  label: "Full briefing", icon: Newspaper },
+  { href: "/dashboard/digest",    label: "Weekly digest", icon: FileText },
+  { href: "/dashboard/schedule",  label: "Schedule",      icon: CalendarDays },
+  { href: "/dashboard/decisions", label: "Decisions",     icon: Scale },
+  { href: "/dashboard/projects",  label: "Projects",      icon: Folder },
+  { href: "/dashboard/slack-command", label: "Slack command", icon: MessageCircle },
 ] as const;
 
 // ── Nav item component ─────────────────────────────────────────────────────────
@@ -47,7 +53,7 @@ const SECONDARY_NAV = [
 type NavItemProps = {
   href: string;
   label: string;
-  icon: typeof Home;
+  icon: typeof Sparkles;
   active: boolean;
   expanded?: boolean;
   onNavigate?: () => void;
@@ -116,6 +122,7 @@ export function AppSidebar({
   const [userName, setUserName] = useState("");
   const [userInitials, setUserInitials] = useState("");
   const [userRole, setUserRole] = useState("Executive");
+  const [showMore, setShowMore] = useState(false);
 
   useEffect(() => {
     fetch("/api/admin/users", { method: "GET" })
@@ -226,19 +233,38 @@ export function AppSidebar({
           />
         ))}
 
-        {/* Secondary — less frequent */}
+        {/* More — pages being absorbed into the surfaces above */}
         <div className="my-2 mx-1 h-px bg-sidebar-border/30" />
-        {SECONDARY_NAV.map((item) => (
-          <NavItem
-            key={item.href}
-            href={item.href}
-            label={item.label}
-            icon={item.icon}
-            active={isActive(item.href)}
-            expanded={expanded}
-            onNavigate={onNavigate}
+        <button
+          type="button"
+          onClick={() => setShowMore((v) => !v)}
+          title="More"
+          className={cn(
+            "group flex items-center gap-3 rounded-lg px-3 py-2.5 text-sidebar-foreground/60 hover:text-sidebar-foreground hover:bg-white/[0.04] transition-all",
+            expanded ? "" : "lg:px-3"
+          )}
+        >
+          <ChevronDown
+            size={17}
+            strokeWidth={1.7}
+            className={cn("shrink-0 transition-transform duration-150", showMore ? "rotate-0" : "-rotate-90")}
           />
-        ))}
+          <span className={cn("text-sm font-medium leading-none tracking-[-0.01em]", expanded ? "block" : "hidden lg:block")}>
+            More
+          </span>
+        </button>
+        {showMore &&
+          MORE_NAV.map((item) => (
+            <NavItem
+              key={item.href}
+              href={item.href}
+              label={item.label}
+              icon={item.icon}
+              active={isActive(item.href)}
+              expanded={expanded}
+              onNavigate={onNavigate}
+            />
+          ))}
       </nav>
 
       {/* ── Footer — settings + admin ───────────────────────────────────── */}
