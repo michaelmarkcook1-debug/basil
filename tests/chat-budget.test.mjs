@@ -54,6 +54,24 @@ function truncateSectionsTobudget(sections, tokenBudget) {
 }
 
 // intent.ts
+// Mirror of lib/stig/intent.ts nowInTimezone — see that file for why the old
+// `new Date(now.toLocaleString("en-GB", …))` produced an Invalid Date.
+function nowInTimezone(now, timeZone) {
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    hour12: false,
+  }).formatToParts(now);
+  const get = (type) => Number(parts.find((p) => p.type === type)?.value);
+  const hour = get("hour") === 24 ? 0 : get("hour");
+  return new Date(get("year"), get("month") - 1, get("day"), hour, get("minute"), get("second"));
+}
+
 function analyseIntent(question, timezone = "Europe/London") {
   const q = question.toLowerCase();
 
@@ -62,7 +80,7 @@ function analyseIntent(question, timezone = "Europe/London") {
   if (/talent[\s-]?genius/i.test(question)) projectTopics.push("TalentGenius");
 
   const now = new Date();
-  const today = new Date(now.toLocaleString("en-GB", { timeZone: timezone }));
+  const today = nowInTimezone(now, timezone);
   let dateRange = {
     from: new Date(today.getTime() - 7 * 86400_000),
     to: today,

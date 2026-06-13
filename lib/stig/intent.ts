@@ -18,9 +18,9 @@ export function analyseIntent(
   if (/talent[\s-]?genius/i.test(question)) projectTopics.push("TalentGenius");
   // add more as needed...
 
-  // Date range detection
-  const now = new Date(); // use Europe/London
-  const today = new Date(now.toLocaleString("en-GB", { timeZone: timezone }));
+  // Date range detection — "today" anchored to the user's timezone wall clock.
+  const now = new Date();
+  const today = nowInTimezone(now, timezone);
   // Default: last 7 days
   let dateRange = {
     from: new Date(today.getTime() - 7 * 86400_000),
@@ -84,4 +84,37 @@ export function analyseIntent(
   const isBroad = broadPatterns.some((p) => p.test(question));
 
   return { projectTopics, dateRange, sourceFilter, outputType, isBroad };
+}
+
+/**
+ * Wall-clock "now" in the given IANA timezone, returned as a Date whose LOCAL
+ * fields (getHours/getDate/getDay/…) match that timezone.
+ *
+ * Built via Intl.formatToParts rather than `new Date(now.toLocaleString(...))`:
+ * the en-GB locale renders dates as DD/MM/YYYY, which the Date constructor
+ * cannot parse (it reads the day as a month) and returns an Invalid Date —
+ * making every downstream getDate()/getDay()/getHours() return NaN. formatToParts
+ * sidesteps string parsing entirely.
+ */
+function nowInTimezone(now: Date, timeZone: string): Date {
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    hour12: false,
+  }).formatToParts(now);
+  const get = (type: string) => Number(parts.find((p) => p.type === type)?.value);
+  const hour = get("hour") === 24 ? 0 : get("hour"); // en-US hour12:false can emit 24 at midnight
+  return new Date(
+    get("year"),
+    get("month") - 1,
+    get("day"),
+    hour,
+    get("minute"),
+    get("second")
+  );
 }
