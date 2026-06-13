@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { getSessionUser } from "@/lib/auth";
 import { listUserContacts } from "@/lib/contacts/user-store";
 import { getAllOverridesFromStore } from "@/lib/contacts/overrides-store";
-import { contacts as seedContacts } from "@/lib/contacts-data";
+import { sampleContacts } from "@/lib/contacts-data";
 
 export const dynamic = "force-dynamic";
 
@@ -38,7 +38,7 @@ export async function GET(req: Request) {
     listUserContacts(username).catch(() => []), // ci-ok: no contacts → no hints
     getAllOverridesFromStore(username).catch(() => ({})), // ci-ok: no overrides → seed/profile fields only
   ]);
-  const all = [...seedContacts, ...userContacts];
+  const all = [...sampleContacts(), ...userContacts];
 
   const hints = names.flatMap((name) => {
     const lower = name.toLowerCase();

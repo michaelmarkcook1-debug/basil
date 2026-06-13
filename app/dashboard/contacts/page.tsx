@@ -3,7 +3,7 @@
 import { useState, useEffect, useCallback, useMemo } from "react";
 import Link from "next/link";
 import { useDomainSync } from "@/lib/sync/use-domain-sync";
-import { contacts as seedContacts, type Contact, type ContactDirectory } from "@/lib/contacts-data";
+import { sampleContacts, type Contact, type ContactDirectory } from "@/lib/contacts-data";
 import {
   getUserContacts,
   loadUserContactsFromServer,
@@ -901,11 +901,15 @@ export default function ContactsPage() {
     try { return localStorage.getItem("sage-health-collapsed") === "true"; } catch { return false; }
   });
 
-  // Merge seed + user-added contacts — this is the effective "all contacts" list.
-  const contacts = useMemo<Contact[]>(
-    () => [...seedContacts, ...userContacts],
-    [userContacts]
-  );
+  // The effective "all contacts" list. Sample contacts are off by default
+  // (sampleContacts() returns [] unless a demo flag is set), so a real user
+  // sees only their own contacts — never the fictional "(SAMPLE)" fixtures.
+  // Dedupe by id so any sample/user id collision can't double-render.
+  const contacts = useMemo<Contact[]>(() => {
+    const byId = new Map<string, Contact>();
+    for (const c of [...sampleContacts(), ...userContacts]) byId.set(c.id, c);
+    return [...byId.values()];
+  }, [userContacts]);
 
   // Batch-fetch headshots for all contacts (Gravatar, falls back to initials)
   const contactEmails = useMemo(

@@ -62,6 +62,26 @@ export interface Contact {
  * Use `SEED_CONTACT_IDS` to identify these records at runtime, e.g. to
  * render a "SAMPLE" badge or to skip them in import flows.
  */
+/**
+ * Sample contacts for the user-facing view.
+ *
+ * The `contacts` array below is fictional fixture data (every record is
+ * `_isSeedData: true`, titled "(SAMPLE)"). These must NOT appear as a real
+ * user's contacts — the owner reported them showing up as "random contacts"
+ * after the launch PII-scrub replaced the original seed people with these
+ * placeholders. They are retained ONLY for demo deployments, gated behind an
+ * opt-in env flag (default OFF). Returns [] in normal operation.
+ *
+ * Works in both server and client bundles: server reads SHOW_SAMPLE_CONTACTS,
+ * client reads the NEXT_PUBLIC_ form (the only one inlined into the browser).
+ */
+export function sampleContacts(): Contact[] {
+  const enabled =
+    process.env.SHOW_SAMPLE_CONTACTS === "true" ||
+    process.env.NEXT_PUBLIC_SHOW_SAMPLE_CONTACTS === "true";
+  return enabled ? contacts : [];
+}
+
 export const contacts: Contact[] = [
   {
     id: "contact-01",
