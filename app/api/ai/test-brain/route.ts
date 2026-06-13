@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { getSessionUser } from "@/lib/auth";
-import { getTextModel, PROVIDER_MODE } from "@/lib/ai/model-config";
-import { generateText } from "ai";
+import { PROVIDER_MODE } from "@/lib/ai/model-config";
+import { generateTextSafe } from "@/lib/ai/generate";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 30;
@@ -13,24 +13,20 @@ export async function GET() {
   const start = Date.now();
   try {
     // Intentionally UNMETERED: this is a ~16-output-token connectivity probe
-    // that must succeed even when a user is over their AI spend cap (it's how
-    // they diagnose provider health). Its cost is negligible and excluded by
-    // design from the spend guard.
-    const model = getTextModel("fast");
-    const { text, usage } = await generateText({
-      model,
+    // that must succeed even when a user is over their AI spend cap. Uses
+    // generateTextSafe so the Anthropic direct → OpenAI fallback chain applies
+    // if the primary (gateway) is unavailable or has no credits.
+    const result = await generateTextSafe({
       messages: [
         { role: "system", content: "You are a connectivity test. Reply with exactly one word." },
         { role: "user",   content: "Reply with the single word: ready" },
       ],
       maxOutputTokens: 16,
-    });
-
-    // AI SDK v6 model objects don't have a useful toString — pull modelId off
-    // the LanguageModelV2 interface. Fall back to provider/modelId or "unknown".
-    const modelLabel =
-      (model as { modelId?: string }).modelId ??
-      `${(model as { provider?: string }).provider ?? "model"}/${(model as { modelId?: string }).modelId ?? "unknown"}`;
+    }, "fast");
+    const { text, usage } = result;
+    // response.modelId reflects the model that actually responded (may differ
+    // from the primary if generateTextSafe fell back to Anthropic/OpenAI direct).
+    const modelLabel = (result.response as { modelId?: string } | undefined)?.modelId ?? PROVIDER_MODE;
 
     return NextResponse.json({
       ok: true,

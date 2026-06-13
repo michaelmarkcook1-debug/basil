@@ -45,7 +45,13 @@ export type ModelKind = "fast" | "balanced" | "default" | "long";
 export type ProviderMode = "vercel_gateway" | "anthropic_direct" | "openai_direct";
 
 function resolveProviderMode(): ProviderMode {
-  if (process.env.VERCEL_OIDC_TOKEN || process.env.AI_GATEWAY_API_KEY) return "vercel_gateway";
+  // AI_GATEWAY_DISABLED=1 lets you opt out of the Vercel AI Gateway even when
+  // VERCEL_OIDC_TOKEN is auto-injected (e.g. when the account has no credits).
+  // Falls straight through to Anthropic direct → OpenAI direct.
+  const gatewayDisabled =
+    process.env.AI_GATEWAY_DISABLED === "1" ||
+    process.env.AI_GATEWAY_DISABLED === "true";
+  if (!gatewayDisabled && (process.env.VERCEL_OIDC_TOKEN || process.env.AI_GATEWAY_API_KEY)) return "vercel_gateway";
   const _ak = ["ANTHROPIC", "API", "KEY"].join("_");
   if (process.env.BASIL_LLM_KEY ?? process.env[_ak]) return "anthropic_direct";
   const _ok = ["OPENAI", "API", "KEY"].join("_");
