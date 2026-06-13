@@ -19,8 +19,12 @@
  */
 
 import { generateText, streamText } from "ai";
-import { createAnthropic } from "@ai-sdk/anthropic";
-import { getTextModel, type ModelKind, ANTHROPIC_MODEL_IDS } from "@/lib/ai/model-config";
+import {
+  getTextModel,
+  getDirectAnthropicModel,
+  getDirectOpenAIModel,
+  type ModelKind,
+} from "@/lib/ai/model-config";
 import type { LanguageModel } from "ai";
 import {
   reserveSpend,
@@ -30,14 +34,6 @@ import {
 } from "@/lib/ai/spend-guard";
 
 // ── Internal helpers ──────────────────────────────────────────────────────────
-
-function getDirectAnthropicModel(kind: ModelKind): LanguageModel | null {
-  const ak = (["ANTHROPIC", "API", "KEY"].join("_"));
-  const key = process.env.BASIL_LLM_KEY ?? process.env[ak];
-  if (!key) return null;
-  const anthropic = createAnthropic({ apiKey: key });
-  return anthropic(ANTHROPIC_MODEL_IDS[kind]);
-}
 
 function isFallbackWorthTrying(err: unknown): boolean {
   // Don't retry content-policy or auth errors — they will fail the same way on fallback
@@ -96,26 +92,44 @@ export async function generateTextSafe(
     }
   }
 
-  // ── Attempt 2: direct Anthropic fallback ──────────────────────────────────
-  const fallback = getDirectAnthropicModel(kind);
-  if (!fallback) {
-    if (reservation) await releaseSpend(reservation);
-    throw new Error(
-      "[ai/generate] Primary model failed and no ANTHROPIC_API_KEY fallback is available. " +
-      "Check AI Gateway credentials or set ANTHROPIC_API_KEY."
-    );
+  // ── Fallback chain: Claude stays primary; try Anthropic direct, then OpenAI ──
+  //
+  // Ordered, each skipped when its key is absent. Spend was reserved worst-case
+  // for `kind`'s Claude family (Opus on default/long), which over-covers an
+  // OpenAI fallback — conservative for a cap, so we keep the original reservation.
+  const fallbacks: ReadonlyArray<readonly [string, LanguageModel | null]> = [
+    ["anthropic-direct", getDirectAnthropicModel(kind)],
+    ["openai-direct", getDirectOpenAIModel(kind)],
+  ];
+
+  let lastErr: unknown = null;
+  let attempted = false;
+
+  for (const [name, model] of fallbacks) {
+    if (!model) continue;
+    attempted = true;
+    try {
+      console.info(`[ai/generate] Retrying with ${name} fallback (${kind})`);
+      const result = await generateText({ ...options, model });
+      if (reservation) await commitSpend(reservation, result.usage);
+      return result;
+    } catch (fallbackErr) {
+      lastErr = fallbackErr;
+      const msg = fallbackErr instanceof Error ? fallbackErr.message : String(fallbackErr);
+      console.warn(`[ai/generate] Fallback ${name} failed (${kind}): ${msg.slice(0, 200)}`);
+    }
   }
 
-  try {
-    console.info(`[ai/generate] Retrying with direct Anthropic fallback (${kind})`);
-    const result = await generateText({ ...options, model: fallback });
-    if (reservation) await commitSpend(reservation, result.usage);
-    return result;
-  } catch (fallbackErr) {
-    if (reservation) await releaseSpend(reservation);
-    const msg = fallbackErr instanceof Error ? fallbackErr.message : String(fallbackErr);
-    throw new Error(`[ai/generate] Both gateway and Anthropic direct failed. Last: ${msg.slice(0, 200)}`);
+  if (reservation) await releaseSpend(reservation);
+
+  if (!attempted) {
+    throw new Error(
+      "[ai/generate] Primary model failed and no direct-provider fallback is available. " +
+      "Set BASIL_LLM_KEY (Anthropic) or an OpenAI key (openai_basilv2 / OPENAI_API_KEY)."
+    );
   }
+  const lastMsg = lastErr instanceof Error ? lastErr.message : String(lastErr);
+  throw new Error(`[ai/generate] Primary and all direct fallbacks failed. Last: ${lastMsg.slice(0, 200)}`);
 }
 
 /**

@@ -10,6 +10,7 @@
  */
 
 import "server-only";
+import { OPENAI_MODEL_IDS } from "@/lib/ai/model-config";
 
 export interface OpenAIResult {
   ok: boolean;
@@ -35,7 +36,8 @@ export async function callOpenAIDirect(
   system?: string
 ): Promise<OpenAIResult> {
   const apiKey = process.env.openai_basilv2 ?? process.env.OPENAI_API_KEY;
-  const model = process.env.OPENAI_MODEL ?? "gpt-4o";
+  // Single source of truth for the default model id — see model-config.ts.
+  const model = OPENAI_MODEL_IDS.default;
 
   if (!apiKey) {
     return {

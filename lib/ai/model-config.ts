@@ -82,12 +82,24 @@ export const ANTHROPIC_MODEL_IDS: Record<ModelKind, string> = {
   long:     "claude-opus-4.8",
 };
 
-/** OpenAI fallback model IDs — used when Anthropic quota is exhausted. */
-const OPENAI_MODEL_IDS: Record<ModelKind, string> = {
-  fast:     "gpt-5.4",
-  balanced: "gpt-5.4",
-  default:  "gpt-5.4",
-  long:     "gpt-5.4",
+/**
+ * OpenAI direct model IDs — the fallback OPTION when Claude (gateway or
+ * Anthropic direct) is unavailable, or the primary when only an OpenAI key is
+ * configured. Mirrors the Claude tier structure so plan-aware down-tiering
+ * (effectiveKind → fast/balanced/default/long) keeps mapping cleanly.
+ *
+ * Each tier is independently overridable via env, so the owner can point the
+ * cheaper tiers at smaller OpenAI models (e.g. a "mini") WITHOUT a code change.
+ * Defaults are the one OpenAI model verified to exist today (gpt-5.4); set the
+ * per-tier vars once you've confirmed the smaller-model IDs on your account:
+ *   OPENAI_MODEL_FAST · OPENAI_MODEL_BALANCED · OPENAI_MODEL_DEFAULT · OPENAI_MODEL_LONG
+ *   OPENAI_MODEL — legacy global override, applied to any tier whose specific var is unset.
+ */
+export const OPENAI_MODEL_IDS: Record<ModelKind, string> = {
+  fast:     process.env.OPENAI_MODEL_FAST     ?? process.env.OPENAI_MODEL ?? "gpt-5.4",
+  balanced: process.env.OPENAI_MODEL_BALANCED ?? process.env.OPENAI_MODEL ?? "gpt-5.4",
+  default:  process.env.OPENAI_MODEL_DEFAULT  ?? process.env.OPENAI_MODEL ?? "gpt-5.4",
+  long:     process.env.OPENAI_MODEL_LONG     ?? process.env.OPENAI_MODEL ?? "gpt-5.4",
 };
 
 // ── Token defaults ─────────────────────────────────────────────────────────────
@@ -151,16 +163,40 @@ export function getTextModel(kind: ModelKind = "default"): LanguageModel {
   }
 
   // 3. OpenAI direct — fallback when Anthropic quota is exhausted.
-  const _ok = ["OPENAI", "API", "KEY"].join("_");
-  const openaiKey = process.env.openai_basilv2 ?? process.env[_ok];
-  if (openaiKey) {
-    const openai = createOpenAI({ apiKey: openaiKey });
-    const model = process.env.OPENAI_MODEL ?? OPENAI_MODEL_IDS[kind];
-    return openai(model);
-  }
+  const openaiModel = getDirectOpenAIModel(kind);
+  if (openaiModel) return openaiModel;
 
   throw new Error(
     "[ai/model-config] No AI credentials. " +
     "Run `vercel env pull` to set up Vercel AI Gateway (OIDC), or set BASIL_LLM_KEY."
   );
+}
+
+// ── Direct-provider factories (used by generateTextSafe's fallback chain) ──────
+//
+// These live here, in the one file the model-usage guard allowlists, so call
+// sites (generate.ts) never import a provider SDK directly. Each returns null
+// when its key is absent, letting the caller skip to the next fallback.
+
+/**
+ * Direct Anthropic model for a tier — generateTextSafe's FIRST fallback when the
+ * primary (gateway) model fails. Returns null when no Anthropic key is set.
+ */
+export function getDirectAnthropicModel(kind: ModelKind = "default"): LanguageModel | null {
+  const _ak = ["ANTHROPIC", "API", "KEY"].join("_");
+  const key = process.env.BASIL_LLM_KEY ?? process.env[_ak];
+  if (!key) return null;
+  return createAnthropic({ apiKey: key })(ANTHROPIC_MODEL_IDS[kind]);
+}
+
+/**
+ * Direct OpenAI model for a tier — generateTextSafe's SECOND fallback (after
+ * Anthropic direct), so Claude stays primary and OpenAI is the resilience
+ * option. Returns null when no OpenAI key is set.
+ */
+export function getDirectOpenAIModel(kind: ModelKind = "default"): LanguageModel | null {
+  const _ok = ["OPENAI", "API", "KEY"].join("_");
+  const key = process.env.openai_basilv2 ?? process.env[_ok];
+  if (!key) return null;
+  return createOpenAI({ apiKey: key })(OPENAI_MODEL_IDS[kind]);
 }

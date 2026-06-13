@@ -5,6 +5,7 @@
 
 import { isSlackConnected } from "@/lib/slack/client";
 import { getGoogleConnectionStatus } from "@/lib/google/auth";
+import { OPENAI_MODEL_IDS } from "@/lib/ai/model-config";
 
 export interface ReadinessCheck {
   id: string;
@@ -45,7 +46,7 @@ export async function getReadiness(username: string): Promise<ReadinessReport> {
   const modelDetail = hasAnthropic
     ? "ANTHROPIC_API_KEY is set — Anthropic Claude is ready."
     : hasOpenAI
-    ? `OPENAI_API_KEY is set — OpenAI direct is ready (model: ${process.env.OPENAI_MODEL ?? "gpt-4o"}).`
+    ? `OPENAI_API_KEY is set — OpenAI direct is ready (model: ${OPENAI_MODEL_IDS.default}).`
     : hasGateway
     ? "VERCEL_OIDC_TOKEN is set — Vercel AI Gateway is ready."
     : "No AI provider key is set — Chat and briefings will not work.";
