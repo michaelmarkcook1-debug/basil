@@ -28,6 +28,7 @@ import {
   Activity,
   ShieldCheck,
   Filter,
+  Radio,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { basilFetch } from "@/lib/basil-fetch";
@@ -174,7 +175,7 @@ const CATEGORY_CLASS: Record<string, string> = {
   action_required:      "bg-signal-warning-subtle text-signal-warning",
   decision_made:        "bg-signal-positive-subtle text-signal-positive",
   relationship_signal:  "bg-signal-info-subtle text-signal-info",
-  commercial_signal:    "bg-gold/15 text-[oklch(0.58_0.15_85)]",
+  commercial_signal:    "bg-gold/15 text-gold",
   meeting_intelligence: "bg-signal-info-subtle text-signal-info",
   document_activity:    "bg-muted text-muted-foreground",
   issue_update:         "bg-muted text-muted-foreground",
@@ -250,6 +251,18 @@ const FILTER_OPTIONS = [
 ] as const;
 
 type FilterId = (typeof FILTER_OPTIONS)[number]["id"];
+
+// ── Status filter (open · stale · closed) ─────────────────────────────────────
+// Gives the user a way to find resolved threads — previously closed/stale
+// threads were rendered indistinguishably and couldn't be filtered.
+
+const STATUS_FILTERS = [
+  { id: "all",      label: "All" },
+  { id: "active",   label: "Active" },   // open + stale (still-live)
+  { id: "resolved", label: "Resolved" }, // closed (concluded)
+] as const;
+
+type StatusFilterId = (typeof STATUS_FILTERS)[number]["id"];
 
 // ── Intelligence confidence bar ───────────────────────────────────────────────
 // Surfaces: tier label · corroborated sources · freshness
@@ -483,10 +496,12 @@ function ThreadListItem({
   onClick: () => void;
 }) {
   const urgency = threadUrgency(thread);
-  // Stale threads dim and italicise — the only two SignalThread statuses
-  // besides "open" are "open" and "stale" per the type. We treat "stale" as
-  // visually closed/quiet.
-  const isClosed = thread.status === "stale";
+  // Three real statuses (open · stale · closed):
+  //  - "closed"  → resolved/concluded: dim + italic.
+  //  - "stale"   → quiet but still open: lightly muted (NOT treated as closed).
+  //  - "open"    → full-strength title.
+  const isResolved = thread.status === "closed";
+  const isStale = thread.status === "stale";
 
   // First three participants, comma separated.
   const participantSummary = thread.rawParticipants.length > 0
@@ -520,7 +535,7 @@ function ThreadListItem({
           <span
             className={cn(
               "text-sm font-medium leading-snug flex-1 min-w-0 line-clamp-2",
-              isClosed ? "italic text-muted-foreground" : "text-foreground"
+              isResolved ? "italic text-muted-foreground" : isStale ? "text-muted-foreground" : "text-foreground"
             )}
           >
             {thread.title}
@@ -736,7 +751,7 @@ function ThreadDetail({
                   <Link
                     key={id}
                     href={`/dashboard/actions?highlight=${id}`}
-                    className="inline-flex items-center gap-1 text-xs font-medium px-2 py-0.5 rounded-md bg-signal-warning-subtle text-signal-warning bg-signal-warning-subtle transition-colors"
+                    className="inline-flex items-center gap-1 text-xs font-medium px-2 py-0.5 rounded-md bg-signal-warning-subtle text-signal-warning hover:bg-signal-warning/15 transition-colors"
                   >
                     <CheckSquare className="h-3 w-3" />
                     Action {i + 1}
@@ -769,7 +784,7 @@ function ThreadDetail({
                   <Link
                     key={id}
                     href={`/dashboard/decisions?highlight=${id}`}
-                    className="inline-flex items-center gap-1 text-xs font-medium px-2 py-0.5 rounded-md bg-gold/10 text-[oklch(0.58_0.15_85)] hover:bg-gold/20 transition-colors"
+                    className="inline-flex items-center gap-1 text-xs font-medium px-2 py-0.5 rounded-md bg-gold/10 text-gold hover:bg-gold/20 transition-colors"
                   >
                     <Zap className="h-3 w-3" />
                     Decision {i + 1}
@@ -795,7 +810,7 @@ function ThreadDetail({
               {thread.projects.map((p) => (
                 <span
                   key={p}
-                  className="rounded-md bg-gold/10 text-[oklch(0.58_0.15_85)] text-[12px] font-medium px-2.5 py-1"
+                  className="rounded-md bg-gold/10 text-gold text-[12px] font-medium px-2.5 py-1"
                 >
                   {p}
                 </span>
@@ -812,7 +827,7 @@ function ThreadDetail({
           <p className="basil-eyebrow mb-3">Ask Basil</p>
           <button
             onClick={() => router.push(chatHref(ACTIONS[0].query))}
-            className="w-full flex items-center gap-3 rounded-lg border border-gold/40 bg-gold/10 px-3 py-2.5 text-left hover:bg-gold/18 transition-colors group"
+            className="w-full flex items-center gap-3 rounded-lg border border-gold/40 bg-gold/10 px-3 py-2.5 text-left hover:bg-gold/20 transition-colors group"
           >
             <span className="text-gold shrink-0">{ACTIONS[0].icon}</span>
             <div className="min-w-0 flex-1">
@@ -828,7 +843,7 @@ function ThreadDetail({
               <button
                 key={action.label}
                 onClick={() => router.push(chatHref(action.query))}
-                className="inline-flex items-center gap-1.5 rounded-full border border-border/60 bg-card/40 px-3 py-1 text-xs text-muted-foreground hover:text-foreground hover:border-gold/30 hover:bg-gold/8 transition-colors"
+                className="inline-flex items-center gap-1.5 rounded-full border border-border/60 bg-card/40 px-3 py-1 text-xs text-muted-foreground hover:text-foreground hover:border-gold/30 hover:bg-gold/10 transition-colors"
               >
                 {action.icon}
                 {action.label}
@@ -857,6 +872,35 @@ function SignalThreadsEmpty({ hint }: { hint?: string }) {
   );
 }
 
+// ── Page masthead ─────────────────────────────────────────────────────────────
+// Full-width page header matching the Today / Meetings chrome. Shared by the
+// loaded, empty, and flag-off states so the surface always leads with a proper
+// header (the old layout buried the title inside the 320px list column).
+
+function SignalsMasthead({ count, total }: { count?: number; total?: number }) {
+  return (
+    <div className="flex items-start justify-between gap-3 flex-wrap">
+      <div className="min-w-0">
+        <p className="basil-eyebrow">Signals</p>
+        <h1 className="text-2xl font-semibold tracking-tight text-foreground mt-1 flex items-center gap-2">
+          <Radio className="h-5 w-5 text-gold shrink-0" />
+          Signals
+        </h1>
+        <p className="text-sm text-muted-foreground mt-1">
+          Conversations Basil grouped from your email, Slack and meetings — newest first.
+        </p>
+      </div>
+      {typeof count === "number" && (
+        <span className="text-xs font-mono text-muted-foreground tabular-nums shrink-0 mt-1">
+          {count}
+          {typeof total === "number" && count !== total ? ` / ${total}` : ""} thread
+          {total === 1 ? "" : "s"}
+        </span>
+      )}
+    </div>
+  );
+}
+
 // ── Main page ─────────────────────────────────────────────────────────────────
 
 export default function SignalsPage() {
@@ -869,6 +913,7 @@ export default function SignalsPage() {
   const [showDetail, setShowDetail] = useState(false);
   const [activeFilter, setActiveFilter] = useState<FilterId>("all");
   const [sourceFilter, setSourceFilter] = useState<string | null>(null);
+  const [statusFilter, setStatusFilter] = useState<StatusFilterId>("all");
 
   // Sync filter from URL params on mount (?source=slack, ?source=email)
   useEffect(() => {
@@ -943,7 +988,12 @@ export default function SignalsPage() {
 
   const filteredThreads = threads
     .filter((t) => activeFilter === "all" || t.category === activeFilter)
-    .filter((t) => !sourceFilter || t.primarySource === (sourceFilter as import("@/core/primitives/signal-event").SignalSource) || t.sources?.includes(sourceFilter as import("@/core/primitives/signal-event").SignalSource));
+    .filter((t) => !sourceFilter || t.primarySource === (sourceFilter as import("@/core/primitives/signal-event").SignalSource) || t.sources?.includes(sourceFilter as import("@/core/primitives/signal-event").SignalSource))
+    .filter((t) => {
+      if (statusFilter === "active") return t.status !== "closed";   // open + stale
+      if (statusFilter === "resolved") return t.status === "closed"; // concluded
+      return true;                                                   // all
+    });
 
   // Category counts for filter pills
   const categoryCounts = threads.reduce<Partial<Record<string, number>>>((acc, t) => {
@@ -978,37 +1028,13 @@ export default function SignalsPage() {
     );
   }
 
-  // ── Flag explicitly off (not null = loading) — show feature notice, not "no data" ──
-  if (flagActive === false && threads.length === 0) {
-    return (
-      <div className="h-full flex flex-col">
-        <div className="px-4 sm:px-6 lg:px-10 pt-6 pb-4 border-b border-border/60">
-          <div className="max-w-[1400px] mx-auto flex items-center justify-between">
-            <div>
-              <p className="basil-eyebrow">Signals</p>
-              <h1 className="basil-display text-2xl text-foreground mt-1">Thread Intelligence</h1>
-            </div>
-          </div>
-        </div>
-        <div className="flex-1">
-          <SignalThreadsEmpty hint={hint} />
-        </div>
-      </div>
-    );
-  }
-
-  // ── Empty (flag on, no threads yet) ──────────────────────────────────────
+  // ── Empty / flag-off — same chrome as the loaded view, just no list ──────────
   if (threads.length === 0) {
     return (
       <div className="h-full flex flex-col">
-        <div className="px-4 sm:px-6 lg:px-10 pt-6 pb-4 border-b border-border/60">
-          <div className="max-w-[1400px] mx-auto flex items-center justify-between">
-            <div>
-              <p className="basil-eyebrow">Signals</p>
-              <h1 className="basil-display text-2xl text-foreground mt-1">Thread Intelligence</h1>
-            </div>
-          </div>
-        </div>
+        <header className="shrink-0 px-4 sm:px-6 lg:px-8 pt-6 pb-4 border-b border-border/60">
+          <SignalsMasthead />
+        </header>
         <div className="flex-1">
           <SignalThreadsEmpty hint={hint} />
         </div>
@@ -1016,36 +1042,23 @@ export default function SignalsPage() {
     );
   }
 
-  // ── Main layout: list + detail ────────────────────────────────────────────
+  // ── Main layout: full-width header + (list · detail) ──────────────────────
   return (
-    <div className="flex h-full overflow-hidden">
-      {/* ── Thread list ───────────────────────────────────────────────────── */}
-      <div
-        className={cn(
-          "flex flex-col border-r border-border/60 bg-background shrink-0",
-          "lg:w-[320px] xl:w-[360px]",
-          showDetail ? "hidden lg:flex" : "flex w-full"
-        )}
-      >
-        {/* List header */}
-        <div className="px-4 pt-5 pb-3 border-b border-border/60 shrink-0">
-          <div className="flex items-center justify-between mb-1">
-            <p className="basil-eyebrow">Threads</p>
-            <span className="text-xs font-mono text-muted-foreground tabular-nums">
-              {filteredThreads.length}{activeFilter !== "all" ? ` / ${total}` : ""} total
-            </span>
-          </div>
-          <h1 className="basil-display text-xl text-foreground">Thread Intelligence</h1>
-        </div>
+    <div className="flex flex-col h-full overflow-hidden">
+      {/* Full-width page header — matches Today / Meetings chrome. */}
+      <header className="shrink-0 px-4 sm:px-6 lg:px-8 pt-6 pb-4 border-b border-border/60">
+        <SignalsMasthead count={filteredThreads.length} total={total} />
 
-        {/* Filter pills */}
-        <div className="px-3 py-2.5 border-b border-border/40 shrink-0 overflow-x-auto">
-          <div className="flex items-center gap-1 min-w-max">
-            <Filter className="h-3 w-3 text-muted-foreground/40 mr-0.5 shrink-0" />
+        {/* Filters — category + status. Promoted out of the cramped 320px list
+            column to the full-width header so they have room to breathe. */}
+        <div className="mt-4 flex flex-wrap items-center gap-x-4 gap-y-2">
+          {/* Category filter */}
+          <div className="flex items-center gap-1.5 overflow-x-auto basil-scroll min-w-0">
+            <Filter className="h-3 w-3 text-muted-foreground/40 shrink-0" />
             {sourceFilter && (
               <button
                 onClick={() => setSourceFilter(null)}
-                className="inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-xs font-medium bg-signal-info-subtle text-signal-info ring-1 ring-signal-info/20 shrink-0 mr-1"
+                className="inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-xs font-medium bg-signal-info-subtle text-signal-info ring-1 ring-signal-info/20 shrink-0"
                 title="Clear source filter"
               >
                 {sourceFilter} ×
@@ -1062,16 +1075,13 @@ export default function SignalsPage() {
                   className={cn(
                     "inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-xs font-medium transition-colors shrink-0",
                     isActive
-                      ? "bg-gold/15 text-[oklch(0.58_0.15_85)] ring-1 ring-gold/30"
+                      ? "bg-gold/15 text-gold ring-1 ring-gold/30"
                       : "text-muted-foreground/60 hover:text-muted-foreground hover:bg-muted/50"
                   )}
                 >
                   {opt.label}
                   {count > 0 && (
-                    <span className={cn(
-                      "tabular-nums",
-                      isActive ? "text-[oklch(0.58_0.15_85)]/70" : "text-muted-foreground/40"
-                    )}>
+                    <span className={cn("tabular-nums", isActive ? "text-gold/70" : "text-muted-foreground/40")}>
                       {count}
                     </span>
                   )}
@@ -1079,49 +1089,79 @@ export default function SignalsPage() {
               );
             })}
           </div>
+
+          {/* Status segmented control — find/hide resolved threads. */}
+          <div className="flex items-center gap-0.5 rounded-full border border-border/60 bg-card/40 p-0.5 shrink-0">
+            {STATUS_FILTERS.map((s) => (
+              <button
+                key={s.id}
+                onClick={() => setStatusFilter(s.id)}
+                className={cn(
+                  "rounded-full px-2.5 py-0.5 text-xs font-medium transition-colors",
+                  statusFilter === s.id
+                    ? "bg-gold/15 text-gold"
+                    : "text-muted-foreground/60 hover:text-muted-foreground"
+                )}
+              >
+                {s.label}
+              </button>
+            ))}
+          </div>
+        </div>
+      </header>
+
+      {/* Two-pane: list · detail */}
+      <div className="flex flex-1 overflow-hidden">
+        {/* ── Thread list ─────────────────────────────────────────────────── */}
+        <div
+          className={cn(
+            "flex flex-col border-r border-border/60 bg-background shrink-0",
+            "lg:w-[320px] xl:w-[360px]",
+            showDetail ? "hidden lg:flex" : "flex w-full"
+          )}
+        >
+          <div className="flex-1 overflow-y-auto p-2 space-y-0.5">
+            {filteredThreads.length === 0 ? (
+              <div className="py-10 text-center px-4">
+                <p className="text-[13px] text-muted-foreground">No threads match these filters</p>
+              </div>
+            ) : (
+              filteredThreads.map((t) => (
+                <ThreadListItem
+                  key={t.id}
+                  thread={t}
+                  selected={t.id === selectedId}
+                  onClick={() => {
+                    setSelectedId(t.id);
+                    setShowDetail(true);
+                  }}
+                />
+              ))
+            )}
+          </div>
         </div>
 
-        <div className="flex-1 overflow-y-auto p-2 space-y-0.5">
-          {filteredThreads.length === 0 ? (
-            <div className="py-10 text-center px-4">
-              <p className="text-[13px] text-muted-foreground">No {activeFilter.replace("_", " ")} threads</p>
-            </div>
+        {/* ── Thread detail ───────────────────────────────────────────────── */}
+        <div
+          className={cn(
+            "flex-1 bg-background overflow-hidden",
+            showDetail ? "flex flex-col" : "hidden lg:flex lg:flex-col"
+          )}
+        >
+          {selectedThread ? (
+            <ThreadDetail
+              thread={selectedThread}
+              calendarEvents={calendarEvents}
+              calendarLoading={calendarLoading}
+              onBack={() => setShowDetail(false)}
+            />
           ) : (
-            filteredThreads.map((t) => (
-              <ThreadListItem
-                key={t.id}
-                thread={t}
-                selected={t.id === selectedId}
-                onClick={() => {
-                  setSelectedId(t.id);
-                  setShowDetail(true);
-                }}
-              />
-            ))
+            <div className="flex flex-col items-center justify-center h-full text-center px-8">
+              <MessageSquare className="h-8 w-8 text-muted-foreground/30 mb-3" />
+              <p className="text-sm text-muted-foreground">Select a thread to see details</p>
+            </div>
           )}
         </div>
-      </div>
-
-      {/* ── Thread detail ─────────────────────────────────────────────────── */}
-      <div
-        className={cn(
-          "flex-1 bg-background overflow-hidden",
-          showDetail ? "flex flex-col" : "hidden lg:flex lg:flex-col"
-        )}
-      >
-        {selectedThread ? (
-          <ThreadDetail
-            thread={selectedThread}
-            calendarEvents={calendarEvents}
-            calendarLoading={calendarLoading}
-            onBack={() => setShowDetail(false)}
-          />
-        ) : (
-          <div className="flex flex-col items-center justify-center h-full text-center px-8">
-            <MessageSquare className="h-8 w-8 text-muted-foreground/30 mb-3" />
-            <p className="text-sm text-muted-foreground">Select a thread to see details</p>
-          </div>
-        )}
       </div>
     </div>
   );
