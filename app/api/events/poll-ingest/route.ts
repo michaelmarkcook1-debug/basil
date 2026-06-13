@@ -257,6 +257,10 @@ export async function POST(req: Request) {
         isDM,
         isGroupDM,
         isMention: m.isMention,
+        // Membership: non-member channels are already dropped at fetch time, so
+        // this is true for emitted messages. Carried through so the classify gate
+        // can defensively reject any non-member message from other code paths.
+        isMember: m.isMember ?? true,
         // Every contact is a key person — drives shouldClassifySlack gate
         isFromKeyPerson: isKnownContact(m.author),
         // Investor contacts (Sam Rivera, Jordan Avery) get high-priority escalation
@@ -386,6 +390,8 @@ export async function POST(req: Request) {
         isDM: !!p.hints?.isDM,
         isGroupDM: !!p.hints?.isGroupDM,
         isMention: !!p.hints?.isMention,
+        // Membership relevance gate — defends against non-member channel leakage.
+        isMember: p.hints?.isMember,
         // Use the dynamic contact-set check — every contact is a key person
         isFromKeyPerson: !!p.hints?.isFromKeyPerson || isKnownContact(p.from || ""),
         tags: event.tags,

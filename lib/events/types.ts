@@ -142,6 +142,8 @@ export interface IngestPayload {
     isDM?: boolean;
     isGroupDM?: boolean;
     isMention?: boolean;
+    /** True when the user is a member of the source channel (or it's a DM/Group DM the user is in). Channels the user hasn't joined are filtered out upstream; this carries the guarantee to the relevance gate. */
+    isMember?: boolean;
     isFromKeyPerson?: boolean;
     /** True when the sender is tagged "investor" in the contact list — escalates priority. */
     isFromInvestor?: boolean;

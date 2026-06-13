@@ -407,10 +407,21 @@ export function shouldClassifySlack(opts: {
   isDM: boolean;
   isGroupDM: boolean;
   isMention: boolean;
-  /** True when the message sender is a key person (Jordan, Sam, Riley, Avery, Morgan Lee). */
+  /** True when the user is a member of the source channel (or it's a DM/Group DM). */
+  isMember?: boolean;
+  /** True when the message sender is a known contact. */
   isFromKeyPerson?: boolean;
   tags: string[];
 }): boolean {
+  // Relevance gate: when we KNOW the user is not a member of the channel and is
+  // not addressed in it (no DM/Group DM/@-mention), never classify it. This
+  // stops signals/actions/decisions surfacing from channels the user doesn't
+  // participate in. Membership/mention are derived per-user from the Slack auth
+  // identity upstream, so the rule holds for every deployment (no hardcoded user).
+  if (opts.isMember === false && !opts.isDM && !opts.isGroupDM && !opts.isMention) {
+    return false;
+  }
+
   if (opts.isDM || opts.isGroupDM || opts.isMention || opts.isFromKeyPerson) return true;
 
   // Only classify channel messages when the rule engine already flagged signal

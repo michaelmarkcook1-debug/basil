@@ -124,6 +124,8 @@ export interface SlackMessage {
   text: string;
   date: string;
   isMention: boolean;
+  /** True when this message is from a channel the user is a member of, or a DM/Group DM they're in. Non-member channels are filtered out at fetch time, so emitted messages are member-relevant. */
+  isMember?: boolean;
 }
 
 // ── User name cache ──
@@ -150,6 +152,26 @@ function cleanSlackText(text: string): string {
     .replace(/&lt;/g, "<")
     .replace(/&gt;/g, ">")
     .substring(0, 300);
+}
+
+/** The authenticated Slack user's own id (U0…) for the active token, or undefined. */
+async function resolveSelfUserId(web: WebClient): Promise<string | undefined> {
+  try {
+    const auth = await web.auth.test();
+    return auth.user_id as string | undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * True when RAW Slack message text @-mentions the given user (the `<@U0…>` token).
+ * Must run on raw text BEFORE cleanSlackText() rewrites `<@U0…>` to `@Name`.
+ * Matching the Slack id (not the app username) is what makes mention detection
+ * correct and per-user — no hardcoded identity.
+ */
+function mentionsSelf(rawText: string | undefined, selfUserId: string | undefined): boolean {
+  return !!selfUserId && !!rawText && rawText.includes(`<@${selfUserId}>`);
 }
 
 // ── In-memory cache so we don't hammer Slack on every page load ──
@@ -205,8 +227,16 @@ export async function getRecentSlackMessages(
         : Promise.resolve({ channels: [] }),
     ]);
 
-    // Process channels and DMs with separate caps to guarantee both get slots
-    const channelConvos = (channelsRes.channels || []).filter((c) => !!c.id).slice(0, 15);
+    // Process channels and DMs with separate caps to guarantee both get slots.
+    // RELEVANCE: public/private channels are kept ONLY when the user is a member
+    // (`is_member`). This is what stops signals/actions/decisions leaking from
+    // channels the user never joined. DMs and Group DMs come from the dedicated
+    // `im`/`mpim` calls and are inherently the user's, so they're always kept.
+    // `is_member` reflects the active token's identity (user token preferred), so
+    // the filter is per-user with no hardcoded identity.
+    const channelConvos = (channelsRes.channels || [])
+      .filter((c) => !!c.id && c.is_member === true)
+      .slice(0, 15);
     const dmConvos = (dmsRes.channels || []).filter((c) => !!c.id).slice(0, 20);
     const groupDmConvos = (groupDmsRes.channels || []).filter((c) => !!c.id).slice(0, 5);
 
@@ -220,17 +250,17 @@ export async function getRecentSlackMessages(
 
     const messages: SlackMessage[] = [];
 
-    // Resolve self user id once so we can exclude it from member lists
-    let selfUserId: string | undefined;
-    try {
-      const auth = await web.auth.test();
-      selfUserId = auth.user_id as string | undefined;
-    } catch {
-      /* ignore */
-    }
+    // Resolve self user id once — used to exclude self from member lists AND to
+    // detect @-mentions of the user (mentionsSelf).
+    const selfUserId = await resolveSelfUserId(web);
 
     for (const channel of uniqueChannels) {
       if (!channel.id) continue;
+
+      // DMs / Group DMs are inherently the user's; channels reached here passed
+      // the is_member filter above — so every emitted message is member-relevant.
+      const isMember =
+        channel.is_im === true || channel.is_mpim === true || channel.is_member === true;
 
       let channelName = channel.name ? `#${channel.name}` : "DM";
       let channelMembers: string[] | undefined;
@@ -292,7 +322,8 @@ export async function getRecentSlackMessages(
             date: msg.ts
               ? new Date(parseFloat(msg.ts) * 1000).toISOString()
               : new Date().toISOString(),
-            isMention: (msg.text || "").toLowerCase().includes(username),
+            isMention: mentionsSelf(msg.text, selfUserId),
+            isMember,
           });
         }
       } catch {
@@ -327,6 +358,7 @@ export async function getChannelHistory(
   const web = userWeb || botWeb;
   if (!web) return [];
   const lookupWeb = botWeb || web;
+  const selfUserId = await resolveSelfUserId(web);
 
   try {
     // Resolve channel metadata for display name
@@ -369,7 +401,7 @@ export async function getChannelHistory(
         date: msg.ts
           ? new Date(parseFloat(msg.ts) * 1000).toISOString()
           : new Date().toISOString(),
-        isMention: (msg.text || "").toLowerCase().includes(username),
+        isMention: mentionsSelf(msg.text, selfUserId),
       });
     }
     return out;
@@ -392,6 +424,7 @@ export async function searchSlackMessages(
   // Try user token first (search:read), then bot (search:read.*)
   const searchWeb = userWeb || botWeb;
   if (!searchWeb) return [];
+  const selfUserId = await resolveSelfUserId(searchWeb);
 
   try {
     const res = await searchWeb.search.messages({ query, count: limit, sort: "timestamp", sort_dir: "desc" });
@@ -402,7 +435,7 @@ export async function searchSlackMessages(
       author: m.username || "Unknown",
       text: cleanSlackText(m.text || ""),
       date: m.ts ? new Date(parseFloat(m.ts) * 1000).toISOString() : new Date().toISOString(),
-      isMention: (m.text || "").toLowerCase().includes(username),
+      isMention: mentionsSelf(m.text, selfUserId),
     }));
   } catch (e) {
     console.error("Slack search error:", e);
