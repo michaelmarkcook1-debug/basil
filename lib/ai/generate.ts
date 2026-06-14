@@ -52,8 +52,13 @@ function isFallbackWorthTrying(err: unknown): boolean {
 
 // ── Public API ────────────────────────────────────────────────────────────────
 
-export type GenerateTextOptions = Parameters<typeof generateText>[0];
-export type StreamTextOptions   = Parameters<typeof streamText>[0];
+// `model` is OPTIONAL here: when omitted, getTextModel(kind) supplies it (the
+// whole point of these wrappers). The underlying AI SDK types require `model`,
+// so we relax just that field.
+export type GenerateTextOptions =
+  Omit<Parameters<typeof generateText>[0], "model"> & { model?: LanguageModel };
+export type StreamTextOptions =
+  Omit<Parameters<typeof streamText>[0], "model"> & { model?: LanguageModel };
 
 /**
  * generateTextSafe — generateText with automatic Anthropic direct fallback.
@@ -79,7 +84,9 @@ export async function generateTextSafe(
 
   // ── Attempt 1: primary ────────────────────────────────────────────────────
   try {
-    const result = await generateText({ ...options, model: primaryModel });
+    // Cast: model is always supplied here; the relaxed wrapper type (model
+    // optional) doesn't narrow the SDK's prompt|messages union, so re-assert it.
+    const result = await generateText({ ...options, model: primaryModel } as Parameters<typeof generateText>[0]);
     if (reservation) await commitSpend(reservation, result.usage);
     return result;
   } catch (primaryErr) {
@@ -110,7 +117,7 @@ export async function generateTextSafe(
     attempted = true;
     try {
       console.info(`[ai/generate] Retrying with ${name} fallback (${kind})`);
-      const result = await generateText({ ...options, model });
+      const result = await generateText({ ...options, model } as Parameters<typeof generateText>[0]);
       if (reservation) await commitSpend(reservation, result.usage);
       return result;
     } catch (fallbackErr) {
@@ -152,5 +159,5 @@ export function streamTextSafe(
   // For a full fallback we would need to buffer then retry, which adds
   // latency. Instead: try primary, configure a fallback model in the options
   // so consumers can re-call on error.
-  return streamText({ ...options, model: primaryModel });
+  return streamText({ ...options, model: primaryModel } as Parameters<typeof streamText>[0]);
 }

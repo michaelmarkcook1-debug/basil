@@ -44,14 +44,25 @@ export type ModelKind = "fast" | "balanced" | "default" | "long";
 // Keep ProviderMode as a string alias for back-compat with call sites that read it
 export type ProviderMode = "vercel_gateway" | "anthropic_direct" | "openai_direct";
 
-function resolveProviderMode(): ProviderMode {
-  // AI_GATEWAY_DISABLED=1 lets you opt out of the Vercel AI Gateway even when
-  // VERCEL_OIDC_TOKEN is auto-injected (e.g. when the account has no credits).
-  // Falls straight through to Anthropic direct → OpenAI direct.
-  const gatewayDisabled =
+/**
+ * Whether the Vercel AI Gateway should be used. It's available only when it's
+ * configured (OIDC token or gateway key) AND not explicitly disabled.
+ *
+ * Set AI_GATEWAY_DISABLED=1 to bypass the gateway — e.g. when the gateway
+ * account is out of credits — and fall straight through to a direct provider
+ * key (BASIL_LLM_KEY → OpenAI). EVERY provider-selection path honours this, so
+ * the bypass actually takes effect (previously getTextModel ignored it and kept
+ * hitting the dead gateway).
+ */
+export function isGatewayEnabled(): boolean {
+  const disabled =
     process.env.AI_GATEWAY_DISABLED === "1" ||
     process.env.AI_GATEWAY_DISABLED === "true";
-  if (!gatewayDisabled && (process.env.VERCEL_OIDC_TOKEN || process.env.AI_GATEWAY_API_KEY)) return "vercel_gateway";
+  return !disabled && !!(process.env.VERCEL_OIDC_TOKEN || process.env.AI_GATEWAY_API_KEY);
+}
+
+function resolveProviderMode(): ProviderMode {
+  if (isGatewayEnabled()) return "vercel_gateway";
   const _ak = ["ANTHROPIC", "API", "KEY"].join("_");
   if (process.env.BASIL_LLM_KEY ?? process.env[_ak]) return "anthropic_direct";
   const _ok = ["OPENAI", "API", "KEY"].join("_");
@@ -124,15 +135,18 @@ export const MAX_TOKENS: Record<ModelKind, number> = {
  * Called from GET /api/system/health so misconfigurations surface early.
  */
 export function validateModelConfig(): void {
-  const hasGateway  = !!(process.env.VERCEL_OIDC_TOKEN || process.env.AI_GATEWAY_API_KEY);
+  // isGatewayEnabled() (not raw token presence) so a DISABLED gateway doesn't
+  // mask the absence of a usable direct key — the same condition getTextModel uses.
+  const hasGateway  = isGatewayEnabled();
   const _ak         = ["ANTHROPIC", "API", "KEY"].join("_");
   const hasAnthropic = !!(process.env.BASIL_LLM_KEY ?? process.env[_ak]);
   const _ok         = ["OPENAI", "API", "KEY"].join("_");
   const hasOpenAI   = !!(process.env.openai_basilv2 ?? process.env[_ok]);
   if (!hasGateway && !hasAnthropic && !hasOpenAI) {
     throw new Error(
-      "[ai/model-config] No AI credentials found. " +
-      "Set up Vercel AI Gateway (preferred) via `vercel env pull`, or set BASIL_LLM_KEY."
+      "[ai/model-config] No usable AI provider. Set BASIL_LLM_KEY (Anthropic) or " +
+      "OPENAI_API_KEY / openai_basilv2 (OpenAI), or enable the gateway " +
+      "(unset AI_GATEWAY_DISABLED with VERCEL_OIDC_TOKEN / AI_GATEWAY_API_KEY present)."
     );
   }
 }
@@ -155,26 +169,26 @@ export function getOpenAIKey(): string | undefined { return undefined; }
  * @param kind  "fast" | "default" | "long"  (default: "default")
  */
 export function getTextModel(kind: ModelKind = "default"): LanguageModel {
-  // 1. Vercel AI Gateway — OIDC token auto-injected in all Vercel deployments.
-  if (process.env.VERCEL_OIDC_TOKEN || process.env.AI_GATEWAY_API_KEY) {
+  // 1. Vercel AI Gateway — UNLESS disabled (AI_GATEWAY_DISABLED). Honouring the
+  //    flag here is what lets a dead/credit-less gateway be bypassed: every AI
+  //    call (chat's streamText, generateTextSafe, briefings) routes through this.
+  if (isGatewayEnabled()) {
     return gateway(GATEWAY_MODEL_IDS[kind] as Parameters<typeof gateway>[0]);
   }
 
-  // 2. Anthropic direct via BASIL_LLM_KEY (read via dynamic lookup to avoid scanner flags).
-  const _ak = ["ANTHROPIC", "API", "KEY"].join("_");
-  const anthropicKey = process.env.BASIL_LLM_KEY ?? process.env[_ak];
-  if (anthropicKey) {
-    const anthropic = createAnthropic({ apiKey: anthropicKey });
-    return anthropic(ANTHROPIC_MODEL_IDS[kind]);
-  }
+  // 2. Anthropic direct (BASIL_LLM_KEY / ANTHROPIC_API_KEY).
+  const anthropicModel = getDirectAnthropicModel(kind);
+  if (anthropicModel) return anthropicModel;
 
-  // 3. OpenAI direct — fallback when Anthropic quota is exhausted.
+  // 3. OpenAI direct (openai_basilv2 / OPENAI_API_KEY).
   const openaiModel = getDirectOpenAIModel(kind);
   if (openaiModel) return openaiModel;
 
   throw new Error(
-    "[ai/model-config] No AI credentials. " +
-    "Run `vercel env pull` to set up Vercel AI Gateway (OIDC), or set BASIL_LLM_KEY."
+    "[ai/model-config] No usable AI provider. The gateway is " +
+    (process.env.AI_GATEWAY_DISABLED ? "disabled via AI_GATEWAY_DISABLED" : "not configured") +
+    " and no direct key is set. Set BASIL_LLM_KEY (Anthropic direct) or " +
+    "OPENAI_API_KEY / openai_basilv2 (OpenAI direct), or re-enable the gateway."
   );
 }
 
