@@ -91,12 +91,18 @@ export const GATEWAY_MODEL_IDS = {
   long:    "anthropic/claude-opus-4.8",
 } as const satisfies Record<ModelKind, string>;
 
-/** Anthropic direct model IDs — dot notation matches @ai-sdk/anthropic conventions. */
+/**
+ * Anthropic DIRECT model IDs — hyphenated, exactly as api.anthropic.com expects.
+ * NOTE: these are NOT the gateway slugs. The gateway uses dotted versions
+ * (anthropic/claude-opus-4.8); the direct Anthropic API uses hyphens
+ * (claude-opus-4-8). Using the dotted form here makes the direct fallback 404
+ * with model-not-found — which only surfaces once the gateway is disabled.
+ */
 export const ANTHROPIC_MODEL_IDS: Record<ModelKind, string> = {
-  fast:     "claude-haiku-4.5",
-  balanced: "claude-sonnet-4.5",
-  default:  "claude-opus-4.8",
-  long:     "claude-opus-4.8",
+  fast:     "claude-haiku-4-5-20251001",
+  balanced: "claude-sonnet-4-6",
+  default:  "claude-opus-4-8",
+  long:     "claude-opus-4-8",
 };
 
 /**
