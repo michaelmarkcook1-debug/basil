@@ -4,19 +4,20 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import {
   Sparkles,
-  Radio,
   CalendarCheck,
+  Users,
   MessageSquare,
   MoreHorizontal,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 // Primary 4 tabs — the day's most-used surfaces, with Ask Basil promoted to a
-// first-class tab. People / Commitments / Memory live behind "More" (the drawer).
+// first-class tab. Signals folded into Today; People promoted here (the rest —
+// Commitments / Memory — live behind "More").
 const TABS = [
   { href: "/dashboard",          label: "Today",     icon: Sparkles },
-  { href: "/dashboard/signals",  label: "Signals",   icon: Radio },
   { href: "/dashboard/meetings", label: "Meetings",  icon: CalendarCheck },
+  { href: "/dashboard/contacts", label: "People",    icon: Users },
   { href: "/dashboard/chat",     label: "Ask Basil", icon: MessageSquare },
 ] as const;
 

@@ -5,7 +5,6 @@ import { usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
 import {
   Sparkles,
-  Radio,
   CalendarCheck,
   Users,
   CheckSquare,
@@ -24,13 +23,13 @@ import {
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
-// ── Navigation structure — six surfaces, organized around the user's day ────────
-// Today (the brief), Signals, Meetings, People, Commitments, Memory.
+// ── Navigation structure — five surfaces, organized around the user's day ───────
+// Today (the brief + signals), Meetings, People, Commitments, Memory.
+// Signals folded into Today (one home, not two competing models).
 // Ask Basil is an overlay/CTA, not a destination.
 
 const PRIMARY_NAV = [
   { href: "/dashboard",           label: "Today",        icon: Sparkles },
-  { href: "/dashboard/signals",   label: "Signals",      icon: Radio },
   { href: "/dashboard/meetings",  label: "Meetings",     icon: CalendarCheck },
   { href: "/dashboard/contacts",  label: "People",       icon: Users },
   { href: "/dashboard/actions",   label: "Commitments",  icon: CheckSquare },

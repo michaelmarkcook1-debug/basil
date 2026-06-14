@@ -338,7 +338,7 @@ function MetricBar({ metrics, loading }: {
 // ── Panel wrapper ─────────────────────────────────────────────────────────────
 
 function Panel({ title, href, linkLabel = "View all", children, className, onExpand }: {
-  title: string; href: string; linkLabel?: string;
+  title: string; href?: string; linkLabel?: string;
   children: React.ReactNode; className?: string;
   onExpand?: () => void;
 }) {
@@ -375,15 +375,17 @@ function Panel({ title, href, linkLabel = "View all", children, className, onExp
               <Maximize2 size={10} />
             </button>
           )}
-          <Link
-            href={href}
-            className="flex items-center gap-1 transition-all duration-200"
-            style={{ fontSize: "9px", color: "rgba(200,160,65,0.48)", letterSpacing: "0.04em" }}
-            onMouseEnter={e => (e.currentTarget.style.color = "rgba(220,180,85,0.88)")}
-            onMouseLeave={e => (e.currentTarget.style.color = "rgba(200,160,65,0.48)")}
-          >
-            {linkLabel} <ArrowRight size={8} />
-          </Link>
+          {href && (
+            <Link
+              href={href}
+              className="flex items-center gap-1 transition-all duration-200"
+              style={{ fontSize: "9px", color: "rgba(200,160,65,0.48)", letterSpacing: "0.04em" }}
+              onMouseEnter={e => (e.currentTarget.style.color = "rgba(220,180,85,0.88)")}
+              onMouseLeave={e => (e.currentTarget.style.color = "rgba(200,160,65,0.48)")}
+            >
+              {linkLabel} <ArrowRight size={8} />
+            </Link>
+          )}
         </div>
       </div>
       <div className="flex-1 overflow-hidden">{children}</div>
@@ -667,7 +669,7 @@ function SignalRadarPanel({ signals, loading, onExpand }: { signals: RankedSigna
   const svgId = "radar-svg";
 
   return (
-    <Panel title="Signal Radar" href="/dashboard/signals" linkLabel="Explore signals →" onExpand={onExpand}>
+    <Panel title="Signal Radar" onExpand={onExpand}>
       <div className="px-3 py-2">
         {/* Radar SVG */}
         <div className="flex items-center justify-center mb-2">
@@ -868,7 +870,7 @@ function ThreadsPanel({ signals, loading, onExpand }: { signals: RankedSignal[];
   const threads = signals.slice(0, 5);
 
   return (
-    <Panel title="Recent Threads" href="/dashboard/signals" linkLabel="View all threads" onExpand={onExpand}>
+    <Panel title="Recent Threads" onExpand={onExpand}>
       <div className="divide-y divide-gold/[0.07]">
         {loading ? (
           <div className="px-4 py-3 space-y-3">
@@ -1037,7 +1039,7 @@ function IntelligencePanel({ signals, actions, loading, onExpand }: {
   const typeColor = { warning: "#D9A441", info: "#5CB8FF", positive: "#1F8A70", neutral: "#AAB3C5" };
 
   return (
-    <Panel title="Basil Intelligence" href="/dashboard/signals" linkLabel="View all signals" onExpand={onExpand}>
+    <Panel title="Basil Intelligence" onExpand={onExpand}>
       <div className="px-4 py-3 space-y-2.5">
         <div className="flex items-center gap-2 mb-3 pb-2.5 border-b border-gold/[0.07]">
           <div className="h-6 w-6 rounded-md bg-gold/12 flex items-center justify-center">
@@ -1094,11 +1096,11 @@ function computeInsights(signals: RankedSignal[], actions: ActionItem[], limit?:
     items.push({ text: `${overdue.length} action${overdue.length > 1 ? "s are" : " is"} overdue — review now`, type: "warning", href: "/dashboard/actions?filter=overdue" });
   const highSignals = signals.filter(s => s.ranking?.score > 0.7);
   if (highSignals.length > 0)
-    items.push({ text: `${highSignals.length} high-priority signal${highSignals.length > 1 ? "s need" : " needs"} attention`, type: "warning", href: "/dashboard/signals" });
+    items.push({ text: `${highSignals.length} high-priority signal${highSignals.length > 1 ? "s need" : " needs"} attention`, type: "warning", href: "/dashboard" });
   if (signals.some(s => s.source === "email"))
-    items.push({ text: "Email activity detected across active threads", type: "info", href: "/dashboard/signals?source=email" });
+    items.push({ text: "Email activity detected across active threads", type: "info", href: "/dashboard" });
   if (signals.some(s => s.source === "slack"))
-    items.push({ text: "Slack conversations with open items", type: "info", href: "/dashboard/signals?source=slack" });
+    items.push({ text: "Slack conversations with open items", type: "info", href: "/dashboard" });
   const waiting = actions.filter(a => a.status === "waiting" || a.status === "blocked");
   if (waiting.length > 0)
     items.push({ text: `Waiting on ${waiting.length} response${waiting.length > 1 ? "s" : ""}`, type: "neutral", href: "/dashboard/actions?filter=open" });
@@ -1809,9 +1811,9 @@ export default function DashboardPage() {
           metrics={[
             { label: "Critical",  sublabel: "Actions + signals",  value: loading ? null : criticalCount,  color: "#D96C5F", href: "/dashboard/actions",  icon: <AlertCircle size={13} /> },
             { label: "Meetings",  sublabel: "On your calendar",   value: loading ? null : meetingsToday,  color: "#C8A96B", href: "/dashboard/schedule", icon: <Calendar size={13} /> },
-            { label: "Threads",   sublabel: "Across all sources", value: loading ? null : unreadThreads,  color: "#5CB8FF", href: "/dashboard/signals",  icon: <MessageSquare size={13} /> },
+            { label: "Threads",   sublabel: "Across all sources", value: loading ? null : unreadThreads,  color: "#5CB8FF", href: "/dashboard",  icon: <MessageSquare size={13} /> },
             { label: "Waiting",   sublabel: "Blocked actions",    value: loading ? null : waitingOnCount, color: "#D9A441", href: "/dashboard/actions",  icon: <Clock size={13} /> },
-            { label: "Risks",     sublabel: "High-score signals", value: loading ? null : risksDetected,  color: "#D96C5F", href: "/dashboard/signals",  icon: <Zap size={13} /> },
+            { label: "Risks",     sublabel: "High-score signals", value: loading ? null : risksDetected,  color: "#D96C5F", href: "/dashboard",  icon: <Zap size={13} /> },
           ]}
         />
 

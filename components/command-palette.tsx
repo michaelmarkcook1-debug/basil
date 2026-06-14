@@ -31,7 +31,6 @@ import {
   CalendarCheck,
   Users,
   Brain,
-  Radio,
   Zap,
   MessageSquare,
   Settings,
@@ -51,7 +50,6 @@ const NAV_DESTINATIONS = [
   { label: "Meeting Prep",  href: "/dashboard/meetings",  icon: CalendarCheck,keywords: "prep brief cheatsheet upcoming" },
   { label: "Relationships", href: "/dashboard/contacts",  icon: Users,        keywords: "contacts people directory" },
   { label: "Memory",        href: "/dashboard/memory",    icon: Brain,        keywords: "notes context recall" },
-  { label: "Signals",       href: "/dashboard/signals",   icon: Radio,        keywords: "threads inbox signals radar" },
   // Linear lives on Home — keep the palette entry as a deep-link so power
   // users who type "linear" still get there.
   { label: "Linear (deep)", href: "/dashboard/linear",    icon: Zap,          keywords: "issues tickets engineering bugs" },
