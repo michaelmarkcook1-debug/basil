@@ -149,6 +149,29 @@ test("the home feed fetcher throws, and a failed feed is not an all-clear", () =
     "the 'Nothing needs you' empty state must be gated on there being no error");
 });
 
+test("every [id] write route validates its body instead of casting", () => {
+  // A `as Partial<T>` cast is a COMPILE-TIME assertion only. The stores apply
+  // patches with a raw spread, so at runtime any key and any value type landed
+  // in the stored record — including overwriting `id`, or setting an array
+  // field to a string and breaking every downstream consumer. zod both
+  // validates types AND strips unknown keys.
+  const routes = [
+    "app/api/actions/[id]/route.ts",
+    "app/api/decisions/[id]/route.ts",
+    "app/api/memory/[id]/route.ts",
+    "app/api/ledger/[id]/route.ts",
+    "app/api/contacts/user/[id]/route.ts",
+    "app/api/contacts/overrides/[id]/route.ts",
+    "app/api/linear/issues/[id]/route.ts",
+  ];
+  for (const p of routes) {
+    const src = read(p);
+    assert.ok(/parseBody\(/.test(src), `${p} must validate its body via parseBody`);
+    assert.ok(!/await req\.json\(\)\) as /.test(src),
+      `${p} must not cast an unvalidated body — the cast is erased at runtime`);
+  }
+});
+
 test("Redis gates accept the KV_* names the Marketplace actually provisions", () => {
   // The Vercel Upstash integration provisions KV_REST_API_URL/TOKEN, but
   // Redis.fromEnv() only reads UPSTASH_REDIS_REST_URL/TOKEN. Gating on the

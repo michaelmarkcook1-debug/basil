@@ -1,8 +1,9 @@
 import { NextResponse } from "next/server";
+import { z } from "zod";
 import { deleteMemory, updateMemory, listMemories } from "@/lib/memory/store";
 import { forceFlushSnapshot } from "@/lib/storage/persistent";
 import { getSessionUser } from "@/lib/auth";
-import type { MemoryKind } from "@/lib/memory/types";
+import { parseBody } from "@/lib/api/respond";
 
 export async function GET(
   _req: Request,
@@ -39,12 +40,19 @@ export async function PATCH(
   const username = (await getSessionUser());
   if (!username) return NextResponse.json({ error: "Unauthorised" }, { status: 401 });
   const { id } = await ctx.params;
-  const body = (await req.json()) as Partial<{
-    content: string;
-    kind: MemoryKind;
-    entity: string;
-  }>;
-  const updated = await updateMemory(username, id, body);
+  // POST validates `kind` against the allowed set; PATCH did not, so a PATCH
+  // could write an arbitrary kind (or any other key, via the bare cast) into a
+  // stored memory and break every kind-based filter downstream.
+  const parsed = await parseBody(
+    req,
+    z.object({
+      content: z.string().min(1).optional(),
+      kind: z.enum(["fact", "preference", "person", "context"]).optional(),
+      entity: z.string().optional(),
+    })
+  );
+  if (!parsed.ok) return parsed.response;
+  const updated = await updateMemory(username, id, parsed.data);
   if (!updated)
     return NextResponse.json({ error: "not found" }, { status: 404 });
   await forceFlushSnapshot();

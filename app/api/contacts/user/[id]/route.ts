@@ -3,7 +3,8 @@ import {
   updateUserContactInStore,
   deleteUserContactFromStore,
 } from "@/lib/contacts/user-store";
-import type { Contact } from "@/lib/contacts-data";
+import { z } from "zod";
+import { parseBody } from "@/lib/api/respond";
 import { getSessionUser } from "@/lib/auth";
 import { deleteGenerateCache } from "@/lib/generate-cache/store";
 
@@ -34,8 +35,38 @@ export async function PATCH(
     const username = await getSessionUser();
     if (!username) return NextResponse.json({ error: "Unauthorised" }, { status: 401 });
     const { id } = await params;
-    const patch = (await req.json()) as Partial<Contact>;
-    const updated = await updateUserContactInStore(username, id, patch);
+    // Was a bare `as Partial<Contact>` — a compile-time assertion only, spread
+    // straight into the stored record. `name` could be set to any type (it is
+    // the join key for every contact matcher), and `id` could be overwritten,
+    // orphaning the record. Identity/provenance fields are not patchable.
+    const parsed = await parseBody(
+      req,
+      z.object({
+        name: z.string().min(1).optional(),
+        initials: z.string().optional(),
+        color: z.string().optional(),
+        title: z.string().optional(),
+        company: z.string().optional(),
+        email: z.string().optional(),
+        phone: z.string().optional(),
+        linkedin: z.string().optional(),
+        location: z.string().optional(),
+        tags: z.array(z.string()).optional(),
+        status: z.enum(["verified", "pending"]).optional(),
+        type: z.enum(["internal", "external"]).optional(),
+        directory: z.enum(["work", "personal"]).optional(),
+        relationship: z.string().optional(),
+        companyContext: z.string().optional(),
+        personality: z.string().optional(),
+        whatMakesThemTick: z.string().optional(),
+        watchOut: z.string().optional(),
+        recentActivity: z.string().optional(),
+        activitySource: z.string().optional(),
+        lastInteraction: z.string().optional(),
+      })
+    );
+    if (!parsed.ok) return parsed.response;
+    const updated = await updateUserContactInStore(username, id, parsed.data);
     if (!updated) {
       return NextResponse.json({ error: "Contact not found" }, { status: 404 });
     }

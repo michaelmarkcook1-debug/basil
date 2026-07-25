@@ -1,7 +1,8 @@
 import { NextResponse } from "next/server";
 import { getSessionUser } from "@/lib/auth";
 import { isLinearConnected, updateIssue } from "@/lib/linear/client";
-import type { LinearIssueInput } from "@/lib/linear/client";
+import { z } from "zod";
+import { parseBody } from "@/lib/api/respond";
 
 export async function PATCH(
   req: Request,
@@ -16,8 +17,25 @@ export async function PATCH(
 
   try {
     const { id } = await params;
-    const body = (await req.json()) as Partial<LinearIssueInput> & { stateId?: string };
-    const issue = await updateIssue(username, id, body);
+    // stateId and friends were forwarded raw to the Linear API. Validate shape
+    // here so a malformed body fails as a clean 400 rather than an opaque
+    // upstream 500 (or an unintended mutation on the user's real workspace).
+    const parsed = await parseBody(
+      req,
+      z.object({
+        title: z.string().min(1).optional(),
+        description: z.string().optional(),
+        stateId: z.string().optional(),
+        priority: z.number().int().min(0).max(4).optional(),
+        assigneeId: z.string().optional(),
+        dueDate: z.string().optional(),
+        teamId: z.string().optional(),
+        projectId: z.string().optional(),
+        labelIds: z.array(z.string()).optional(),
+      })
+    );
+    if (!parsed.ok) return parsed.response;
+    const issue = await updateIssue(username, id, parsed.data);
     return NextResponse.json({ issue });
   } catch (e) {
     console.error("[linear] updateIssue error:", e);
