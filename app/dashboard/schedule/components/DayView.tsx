@@ -175,10 +175,23 @@ function EventBlock({
         ${bg} ${dragging ? "opacity-70 shadow-lg ring-2 ring-gold z-20" : "hover:shadow-md hover:brightness-105 z-10"}
         transition-all cursor-pointer active:cursor-grabbing`}
       style={{ top: `${top}px`, height: `${height}px`, minHeight: `${MIN_DURATION * PX_PER_MIN}px` }}
+      // Button semantics: this was a bare <div onClick>, so every event on the
+      // calendar was unreachable without a mouse. Drag stays mouse-only (a
+      // separate concern), but OPENING an event must not require one.
+      role="button"
+      tabIndex={0}
+      aria-label={`${event.summary}, ${minToTime(displayStart)} to ${minToTime(displayEnd)}`}
       onMouseDown={(e) => { e.stopPropagation(); onDragStart(e, event.id); }}
       // Stop the click bubbling to the grid (which would open the "New event"
       // modal). The parent decides whether this was a click or the tail of a drag.
       onClick={(e) => { e.stopPropagation(); onEventClick(event); }}
+      onKeyDown={(e) => {
+        if (e.key === "Enter" || e.key === " ") {
+          e.preventDefault(); // Space would scroll the day grid
+          e.stopPropagation();
+          onEventClick(event);
+        }
+      }}
     >
       {/* Pencil icon hint on hover */}
       <div className="absolute top-1 right-1 opacity-0 group-hover:opacity-60 transition-opacity pointer-events-none">

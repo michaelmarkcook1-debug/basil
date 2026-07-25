@@ -255,6 +255,16 @@ test("Linear cards are keyboard-operable", () => {
     "Card renders a div; onClick alone made the whole Linear list keyboard-unreachable");
 });
 
+test("calendar events are keyboard-operable", () => {
+  const src = read("app/dashboard/schedule/components/DayView.tsx");
+  // Drag remains mouse-only (a separate concern), but OPENING an event must
+  // never require a mouse — every event was a bare <div onClick>.
+  assert.ok(/role="button"/.test(src) && /tabIndex=\{0\}/.test(src),
+    "calendar events need button semantics");
+  assert.ok(/onKeyDown=\{\(e\) => \{[\s\S]{0,200}onEventClick\(event\)/.test(src),
+    "Enter/Space must open the event");
+});
+
 test("action controls keep a 44px target and a visible label on mobile", () => {
   const src = read("components/actions/action-controls.tsx");
   assert.ok(!/hidden sm:inline">\{label\}/.test(src),
