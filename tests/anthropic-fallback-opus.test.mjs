@@ -1,10 +1,14 @@
 /**
  * tests/anthropic-fallback-opus.test.mjs
  *
- * Owner request (2026-07-22): the user-facing REASONING fallback (Ask Basil +
- * meeting prep / briefings) should fall back to Opus 4.8 at effort:high, not
- * Sonnet 5. Classification (balanced) and data-gathering (fast) fallbacks stay
- * cheap.
+ * OWNER POLICY 2026-07-23: Anthropic is the PRIMARY provider and Claude Opus 5
+ * serves both user-facing tiers —
+ *   mid tier (balanced — email/Slack categorisation) → Opus 5 @ effort LOW
+ *   top tier (default/long — Ask Basil, meeting prep, briefings) → Opus 5 @ HIGH
+ * Data-gathering (fast) stays on Haiku; GPT-5.6 becomes the resilience fallback.
+ *
+ * (Supersedes the 2026-07-22 arrangement, where GPT-5.6 was primary and Opus 4.8
+ * was the fallback.)
  *
  * Static source analysis — no TypeScript compilation required.
  */
@@ -18,35 +22,37 @@ const ROOT = resolve(import.meta.dirname, "..");
 const read = (p) => readFileSync(resolve(ROOT, p), "utf8");
 const cfg = read("lib/ai/model-config.ts");
 
-test("default + long Anthropic fallback is Opus 4.8 (direct-API hyphen form)", () => {
+test("mid + top tiers run Opus 5; data-gathering stays cheap", () => {
   const start = cfg.indexOf("export const ANTHROPIC_MODEL_IDS");
   const table = cfg.slice(start, cfg.indexOf("\n};", start));
-  assert.ok(/default:\s*process\.env\.ANTHROPIC_MODEL_DEFAULT\s*\?\?\s*"claude-opus-4-8"/.test(table),
-    "default tier (Ask Basil) must fall back to claude-opus-4-8");
-  assert.ok(/long:\s*process\.env\.ANTHROPIC_MODEL_LONG\s*\?\?\s*"claude-opus-4-8"/.test(table),
-    "long tier (meeting prep / briefings) must fall back to claude-opus-4-8");
-  // Cheap tiers must NOT be promoted to Opus.
-  assert.ok(/balanced:\s*process\.env\.ANTHROPIC_MODEL_BALANCED\s*\?\?\s*"claude-sonnet-5"/.test(table),
-    "balanced (classification) fallback must stay Sonnet 5");
+  for (const tier of ["balanced", "default", "long"]) {
+    assert.ok(
+      new RegExp(`${tier}:\\s*process\\.env\\.ANTHROPIC_MODEL_${tier.toUpperCase()}\\s*\\?\\?\\s*"claude-opus-5"`).test(table),
+      `${tier} tier must resolve to claude-opus-5 (direct-API form of anthropic/claude-opus-5)`
+    );
+  }
   assert.ok(/"claude-haiku-4-5-20251001"/.test(table),
-    "fast (data-gathering) fallback must stay Haiku");
+    "fast (data-gathering) must stay on Haiku — Opus there is pure waste");
 });
 
-test("Opus fallback runs at effort:high, and effort is NOT applied to cheap tiers", () => {
-  assert.ok(/const ANTHROPIC_EFFORT: Partial<Record<ModelKind, AnthropicEffort>> = \{/.test(cfg),
-    "an ANTHROPIC_EFFORT map must exist");
-  const map = cfg.slice(cfg.indexOf("const ANTHROPIC_EFFORT"), cfg.indexOf("const ANTHROPIC_EFFORT") + 300);
+test("effort is high for the top tier and low for the high-volume mid tier", () => {
+  const start = cfg.indexOf("const ANTHROPIC_EFFORT");
+  const map = cfg.slice(start, cfg.indexOf("\n};", start));
+  assert.ok(/balanced:.*"low"/.test(map),
+    "mid tier is every email + Slack message — it must run at effort low");
   assert.ok(/default:.*"high"/.test(map) && /long:.*"high"/.test(map),
-    "default + long must default to effort:high");
-  assert.ok(!/fast:/.test(map) && !/balanced:/.test(map),
-    "fast/balanced must not set effort (Opus-4.8-era control, meaningless there)");
+    "top tier is what a human reads — effort high");
+  assert.ok(!/\bfast:/.test(map),
+    "fast must not set effort (it runs Haiku, where the control is meaningless)");
 });
 
-test("effort is injected via transformParams so it applies at every fallback call site", () => {
-  const fn = cfg.slice(cfg.indexOf("export function getDirectAnthropicModel"));
-  const body = fn.slice(0, fn.indexOf("\n}\n"));
-  assert.ok(/const effort = ANTHROPIC_EFFORT\[kind\]/.test(body),
-    "getDirectAnthropicModel must look up the tier's effort");
-  assert.ok(/transformParams/.test(body) && /anthropic:\s*\{\s*\.\.\.\(params\.providerOptions\?\.anthropic \?\? \{\}\), effort \}/.test(body),
+test("effort is injected via shared middleware, applying at every call site", () => {
+  assert.ok(/function anthropicEffortMiddleware\(effort: AnthropicEffort\)/.test(cfg),
+    "a single shared middleware must own effort injection");
+  assert.ok(/anthropic:\s*\{\s*\.\.\.\(params\.providerOptions\?\.anthropic \?\? \{\}\), effort \}/.test(cfg),
     "effort must be merged into providerOptions.anthropic via transformParams");
+  // Both the tier-resolved models and the pinned assistant must use it.
+  const uses = [...cfg.matchAll(/anthropicEffortMiddleware\(/g)];
+  assert.ok(uses.length >= 3,
+    "the middleware must be applied by getDirectAnthropicModel AND the pinned chat model");
 });

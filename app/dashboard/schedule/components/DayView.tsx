@@ -255,19 +255,30 @@ function EventDetailPopover({
   const [forwardEmails, setForwardEmails] = useState("");
   const [forwarding, setForwarding] = useState(false);
   const [forwardDone, setForwardDone] = useState(false);
+  // These three actions all reported SUCCESS on failure: "Sent ✓" / "Forwarded"
+  // when the organiser received nothing, and an RSVP that turned green while the
+  // organiser saw no response. Worse, they cleared the user's typed message on a
+  // failed send. Nothing is claimed now unless the server confirmed it.
+  const [actionError, setActionError] = useState("");
 
   async function handleReply() {
     if (!replyMessage.trim()) return;
     setReplySending(true);
+    setActionError("");
     try {
-      await fetch(`/api/calendar/${event.id}/reply`, {
+      // fetch() does not reject on 5xx — without this check the UI showed
+      // "Sent ✓" and wiped the message the user had typed.
+      const res = await fetch(`/api/calendar/${event.id}/reply`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ message: replyMessage, replyAll }),
       });
+      if (!res.ok) throw new Error(`Reply failed (${res.status})`);
       setReplySent(true);
-      setReplyMessage("");
+      setReplyMessage(""); // only after the server confirmed it
       setTimeout(() => { setReplySent(false); setReplyOpen(false); }, 2000);
+    } catch (err) {
+      setActionError(err instanceof Error ? err.message : "Reply failed — the organiser did not receive it.");
     } finally {
       setReplySending(false);
     }
@@ -277,15 +288,19 @@ function EventDetailPopover({
     const emails = forwardEmails.split(/[,;\s]+/).map((e) => e.trim()).filter(Boolean);
     if (emails.length === 0) return;
     setForwarding(true);
+    setActionError("");
     try {
-      await fetch(`/api/calendar/${event.id}/forward`, {
+      const res = await fetch(`/api/calendar/${event.id}/forward`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ emails }),
       });
+      if (!res.ok) throw new Error(`Forward failed (${res.status})`);
       setForwardDone(true);
-      setForwardEmails("");
+      setForwardEmails(""); // only after the server confirmed it
       setTimeout(() => { setForwardDone(false); setForwardOpen(false); }, 2000);
+    } catch (err) {
+      setActionError(err instanceof Error ? err.message : "Forward failed — nothing was sent.");
     } finally {
       setForwarding(false);
     }
@@ -293,9 +308,17 @@ function EventDetailPopover({
 
   async function handleRsvp(status: "accepted" | "declined" | "tentative") {
     setRsvping(true);
-    await onRsvp(status);
-    setRsvpStatus(status);
-    setRsvping(false);
+    setActionError("");
+    try {
+      await onRsvp(status);
+      setRsvpStatus(status); // only reflect the new state if the call succeeded
+    } catch (err) {
+      // Previously there was no catch AND no finally: a throw left all three
+      // RSVP buttons permanently disabled, with the organiser none the wiser.
+      setActionError(err instanceof Error ? err.message : "RSVP failed — the organiser was not notified.");
+    } finally {
+      setRsvping(false);
+    }
   }
 
   const provider = event.videoLink ? isVideoProvider(event.videoLink) : null;
@@ -370,6 +393,18 @@ function EventDetailPopover({
           </div>
 
           {/* RSVP row — only for events where user is an invitee */}
+          {/* Shared failure notice for RSVP / reply / forward. Without this the
+              error state would exist but never reach the user — the same silent
+              failure in a new costume. role=alert so it is announced. */}
+          {actionError && (
+            <p
+              role="alert"
+              className="rounded-md border border-signal-critical-border bg-signal-critical-subtle px-3 py-2 text-xs text-signal-critical"
+            >
+              {actionError}
+            </p>
+          )}
+
           {!isOrganizer && (
             <div className="space-y-1.5">
               <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Your response</p>

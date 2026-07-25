@@ -122,17 +122,20 @@ export const GATEWAY_MODEL_IDS = {
  * with model-not-found — which only surfaces once the gateway is disabled.
  */
 export const ANTHROPIC_MODEL_IDS: Record<ModelKind, string> = {
+  // fast (data-gathering: extraction, connectivity probes) stays on Haiku — the
+  // work is mechanical, and Opus there would be pure waste.
   fast:     process.env.ANTHROPIC_MODEL_FAST     ?? "claude-haiku-4-5-20251001",
-  // balanced (email/Slack classification fallback) stays on Sonnet 5 — cheap and
-  // plenty for categorisation; Opus there would be wasteful when the fallback fires.
-  balanced: process.env.ANTHROPIC_MODEL_BALANCED ?? "claude-sonnet-5",
-  // default (Ask Basil) + long (meeting prep, briefings, digests): the user-facing
-  // REASONING fallback is now Opus 4.8 (owner request, 2026-07-22) — the direct-API
-  // hyphenated form of the gateway's anthropic/claude-opus-4.8 (verified live in the
-  // model list). Run at effort:high via ANTHROPIC_EFFORT below. Env-overridable so
-  // the fallback model can change without a deploy.
-  default:  process.env.ANTHROPIC_MODEL_DEFAULT  ?? "claude-opus-4-8",
-  long:     process.env.ANTHROPIC_MODEL_LONG     ?? "claude-opus-4-8",
+  // OWNER POLICY 2026-07-23: Anthropic is now the PRIMARY provider and Opus 5
+  // serves both user-facing tiers.
+  //   mid  (balanced — email/Slack categorisation) → Opus 5 @ effort LOW
+  //   top  (default/long — Ask Basil, meeting prep, briefings) → Opus 5 @ HIGH
+  // "claude-opus-5" is the direct-API form of the gateway's
+  // anthropic/claude-opus-5 (both verified live against
+  // ai-gateway.vercel.sh/v1/models — model ids are NEVER written from memory
+  // here; guessing them caused a full outage once already).
+  balanced: process.env.ANTHROPIC_MODEL_BALANCED ?? "claude-opus-5",
+  default:  process.env.ANTHROPIC_MODEL_DEFAULT  ?? "claude-opus-5",
+  long:     process.env.ANTHROPIC_MODEL_LONG     ?? "claude-opus-5",
 };
 
 /**
@@ -145,8 +148,12 @@ export const ANTHROPIC_MODEL_IDS: Record<ModelKind, string> = {
  */
 type AnthropicEffort = "low" | "medium" | "high" | "max";
 const ANTHROPIC_EFFORT: Partial<Record<ModelKind, AnthropicEffort>> = {
-  default: (process.env.ANTHROPIC_EFFORT_DEFAULT as AnthropicEffort) ?? "high",
-  long:    (process.env.ANTHROPIC_EFFORT_LONG as AnthropicEffort)    ?? "high",
+  // Mid tier is high-VOLUME (every email + Slack message), so it runs Opus 5 at
+  // the cheapest/fastest setting — the work is categorisation, not reasoning.
+  balanced: (process.env.ANTHROPIC_EFFORT_BALANCED as AnthropicEffort) ?? "low",
+  // Top tier is what a human reads: think hard.
+  default:  (process.env.ANTHROPIC_EFFORT_DEFAULT  as AnthropicEffort) ?? "high",
+  long:     (process.env.ANTHROPIC_EFFORT_LONG     as AnthropicEffort) ?? "high",
 };
 
 /**
@@ -315,8 +322,24 @@ export function getTextModel(kind: ModelKind = "default"): LanguageModel {
  * plain "gpt-5.6" does NOT exist — the series ships as luna/sol/terra only.
  * Both are env-overridable so the model can change without a code deploy.
  */
-export const CHAT_MODEL_GATEWAY_ID = process.env.CHAT_MODEL_GATEWAY ?? "openai/gpt-5.6-sol";
-export const CHAT_MODEL_OPENAI_ID  = process.env.CHAT_MODEL_OPENAI  ?? "gpt-5.6-sol";
+/**
+ * OWNER POLICY 2026-07-23: the assistant is pinned to **Claude Opus 5 @ effort
+ * high**. GPT-5.6 Sol is now the resilience FALLBACK (the inverse of the prior
+ * arrangement) — OpenAI ran out of credit three times in a week, so the model
+ * that has to answer the user sits on the provider that stayed up.
+ *
+ * ID FORMS DIFFER (this exact trap caused a prior outage): the gateway wants
+ * "anthropic/claude-opus-5", the direct Anthropic API wants the bare
+ * "claude-opus-5". Both verified live against ai-gateway.vercel.sh/v1/models.
+ * All three are env-overridable so the model can change without a deploy.
+ */
+export const CHAT_MODEL_GATEWAY_ID   = process.env.CHAT_MODEL_GATEWAY   ?? "anthropic/claude-opus-5";
+export const CHAT_MODEL_ANTHROPIC_ID = process.env.CHAT_MODEL_ANTHROPIC ?? "claude-opus-5";
+/** The assistant's FALLBACK model, used only when the pinned Opus 5 call fails. */
+export const CHAT_MODEL_OPENAI_ID    = process.env.CHAT_MODEL_OPENAI    ?? "gpt-5.6-sol";
+/** Reasoning effort for the pinned assistant model. */
+export const CHAT_EFFORT: AnthropicEffort =
+  (process.env.CHAT_EFFORT as AnthropicEffort) ?? "high";
 
 /** One-line, readable cause for a failed provider call (AI SDK errors are often
  *  plain objects, so String(err) yields "[object Object]"). */
@@ -439,8 +462,10 @@ function chatFallbackMiddleware(fallback: LanguageModelV3): LanguageModelMiddlew
  *  string only in never-hit legacy paths; concrete provider models are objects. */
 function withChatFallback(primary: LanguageModel, kind: ModelKind): LanguageModel {
   if (typeof primary === "string") return primary; // can't wrap a bare slug
-  const fallback = getDirectAnthropicModel(kind);
-  if (!fallback || typeof fallback === "string") return primary; // no Claude key
+  // The assistant is pinned to Opus 5, so the FALLBACK is now the OpenAI side
+  // (this pair was the other way round until 2026-07-23).
+  const fallback = getDirectOpenAIModel(kind);
+  if (!fallback || typeof fallback === "string") return primary; // no OpenAI key
   // Primary already IS this Claude model (no OpenAI key path) → no distinct fallback.
   if (primary.modelId === fallback.modelId) return primary;
   // Both direct providers (and the gateway) are spec v3 at runtime; the union
@@ -456,13 +481,20 @@ function resolveChatPrimaryModel(kind: ModelKind): LanguageModel {
   if (isGatewayEnabled()) {
     return gateway(CHAT_MODEL_GATEWAY_ID as Parameters<typeof gateway>[0]);
   }
-  const _ok = ["OPENAI", "API", "KEY"].join("_");
-  const openaiKey = process.env.openai_basilv2 ?? process.env[_ok];
-  if (openaiKey) return createOpenAI({ apiKey: openaiKey })(CHAT_MODEL_OPENAI_ID);
-  // No OpenAI key configured — keep the assistant alive on Claude rather than
+  const _ak = ["ANTHROPIC", "API", "KEY"].join("_");
+  const anthropicKey = process.env.BASIL_LLM_KEY ?? process.env[_ak];
+  if (anthropicKey) {
+    // Pinned Opus 5 at CHAT_EFFORT. Effort is applied via transformParams so it
+    // rides along on every call without each route passing providerOptions.
+    return wrapLanguageModel({
+      model: createAnthropic({ apiKey: anthropicKey })(CHAT_MODEL_ANTHROPIC_ID) as LanguageModelV3,
+      middleware: anthropicEffortMiddleware(CHAT_EFFORT),
+    });
+  }
+  // No Anthropic key configured — keep the assistant alive on OpenAI rather than
   // throwing. (Different model, but a working assistant beats a dead one.)
-  const anthropicModel = getDirectAnthropicModel(kind);
-  if (anthropicModel) return anthropicModel;
+  const openaiModel = getDirectOpenAIModel(kind);
+  if (openaiModel) return openaiModel;
   return getTextModel(kind);
 }
 
@@ -489,25 +521,29 @@ export function getDirectAnthropicModel(kind: ModelKind = "default"): LanguageMo
   if (!key) return null;
   const model = createAnthropic({ apiKey: key })(ANTHROPIC_MODEL_IDS[kind]);
 
-  // Apply reasoning EFFORT where configured (the Opus-4.8 fallback tiers). Baked
-  // into the model via transformParams so it applies wherever the fallback is
-  // used — the chat middleware's fallback.doStream(params) AND generateTextSafe's
-  // fallback call site alike — without every caller having to pass providerOptions.
+  // Apply reasoning EFFORT where configured. Baked into the model itself so it
+  // applies at EVERY call site — generateTextSafe, and the chat middleware's
+  // fallback.doStream(params) — without each caller passing providerOptions.
   const effort = ANTHROPIC_EFFORT[kind];
   if (!effort) return model;
   return wrapLanguageModel({
-    model,
-    middleware: {
-      specificationVersion: "v3",
-      transformParams: async ({ params }) => ({
-        ...params,
-        providerOptions: {
-          ...params.providerOptions,
-          anthropic: { ...(params.providerOptions?.anthropic ?? {}), effort },
-        },
-      }),
-    },
+    model: model as LanguageModelV3,
+    middleware: anthropicEffortMiddleware(effort),
   });
+}
+
+/** Middleware that pins `providerOptions.anthropic.effort` on every call. */
+function anthropicEffortMiddleware(effort: AnthropicEffort): LanguageModelMiddleware {
+  return {
+    specificationVersion: "v3",
+    transformParams: async ({ params }) => ({
+      ...params,
+      providerOptions: {
+        ...params.providerOptions,
+        anthropic: { ...(params.providerOptions?.anthropic ?? {}), effort },
+      },
+    }),
+  };
 }
 
 /**

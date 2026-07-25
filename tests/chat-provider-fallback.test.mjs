@@ -35,11 +35,13 @@ test("getChatModel wraps the pinned model with a fallback (not a bare model)", (
     "getChatModel must return the pinned model wrapped in a Claude fallback");
 });
 
-test("the fallback wrap uses the AI SDK middleware + a DISTINCT direct-Claude model", () => {
+test("the fallback wrap uses the AI SDK middleware + a DISTINCT cross-provider model", () => {
   assert.ok(/wrapLanguageModel\(/.test(cfg),
     "must use the AI SDK's wrapLanguageModel to wrap the pinned model");
-  assert.ok(/getDirectAnthropicModel\(kind\)/.test(cfg.slice(cfg.indexOf("function withChatFallback"))),
-    "the fallback must be a direct Anthropic (Claude) model");
+  // Since 2026-07-23 the assistant is pinned to Opus 5, so the fallback is the
+  // OpenAI side. The invariant that matters is that it is the OTHER provider.
+  assert.ok(/getDirectOpenAIModel\(kind\)/.test(cfg.slice(cfg.indexOf("function withChatFallback"))),
+    "the fallback must be the opposite provider to the pinned primary");
   const wrap = cfg.slice(cfg.indexOf("function withChatFallback"));
   const wrapBody = wrap.slice(0, wrap.indexOf("\n}\n"));
   assert.ok(/modelId === fallback\.modelId\) return primary/.test(wrapBody),

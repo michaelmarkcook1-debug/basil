@@ -51,6 +51,7 @@ import {
   ChevronDown,
   ChevronUp,
   MessageSquare,
+  Square,
 } from "lucide-react";
 
 // Per-session localStorage key — intentionally includes no username because
@@ -164,7 +165,11 @@ function ChatPageInner() {
   // resubmits as soon as the user clicks Approve OR Deny. The server then
   // runs `execute` for approved calls and emits denial outputs for denied
   // ones, completing the round-trip.
-  const { messages, sendMessage, setMessages, addToolApprovalResponse, status, error } =
+  // `stop` was previously not destructured, so a stalled stream left "Thinking…"
+  // spinning with Send, Attach and New-chat all disabled FOREVER — the only
+  // escape was a page reload. Ask Basil runs long tool loops on a reasoning
+  // model, so a stall is not hypothetical.
+  const { messages, sendMessage, setMessages, addToolApprovalResponse, status, error, stop } =
     useChat({
       sendAutomaticallyWhen: resubmitWhen,
     });
@@ -603,15 +608,30 @@ function ChatPageInner() {
           className="min-h-12 max-h-40 resize-none border-gold/20 focus-visible:ring-gold py-3 text-[16px] sm:text-sm"
           rows={1}
         />
-        <Button
-          type="submit"
-          size="icon"
-          disabled={isActive || (!input.trim() && stagedFiles.length === 0)}
-          aria-label="Send message"
-          className="h-12 w-12 shrink-0 bg-gradient-to-r from-gold to-[oklch(0.78_0.12_85)] hover:from-[oklch(0.78_0.12_85)] hover:to-[oklch(0.82_0.10_85)] text-white"
-        >
-          <Send className="h-4 w-4" />
-        </Button>
+        {/* While a reply is in flight the primary control becomes Stop, so a
+            stalled stream is always escapable without reloading the page. */}
+        {isActive ? (
+          <Button
+            type="button"
+            size="icon"
+            onClick={() => stop()}
+            aria-label="Stop generating"
+            title="Stop generating"
+            className="h-12 w-12 shrink-0 border border-border/60 bg-card text-foreground hover:bg-card/70"
+          >
+            <Square className="h-4 w-4" fill="currentColor" />
+          </Button>
+        ) : (
+          <Button
+            type="submit"
+            size="icon"
+            disabled={!input.trim() && stagedFiles.length === 0}
+            aria-label="Send message"
+            className="h-12 w-12 shrink-0 bg-gradient-to-r from-gold to-[oklch(0.78_0.12_85)] hover:from-[oklch(0.78_0.12_85)] hover:to-[oklch(0.82_0.10_85)] text-white"
+          >
+            <Send className="h-4 w-4" />
+          </Button>
+        )}
       </div>
     </form>
   );

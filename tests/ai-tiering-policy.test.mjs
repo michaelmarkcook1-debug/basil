@@ -52,11 +52,15 @@ test("price families match the real per-tier model rates", () => {
   assert.ok(/gpt56luna:\s*\{\s*inputPerM:\s*1,\s*outputPerM:\s*6\s*\}/.test(pricing), "luna = $1/$6");
   assert.ok(/gpt56terra:\s*\{\s*inputPerM:\s*2\.5,\s*outputPerM:\s*15\s*\}/.test(pricing), "terra = $2.50/$15");
   assert.ok(/gpt56sol:\s*\{\s*inputPerM:\s*5,\s*outputPerM:\s*30\s*\}/.test(pricing), "sol = $5/$30");
+  assert.ok(/opus5:\s*\{\s*inputPerM:\s*5,\s*outputPerM:\s*25\s*\}/.test(pricing), "opus-5 = $5/$25");
+  // Anthropic is PRIMARY as of 2026-07-23, so familyForTier mirrors
+  // ANTHROPIC_MODEL_IDS (fast → haiku, balanced/default/long → opus-5), not the
+  // OpenAI table. The gpt56* rates stay defined because they price the fallback.
   const fn = pricing.slice(pricing.indexOf("export function familyForTier"));
   const body = fn.slice(0, fn.indexOf("\n}") + 2);
-  assert.ok(/case "fast": return "gpt56luna"/.test(body), "fast prices as luna");
-  assert.ok(/case "balanced": return "gpt56terra"/.test(body), "balanced prices as terra");
-  assert.ok(/return "gpt56sol"/.test(body), "default/long price as sol");
+  assert.ok(/case "fast": return "haiku"/.test(body), "fast prices as haiku");
+  assert.ok(/case "balanced": return "opus5"/.test(body), "balanced prices as opus-5");
+  assert.ok(/return "opus5"/.test(body), "default/long price as opus-5");
 });
 
 test("CATEGORIZATION workloads run on the mid tier, never the lowest", () => {

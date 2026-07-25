@@ -22,7 +22,7 @@ import { RESERVE_OUTPUT_TOKENS } from "./model-config";
 
 /** Model families we price. */
 export type PriceFamily =
-  | "opus" | "sonnet" | "haiku" | "gpt5"
+  | "opus" | "opus5" | "sonnet" | "haiku" | "gpt5"
   | "gpt56luna" | "gpt56terra" | "gpt56sol";
 
 /**
@@ -33,6 +33,10 @@ export type PriceFamily =
  */
 export const FAMILY_PRICING: Record<PriceFamily, { inputPerM: number; outputPerM: number }> = {
   opus:   { inputPerM: 15,   outputPerM: 75 }, // claude-opus-4.8
+  // claude-opus-5 — the PRIMARY model for the mid + top tiers as of 2026-07-23.
+  // Rates read straight off the live gateway listing ($5/M in, $25/M out): it is
+  // cheaper on output than gpt-5.6-sol ($30) and far cheaper than opus-4.8.
+  opus5:  { inputPerM: 5,    outputPerM: 25 },
   sonnet: { inputPerM: 3,    outputPerM: 15 }, // claude-sonnet-4.x / sonnet-5
   haiku:  { inputPerM: 1,    outputPerM: 5 },  // claude-haiku-4.5
   gpt5:   { inputPerM: 1.25, outputPerM: 10 }, // gpt-5.4 (legacy OpenAI fallback)
@@ -46,7 +50,7 @@ export const FAMILY_PRICING: Record<PriceFamily, { inputPerM: number; outputPerM
  * this INSTEAD of familyForTier(), because the assistant's model is pinned
  * rather than tier-resolved.
  */
-export const CHAT_PRICE_FAMILY: PriceFamily = "gpt56sol";
+export const CHAT_PRICE_FAMILY: PriceFamily = "opus5";
 
 export interface TokenUsage {
   inputTokens?: number;
@@ -68,17 +72,17 @@ export function costUsd(family: PriceFamily, usage: TokenUsage | undefined): num
  * (see lib/ai/tiering.ts) and the resulting family flows to the spend guard.
  */
 export function familyForTier(kind: ModelKind): PriceFamily {
-  // Mirrors the OPENAI_MODEL_IDS tiering policy, which is the PRIMARY path
-  // (AI_PREFER_OPENAI is set): fast → luna, balanced → terra, default/long → sol.
-  // If the Anthropic fallback runs instead, its real rates (haiku $1/$5,
-  // sonnet-5 $3/$15) sit at or below these, so the estimate stays conservative.
+  // Mirrors ANTHROPIC_MODEL_IDS, which is the PRIMARY path as of 2026-07-23
+  // (Anthropic-direct): fast → haiku, balanced/default/long → opus-5.
+  // If the OpenAI fallback runs instead its rates (luna $1/$6, terra $2.5/$15,
+  // sol $5/$30) sit at or near these, so the reservation stays sane either way.
   // NOTE: the assistant (Ask Basil) does NOT price via this — its model is
   // pinned, so it uses CHAT_PRICE_FAMILY.
   switch (kind) {
-    case "fast": return "gpt56luna";      // basic data gathering
-    case "balanced": return "gpt56terra"; // categorization
+    case "fast": return "haiku";      // basic data gathering
+    case "balanced": return "opus5";  // categorization (opus-5 @ effort low)
     case "default":
-    case "long": return "gpt56sol";       // contextual + reasoning
+    case "long": return "opus5";      // contextual + reasoning (opus-5 @ effort high)
   }
 }
 
