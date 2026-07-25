@@ -492,6 +492,7 @@ export default function DecisionsPage() {
   const migratedRef = useRef(false);
   // sourceActionId — set when navigating from Actions page "Decision needed" badge
   const [sourceActionId, setSourceActionId] = useState<string | null>(null);
+  const [addError, setAddError] = useState("");
 
   // Read query params once on mount — avoids useSearchParams Suspense requirement
   useEffect(() => {
@@ -644,6 +645,15 @@ export default function DecisionsPage() {
         setSourceActionId(null);
       }
     }
+    // Only wipe the form once the server has the decision. clearForm() used to
+    // run unconditionally, so a 500 silently destroyed the title, statement,
+    // context AND rationale the user had just written — the most expensive
+    // form in the app to retype, and it's persisted as a draft too.
+    if (!res.ok) {
+      setAddError("Couldn't save that decision — your draft is still here.");
+      return;
+    }
+    setAddError("");
     clearForm();
     notify();
   }
@@ -791,6 +801,11 @@ export default function DecisionsPage() {
               onChange={(e) => setForm(f => ({ ...f, rationale: e.target.value }))}
               rows={2}
             />
+            {addError && (
+              <p role="alert" className="rounded-md border border-signal-critical-border bg-signal-critical-subtle px-3 py-2 text-xs text-signal-critical">
+                {addError}
+              </p>
+            )}
             <div className="flex items-center gap-2">
               <Button
                 size="sm"

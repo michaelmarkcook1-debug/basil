@@ -1018,6 +1018,7 @@ function NewMemoryForm({
   const [content, setContent] = useState("");
   const [entity, setEntity] = useState("");
   const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState("");
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -1034,20 +1035,28 @@ function NewMemoryForm({
           source: "manual",
         }),
       });
+      // Nothing is cleared or closed until the server confirms. Previously
+      // setContent("")/setEntity("") ran BEFORE the res.ok check and onClose()
+      // ran unconditionally, so a 500 silently destroyed what the user had just
+      // typed and shut the dialog. The old error branch also pushed
+      // `{} as Memory` into the list — an empty card representing nothing.
+      if (!res.ok) {
+        setSaveError("Couldn't save that memory — your text is still here.");
+        return;
+      }
+      const data = await res.json() as { memory: Memory };
       setContent("");
       setEntity("");
+      setSaveError("");
       onSaved?.();
-      if (res.ok) {
-        const data = await res.json() as { memory: Memory };
-        // Optimistic insert — prepend immediately so the UI is always
-        // consistent regardless of which server instance handles the
-        // subsequent GET (cross-instance snapshot staleness).
-        onCreated(data.memory);
-      } else {
-        // Fallback: trigger a full re-fetch on error
-        onCreated({} as Memory);
-      }
+      // Optimistic insert — prepend immediately so the UI is always
+      // consistent regardless of which server instance handles the
+      // subsequent GET (cross-instance snapshot staleness).
+      onCreated(data.memory);
       onClose();
+    } catch (err) {
+      console.error("[memory] save failed:", err);
+      setSaveError("Couldn't save that memory — your text is still here.");
     } finally {
       setSaving(false);
     }
@@ -1108,6 +1117,11 @@ function NewMemoryForm({
               }
               className="w-full h-10 rounded-lg border border-border bg-background px-3 text-[16px] sm:text-sm focus:outline-none focus:border-gold/40 focus:ring-4 focus:ring-gold/10"
             />
+          )}
+          {saveError && (
+            <p role="alert" className="rounded-md border border-signal-critical-border bg-signal-critical-subtle px-3 py-2 text-xs text-signal-critical">
+              {saveError}
+            </p>
           )}
           <div className="flex items-center gap-2">
             <button

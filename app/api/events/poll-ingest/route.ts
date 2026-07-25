@@ -1,3 +1,13 @@
+/**
+ * Declared explicitly rather than inherited from the platform default. This
+ * route runs TEN after() blocks (Gmail/Outlook/Slack/Teams/Zoom/Calendar/Linear
+ * ingest, AI classification, materialisation) and after() work executes on THIS
+ * invocation. The cron reaches it over `fetch`, so the cron's own budget does
+ * not apply — this invocation needs its own. Silent truncation here loses
+ * ingest, which is the one thing the whole app is built on.
+ */
+export const maxDuration = 300;
+
 import { NextResponse, after } from "next/server";
 import { createEvent, hasExternalId, updateEvent, compactEvents } from "@/lib/events/store";
 import { forceFlushSnapshot } from "@/lib/storage/persistent";

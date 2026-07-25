@@ -926,7 +926,18 @@ export function buildAssistantTools(username: string, firstName?: string, timezo
         }
         const issue = all.find((i) => i.identifier.toLowerCase() === identifier.toLowerCase());
         if (!issue) {
-          return { status: "not_found", error: `No Linear issue found with identifier "${identifier}".` };
+          // getAllIssues is capped (first: 100, ordered by updatedAt) with no
+          // cursor paging, so "absent from this list" is NOT "does not exist" —
+          // an issue that simply hasn't been touched recently falls off the end.
+          // Stating a flat not_found made the assistant deny real issues.
+          return {
+            status: "not_found_in_recent",
+            searchedCount: all.length,
+            error:
+              `"${identifier}" was not among the ${all.length} most recently updated Linear issues. ` +
+              `That list is capped, so this does NOT confirm the issue is missing — say it wasn't ` +
+              `found in recent issues and offer to search Linear directly.`,
+          };
         }
         // 2. Resolve the target state for the issue's team.
         const states = await getWorkflowStates(username, issue.team.id);

@@ -1,3 +1,10 @@
+/**
+ * Explicit budget: the after() block re-classifies every unclassified event,
+ * one AI call each, on THIS invocation. Reached from the cron via `fetch`, so
+ * the cron's 300s does not cover it.
+ */
+export const maxDuration = 300;
+
 import { NextResponse, after } from "next/server";
 import { listEvents } from "@/lib/events/store";
 import { listActions } from "@/lib/actions/store";

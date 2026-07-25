@@ -305,14 +305,30 @@ export async function detectPendingFollowups(
 
   const cutoff = Date.now() - staleHours * 3_600_000;
 
+  // Track failures separately from "connected: false". A source that THREW has
+  // an UNKNOWN answer; a source that returned zero items genuinely has none.
+  let degraded = false;
   const [gmail, slack] = await Promise.all([
-    detectGmail(username, cutoff, maxAgeDays).catch(() => ({ items: [], connected: false })),
-    detectSlack(username, cutoff).catch(() => ({ items: [], connected: false })),
+    detectGmail(username, cutoff, maxAgeDays).catch((err) => {
+      console.warn("[followups] gmail detection failed:", err instanceof Error ? err.message : err);
+      degraded = true;
+      return { items: [], connected: false };
+    }),
+    detectSlack(username, cutoff).catch((err) => {
+      console.warn("[followups] slack detection failed:", err instanceof Error ? err.message : err);
+      degraded = true;
+      return { items: [], connected: false };
+    }),
   ]);
 
   const items = [...gmail.items, ...slack.items].sort((a, b) => b.hoursWaiting - a.hoursWaiting);
 
   const result: DetectFollowupsResult = { items, sources: { gmail: gmail.connected, slack: slack.connected } };
-  followupCache.set(cacheKey, { data: result, at: Date.now() });
+  // NEVER cache a degraded result. Previously a single Gmail 429 or expired
+  // token produced `{items: []}` which was then served for the full 90s TTL —
+  // so the home screen confidently reported "nothing awaiting reply", which is
+  // indistinguishable from a genuinely quiet inbox. Skipping the write means
+  // the very next request retries instead of trusting a known-bad empty.
+  if (!degraded) followupCache.set(cacheKey, { data: result, at: Date.now() });
   return result;
 }
