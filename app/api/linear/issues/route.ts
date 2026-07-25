@@ -17,8 +17,19 @@ export async function GET(req: Request) {
   const assigneeIsMeStr = searchParams.get("assigneeIsMe");
   const assigneeIsMe = assigneeIsMeStr === "true" ? true : undefined;
 
-  const issues = await getAllIssues(username, { teamId, stateType, assigneeIsMe });
-  return NextResponse.json({ issues });
+  // 502, not 200-with-an-empty-list: the page's `if (!res.ok)` error branch was
+  // previously unreachable, so an upstream Linear failure rendered as
+  // "No issues match these filters" — an outage disguised as an empty backlog.
+  try {
+    const issues = await getAllIssues(username, { teamId, stateType, assigneeIsMe });
+    return NextResponse.json({ issues });
+  } catch (err) {
+    console.error("[api/linear/issues] upstream failure:", err);
+    return NextResponse.json(
+      { error: "Couldn't reach Linear. Your issues aren't shown — this is not an empty backlog." },
+      { status: 502 }
+    );
+  }
 }
 
 export async function POST(req: Request) {

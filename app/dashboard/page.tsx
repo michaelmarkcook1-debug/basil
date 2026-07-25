@@ -15,9 +15,9 @@
  */
 
 import { useState, useEffect } from "react";
-import useSWR from "swr";
+import useSWR, { mutate } from "swr";
 import Link from "next/link";
-import { Newspaper, ChevronDown, ArrowUpRight, Sparkles, Inbox, Activity } from "lucide-react";
+import { Newspaper, ChevronDown, ArrowUpRight, Sparkles, Inbox, Activity, AlertTriangle } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { TodayCard } from "@/components/today/today-card";
 import { LearningPrompt } from "@/components/today/learning-prompt";
@@ -58,7 +58,16 @@ interface ActionRecord {
   dueDate?: string;
 }
 
-const swrFetch = (url: string) => fetch(url, { cache: "no-store" }).then((r) => (r.ok ? r.json() : null));
+// THROW on a bad response — do not resolve to null. Swallowing the status here
+// meant SWR never saw an error, so `isLoading` went false with `items` empty and
+// the page announced "All clear — nothing needs you right now." during an
+// outage. For an assistant whose whole job is "I'll tell you what needs you",
+// a failure that reassures you is the one failure you'd never think to retry.
+const swrFetch = async (url: string) => {
+  const r = await fetch(url, { cache: "no-store" });
+  if (!r.ok) throw new Error(`${url} failed (${r.status})`);
+  return r.json();
+};
 const SWR_OPTS = { revalidateOnFocus: false, dedupingInterval: 30_000 };
 
 const BRIEFING_SECTIONS: Array<{ key: keyof BriefingData; label: string }> = [
@@ -94,7 +103,7 @@ export default function DashboardHome() {
   }, []);
 
   const { data: settings } = useSWR("/api/settings", swrFetch, SWR_OPTS);
-  const { data: feed, isLoading } = useSWR<TodayFeedResponse>("/api/today", swrFetch, SWR_OPTS);
+  const { data: feed, isLoading, error: feedError } = useSWR<TodayFeedResponse>("/api/today", swrFetch, SWR_OPTS);
   const { data: calendarData } = useSWR("/api/calendar", swrFetch, SWR_OPTS);
   const { data: actionsData } = useSWR("/api/actions", swrFetch, SWR_OPTS);
   const { data: briefingData } = useSWR("/api/generate/briefing", swrFetch, { ...SWR_OPTS, dedupingInterval: 5 * 60_000 });
@@ -210,6 +219,7 @@ export default function DashboardHome() {
             </h1>
             <p className="mt-1 text-sm text-muted-foreground">
               {isLoading ? "Scanning your day…"
+                : feedError ? "Couldn't reach your sources — this is not an all-clear."
                 : totalNeeds === 0 ? "All clear — nothing needs you right now."
                 : <>
                     <span className="font-medium text-foreground">{totalNeeds}</span> {totalNeeds === 1 ? "thing needs" : "things need"} you
@@ -331,7 +341,24 @@ export default function DashboardHome() {
           </section>
         )}
 
-        {!isLoading && totalNeeds === 0 && (
+        {/* A failed feed must never render as an empty one. */}
+        {!isLoading && feedError && (
+          <div className="flex flex-col items-center justify-center rounded-2xl border border-signal-critical-border bg-signal-critical-subtle py-12 text-center">
+            <span className="flex h-11 w-11 items-center justify-center rounded-full bg-signal-critical/10 text-signal-critical"><AlertTriangle className="h-5 w-5" /></span>
+            <p className="mt-3 text-sm font-medium text-foreground">Couldn&apos;t load your day</p>
+            <p className="mt-1 max-w-sm text-xs text-muted-foreground">
+              Basil couldn&apos;t reach your sources, so this screen is empty because of an error — not because nothing needs you.
+            </p>
+            <button
+              onClick={() => mutate("/api/today")}
+              className="mt-4 rounded-lg border border-border/60 px-3 py-1.5 text-xs font-medium text-foreground hover:bg-card/60"
+            >
+              Try again
+            </button>
+          </div>
+        )}
+
+        {!isLoading && !feedError && totalNeeds === 0 && (
           <div className="flex flex-col items-center justify-center rounded-2xl border border-border/50 bg-card/30 py-12 text-center">
             <span className="flex h-11 w-11 items-center justify-center rounded-full bg-gold/10 text-gold"><Sparkles className="h-5 w-5" /></span>
             <p className="mt-3 text-sm font-medium text-foreground">Nothing needs you right now</p>

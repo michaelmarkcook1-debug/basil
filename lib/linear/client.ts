@@ -291,8 +291,13 @@ export async function getAllIssues(username: string, filters?: IssueFilters): Pr
     const data = await gql<AllIssuesResult>(config.apiKey, query);
     return data.issues.nodes;
   } catch (err) {
+    // RETHROW — do not return []. An expired key, a GraphQL error, a rate limit
+    // and a genuinely empty backlog must not be indistinguishable: returning []
+    // here made the API answer 200 with {issues: []}, so the UI rendered
+    // "No issues match these filters" and Ask Basil reported "you have no
+    // Linear issues" during a Linear outage. Callers decide how to degrade.
     console.error("[linear] getAllIssues error:", err);
-    return [];
+    throw err instanceof Error ? err : new Error(String(err));
   }
 }
 

@@ -113,6 +113,42 @@ test("a failed legacy import never deletes the only local copy", () => {
     "failed import was permanently destroying every legacy action");
 });
 
+// ── Silent failure: an outage must never render as "you have nothing to do" ──
+// This is the highest-severity class in the audit. For an assistant whose job is
+// "I'll tell you what needs you", a failure that REASSURES is the one failure
+// the user would never think to retry.
+
+test("an upstream Linear failure surfaces as an error, not an empty backlog", () => {
+  const client = read("lib/linear/client.ts");
+  const idx = client.indexOf("[linear] getAllIssues error:");
+  assert.ok(idx > -1, "expected the getAllIssues catch block");
+  const block = client.slice(idx, idx + 200);
+  assert.ok(/throw /.test(block) && !/return \[\]/.test(block),
+    "getAllIssues must rethrow — returning [] made an outage indistinguishable from an empty backlog");
+
+  const route = read("app/api/linear/issues/route.ts");
+  assert.ok(/status: 502/.test(route),
+    "the route must answer 502 on upstream failure so the page's !res.ok branch is reachable");
+});
+
+test("the Linear AI tool never reports an outage as 'no issues'", () => {
+  const tools = read("lib/ai/tools.ts");
+  const catches = [...tools.matchAll(/Couldn't reach Linear/g)];
+  assert.ok(catches.length >= 2,
+    "both getAllIssues call sites in the AI tools must catch and tell the model the list is UNKNOWN, " +
+    "otherwise Ask Basil states the backlog is empty during a Linear outage");
+});
+
+test("the home feed fetcher throws, and a failed feed is not an all-clear", () => {
+  const page = read("app/dashboard/page.tsx");
+  assert.ok(!/r\.ok \? r\.json\(\) : null/.test(page),
+    "swrFetch must not swallow the status — SWR then never errors and the page claims 'All clear'");
+  assert.ok(/if \(!r\.ok\) throw/.test(page), "swrFetch must throw on a bad response");
+  assert.ok(/error: feedError/.test(page), "the page must read SWR's error for the feed");
+  assert.ok(/!isLoading && !feedError && totalNeeds === 0/.test(page),
+    "the 'Nothing needs you' empty state must be gated on there being no error");
+});
+
 test("mode-intelligence does not double-count high-priority actions", () => {
   const src = read("components/ui/mode-intelligence.tsx");
   assert.ok(!/stats\.critical \+ stats\.high/.test(src),

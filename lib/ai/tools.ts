@@ -867,10 +867,21 @@ export function buildAssistantTools(username: string, firstName?: string, timezo
         if (!(await isLinearConnected(username))) {
           return { error: "Linear not connected. Connect it in Settings to manage issues." };
         }
-        const all = await getAllIssues(username, {
-          ...(statusType && statusType !== "all" ? { stateType: statusType } : {}),
-          ...(assignedToMe ? { assigneeIsMe: true } : {}),
-        });
+        // Report the outage to the model rather than letting a thrown error
+        // surface as "no issues" — the assistant must never tell the user their
+        // backlog is empty when Linear simply couldn't be reached.
+        let all;
+        try {
+          all = await getAllIssues(username, {
+            ...(statusType && statusType !== "all" ? { stateType: statusType } : {}),
+            ...(assignedToMe ? { assigneeIsMe: true } : {}),
+          });
+        } catch (err) {
+          return {
+            error: "Couldn't reach Linear, so the issue list is unknown — do NOT say the backlog is empty.",
+            detail: err instanceof Error ? err.message.slice(0, 200) : String(err).slice(0, 200),
+          };
+        }
         const visible = includeCompleted
           ? all
           : all.filter((i) => i.state.type !== "completed" && i.state.type !== "cancelled");
@@ -902,7 +913,17 @@ export function buildAssistantTools(username: string, firstName?: string, timezo
           return { error: "Linear not connected." };
         }
         // 1. Find the issue by identifier across the workspace.
-        const all = await getAllIssues(username);
+        let all;
+        try {
+          all = await getAllIssues(username);
+        } catch (err) {
+          // Distinct from "not_found" below: an unreachable Linear must not be
+          // reported as "that issue doesn't exist".
+          return {
+            error: "Couldn't reach Linear, so the issue could not be looked up — this is not proof it's missing.",
+            detail: err instanceof Error ? err.message.slice(0, 200) : String(err).slice(0, 200),
+          };
+        }
         const issue = all.find((i) => i.identifier.toLowerCase() === identifier.toLowerCase());
         if (!issue) {
           return { status: "not_found", error: `No Linear issue found with identifier "${identifier}".` };
