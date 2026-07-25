@@ -14,7 +14,7 @@ import { randomUUID } from "node:crypto";
 import { getSessionUser } from "@/lib/auth";
 import { getRecentSlackMessages, getSlackConfig } from "@/lib/slack/client";
 import { getAuthedClient } from "@/lib/google/auth";
-import { updateCalendar } from "@/lib/google/watch-state";
+import { updateCalendar, getWatchState } from "@/lib/google/watch-state";
 import { readUserStore, writeUserStore } from "@/lib/storage/user-store";
 import { HEALTH_META_FILE, type HealthMeta } from "@/lib/system/health";
 
@@ -57,17 +57,24 @@ export async function POST(req: Request) {
   if (jobs.includes("ingest")) {
     after(async () => {
       try {
-        // Call our own poll-ingest cron endpoint internally.
-        // We pass the CRON_SECRET so the route accepts the request.
+        // Trigger poll-ingest for THIS user. poll-ingest authorises
+        // server-to-server callers with CRON_SECRET and scopes the run to the
+        // X-Basil-Username header — WITHOUT it, poll-ingest falls back to the
+        // admin/first user and would ingest for the wrong account (so "Sync now"
+        // would never refresh the logged-in user's data).
         const secret = process.env.CRON_SECRET;
+        if (!secret) {
+          console.warn("[sync-now] CRON_SECRET unset — cannot trigger ingest");
+          return;
+        }
         const host = process.env.VERCEL_URL
           ? `https://${process.env.VERCEL_URL}`
           : "http://localhost:3000";
         const res = await fetch(`${host}/api/events/poll-ingest`, {
           method: "POST",
-          headers: secret ? { authorization: `Bearer ${secret}` } : {},
+          headers: { authorization: `Bearer ${secret}`, "x-basil-username": username },
         });
-        console.log(`[sync-now] poll-ingest triggered: ${res.status}`);
+        console.log(`[sync-now] poll-ingest triggered for ${username}: ${res.status}`);
       } catch (e) {
         console.error("[sync-now] poll-ingest background error:", e instanceof Error ? e.message : e);
       }
@@ -88,6 +95,23 @@ export async function POST(req: Request) {
           results.calendar = { ok: false, reason: "Google not connected" };
         } else {
           const cal = google.calendar({ version: "v3", auth });
+          // Don't leak a fresh channel on every Sync now. If a healthy watch
+          // already exists (>24h from expiry), keep it. Otherwise stop the old
+          // channel before registering a new one so channels don't accumulate.
+          const existing = (await getWatchState(username).catch(() => null))?.calendar; // basil-ci-allow-silent-catch: absent watch-state → treat as no existing channel
+          const DAY_MS = 24 * 60 * 60 * 1000;
+          if (existing?.channelId && existing.expiration && existing.expiration > Date.now() + DAY_MS) {
+            results.calendar = {
+              ok: true,
+              reason: "already-registered",
+              expiresAt: new Date(existing.expiration).toISOString(),
+            };
+          } else {
+          if (existing?.channelId && existing.resourceId) {
+            await cal.channels.stop({
+              requestBody: { id: existing.channelId, resourceId: existing.resourceId },
+            }).catch(() => {/* ci-ok: best-effort stop; old channel may already be gone */});
+          }
           const channelId = `basil-cal-${randomUUID()}`;
           const res = await cal.events.watch({
             calendarId: "primary",
@@ -107,6 +131,7 @@ export async function POST(req: Request) {
             ? new Date(Number(res.data.expiration)).toISOString()
             : null;
           results.calendar = { ok: true, channelId, expiresAt };
+          }
         }
       }
     } catch (e) {
@@ -116,18 +141,29 @@ export async function POST(req: Request) {
     }
   }
 
-  // ── Briefing generation (background via cron endpoint) ───────────────────
+  // ── Briefing generation (background, THIS user only) ─────────────────────
+  // Targets the per-user worker with x-basil-username — NOT /api/cron/generate-briefing,
+  // which fans out to EVERY user (a per-user action must never regenerate everyone's brief).
   if (jobs.includes("briefing")) {
     after(async () => {
       try {
         const secret = process.env.CRON_SECRET;
+        if (!secret) {
+          console.warn("[sync-now] CRON_SECRET unset — cannot trigger briefing");
+          return;
+        }
         const host = process.env.APP_URL
           ?? (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : "http://localhost:3000");
-        const res = await fetch(`${host}/api/cron/generate-briefing`, {
-          method: "GET",
-          headers: secret ? { authorization: `Bearer ${secret}` } : {},
+        const res = await fetch(`${host}/api/generate/briefing`, {
+          method: "POST",
+          headers: {
+            "content-type": "application/json",
+            authorization: `Bearer ${secret}`,
+            "x-basil-username": username,
+          },
+          body: JSON.stringify({}),
         });
-        console.log(`[sync-now] briefing cron triggered: ${res.status}`);
+        console.log(`[sync-now] briefing triggered for ${username}: ${res.status}`);
       } catch (e) {
         console.error("[sync-now] briefing background error:", e instanceof Error ? e.message : e);
       }

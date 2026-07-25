@@ -28,7 +28,7 @@ export async function GET() {
   // List root-level and user-scoped files from Blob (or local FS in dev)
   const [rootFiles, userFiles] = await Promise.all([
     listStore(),
-    listStore(`users/${username.replace(/[^a-zA-Z0-9._-]/g, "_")}`),
+    listStore(`users/${username.toLowerCase().replace(/[^a-zA-Z0-9._-]/g, "_")}`),
   ]);
 
   // Also snapshot /tmp cache for debugging warm-instance state

@@ -20,6 +20,7 @@
  */
 
 import { NextResponse } from "next/server";
+import { timingSafeEqualStr } from "@/lib/auth/safe-compare";
 import { purgeNonMemberSlackItems } from "@/lib/slack/cleanup-nonmember";
 
 export const dynamic = "force-dynamic";
@@ -30,7 +31,7 @@ export async function POST(req: Request) {
   if (!token) {
     return NextResponse.json({ error: "ADMIN_API_TOKEN is not configured." }, { status: 503 });
   }
-  if ((req.headers.get("x-admin-token") ?? "") !== token) {
+  if (!timingSafeEqualStr(req.headers.get("x-admin-token"), token)) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 

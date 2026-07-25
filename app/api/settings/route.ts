@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { getSettings, patchSettings } from "@/lib/settings/store";
 import { getSessionUser, SKIP_AUTH } from "@/lib/auth";
-import { findByUsername } from "@/lib/users";
+import { findByUsername, updateUser } from "@/lib/users";
 import { parseBody, apiError } from "@/lib/api/respond";
 
 /** Type-validates the patchable settings fields (semantic checks remain in patchSettings). */
@@ -21,6 +21,8 @@ const SettingsPatchSchema = z.object({
   pinnedSlackContacts: z.array(z.string().max(200)).max(100).optional(),
   briefingEmail: z.boolean().optional(),
   briefingSlack: z.boolean().optional(),
+  // Email aliases / send-as addresses (stored on the user record, not settings).
+  aliasEmails: z.array(z.string().email().max(320)).max(20).optional(),
 });
 
 /** GET /api/settings — returns the full UserSettings object for the current user,
@@ -33,6 +35,7 @@ export async function GET() {
     ...settings,
     username,
     email: user?.email ?? "",
+    aliasEmails: user?.aliasEmails ?? [],
     onboardingCompleted: SKIP_AUTH ? true : (user?.onboardingCompleted ?? false),
     profile: user?.profile ?? {},
   });
@@ -51,8 +54,18 @@ export async function PATCH(req: Request) {
   if (!parsed.ok) return parsed.response;
 
   try {
-    const updated = await patchSettings(username, parsed.data);
-    return NextResponse.json(updated);
+    // aliasEmails live on the user record (read by getSelfIdentity), not the
+    // settings store — split them out and persist via updateUser.
+    const { aliasEmails, ...settingsPatch } = parsed.data;
+    if (aliasEmails !== undefined) {
+      const normalized = Array.from(
+        new Set(aliasEmails.map((a) => a.trim().toLowerCase()).filter(Boolean))
+      );
+      await updateUser(username, { aliasEmails: normalized });
+    }
+    const updated = await patchSettings(username, settingsPatch);
+    const user = await findByUsername(username);
+    return NextResponse.json({ ...updated, aliasEmails: user?.aliasEmails ?? [] });
   } catch (e) {
     const message = e instanceof Error ? e.message : "Update failed";
     console.error("[api/settings] PATCH failed:", message);

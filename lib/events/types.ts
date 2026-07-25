@@ -3,7 +3,7 @@
 // engine into one of three dispositions (auto / draft / notify) and flows
 // through a single queue that drives the dashboard widget + approval panel.
 
-export type EventSource = "email" | "slack" | "calendar" | "drive" | "manual" | "zoom_email" | "zoom";
+export type EventSource = "email" | "slack" | "teams" | "calendar" | "drive" | "manual" | "zoom_email" | "zoom";
 
 export type EventDisposition =
   | "auto" // Basil acted — no user attention required, just a record

@@ -24,9 +24,15 @@ export function isBackupConfigured(): boolean {
 }
 
 /**
- * Copy every blob under basil/users/** into basil/_backups/<dateKey>/users/**.
- * dateKey is an ISO date string (YYYY-MM-DD); pass it in so the caller controls
- * the clock. Returns the number of blobs copied.
+ * Copy every blob under basil/** (EXCEPT the backup tree) into
+ * basil/_backups/<dateKey>/**. This deliberately includes the account database
+ * (secure-users.json), reset tokens, and any other top-level scope — NOT just
+ * per-user data — because a clobber of secure-users.json is the highest-impact
+ * loss and previously had no recovery point.
+ *
+ * NOTE: Blob-only. When DATABASE_URL is set the live data lives in Postgres and
+ * this Blob snapshot may be stale/empty; rely on the database's own PITR/backups
+ * for that backend. dateKey is an ISO date string (YYYY-MM-DD).
  */
 export async function backupAllUsers(dateKey: string): Promise<{ copied: number; backupPrefix: string }> {
   const backupPrefix = `${BACKUP_ROOT}/${dateKey}/`;
@@ -34,10 +40,13 @@ export async function backupAllUsers(dateKey: string): Promise<{ copied: number;
   let cursor: string | undefined;
 
   do {
-    const result = await list({ prefix: `${PREFIX}/users/`, cursor, limit: 100 });
+    const result = await list({ prefix: `${PREFIX}/`, cursor, limit: 100 });
     for (const b of result.blobs) {
-      // basil/users/<u>/file.json → basil/_backups/<date>/users/<u>/file.json
-      const rel = b.pathname.slice(PREFIX.length + 1); // "users/<u>/file.json"
+      // Never back up the backup tree itself — that would grow snapshots
+      // geometrically and re-copy yesterday's copies into today's.
+      if (b.pathname.startsWith(`${BACKUP_ROOT}/`)) continue;
+      // basil/<...> → basil/_backups/<date>/<...>  (e.g. secure-users.json, users/<u>/file.json)
+      const rel = b.pathname.slice(PREFIX.length + 1);
       try {
         await copy(b.url, `${backupPrefix}${rel}`, {
           access: "private",

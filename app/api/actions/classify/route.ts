@@ -154,11 +154,12 @@ export async function POST(req: Request) {
     let aiText: string | null = null;
     try {
       const { text } = await generateTextSafe({
-        model: getTextModel("fast"),
+        // CATEGORIZATION → mid tier.
+        model: getTextModel("balanced"),
         maxOutputTokens: 1024,
         temperature: 0,
         prompt: buildPrompt(batch, todayStr),
-      }, "fast", { username, feature: "classify:actions" });
+      }, "balanced", { username, feature: "classify:actions" });
       aiText = text;
     } catch (aiErr) {
       // AI call failed — fall through to heuristic

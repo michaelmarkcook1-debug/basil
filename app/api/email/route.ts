@@ -3,7 +3,7 @@ import { isGoogleConnected } from "@/lib/google/auth";
 import { getRecentEmails, sendEmail, createDraft, getGmailAddress } from "@/lib/google/gmail";
 import { getSessionUser } from "@/lib/auth";
 import { listEvents } from "@/lib/events/store";
-import { contacts as staticContacts } from "@/lib/contacts-data";
+import { sampleContacts } from "@/lib/contacts-data";
 import { emitAuditEvent } from "@/lib/events/audit";
 import { getSelfIdentity } from "@/lib/self-identity";
 
@@ -18,7 +18,7 @@ import { getSelfIdentity } from "@/lib/self-identity";
 // that look like newsletters / system notifications.
 
 const KNOWN_CONTACT_EMAILS = new Set(
-  staticContacts.flatMap((c) => {
+  sampleContacts().flatMap((c) => {
     const email = (c as { email?: string }).email;
     return email ? [email.toLowerCase()] : [];
   })

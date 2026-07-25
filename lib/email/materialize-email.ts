@@ -34,6 +34,13 @@ export interface MaterializeEmailInput {
   intelligence: EmailIntelligence;
   /** Gmail message ID (without "gmail:" prefix). */
   messageId: string;
+  /**
+   * Full provider-prefixed source reference, e.g. "gmail:<id>" or "outlook:<id>".
+   * Pass this so Outlook-sourced records aren't fabricated with a "gmail:" prefix
+   * (which mislabels provenance and breaks sourceRef-based dedup/back-links).
+   * Falls back to "gmail:<messageId>" when omitted (legacy Gmail callers).
+   */
+  sourceRef?: string;
   /** BasilEvent ID created for this email. */
   eventId: string;
   /** Email subject — used as context label in created records. */
@@ -82,16 +89,25 @@ const EXPLICIT_ONLY_ACTION_CATEGORIES = new Set<EmailCategory>([
 export async function materializeEmailIntelligence(
   input: MaterializeEmailInput
 ): Promise<MaterializeEmailResult> {
-  const { intelligence: intel, messageId, eventId, subject, from, date, username } = input;
+  const { intelligence: intel, messageId, sourceRef: sourceRefInput, eventId, subject, from, date, username } = input;
 
   if (!username) {
     console.error("[email-materialize] username is required — refusing to write without owner");
     return { actionsCreated: 0, decisionsCreated: 0, memoriesCreated: 0, auditEntries: [] };
   }
 
-  const sourceRef = `gmail:${messageId}`;
+  // Use the real provider-prefixed ref (gmail:/outlook:) when the caller supplies
+  // it; only legacy Gmail-only callers fall back to reconstructing "gmail:<id>".
+  const sourceRef = sourceRefInput ?? `gmail:${messageId}`;
   const dateShort = date.slice(0, 10);
-  const shortSubject = subject.length > 60 ? subject.slice(0, 57) + "…" : subject;
+  // Canonicalise calendar-churn prefixes BEFORE truncation. Google sends
+  // "Invitation:", then "Updated invitation:" (and "Accepted:"/"Declined:")
+  // for the SAME event — each variant produced a differently-worded action for
+  // one underlying ask, defeating dedupe and stacking near-identical rows.
+  const canonicalSubject = subject
+    .replace(/^\s*updated invitation:/i, "Invitation:")
+    .replace(/^\s*(accepted|declined|tentatively accepted):/i, "Invitation:");
+  const shortSubject = canonicalSubject.length > 60 ? canonicalSubject.slice(0, 57) + "…" : canonicalSubject;
 
   let actionsCreated = 0;
   let decisionsCreated = 0;
@@ -146,6 +162,11 @@ export async function materializeEmailIntelligence(
             source: "email",
             eventId,
             sourceRef,
+            // Scheduling emails carry the event date in the subject — parse it
+            // (raw subject, pre-truncation) so the action is actually schedulable.
+            dueDate: intel.category === "scheduling_signal"
+              ? inferEventDateFromSubject(subject, date)
+              : undefined,
             // Urgency drives priority for synthesized actions
             priority: intel.urgency === "high" ? "high" : intel.urgency === "medium" ? "medium" : "low",
             confidence: intel.confidence,
@@ -313,6 +334,33 @@ export async function materializeEmailIntelligence(
  * Synthesize a "respond to" action when the category implies an action
  * but no explicit action items were extracted from the body.
  */
+/**
+ * Deterministically pull the EVENT date out of a calendar-email subject.
+ *
+ * Google Calendar subjects embed it verbatim: `Invitation: AG Demo @ Fri
+ * Jun 12, 2026 7:30pm (BST)`. Synthesized scheduling actions previously
+ * carried NO dueDate (the synthesize path never consults the model's
+ * extraction), which is a large part of why 422/432 open actions were undated
+ * and unschedulable. Regex-first, Date-parse second, and only accepted when
+ * the result lands within ±1 year of the email — a garbage parse must never
+ * date an action.
+ */
+function inferEventDateFromSubject(subject: string, emailDate: string): string | undefined {
+  const m = subject.match(/@\s*(?:Mon|Tue|Wed|Thu|Fri|Sat|Sun)?,?\s*([A-Z][a-z]{2,8}\s+\d{1,2},?\s+\d{4})/);
+  if (!m) return undefined;
+  const parsed = new Date(m[1]);
+  if (Number.isNaN(parsed.getTime())) return undefined;
+  const anchor = new Date(emailDate).getTime() || Date.now();
+  if (Math.abs(parsed.getTime() - anchor) > 366 * 24 * 60 * 60 * 1000) return undefined;
+  // Format from LOCAL date parts, not toISOString(): "Aug 3" parses to local
+  // midnight, and toISOString() shifts that to the previous UTC day for any
+  // timezone ahead of UTC — storing "Aug 2" for an Aug 3 event.
+  const y = parsed.getFullYear();
+  const mo = String(parsed.getMonth() + 1).padStart(2, "0");
+  const da = String(parsed.getDate()).padStart(2, "0");
+  return `${y}-${mo}-${da}`;
+}
+
 function synthesizeActionText(
   category: EmailCategory,
   shortSubject: string,

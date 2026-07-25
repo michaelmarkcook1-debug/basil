@@ -21,6 +21,8 @@ import { getEmailBody } from "@/lib/google/gmail";
 import { classifyEmail, shouldMaterialize } from "@/lib/email/classify-email";
 import { materializeEmailIntelligence } from "@/lib/email/materialize-email";
 import { extractZoomMeeting } from "@/lib/zoom/extract-meeting";
+import { writeToneObservations } from "@/lib/contacts/tone-store";
+import { touchContactsRecency } from "@/lib/contacts/touch-recency";
 import { createActionTracked } from "@/lib/actions/store";
 import { createDecisionTracked, linkActionToDecision } from "@/lib/decisions/store";
 import { createMemoryTracked } from "@/lib/memory/store";
@@ -171,6 +173,7 @@ export async function processRegularEmail(opts: ProcessEmailOpts): Promise<void>
     const result = await materializeEmailIntelligence({
       intelligence: intel,
       messageId: gmailId,
+      sourceRef, // real provider-prefixed ref (gmail:/outlook:) — not a fabricated gmail: id
       eventId,
       subject,
       from,
@@ -346,6 +349,15 @@ export async function processZoomEmail(opts: ProcessZoomEmailOpts): Promise<void
     const zoomATier = zoomActionTier(extract.confidence);
     const zoomDTier = zoomDecisionTier(extract.confidence);
     const zoomMTier = memoryTier(extract.confidence);
+
+    // Tone observations → per-contact tone history (same store as email/Slack and
+    // the Zoom-API path). Zoom-recap emails now contribute to tone + contact
+    // tracing, not just actions/decisions/memory.
+    if (extract.toneShifts?.length) {
+      await writeToneObservations(username, extract.toneShifts, extract.meetingDate || date, "zoom", sourceRef).catch((err) => {
+        console.error("[zoom-process] tone observation write failed:", err instanceof Error ? err.message : err);
+      });
+    }
 
     // ── Action items ──────────────────────────────────────────────────────────
     // Per-item confidence (when present) overrides meeting-level confidence so
@@ -560,6 +572,13 @@ export async function processZoomEmail(opts: ProcessZoomEmailOpts): Promise<void
       const participants = extract.attendees
         .filter((a) => a.trim() && !isSelf(a, selfIdentity))
         .slice(0, 8);
+      // Advance contact recency for Zoom attendees so a recent call counts toward
+      // "last interaction" — the delta engine's "gone quiet" signal reads that
+      // field, and Zoom participation previously never updated it.
+      await touchContactsRecency(
+        username,
+        participants.map((a) => ({ name: a.trim(), date: meetingDateStr, source: "zoom" }))
+      ).catch(() => 0);
       for (const attendee of participants) {
         try {
           const { item: memory, created } = await createMemoryTracked(username, {

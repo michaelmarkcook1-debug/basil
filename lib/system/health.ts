@@ -115,7 +115,8 @@ type ExtendedGoogleStatus = IntegrationStatus & {
 };
 
 function safeUser(u: string): string {
-  return u.replace(/[^a-zA-Z0-9._-]/g, "_");
+  // Lowercase first: usernames are case-insensitive, so all per-user paths agree.
+  return u.toLowerCase().replace(/[^a-zA-Z0-9._-]/g, "_");
 }
 function userSubdir(u: string): string {
   return `users/${safeUser(u)}`;

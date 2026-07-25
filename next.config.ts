@@ -61,6 +61,21 @@ const nextConfig: NextConfig = {
       },
     ]);
   },
+
+  // Deprecated feed surfaces. Their function was deliberately folded into Today
+  // (see components/app-sidebar.tsx: "Signals folded into Today", digest/briefing
+  // subsumed by the home feed), leaving these routes unreachable from any nav —
+  // dead ends a stray bookmark or old link could still hit. Redirect them to the
+  // canonical home so there's exactly one "what needs me now". Non-permanent (307)
+  // in case a surface is ever revived. The page code is left in place, just
+  // unreachable, so nothing is destroyed.
+  redirects() {
+    return Promise.resolve([
+      { source: "/dashboard/delta",   destination: "/dashboard", permanent: false },
+      { source: "/dashboard/digest",  destination: "/dashboard", permanent: false },
+      { source: "/dashboard/signals", destination: "/dashboard", permanent: false },
+    ]);
+  },
 };
 
 export default withWorkflow(nextConfig);

@@ -84,6 +84,13 @@ const MEETING_ATTENDANCE_PATTERNS = [
   /^(be at|show up to|dial.?into)\b/i,
   /\bmeet(ing)?\s+with\b/i,
   /\b(call|sync|standup|stand-up|check-in|1:1|one-on-one|catch-?up)\s+with\b/i,
+  // Synthesized invite-response actions ("Respond to scheduling request from X
+  // re: 'Invitation: … @ Fri Jul 3, 2026'"). Once the event date (= the
+  // action's dueDate, set at ingest from the subject) has passed, responding is
+  // exactly as moot as attending — without this, expired invite-responses sat
+  // in the open list forever (observed: 5 of 9 Olivia scheduling rows referred
+  // to events that had already happened).
+  /^respond to scheduling request\b/i,
 ];
 
 /**

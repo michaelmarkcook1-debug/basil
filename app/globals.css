@@ -354,43 +354,45 @@ html:has(.auth-shell) {
 /* ─── Dark mode — Basil deep navy / gold ─────────────────────────────────── */
 .dark {
   /* Core palette */
-  --background:          #07111F;
-  --foreground:          #F3EFE7;
-  --card:                #0B1730;
-  --card-foreground:     #F3EFE7;
-  --popover:             #111C2E;
-  --popover-foreground:  #F3EFE7;
-  --primary:             #C8A96B;
-  --primary-foreground:  #07111F;
-  --secondary:           #111C2E;
-  --secondary-foreground: #F3EFE7;
-  --muted:               #111C2E;
-  /* Brightened from #AAB3C5 → keeps text legible even when components apply
-     /60–/70 opacity modifiers (WCAG AA: 4.5:1 holds down to ~/55). */
-  --muted-foreground:    #C6CEDB;
-  --accent:              #0B1730;
-  --accent-foreground:   #F3EFE7;
-  --destructive:         #D96C5F;
-  --border:              rgba(200, 169, 107, 0.16);
-  --input:               #111C2E;
-  --ring:                #C8A96B;
+  /* Warmed + lifted (was #07111F-based near-black navy). Surfaces sit higher off
+     the background with stronger elevation contrast and a warmer slate tone, so
+     the UI reads as inviting rather than a black void. */
+  --background:          #0E1724;
+  --foreground:          #F4F1EA;
+  --card:                #18222F;
+  --card-foreground:     #F4F1EA;
+  --popover:             #1C2738;
+  --popover-foreground:  #F4F1EA;
+  --primary:             #D4B978;
+  --primary-foreground:  #0E1724;
+  --secondary:           #1C2738;
+  --secondary-foreground: #F4F1EA;
+  --muted:               #1C2738;
+  /* Brighter secondary text for engagement + legibility under /60–/70 opacity. */
+  --muted-foreground:    #D2D8E2;
+  --accent:              #18222F;
+  --accent-foreground:   #F4F1EA;
+  --destructive:         #E07A6D;
+  --border:              rgba(200, 169, 107, 0.20);
+  --input:               #1C2738;
+  --ring:                #D4B978;
 
-  /* Surface elevation (dark) */
-  --surface-0:   #07111F;
-  --surface-1:   #0B1730;
-  --surface-2:   #111C2E;
-  --surface-3:   #16233B;
-  --surface-border: rgba(200, 169, 107, 0.14);
+  /* Surface elevation (dark) — lifted for clearer depth */
+  --surface-0:   #0E1724;
+  --surface-1:   #18222F;
+  --surface-2:   #202B3C;
+  --surface-3:   #2A3650;
+  --surface-border: rgba(200, 169, 107, 0.18);
 
-  /* Sidebar — darkest navy */
-  --sidebar:                #060E1A;
-  --sidebar-foreground:     #F3EFE7;
-  --sidebar-primary:        #C8A96B;
-  --sidebar-primary-foreground: #07111F;
-  --sidebar-accent:         #0B1730;
-  --sidebar-accent-foreground: #F3EFE7;
-  --sidebar-border:         rgba(200, 169, 107, 0.10);
-  --sidebar-ring:           #C8A96B;
+  /* Sidebar — lifted off pure black */
+  --sidebar:                #0B131F;
+  --sidebar-foreground:     #F4F1EA;
+  --sidebar-primary:        #D4B978;
+  --sidebar-primary-foreground: #0E1724;
+  --sidebar-accent:         #18222F;
+  --sidebar-accent-foreground: #F4F1EA;
+  --sidebar-border:         rgba(200, 169, 107, 0.14);
+  --sidebar-ring:           #D4B978;
 
   /* Charts */
   --chart-1: #C8A96B;
@@ -753,21 +755,12 @@ html:has(.auth-shell) {
   transition-timing-function: var(--ease-decelerate);
 }
 
-/* Reduced motion override — respect user preference */
-@media (prefers-reduced-motion: reduce) {
-  .basil-transition,
-  .basil-transition-quick,
-  .basil-transition-reveal,
-  .basil-transition-layout,
-  .basil-transition-deliberate {
-    transition-duration: 0ms !important;
-  }
-  * {
-    animation-duration: 0.01ms !important;
-    animation-iteration-count: 1 !important;
-    transition-duration: 0.01ms !important;
-  }
-}
+/* Motion is intentionally always ON — by owner request, Basil animates fully on
+   every device and does NOT honour prefers-reduced-motion. The product is
+   designed to feel alive; full hover/transition/reveal/loop motion plays
+   regardless of the OS "reduce motion" setting. (Deliberate choice, not an
+   oversight — restore a `@media (prefers-reduced-motion: reduce)` block here if
+   accessibility/WCAG 2.3.3 compliance is ever required.) */
 
 /* ── 5. INTERACTION SYSTEM ────────────────────────────────────────────────────
    Interaction states: functional, not decorative.

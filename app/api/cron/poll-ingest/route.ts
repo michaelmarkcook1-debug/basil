@@ -26,6 +26,10 @@ import { getUsers } from "@/lib/users";
 import { captureCronFailures } from "@/lib/observability/capture";
 
 export const dynamic = "force-dynamic";
+// This wrapper fans out one poll-ingest per user SEQUENTIALLY. Without an explicit
+// budget the loop hits the default timeout and silently truncates the tail of the
+// user list as the account count grows. 300s is the platform max.
+export const maxDuration = 300;
 
 export async function GET(req: Request) {
   const authHeader = req.headers.get("authorization");

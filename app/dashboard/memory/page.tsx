@@ -100,6 +100,20 @@ export default function MemoryPage() {
   const [search, setSearch] = useState("");
   const [showForm, setShowForm] = useState(false);
 
+  // ?new=1 — the Cmd-K palette's "Add note" quick action. The palette
+  // advertised this param but nothing read it, so the shortcut navigated here
+  // and silently did nothing.
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const p = new URLSearchParams(window.location.search);
+    if (p.get("new") === "1") {
+      setShowForm(true);
+      const clean = new URL(window.location.href);
+      clean.searchParams.delete("new");
+      window.history.replaceState(null, "", clean.toString());
+    }
+  }, []);
+
   // ── Import from another LLM / files ──────────────────────────────────────
   const [showImport, setShowImport]           = useState(false);
 
@@ -451,7 +465,10 @@ export default function MemoryPage() {
       {/* ── Sticky extraction banner — shown whenever importing, even if panel is scrolled ── */}
       {importing && (
         <div className="sticky top-0 z-50 -mx-4 sm:-mx-6 lg:-mx-10 px-4 sm:px-6 lg:px-10">
-          <div className="flex items-center gap-3 bg-signal-warning text-signal-warning px-4 py-3 shadow-lg">
+          {/* Was `bg-signal-warning text-signal-warning` — the SAME token for
+              background and text, i.e. 1:1 contrast: this banner and its spinner
+              were literally invisible. Uses the repo's standard warning pairing. */}
+          <div className="flex items-center gap-3 bg-signal-warning-subtle text-signal-warning border-y border-signal-warning-border px-4 py-3 shadow-lg">
             <Loader2 className="h-4 w-4 animate-spin shrink-0" />
             <p className="text-sm font-semibold flex-1">
               Extraction in progress — keep this tab open and active.
@@ -907,6 +924,14 @@ function MemoryRow({
           {memory.entity && (
             <span className="text-[12px] font-mono text-muted-foreground rounded-full bg-background px-2 py-0.5 border border-border/70">
               {memory.entity}
+            </span>
+          )}
+          {memory.needsReview && (
+            <span
+              className="text-[11px] font-medium rounded-full bg-signal-warning-subtle text-signal-warning border border-signal-warning-border px-2 py-0.5"
+              title={`Low-confidence inference${typeof memory.confidence === "number" ? ` (${Math.round(memory.confidence * 100)}%)` : ""} — verify or remove. Basil weights unverified memories lower.`}
+            >
+              Review
             </span>
           )}
           <span className="text-[12px] font-mono text-muted-foreground ml-auto">

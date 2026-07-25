@@ -50,9 +50,11 @@ export async function GET(req: NextRequest) {
   };
 
   if (includeMetrics) {
-    // Compute metrics over the full unfiltered log for better signal
+    // Metrics reflect the last 7 days of dispatch activity ("current health") so a
+    // rolling 1000-call log can't keep showing long-resolved historical failures.
+    // The full log is still read for the trace list below; only the metric is scoped.
     const allTraces = await readTraces(username, { limit: 1000 });
-    response.metrics = computeDispatchMetrics(allTraces);
+    response.metrics = computeDispatchMetrics(allTraces, 7);
   }
 
   console.info(

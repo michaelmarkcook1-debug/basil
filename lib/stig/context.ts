@@ -39,7 +39,8 @@ async function capture<T>(
 // Inline constants from dump-job.ts (not exported from that module).
 const WA_SIGNAL_INDEX_FILE = "whatsapp-signal-index.json";
 function waUserSubdir(username: string): string {
-  return `users/${username.replace(/[^a-zA-Z0-9._-]/g, "_")}`;
+  // Lowercase first: usernames are case-insensitive, so all per-user paths agree.
+  return `users/${username.toLowerCase().replace(/[^a-zA-Z0-9._-]/g, "_")}`;
 }
 
 /** 90 days in milliseconds — max age of a WhatsApp signal index to be included. */

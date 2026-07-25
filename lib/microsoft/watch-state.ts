@@ -12,7 +12,8 @@ const WATCH_FILE = "microsoft-watch.json";
 
 /** Convert a username to a filesystem-safe directory component. */
 function safeUser(username: string): string {
-  return username.replace(/[^a-zA-Z0-9._-]/g, "_");
+  // Lowercase first: usernames are case-insensitive, so all per-user paths agree.
+  return username.toLowerCase().replace(/[^a-zA-Z0-9._-]/g, "_");
 }
 
 function subdir(username: string): string {

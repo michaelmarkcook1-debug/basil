@@ -179,14 +179,26 @@ export async function getEmailBody(username: string, messageId: string): Promise
   };
 }
 
-export async function createDraft(username: string, to: string, subject: string, body: string): Promise<{ id: string }> {
+export async function createDraft(
+  username: string,
+  to: string,
+  subject: string,
+  body: string,
+  /** Optional send-as From address (a verified Gmail alias). Omit for the primary. */
+  from?: string
+): Promise<{ id: string }> {
   const auth = await getAuthedClient(username);
   if (!auth) throw new Error("Gmail not connected");
 
   const gmail = google.gmail({ version: "v1", auth });
 
+  // Strip CR/LF from header values to prevent header injection (esp. the
+  // user/alias-controlled `from`). Body keeps its newlines (it follows the blank line).
+  const hdr = (s: string) => s.replace(/[\r\n]+/g, " ").trim();
+  const safeFrom = from ? hdr(from) : "";
+  const fromHeader = safeFrom ? `From: ${safeFrom}\r\n` : "";
   const raw = Buffer.from(
-    `To: ${to}\r\nSubject: ${subject}\r\nContent-Type: text/plain; charset=utf-8\r\n\r\n${body}`
+    `${fromHeader}To: ${hdr(to)}\r\nSubject: ${hdr(subject)}\r\nContent-Type: text/plain; charset=utf-8\r\n\r\n${body}`
   ).toString("base64url");
 
   const res = await gmail.users.drafts.create({
@@ -205,15 +217,22 @@ export async function sendEmail(
   username: string,
   to: string,
   subject: string,
-  body: string
+  body: string,
+  /** Optional send-as From address (a verified Gmail alias). Omit for the primary. */
+  from?: string
 ): Promise<{ id: string }> {
   const auth = await getAuthedClient(username);
   if (!auth) throw new Error("Gmail not connected");
 
   const gmail = google.gmail({ version: "v1", auth });
 
+  // Strip CR/LF from header values to prevent header injection (esp. the
+  // user/alias-controlled `from`). Body keeps its newlines (it follows the blank line).
+  const hdr = (s: string) => s.replace(/[\r\n]+/g, " ").trim();
+  const safeFrom = from ? hdr(from) : "";
+  const fromHeader = safeFrom ? `From: ${safeFrom}\r\n` : "";
   const raw = Buffer.from(
-    `To: ${to}\r\nSubject: ${subject}\r\nContent-Type: text/plain; charset=utf-8\r\n\r\n${body}`
+    `${fromHeader}To: ${hdr(to)}\r\nSubject: ${hdr(subject)}\r\nContent-Type: text/plain; charset=utf-8\r\n\r\n${body}`
   ).toString("base64url");
 
   const res = await gmail.users.messages.send({

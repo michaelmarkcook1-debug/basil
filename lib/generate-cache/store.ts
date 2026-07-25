@@ -38,7 +38,20 @@ import { readStore, writeStore, deleteStore } from "@/lib/storage/persistent";
 
 // ── Types ──────────────────────────────────────────────────────────────────────
 
-export type CacheType = "briefing" | "digest" | "meeting-prep";
+export type CacheType =
+  | "briefing"
+  // Per-briefing-type slots so the 5 types don't overwrite each other's cache.
+  | "briefing-morning" | "briefing-midday" | "briefing-evening" | "briefing-weekly" | "briefing-meeting"
+  | "digest" | "meeting-prep"
+  // Cross-source relationship activity for the People page. NOT AI output — it's
+  // a fan-out over Calendar + Gmail + Slack + Drive + Memory + Linear, which
+  // took ~14s on EVERY visit and made People the slowest surface in the app.
+  | "contact-activity"
+  // The merged Radar feed for the HOME screen. Same story as contact-activity:
+  // a Gmail + Slack + Linear + delta fan-out that ran inline on every home load
+  // (~5s). The 90s per-instance memo inside detectPendingFollowups almost never
+  // hit in prod — each lambda instance has its own memory.
+  | "today-feed";
 
 /**
  * Envelope stored in Blob for every cache entry.
@@ -71,10 +84,24 @@ export const DIGEST_TTL_MS = 6 * 24 * 60 * 60 * 1000;
 /** Meeting prep expires after 12 hours (stale past half a business day). */
 export const MEETING_PREP_TTL_MS = 12 * 60 * 60 * 1000;
 
+/**
+ * Contact activity expires after 30 minutes.
+ *
+ * Short, because relationship activity shifts as mail/meetings land — but the
+ * route serves a STALE entry instantly and refreshes in the background, so this
+ * TTL only decides when a refresh is triggered, never how long the user waits.
+ */
+export const CONTACT_ACTIVITY_TTL_MS = 30 * 60 * 1000;
+
+/** Radar/home feed — short TTL: the feed's inputs change on ingest crons, and a
+ *  few-minutes-stale feed served instantly beats a 5-second-fresh one. */
+export const TODAY_FEED_TTL_MS = 5 * 60 * 1000;
+
 // ── Path helpers ───────────────────────────────────────────────────────────────
 
 function cacheSubdir(username: string): string {
-  const safe = username.replace(/[^a-zA-Z0-9._-]/g, "_");
+  // Lowercase first: usernames are case-insensitive, so all per-user paths agree.
+  const safe = username.toLowerCase().replace(/[^a-zA-Z0-9._-]/g, "_");
   return `users/${safe}/gen-cache`;
 }
 
@@ -98,11 +125,26 @@ function cacheFilename(cacheType: CacheType): string {
  */
 export async function readGenerateCache<T>(
   username: string,
-  cacheType: CacheType
+  cacheType: CacheType,
+  opts?: {
+    /**
+     * Bypass the per-instance /tmp read cache and read Blob directly.
+     *
+     * REQUIRED for any cache that gets INVALIDATED on a mutation. `/tmp` is
+     * per-lambda-instance and has no TTL of its own, so deleteGenerateCache()
+     * can only ever clear the /tmp copy on the ONE instance that served the
+     * delete — every other warm instance keeps serving its own stale copy until
+     * it dies. Blob is the only cross-instance source of truth.
+     *
+     * Costs a Blob round-trip (~100-300ms) instead of a ~1ms file read. Worth it
+     * when the alternative is a deleted contact reappearing on the page.
+     */
+    fresh?: boolean;
+  }
 ): Promise<CacheRecord<T> | null> {
   const subdir = cacheSubdir(username);
   const filename = cacheFilename(cacheType);
-  return readStore<CacheRecord<T> | null>(filename, null, subdir);
+  return readStore<CacheRecord<T> | null>(filename, null, subdir, { fresh: opts?.fresh });
 }
 
 /**

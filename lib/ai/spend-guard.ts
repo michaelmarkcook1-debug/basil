@@ -63,7 +63,9 @@ const COUNTER_TTL_SECONDS = 70 * 24 * 60 * 60;
 // ── Keys ────────────────────────────────────────────────────────────────────────
 
 function globalKey(period: string): string { return `spend:global:${period}`; }
-function userKey(username: string, period: string): string { return `spend:user:${username}:${period}`; }
+// Lowercase the username: usernames are case-insensitive, so per-user spend is
+// tracked under one key regardless of how the name was cased at the call site.
+function userKey(username: string, period: string): string { return `spend:user:${username.toLowerCase()}:${period}`; }
 
 // ── Types ────────────────────────────────────────────────────────────────────────
 

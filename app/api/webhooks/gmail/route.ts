@@ -6,6 +6,7 @@ import { eventFromIngest } from "@/lib/events/rules";
 import { publish } from "@/lib/events/bus";
 import { getWatchState, updateGmail } from "@/lib/google/watch-state";
 import { detectZoomEmail } from "@/lib/google/zoom-email-detector";
+import { triageEmail } from "@/lib/email/triage";
 import { start } from "workflow/api";
 import { ingestGmailWorkflow } from "@/lib/jobs/workflows/ingest-gmail";
 import { createJobRecord } from "@/lib/jobs/store";
@@ -137,6 +138,14 @@ export async function POST(req: Request) {
             snippet,
           });
           const source = zoomSignal.isZoom ? "zoom_email" as const : "email" as const;
+
+          // Aggressive junk gate (mirrors poll-ingest) — don't create events for
+          // empty/"Test", no-reply, or marketing mail. Zoom recaps bypass it.
+          if (source === "email") {
+            const fromEmail = (fromRaw.match(/<([^>]+)>/)?.[1] || fromRaw).trim();
+            const triage = triageEmail({ from: fromRaw, fromEmail, subject, snippet });
+            if (triage.lowValue) return; // skip this message (per-id async callback)
+          }
 
           const shaped = eventFromIngest({
             source,

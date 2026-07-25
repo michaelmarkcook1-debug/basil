@@ -47,12 +47,19 @@ export async function POST(req: Request) {
       console.error("[jobs/handler] QStash signature verification failed");
       return new NextResponse("Forbidden", { status: 403 });
     }
+  } else if (process.env.NODE_ENV === "production") {
+    // FAIL CLOSED. With no signing keys the only gate below was the `Host`
+    // header — which the client supplies. This handler executes arbitrary jobs
+    // against a username taken straight from the request body, so a spoofed
+    // Host was a cross-tenant job-execution vector. In production, absent keys
+    // means the route is unusable, never unauthenticated.
+    console.error("[jobs/handler] Missing QStash signing keys in production — refusing");
+    return new NextResponse("Forbidden", { status: 403 });
   } else {
-    // Local dev: only allow requests from localhost
+    // Local dev only: no keys configured, so restrict to loopback callers.
     const host = req.headers.get("host") || "";
     const isLocal = host.startsWith("localhost") || host.startsWith("127.");
     if (!isLocal) {
-      console.error("[jobs/handler] Missing QStash signing keys in production");
       return new NextResponse("Forbidden", { status: 403 });
     }
   }

@@ -205,7 +205,7 @@ function ProjectRow({
       {/* Actions */}
       <div className="flex items-center gap-1 shrink-0 opacity-0 group-hover:opacity-100 transition-opacity">
         {project.url && project.url !== "claude://" ? (
-          <a href={project.url} target="_blank" rel="noreferrer" title="Open project">
+          <a href={project.url} target="_blank" rel="noreferrer" title="Open project" aria-label="Open project">
             <ExternalLink className="h-3.5 w-3.5 text-muted-foreground hover:text-foreground" />
           </a>
         ) : (
@@ -474,10 +474,10 @@ export default function AIProjectsPage() {
         <div>
           <h1 className="text-2xl font-semibold tracking-tight flex items-center gap-2">
             <BrainCircuit className="h-6 w-6 text-gold" />
-            AI Projects
+            AI Tools
           </h1>
           <p className="text-sm text-muted-foreground mt-1">
-            Track recent work across AI and dev platforms.
+            Track recent work across your AI and dev platforms.
           </p>
         </div>
         <div className="flex gap-2">

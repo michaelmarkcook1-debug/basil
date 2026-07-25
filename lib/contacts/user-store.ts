@@ -40,8 +40,12 @@ function normalize(c: Contact): Contact {
   return out;
 }
 
-async function readAll(username: string): Promise<Contact[]> {
-  const items = await readUserStore<Contact[]>(username, CONTACTS_FILE, []);
+// `fresh` bypasses the /tmp write-through cache. The cross-instance lock only
+// serialises writers — it does NOT make a warm instance's cached read current —
+// so every read-modify-write INSIDE a lock must read fresh, or two instances
+// each mutate their own stale copy and the last writer erases the other's change.
+async function readAll(username: string, fresh = false): Promise<Contact[]> {
+  const items = await readUserStore<Contact[]>(username, CONTACTS_FILE, [], fresh ? { fresh: true } : undefined);
   return items.map(normalize);
 }
 
@@ -51,13 +55,25 @@ async function writeAll(username: string, items: Contact[]): Promise<void> {
 
 // ── Public API ────────────────────────────────────────────────────────────────
 
-export async function listUserContacts(username: string): Promise<Contact[]> {
-  return readAll(username);
+export async function listUserContacts(
+  username: string,
+  opts?: {
+    /**
+     * Bypass the per-instance /tmp read cache (no TTL of its own) and read
+     * Blob directly. REQUIRED by consumers whose output turns on recency —
+     * the "gone quiet" delta reads lastInteraction, and a warm instance's
+     * /tmp copy can lag the cron's recency touches by the instance's entire
+     * lifetime, flagging people you met two days ago as silent for 13.
+     */
+    fresh?: boolean;
+  }
+): Promise<Contact[]> {
+  return readAll(username, opts?.fresh ?? false);
 }
 
 export async function addUserContactToStore(username: string, contact: Contact): Promise<Contact> {
   return withLock(lockKey(username), async () => {
-    const items = await readAll(username);
+    const items = await readAll(username, true);
     if (items.some((x) => x.id === contact.id)) return contact; // idempotent
     const normalised = normalize(contact);
     await writeAll(username, [...items, normalised]);
@@ -71,7 +87,7 @@ export async function updateUserContactInStore(
   patch: Partial<Contact>
 ): Promise<Contact | null> {
   return withLock(lockKey(username), async () => {
-    const items = await readAll(username);
+    const items = await readAll(username, true);
     const idx = items.findIndex((c) => c.id === id);
     if (idx === -1) return null;
     items[idx] = normalize({ ...items[idx], ...patch });
@@ -82,7 +98,7 @@ export async function updateUserContactInStore(
 
 export async function deleteUserContactFromStore(username: string, id: string): Promise<boolean> {
   return withLock(lockKey(username), async () => {
-    const items = await readAll(username);
+    const items = await readAll(username, true);
     const next = items.filter((c) => c.id !== id);
     if (next.length === items.length) return false;
     await writeAll(username, next);
@@ -131,7 +147,7 @@ export async function bulkImportUserContacts(
   incoming: Contact[]
 ): Promise<BulkImportResult> {
   return withLock(lockKey(username), async () => {
-    const items = await readAll(username);
+    const items = await readAll(username, true);
     const existingById = new Map(items.map((c) => [c.id, c]));
     let added = 0;
     let updated = 0;

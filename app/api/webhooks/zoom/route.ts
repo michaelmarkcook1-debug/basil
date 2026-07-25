@@ -51,37 +51,34 @@ function verifyZoomSignature(opts: {
 // ── User resolution ───────────────────────────────────────────────────────────
 
 /**
- * Find the Basil user who has Zoom connected.
- * For single-user deployments this is always the same person.
- * For multi-user: tries to match host_email to a connected user; falls back
- * to the first connected user.
+ * Find the Basil user who owns a Zoom webhook event.
+ * Matches host_email to a connected user. The old "first connected user"
+ * fallback is a cross-tenant data-injection bug: with 2+ Zoom users it would
+ * attribute anyone's meeting to whoever happened to connect first. So we only
+ * fall back when there is EXACTLY ONE Zoom-connected user (unambiguous — the
+ * single-user case); with multiple, an unmatched host resolves to null (no-op).
  */
 async function resolveZoomUser(hostEmail?: string): Promise<string | null> {
   const users = await getUsers();
 
-  // Try to match the meeting host email to a connected Zoom user
-  if (hostEmail) {
-    for (const user of users) {
-      if (await isZoomConnected(user.username)) {
-        // Best-effort: check if the host email matches the user's email/username
-        if (
-          user.username.toLowerCase() === hostEmail.toLowerCase() ||
-          user.email?.toLowerCase() === hostEmail.toLowerCase()
-        ) {
-          return user.username;
-        }
-      }
-    }
-  }
-
-  // Fallback: first user with Zoom connected
+  const zoomUsers: string[] = [];
   for (const user of users) {
-    if (await isZoomConnected(user.username)) {
-      return user.username;
-    }
+    if (await isZoomConnected(user.username)) zoomUsers.push(user.username);
   }
 
-  return null;
+  // Try to match the meeting host email to a connected Zoom user.
+  if (hostEmail) {
+    const host = hostEmail.toLowerCase();
+    const match = users.find(
+      (u) =>
+        zoomUsers.includes(u.username) &&
+        (u.username.toLowerCase() === host || u.email?.toLowerCase() === host),
+    );
+    if (match) return match.username;
+  }
+
+  // Only fall back when attribution is unambiguous (a single Zoom account).
+  return zoomUsers.length === 1 ? zoomUsers[0] : null;
 }
 
 // ── Handler ───────────────────────────────────────────────────────────────────
@@ -120,8 +117,15 @@ export async function POST(req: Request): Promise<Response> {
       return new NextResponse("forbidden", { status: 403 });
     }
   } else {
-    // Secret not configured — log a warning but process the event in development
-    console.warn("[zoom-webhook] ZOOM_WEBHOOK_SECRET_TOKEN not set — skipping signature verification");
+    // Fail CLOSED when the secret is unset: without signature verification anyone
+    // can POST forged meeting data that gets materialised into a real user's
+    // stores. Only bypass in a genuine local-dev environment.
+    const isProd = process.env.VERCEL_ENV === "production" || process.env.NODE_ENV === "production";
+    if (isProd) {
+      console.error("[zoom-webhook] ZOOM_WEBHOOK_SECRET_TOKEN not set in production — rejecting unverifiable event");
+      return new NextResponse("webhook not configured", { status: 503 });
+    }
+    console.warn("[zoom-webhook] ZOOM_WEBHOOK_SECRET_TOKEN not set — skipping signature verification (dev only)");
   }
 
   const event = parsed.event;

@@ -106,6 +106,12 @@ export function classify(payload: IngestPayload): Classification {
   // Explicit hints (isDM, isMention) are definitive; key-person proximity is heuristic.
   const hasExplicitHint =
     payload.hints?.isDM || payload.hints?.isGroupDM || payload.hints?.isMention;
+  // NOTE: intentionally NOT including "teams" here. draft.channel is typed
+  // "email" | "slack" and drives which send executor fires (send_email /
+  // send_slack) — there is no send-via-Teams integration, so a Teams draft
+  // would offer a "Send" action that either fails or mis-sends. Teams DMs/
+  // mentions fall through to the AUTO disposition below (logged, not a dead-end
+  // draft) until Teams reply-sending is actually implemented.
   const isReplyable =
     (payload.source === "email" || payload.source === "slack") &&
     (hasExplicitHint || aboutKeyPerson);
@@ -192,10 +198,12 @@ function buildHeadline(p: IngestPayload, d: EventDisposition): string {
       ? `email from ${who}`
       : p.source === "slack"
         ? `Slack in ${p.channel || who}`
-        : p.source === "calendar"
-          ? `calendar: ${p.title}`
-          : p.source === "zoom_email"
-            ? `meeting recap: ${p.title}`
-            : p.source;
+        : p.source === "teams"
+          ? `Teams in ${p.channel || who}`
+          : p.source === "calendar"
+            ? `calendar: ${p.title}`
+            : p.source === "zoom_email"
+              ? `meeting recap: ${p.title}`
+              : p.source;
   return `${verb} — ${what}`;
 }

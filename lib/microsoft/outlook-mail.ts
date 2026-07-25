@@ -12,13 +12,14 @@ import type { EmailBody } from "@/lib/google/gmail";
 // ── Types ────────────────────────────────────────────────────────────────────
 
 export interface OutlookMessage {
-  id:      string;
-  from:    string;    // display name, extracted from from.emailAddress.name
-  to:      string;    // first toRecipient email address
-  subject: string;
-  snippet: string;    // bodyPreview
-  date:    string;    // ISO, from receivedDateTime
-  unread:  boolean;   // !isRead
+  id:        string;
+  from:      string;    // display name, extracted from from.emailAddress.name
+  fromEmail: string;    // raw sender address — needed for self-filter + junk triage
+  to:        string;    // first toRecipient email address
+  subject:   string;
+  snippet:   string;    // bodyPreview
+  date:      string;    // ISO, from receivedDateTime
+  unread:    boolean;   // !isRead
 }
 
 // ── Graph response shapes (internal) ─────────────────────────────────────────
@@ -49,13 +50,14 @@ const LIST_SELECT =
 
 function mapMessage(m: GraphMessage): OutlookMessage {
   return {
-    id:      m.id,
-    from:    m.from?.emailAddress?.name || m.from?.emailAddress?.address || "",
-    to:      m.toRecipients?.[0]?.emailAddress?.address || "",
-    subject: m.subject || "",
-    snippet: m.bodyPreview || "",
-    date:    m.receivedDateTime || "",
-    unread:  !m.isRead,
+    id:        m.id,
+    from:      m.from?.emailAddress?.name || m.from?.emailAddress?.address || "",
+    fromEmail: m.from?.emailAddress?.address || "",
+    to:        m.toRecipients?.[0]?.emailAddress?.address || "",
+    subject:   m.subject || "",
+    snippet:   m.bodyPreview || "",
+    date:      m.receivedDateTime || "",
+    unread:    !m.isRead,
   };
 }
 

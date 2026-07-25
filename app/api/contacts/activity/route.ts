@@ -1,4 +1,11 @@
-import { NextResponse } from "next/server";
+import { NextResponse, after } from "next/server";
+import {
+  readGenerateCache,
+  writeGenerateCache,
+  isCacheValid,
+  computeInputHash,
+  CONTACT_ACTIVITY_TTL_MS,
+} from "@/lib/generate-cache/store";
 import { getEventsForMonth } from "@/lib/google/calendar";
 import { searchEmails } from "@/lib/google/gmail";
 import { getRecentDriveActivity } from "@/lib/google/drive";
@@ -7,7 +14,7 @@ import { listMemories } from "@/lib/memory/store";
 import { getRecentLinearActivity } from "@/lib/linear/client";
 import { getSessionUser } from "@/lib/auth";
 import { listUserContacts } from "@/lib/contacts/user-store";
-import { contacts as staticContacts } from "@/lib/contacts-data";
+import { sampleContacts } from "@/lib/contacts-data";
 import type { Contact } from "@/lib/contacts-data";
 
 /**
@@ -148,10 +155,24 @@ function nameMatchesContact(text: string, contactName: string, contactEmail?: st
   return false;
 }
 
-export async function GET() {
-  const username = (await getSessionUser());
-  if (!username) return NextResponse.json({ error: "Unauthorised" }, { status: 401 });
+// Generous and explicit: the cold path fans out across six providers (~14s),
+// and after() work (the background refresh) runs on the same invocation, so the
+// budget has to cover a full recompute even though the user already has bytes.
+export const maxDuration = 120;
 
+/** The response body this route serves (cached verbatim). */
+interface ActivityPayload {
+  activity: ContactActivity[];
+  fetchedAt: string;
+  dataSources: Record<string, number>;
+}
+
+/**
+ * The expensive part: fan out across Calendar + Gmail + Slack + Drive + Memory
+ * + Linear, then score every contact. ~14s. Extracted from GET so the cold path
+ * and the background refresh share one implementation.
+ */
+async function computeContactActivity(username: string): Promise<ActivityPayload> {
   const now = new Date();
   const currentYear = now.getFullYear();
   const currentMonth = now.getMonth();
@@ -214,6 +235,7 @@ export async function GET() {
   // Merge static contacts with user-added contacts (WhatsApp imports, manual entries)
   // Deduplicate by name (case-insensitive) — prefer static contact if both exist.
   const userContacts = await listUserContacts(username).catch(() => [] as Contact[]);
+  const staticContacts = sampleContacts();
   const staticNames = new Set(staticContacts.map((c) => c.name.toLowerCase()));
   const extraContacts = userContacts.filter(
     (c) => !staticNames.has(c.name.toLowerCase())
@@ -242,6 +264,11 @@ export async function GET() {
     for (const event of calendarEvents) {
       const eventDate = (event.start || "").substring(0, 10);
       if (!eventDate || new Date(eventDate) < thirtyDaysAgo) continue;
+      // A meeting that hasn't HAPPENED yet is not an interaction. The month
+      // window includes upcoming events (recurring standups populate weeks
+      // ahead), and without this bound they inflated lastInteraction into the
+      // FUTURE — "last interaction: Jul 31" reported on Jul 19.
+      if (new Date(event.end || event.start).getTime() > nowMs) continue;
 
       // Attendees may be display names ("Jordan Avery") or email addresses
       // ("jordan.avery@example.com") — matchesContact handles both via email+name paths.
@@ -314,12 +341,16 @@ export async function GET() {
       if (!msgDate || new Date(msgDate) < thirtyDaysAgo) continue;
 
       const authorMatch = matchesContact(msg.author);
-      const textMatch = matchesContact(msg.text);
       // channelMembers contains first names of DM participants — matches outbound DMs to this contact
       const dmMatch =
         msg.channelMembers?.some((m) => matchesContact(m)) ?? false;
 
-      if (authorMatch || textMatch || dmMatch) {
+      // Recency counts only DIRECT participation — the contact AUTHORED the message
+      // or is a member of the DM. A message that merely MENTIONS their name (talked
+      // ABOUT, not TO) is deliberately excluded: it inflated "last interaction",
+      // painting green rings for people you haven't actually spoken to and masking
+      // the very gone-quiet signal this heat map exists to surface.
+      if (authorMatch || dmMatch) {
         interactions.push({
           date: msgDate,
           source: "Slack",
@@ -408,7 +439,7 @@ export async function GET() {
     };
   });
 
-  return NextResponse.json({
+  return {
     activity: activityMap,
     fetchedAt: now.toISOString(),
     dataSources: {
@@ -419,5 +450,59 @@ export async function GET() {
       zoomMeetings: zoomPersonMemories.length,
       linearItems: linearActivity.length,
     },
-  });
+  };
+}
+
+/**
+ * GET /api/contacts/activity — stale-while-revalidate.
+ *
+ * Was: recompute the full cross-source fan-out on EVERY request → ~14s on every
+ * single visit to People, making it by far the slowest surface in the app (it
+ * was also the only data route with no cache at all; Linear, briefing and digest
+ * all had one).
+ *
+ * Now:
+ *   fresh cache  → instant
+ *   stale cache  → serve it INSTANTLY, refresh in the background via after()
+ *   no cache     → compute once (~14s), then it's warm for everyone after
+ *
+ * Serving stale is right here: this is a relationship-heat overview, so
+ * half-hour-old activity is materially just as useful as second-fresh activity —
+ * and vastly more useful than a 14-second wait.
+ */
+export async function GET() {
+  const username = await getSessionUser();
+  if (!username) return NextResponse.json({ error: "Unauthorised" }, { status: 401 });
+
+  // fresh: read Blob, not the per-instance /tmp copy. This cache is invalidated
+  // on every contact mutation, and a /tmp hit on a different lambda instance
+  // would happily keep serving a contact you just deleted.
+  const cached = await readGenerateCache<ActivityPayload>(username, "contact-activity", { fresh: true });
+
+  if (cached?.content) {
+    if (isCacheValid(cached)) {
+      return NextResponse.json({ ...cached.content, cache: "hit" });
+    }
+    // Stale: hand back what we have immediately, refresh after the response.
+    after(async () => {
+      try {
+        const fresh = await computeContactActivity(username);
+        await writeGenerateCache(username, "contact-activity", fresh, {
+          inputHash: computeInputHash(username, fresh.fetchedAt),
+          ttlMs: CONTACT_ACTIVITY_TTL_MS,
+        });
+      } catch (e) {
+        console.error("[contacts/activity] background refresh failed:", e instanceof Error ? e.message : e);
+      }
+    });
+    return NextResponse.json({ ...cached.content, cache: "stale" });
+  }
+
+  // Cold start — no choice but to pay for it once.
+  const fresh = await computeContactActivity(username);
+  await writeGenerateCache(username, "contact-activity", fresh, {
+    inputHash: computeInputHash(username, fresh.fetchedAt),
+    ttlMs: CONTACT_ACTIVITY_TTL_MS,
+  }).catch((e) => console.error("[contacts/activity] cache write failed:", e));
+  return NextResponse.json({ ...fresh, cache: "miss" });
 }

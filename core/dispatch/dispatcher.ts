@@ -24,7 +24,7 @@
  */
 
 import { readUserStore, writeUserStore } from "@/lib/storage/user-store";
-import { generateValidated } from "@/lib/ai/generate-validated";
+import { generateValidated, AIValidationError } from "@/lib/ai/generate-validated";
 import type { SpendMeter } from "@/lib/ai/spend-guard";
 import { hashContent } from "@/lib/ingest/content-hash";
 import { GATEWAY_MODEL_IDS, MAX_TOKENS } from "@/lib/ai/model-config";
@@ -110,11 +110,20 @@ export async function dispatch<T>(
 
   const requestId = opts.requestId ?? makeRequestId(intent, sourceRef);
   const startedAt = Date.now();
-  const resolvedModelId = GATEWAY_MODEL_IDS[modelKind];
 
   // Import model lazily to avoid bundling issues
   const { getTextModel } = await import("@/lib/ai/model-config");
   const model = getTextModel(modelKind);
+
+  // Record the model that ACTUALLY ran. This used to be hardcoded to
+  // GATEWAY_MODEL_IDS[modelKind] — the GATEWAY slug — regardless of which
+  // provider getTextModel() resolved. With the gateway disabled (it is), every
+  // trace and every "[dispatcher] … model=…" log line was mislabelled
+  // "anthropic/claude-haiku-4.5" while OpenAI actually served the call, which
+  // made the telemetry (and anyone reading it) believe the app ran on Haiku.
+  // GATEWAY_MODEL_IDS stays only as the fallback label for a string model.
+  const resolvedModelId =
+    typeof model === "string" ? model : (model.modelId || GATEWAY_MODEL_IDS[modelKind]);
 
   let output: T;
   let status: DispatchTrace["status"] = "success";
@@ -137,7 +146,11 @@ export async function dispatch<T>(
     });
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
-    status = msg.includes("validation") ? "validation_error" : "provider_error";
+    // Classify by error TYPE, not by string-matching "validation" in the
+    // message — a provider 404/auth/credit error must never be mislabelled as a
+    // validation_error (which previously hid outages behind an empty
+    // `validation failed at "unknown"`).
+    status = err instanceof AIValidationError ? "validation_error" : "provider_error";
     errorMessage = msg.slice(0, 300);
 
     const latencyMs = Date.now() - startedAt;
@@ -214,13 +227,24 @@ export async function readTraces(
  * Basic dispatch metrics — success rate, avg latency by intent.
  * Used by admin dashboards and future parity checks.
  */
-export function computeDispatchMetrics(traces: DispatchTrace[]): {
+export function computeDispatchMetrics(traces: DispatchTrace[], windowDays?: number): {
   total: number;
   successRate: number;
   avgLatencyMs: number;
   errorCount: number;
   byIntent: Record<string, { count: number; avgLatencyMs: number; errors: number }>;
 } {
+  // Restrict to a recent window when asked, so a rolling FIFO log can't let
+  // long-resolved historical failures dominate a "current health" metric. The
+  // raw trace log is never mutated — this only scopes what the metric reflects.
+  if (windowDays && windowDays > 0) {
+    const cutoff = Date.now() - windowDays * 24 * 60 * 60 * 1000;
+    traces = traces.filter((t) => {
+      const ts = Date.parse(t.completedAt);
+      return Number.isNaN(ts) ? true : ts >= cutoff;
+    });
+  }
+
   const total = traces.length;
   if (total === 0) {
     return { total: 0, successRate: 0, avgLatencyMs: 0, errorCount: 0, byIntent: {} };

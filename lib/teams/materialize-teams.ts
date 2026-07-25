@@ -116,7 +116,7 @@ export async function materializeTeamsIntelligence(
             text: item.text.trim(),
             owner: item.owner,
             dueDate: item.dueDate,
-            source: "slack",
+            source: "teams",
             eventId,
             sourceRef,
             priority: item.priority,
@@ -145,7 +145,7 @@ export async function materializeTeamsIntelligence(
         try {
           const { item: action, created } = await createActionTracked(username, {
             text: actionText,
-            source: "slack",
+            source: "teams",
             eventId,
             sourceRef,
             priority: intel.urgency === "high" ? "high" : intel.urgency === "medium" ? "medium" : "low",
@@ -183,7 +183,7 @@ export async function materializeTeamsIntelligence(
             .filter((n) => n !== dec.decidedBy),
           date: dateShort,
           context: `From Teams ${channelLabel}`,
-          source: "slack",
+          source: "teams",
           confidence: intel.confidence,
           needsReview: needsReviewFlag(dTier),
           eventId,
@@ -202,7 +202,7 @@ export async function materializeTeamsIntelligence(
             try {
               const { item: action, created: actCreated } = await createActionTracked(username, {
                 text: consequence.trim(),
-                source: "slack",
+                source: "teams",
                 eventId,
                 sourceRef,
                 needsReview: needsReviewFlag(dTier),

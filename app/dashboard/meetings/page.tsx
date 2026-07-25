@@ -1,6 +1,8 @@
 "use client";
 
-import { useEffect, useState, useMemo } from "react";
+import { useEffect, useState, useMemo, useCallback } from "react";
+import { DataState } from "@/components/ui/data-state";
+import { NewEventDialog } from "@/app/dashboard/schedule/components/NewEventDialog";
 import { useRouter } from "next/navigation";
 import { Card, CardContent } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -15,8 +17,9 @@ import {
   Sparkles,
   Unplug,
   Search,
+  Check,
 } from "lucide-react";
-import { formatTime } from "@/lib/utils";
+import { formatTime, cn } from "@/lib/utils";
 import Link from "next/link";
 
 // ── Types ──────────────────────────────────────────────────────────────────────
@@ -31,6 +34,21 @@ interface CalEvent {
   attendeeCount?: number;
   attendees?: string[];
   dateLabel?: string;
+}
+
+/**
+ * Is this calendar block worth prepping?
+ *
+ * Only if other PEOPLE are involved — real attendees, or a video link. Your
+ * calendar is full of solo blocks (Focus time, Lunch, Decompress) which came
+ * through here as ordinary events and each got a gold "Prep" CTA linking to an
+ * AI prep cheatsheet. Offering to brief you on your lunch is noise, and the
+ * destination was a dead end.
+ */
+function isPrepWorthy(event: CalEvent): boolean {
+  return Boolean(event.hasVideo)
+    || (event.attendees?.length ?? 0) > 0
+    || (event.attendeeCount ?? 0) > 1;
 }
 
 interface ManualPrep {
@@ -414,16 +432,21 @@ export default function MeetingsPage() {
   const [manualPreps, setManualPreps] = useState<ManualPrep[]>([]);
   const [pastMeetings, setPastMeetings] = useState<PastMeetingMemory[]>([]);
   const [pastLoading, setPastLoading] = useState(true);
+  const [error, setError] = useState<Error | null>(null);
 
-  useEffect(() => {
+  const load = useCallback(() => {
+    setLoading(true);
+    setError(null);
     fetch("/api/calendar/upcoming")
-      .then((r) => r.json())
+      .then((r) => { if (!r.ok) throw new Error(`calendar ${r.status}`); return r.json(); })
       .then((d) => {
         setConnected(d.connected);
         setEvents((d.events || []).filter((e: CalEvent) => !e.isAllDay));
         setLoading(false);
       })
-      .catch(() => setLoading(false));
+      // A failed fetch previously fell through to the "not connected" panel —
+      // wrongly telling the user to reconnect Google when the request just failed.
+      .catch((e: unknown) => { setError(e instanceof Error ? e : new Error("Failed to load calendar")); setLoading(false); });
 
     fetch("/api/memory/recent-meetings")
       .then((r) => r.json())
@@ -433,6 +456,8 @@ export default function MeetingsPage() {
       })
       .catch(() => setPastLoading(false));
   }, []);
+
+  useEffect(() => { load(); }, [load]);
 
   // Group events by dateLabel
   const grouped: Record<string, CalEvent[]> = {};
@@ -457,21 +482,47 @@ export default function MeetingsPage() {
 
   // Tab state — defaults to upcoming. Past intelligence is the second tab.
   const [activeTab, setActiveTab] = useState<"upcoming" | "past">("upcoming");
+  const [newEventOpen, setNewEventOpen] = useState(false);
+  const [toast, setToast] = useState<string | null>(null);
 
   return (
     <div className="p-4 sm:p-6 lg:p-8 space-y-6 pb-8">
-      <header>
-        <h1 className="text-2xl font-semibold tracking-tight flex items-center gap-2">
-          <CalendarCheck className="h-6 w-6 text-gold" />
-          Meeting Prep
-        </h1>
-        <p className="text-sm text-muted-foreground mt-1">
-          {activeTab === "upcoming"
-            ? connected
-              ? `Showing ${rangeLabel}. Click any meeting to generate a prep cheatsheet.`
-              : "Connect Google Calendar to see upcoming meetings."
-            : "Recaps of meetings Basil has analysed."}
-        </p>
+      <NewEventDialog
+        open={newEventOpen}
+        onOpenChange={setNewEventOpen}
+        onCreated={({ title, attendeeCount }) => {
+          load();
+          setToast(
+            attendeeCount > 0
+              ? `Created "${title}" — invite${attendeeCount === 1 ? "" : "s"} sent to ${attendeeCount} ${attendeeCount === 1 ? "person" : "people"}.`
+              : `Created "${title}".`,
+          );
+          setTimeout(() => setToast(null), 5000);
+        }}
+      />
+      {toast && (
+        <div className="fixed bottom-5 right-5 z-50 max-w-sm rounded-lg border border-signal-positive-border bg-signal-positive-subtle px-4 py-2.5 text-sm text-signal-positive shadow-lg flex items-start gap-2">
+          <Check className="h-4 w-4 shrink-0 mt-0.5" />
+          <span>{toast}</span>
+        </div>
+      )}
+      <header className="flex items-start justify-between gap-4">
+        <div>
+          <h1 className="text-2xl font-semibold tracking-tight flex items-center gap-2">
+            <CalendarCheck className="h-6 w-6 text-gold" />
+            Meeting Prep
+          </h1>
+          <p className="text-sm text-muted-foreground mt-1">
+            {activeTab === "upcoming"
+              ? connected
+                ? `Showing ${rangeLabel}. Click any meeting to generate a prep cheatsheet.`
+                : "Connect Google Calendar to see upcoming meetings."
+              : "Recaps of meetings Basil has analysed."}
+          </p>
+        </div>
+        <Button size="sm" className="gap-1.5 shrink-0" onClick={() => setNewEventOpen(true)}>
+          <Plus className="h-3.5 w-3.5" /> New event
+        </Button>
       </header>
 
       {/* ── Tab strip ─────────────────────────────────────────────────────── */}
@@ -620,6 +671,9 @@ export default function MeetingsPage() {
             </Card>
           ))}
         </div>
+      ) : error ? (
+        /* ── Load failed (distinct from "not connected") ─────────────────────── */
+        <DataState fill error={error} onRetry={load} />
       ) : !connected ? (
         /* ── Not connected ───────────────────────────────────────────────────── */
         <div className="space-y-6">
@@ -675,9 +729,14 @@ export default function MeetingsPage() {
                 </div>
 
                 <div className="space-y-3">
-                  {grouped[dayLabel].map((event) => (
-                    <Link key={event.id} href={`/dashboard/meetings/${event.id}`}>
-                      <Card className="transition-colors hover:bg-accent/30 cursor-pointer mb-3">
+                  {grouped[dayLabel].map((event) => {
+                    // Solo blocks (Focus time, Lunch, Decompress) still SHOW —
+                    // they're your real day — but they don't pretend to be
+                    // preppable: no gold CTA, and no link to a cheatsheet that
+                    // would have nothing to say.
+                    const preppable = isPrepWorthy(event);
+                    const CardShell = (
+                      <Card className={cn("mb-3 transition-colors", preppable && "cursor-pointer hover:bg-accent/30")}>
                         <CardContent className="p-4">
                           <div className="flex items-center gap-4">
                             {/* Time block */}
@@ -711,16 +770,23 @@ export default function MeetingsPage() {
                               </div>
                             </div>
 
-                            {/* Prep CTA */}
-                            <div className="flex items-center gap-1.5 rounded-full bg-gold/10 text-[oklch(0.55_0.15_85)] px-3 py-1.5 text-xs font-semibold shrink-0 transition-colors hover:bg-gold/20">
-                              <Sparkles className="h-3.5 w-3.5" />
-                              Prep
-                            </div>
+                            {/* Prep CTA — only when there's someone to prep for */}
+                            {preppable && (
+                              <div className="flex items-center gap-1.5 rounded-full bg-gold/10 text-[oklch(0.55_0.15_85)] px-3 py-1.5 text-xs font-semibold shrink-0 transition-colors hover:bg-gold/20">
+                                <Sparkles className="h-3.5 w-3.5" />
+                                Prep
+                              </div>
+                            )}
                           </div>
                         </CardContent>
                       </Card>
-                    </Link>
-                  ))}
+                    );
+                    return preppable ? (
+                      <Link key={event.id} href={`/dashboard/meetings/${event.id}`}>{CardShell}</Link>
+                    ) : (
+                      <div key={event.id}>{CardShell}</div>
+                    );
+                  })}
                 </div>
               </div>
             ))

@@ -18,6 +18,9 @@ import { getUsers } from "@/lib/users";
 import { captureCronFailures } from "@/lib/observability/capture";
 
 export const dynamic = "force-dynamic";
+// Fans out reprocessing per user sequentially — platform-max budget so the tail
+// of the user list isn't silently truncated as accounts grow.
+export const maxDuration = 300;
 
 export async function GET(req: Request) {
   const authHeader = req.headers.get("authorization");

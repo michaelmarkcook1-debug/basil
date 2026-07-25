@@ -766,10 +766,10 @@ export default function OnboardingPage() {
       {/* Power tips */}
       <div className="grid grid-cols-1 gap-2 mb-4">
         {[
-          ["📬", "Morning briefing",    "Open the Briefing tab for a prioritised summary of everything overnight."],
-          ["💬", "Ask Basil anything",   "The Chat tab understands your calendar, emails, and contacts."],
-          ["📋", "Meeting intelligence", "Click any meeting on the Schedule tab for an AI-prepared brief."],
-          ["✉️", "Approve drafts",       "All AI-drafted replies land in Actions for your review first."],
+          ["📬", "Morning briefing",    "Your prioritised overnight summary sits at the top of Today — expand it any time."],
+          ["💬", "Ask Basil anything",   "Ask Basil (top of the sidebar) understands your calendar, emails, and contacts."],
+          ["📋", "Meeting intelligence", "Click any meeting under Meetings for an AI-prepared brief."],
+          ["✉️", "Approve drafts",       "AI-drafted replies land in Commitments for your review first."],
         ].map(([icon, title, desc]) => (
           <div
             key={String(title)}

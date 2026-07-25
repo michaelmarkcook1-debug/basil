@@ -30,6 +30,12 @@
  * exists AND the migration sentinel (basil/_migrated) does not, we parse
  * BASIL_DATA and write every file to Blob. This runs once and is idempotent.
  * After migration BASIL_DATA is permanently ignored.
+ *
+ * Separately: on first cold start with Postgres enabled (DATABASE_URL set),
+ * if Blob has pre-existing data that hasn't been copied over yet, we copy
+ * every Blob file into Postgres (sentinel row basil_store["", "_migrated_from_blob"]).
+ * This exists so that flipping DATABASE_URL on is never a silent data-loss
+ * trap — see maybeRunPostgresMigration() below for the full rationale.
  */
 
 import { promises as fs } from "node:fs";
@@ -44,6 +50,7 @@ import {
   blobMigrateFromSnapshot,
   blobIsMigrated,
   blobPurgeUserData,
+  blobReadAllRaw,
 } from "./adapters/blob";
 import {
   fsReadJson,
@@ -65,6 +72,8 @@ import {
   pgWriteJson,
   pgDeleteJson,
   pgListJson,
+  pgMigrateFromBlob,
+  pgIsMigratedFromBlob,
 } from "./adapters/postgres";
 
 // ── Backend selection ─────────────────────────────────────────────────────────
@@ -107,6 +116,11 @@ async function maybeRunMigration(): Promise<void> {
   if (migrationRan) return;
   migrationRan = true;
 
+  await maybeRunBlobSnapshotMigration();
+  await maybeRunPostgresMigration();
+}
+
+async function maybeRunBlobSnapshotMigration(): Promise<void> {
   // Blob migration: only runs when Blob is configured
   if (!isBlobEnabled()) return;
   if (!process.env.BASIL_DATA) return;
@@ -130,6 +144,41 @@ async function maybeRunMigration(): Promise<void> {
       err instanceof Error ? err.message : err
     );
     // Non-fatal — continue with whatever data is available
+  }
+}
+
+/**
+ * If Postgres (DATABASE_URL) is enabled and Blob has pre-existing data that
+ * hasn't been copied over yet, migrate it now.
+ *
+ * WITHOUT this, flipping DATABASE_URL on is a silent data-loss trap: Postgres
+ * becomes the exclusive read/write backend (see isPgEnabled() priority above)
+ * while starting completely empty, so every record a user has ever
+ * accumulated in Blob becomes invisible — not deleted, just unreachable,
+ * until someone notices the app looks freshly-installed and investigates.
+ *
+ * Safe to call on every cold start: the sentinel row (written even when there
+ * was nothing to copy) prevents this from re-scanning Blob repeatedly.
+ */
+async function maybeRunPostgresMigration(): Promise<void> {
+  if (!isPgEnabled()) return;
+  if (!process.env.BLOB_READ_WRITE_TOKEN) return; // nothing to migrate FROM
+
+  try {
+    const alreadyMigrated = await pgIsMigratedFromBlob();
+    if (alreadyMigrated) return;
+
+    const entries = await blobReadAllRaw();
+    await pgMigrateFromBlob(entries); // writes the sentinel even when entries=[]
+  } catch (err) {
+    console.error(
+      "[storage] Blob→Postgres migration failed:",
+      err instanceof Error ? err.message : err
+    );
+    // Non-fatal — Postgres continues operating on whatever it already has.
+    // NOTE: this means a failed migration will retry on every cold start
+    // until it succeeds (no sentinel was written), which is the safer
+    // failure mode — better a repeated retry than silently stuck empty.
   }
 }
 
@@ -438,7 +487,8 @@ export async function forceFlushSnapshot(): Promise<{ ok: boolean; errors: strin
  * @returns { deleted } — number of blobs removed (0 on filesystem or on error).
  */
 export async function purgeUserData(username: string): Promise<{ deleted: number }> {
-  const safe = username.replace(/[^a-zA-Z0-9._-]/g, "_");
+  // Lowercase first: usernames are case-insensitive, so purge targets the one store.
+  const safe = username.toLowerCase().replace(/[^a-zA-Z0-9._-]/g, "_");
 
   // Always clear /tmp write-through cache so warm instances don't re-serve stale data
   try {

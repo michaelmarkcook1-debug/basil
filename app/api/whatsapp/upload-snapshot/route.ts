@@ -29,11 +29,15 @@ import {
 } from "@/lib/whatsapp/dump-job";
 import { bulkImportUserContacts } from "@/lib/contacts/user-store";
 import { writeStore } from "@/lib/storage/persistent";
+import { timingSafeEqualStr } from "@/lib/auth/safe-compare";
 import { initialsFor, pickAvatarColor } from "@/lib/user-contacts";
 import type { Contact } from "@/lib/contacts-data";
 
 function safeUser(u: string): string {
-  return u.replace(/[^a-zA-Z0-9._-]/g, "_");
+  // Lowercase first: usernames are case-insensitive, so the upload path matches
+  // the (lowercased) read path — otherwise a differently-cased X-Basil-Username
+  // header would write a snapshot the reader never finds.
+  return u.toLowerCase().replace(/[^a-zA-Z0-9._-]/g, "_");
 }
 
 function userSubdir(username: string): string {
@@ -51,7 +55,7 @@ export async function POST(req: NextRequest) {
     );
   }
   const authHeader = req.headers.get("authorization") ?? "";
-  if (authHeader !== `Bearer ${uploadToken}`) {
+  if (!timingSafeEqualStr(authHeader, `Bearer ${uploadToken}`)) {
     console.warn("[whatsapp/upload] Rejected request with invalid token");
     return NextResponse.json({ error: "Invalid upload token." }, { status: 401 });
   }
@@ -63,6 +67,15 @@ export async function POST(req: NextRequest) {
       { error: "X-Basil-Username header is required." },
       { status: 400 }
     );
+  }
+  // The upload token is a single SHARED secret. Without a scope, any holder could
+  // set X-Basil-Username to an arbitrary account and write into someone else's
+  // contacts (IDOR). When WHATSAPP_UPLOAD_USERNAME is set, the token may only
+  // write to that one account. Leave it unset only for single-user deployments.
+  const pinnedUser = process.env.WHATSAPP_UPLOAD_USERNAME?.trim();
+  if (pinnedUser && username.toLowerCase() !== pinnedUser.toLowerCase()) {
+    console.warn(`[whatsapp/upload] Rejected write to ${username} — token is pinned to ${pinnedUser}`);
+    return NextResponse.json({ error: "This upload token is not authorised for that account." }, { status: 403 });
   }
 
   // ── Snapshot body ────────────────────────────────────────────────────────────

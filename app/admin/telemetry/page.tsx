@@ -388,6 +388,7 @@ export default function TelemetryPage() {
             <CardTitle className="flex items-center gap-2 text-sm font-medium">
               <Zap className="h-4 w-4 text-[oklch(0.72_0.15_85)]" />
               Dispatch Observability
+              <span className="ml-auto text-[11px] font-normal text-muted-foreground">last 7 days</span>
             </CardTitle>
           </CardHeader>
           <CardContent>

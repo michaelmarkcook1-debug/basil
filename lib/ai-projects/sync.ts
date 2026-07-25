@@ -162,7 +162,10 @@ export async function syncProjects(username: string): Promise<AIProjectsData> {
     };
   }
 
-  // openai / codex
+  // openai / codex — OpenAI exposes no usable project/thread-history API, so an
+  // empty result is EXPECTED and is NOT a bad key. Only mark Codex connected when
+  // it genuinely returned projects; otherwise show a quiet not-connected state
+  // with no misleading red "invalid key" error.
   if (openaiApiKey) {
     platforms["codex"] = {
       ...platforms["codex"],
@@ -171,7 +174,7 @@ export async function syncProjects(username: string): Promise<AIProjectsData> {
       connected: openaiProjects.length > 0,
       lastSyncedAt: now,
       itemCount: openaiProjects.length,
-      error: openaiProjects.length === 0 ? "No threads found or API key invalid" : undefined,
+      error: undefined,
     };
   }
 

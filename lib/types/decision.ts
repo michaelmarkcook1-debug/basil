@@ -54,7 +54,7 @@ export interface Decision {
    * Where this decision originated.
    * Aligns with ActionItem.source so both can be filtered consistently.
    */
-  source?: "meeting" | "slack" | "email" | "manual" | "chat";
+  source?: "meeting" | "slack" | "teams" | "email" | "manual" | "chat";
 
   // ── User annotations ─────────────────────────────────────────────────────
   /**

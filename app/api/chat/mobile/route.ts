@@ -15,8 +15,9 @@ import { stepCountIs, type ModelMessage } from "ai";
 import { generateTextSafe } from "@/lib/ai/generate";
 import { SpendCapError } from "@/lib/ai/spend-guard";
 import { getEntitlement } from "@/lib/billing/entitlement-store";
-import { effectiveKind, familyForKind } from "@/lib/ai/tiering";
-import { getTextModel, MAX_TOKENS, PROVIDER_MODE } from "@/lib/ai/model-config";
+import { effectiveKind } from "@/lib/ai/tiering";
+import { CHAT_PRICE_FAMILY } from "@/lib/ai/pricing";
+import { getChatModel, MAX_TOKENS, PROVIDER_MODE } from "@/lib/ai/model-config";
 import { getSystemPrompt } from "@/lib/ai/system-prompt";
 import { buildAssistantTools } from "@/lib/ai/tools";
 import { getSessionUser } from "@/lib/auth";
@@ -89,7 +90,7 @@ export async function POST(req: Request) {
     const chatKind = effectiveKind("default", entitlement.plan);
 
     const result = await generateTextSafe({
-      model: getTextModel(chatKind),
+      model: getChatModel(chatKind),
       maxOutputTokens: MAX_TOKENS[chatKind],
       system,
       messages,
@@ -103,7 +104,9 @@ export async function POST(req: Request) {
     }, chatKind, {
       username,
       feature: "chat:mobile",
-      family: familyForKind(chatKind),
+      // Assistant model is PINNED (getChatModel → gpt-5.6-sol) — price from the
+      // pinned family rather than inferring it from the tier.
+      family: CHAT_PRICE_FAMILY,
       userMonthlyUsd: entitlement.aiMonthlyUsd,
       maxSteps: 5,
     });

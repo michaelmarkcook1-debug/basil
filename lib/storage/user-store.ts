@@ -14,8 +14,10 @@
 import { readStore, writeStore, updateStore } from "./persistent";
 
 function userSubdir(username: string): string {
-  // Sanitise to prevent path traversal — only allow alphanumeric, dash, underscore, dot
-  const safe = username.replace(/[^a-zA-Z0-9._-]/g, "_");
+  // Lowercase FIRST so usernames are case-insensitive — "Michael" and "michael"
+  // resolve to the same store and can never split into two directories.
+  // Then sanitise to prevent path traversal — only allow alphanumeric, dash, underscore, dot.
+  const safe = username.toLowerCase().replace(/[^a-zA-Z0-9._-]/g, "_");
   return `users/${safe}`;
 }
 

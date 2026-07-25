@@ -72,7 +72,7 @@ const SOURCE_COLOR: Record<string, string> = {
   meeting: "bg-signal-info-subtle text-signal-info border-signal-info-border",
   slack:   "bg-signal-warning-subtle text-signal-warning border-signal-warning-border",
   email:   "bg-signal-info-subtle text-signal-info border-signal-info-border",
-  manual:  "bg-gray-100 text-gray-600 border-gray-200",
+  manual:  "bg-muted/50 text-muted-foreground border-border",
   chat:    "bg-signal-positive-subtle text-signal-positive border-signal-positive-border",
 };
 
@@ -481,6 +481,17 @@ export default function DecisionsPage() {
   useEffect(() => {
     if (typeof window === "undefined") return;
     const params = new URLSearchParams(window.location.search);
+
+    // ?new=1 — the Cmd-K palette's "Log decision" quick action. This param was
+    // advertised by the palette but never read, so the shortcut navigated here
+    // and silently did nothing.
+    if (params.get("new") === "1") {
+      setForm((f) => ({ ...f, showForm: true }));
+      const clean = new URL(window.location.href);
+      clean.searchParams.delete("new");
+      window.history.replaceState(null, "", clean.toString());
+    }
+
     const fromAction = params.get("fromAction");
     const actionText = params.get("text");
     if (fromAction && actionText) {

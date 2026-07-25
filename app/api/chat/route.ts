@@ -1,4 +1,17 @@
-export const maxDuration = 60;
+/**
+ * 300s — the heaviest tool loop in the app needs it.
+ *
+ * This was 60s, which SILENTLY TRUNCATED Ask Basil: a real question ("tell me
+ * about all the ag demos") fans out ~20 calendar/email/Slack tool calls across
+ * up to 8 steps on a REASONING model, blows past 60s, and Vercel kills the
+ * function mid-stream. Because the stream had already started, the request
+ * still returns 200 — so the user just sees the answer stop mid-sentence with
+ * no error anywhere ("I found **10 demo sessions" … and nothing).
+ *
+ * Every other AI route here (briefing, digest, meeting-prep, mobile chat) was
+ * already 300s; chat — the one with the biggest tool loop — was the outlier.
+ */
+export const maxDuration = 300;
 
 import {
   streamText,
@@ -6,7 +19,7 @@ import {
   convertToModelMessages,
   stepCountIs,
 } from "ai";
-import { getTextModel, MAX_TOKENS, PROVIDER_MODE } from "@/lib/ai/model-config";
+import { getChatModel, MAX_TOKENS, PROVIDER_MODE } from "@/lib/ai/model-config";
 import { getSystemPrompt } from "@/lib/ai/system-prompt";
 import { buildAssistantTools } from "@/lib/ai/tools";
 import { getSessionUser } from "@/lib/auth";
@@ -15,7 +28,8 @@ import { resolveTimezone } from "@/lib/timezone";
 import { checkRateLimitDurable } from "@/lib/rate-limit";
 import { reserveSpend, commitSpend, releaseSpend, SpendCapError } from "@/lib/ai/spend-guard";
 import { getEntitlement } from "@/lib/billing/entitlement-store";
-import { effectiveKind, familyForKind } from "@/lib/ai/tiering";
+import { effectiveKind } from "@/lib/ai/tiering";
+import { CHAT_PRICE_FAMILY } from "@/lib/ai/pricing";
 
 // 200 KB limit — covers very long chat histories while preventing abuse
 const MAX_BODY_BYTES = 200_000;
@@ -56,7 +70,9 @@ export async function POST(req: Request) {
       {
         username,
         feature: "chat",
-        family: familyForKind(chatKind),
+        // The assistant's model is PINNED (getChatModel → gpt-5.6-sol), so its
+        // cost is priced from the pinned family, not inferred from the tier.
+        family: CHAT_PRICE_FAMILY,
         userMonthlyUsd: entitlement.aiMonthlyUsd,
         maxSteps: 8, // matches stopWhen: stepCountIs(8) below
       },
@@ -96,8 +112,19 @@ export async function POST(req: Request) {
   // (failure) are mutually exclusive, but guard so we never both commit AND
   // release the same reservation (which would corrupt the counter).
   let spendSettled = false;
+
+  // Log the model that ACTUALLY serves this reply. The assistant's own claims
+  // about which model it is are unreliable (LLMs guess at their identity), and
+  // the dispatch traces were separately mislabelling everything as Haiku — so
+  // this line is the single source of truth for "what is Ask Basil running?".
+  const chatModel = getChatModel(chatKind);
+  console.info(
+    `[api/chat] model=${typeof chatModel === "string" ? chatModel : chatModel.modelId} ` +
+    `provider=${PROVIDER_MODE} tier=${chatKind}`
+  );
+
   const result = streamText({
-    model: getTextModel(chatKind),
+    model: chatModel,
     maxOutputTokens: MAX_TOKENS[chatKind],
     system,
     messages: modelMessages,
@@ -105,7 +132,20 @@ export async function POST(req: Request) {
     stopWhen: stepCountIs(8),
     // Reconcile the reservation to ACTUAL token usage once the stream finishes.
     // totalUsage aggregates across all tool-loop steps.
-    onFinish: ({ totalUsage }) => {
+    onFinish: ({ totalUsage, finishReason }) => {
+      // finishReason === "length" means the answer was CUT OFF by the output
+      // ceiling — it still returns 200 and looks fine, so without this line a
+      // truncated reply is indistinguishable from a complete one. (This is what
+      // silently chopped Ask Basil mid-sentence: the GPT-5.6 reasoning tokens
+      // consumed the whole maxOutputTokens budget before it could answer.)
+      const reasoning = (totalUsage as { reasoningTokens?: number } | undefined)?.reasoningTokens;
+      const log = finishReason === "length" ? console.warn : console.info;
+      log(
+        `[api/chat] finish=${finishReason} tier=${chatKind} ` +
+        `in=${totalUsage?.inputTokens} out=${totalUsage?.outputTokens}` +
+        (reasoning !== undefined ? ` reasoning=${reasoning}` : "") +
+        (finishReason === "length" ? " ⚠️ TRUNCATED — raise MAX_TOKENS" : "")
+      );
       if (spendSettled) return;
       spendSettled = true;
       void commitSpend(reservation, {
@@ -114,8 +154,23 @@ export async function POST(req: Request) {
       });
     },
     // If the model errors before producing usage, return the reservation so a
-    // failed call costs nothing.
-    onError: () => {
+    // failed call costs nothing. LOG the error — previously this was silent, so
+    // a model failure (bad id, provider outage) surfaced only as a client-side
+    // crash with a bare 200 and no server trace to diagnose from.
+    onError: ({ error }) => {
+      // AI SDK errors are often plain objects (not Error), so String(error)
+      // yields a useless "[object Object]". Serialise non-Error values —
+      // including non-enumerable props — so the real cause is readable.
+      let detail: string;
+      if (error instanceof Error) {
+        detail = error.message || String(error.cause ?? "");
+        if (!detail) {
+          try { detail = JSON.stringify(error, Object.getOwnPropertyNames(error)); } catch { detail = "unknown Error"; }
+        }
+      } else {
+        try { detail = JSON.stringify(error); } catch { detail = String(error); }
+      }
+      console.error(`[api/chat] streamText error (${chatKind}/${PROVIDER_MODE}): ${detail?.slice(0, 600)}`);
       if (spendSettled) return;
       spendSettled = true;
       void releaseSpend(reservation);

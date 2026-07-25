@@ -47,6 +47,14 @@ export async function getSelfIdentity(username: string): Promise<SelfIdentity> {
       emails.push(user.email.trim().toLowerCase());
     }
 
+    // Alias / send-as addresses the user owns (e.g. michael@analystgenius.ai
+    // delivering to the same inbox). Treating them as self stops alias mail from
+    // surfacing as a stranger, a phantom contact, or a "reply to yourself".
+    for (const alias of user.aliasEmails ?? []) {
+      const a = alias?.trim().toLowerCase();
+      if (a) emails.push(a);
+    }
+
     const fullName = [user.name, user.surname]
       .map((s) => s?.trim() ?? "")
       .filter(Boolean)

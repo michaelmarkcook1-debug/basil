@@ -10,6 +10,7 @@ export type ProjectSignalSource =
   | "memory"
   | "ai-project"
   | "zoom"
+  | "email"
   | "google"
   | "notion"
   | "manual";

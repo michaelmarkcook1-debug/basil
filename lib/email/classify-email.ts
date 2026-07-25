@@ -223,7 +223,13 @@ Classification rules — follow these strictly:
    - low: no urgency or purely informational
 
 4. actions: only explicitly assigned or implied tasks for ${userFirstName} — not vague suggestions.
-   Each action: text (required), dueDate (omit if none), priority ("high"/"medium"/"low" — high if urgent/deadline-driven, low if no urgency)
+   Each action: text (required), dueDate, priority ("high"/"medium"/"low" — high if urgent/deadline-driven, low if no urgency)
+   dueDate: format YYYY-MM-DD. ACTIVELY infer it whenever the ask is tied to ANY resolvable date:
+   - an explicit deadline ("by 1 Dec", "EOD Friday" → resolve relative to the email DATE ${date})
+   - a meeting/event date — for invitations and scheduling emails, dueDate = the EVENT date
+   - relative phrases ("by next Tuesday", "before the end of the month" → resolve against ${date})
+   Omit dueDate ONLY when the message contains no date signal at all. An undated action cannot be
+   scheduled or surfaced as due — prefer a best-effort date over omission when a date is present.
    expiresAt: ISO timestamp when this action becomes irrelevant. ONLY set when the message contains time-relative language tied to a moment that will pass — e.g. "before the meeting in 30 minutes", "by end of day today", "this afternoon", "before the 2pm call", "in the next hour". Compute relative to the email DATE (${date}). Examples: "meeting in 30 mins" → DATE + 30 min; "by EOD" → DATEdate at T23:59:00Z; "before the 2pm call" → DATEdate at T14:00:00Z. Omit for vague or date-only deadlines (those go in dueDate instead).
 5. decisions: for confirmed/announced decisions, extract:
    - text: the full decision as a sentence
@@ -290,7 +296,7 @@ Respond with ONLY valid JSON — no markdown fences, no explanation:
         username,
         intent: "classify_email",
         sourceRef: null,
-        modelKind: "fast",
+        modelKind: "balanced", // CATEGORIZATION → mid tier
         system: enrichedSystem,
         prompt,
         schema: EmailIntelligenceSchema,
@@ -313,11 +319,12 @@ Respond with ONLY valid JSON — no markdown fences, no explanation:
   try {
     const system = await getSystemPrompt(username);
     const { text } = await generateTextSafe({
-      model: getTextModel("fast"),
+      // CATEGORIZATION → mid tier (deciding what an email IS).
+      model: getTextModel("balanced"),
       maxOutputTokens: MAX_TOKENS.fast,
       system,
       messages: [{ role: "user", content: prompt }],
-    }, "fast", { username, feature: "classify:email" });
+    }, "balanced", { username, feature: "classify:email" });
 
     const result = parseIntelligence(text);
 
@@ -330,7 +337,7 @@ Respond with ONLY valid JSON — no markdown fences, no explanation:
             username,
             intent: "classify_email",
             sourceRef: null,
-            modelKind: "fast",
+            modelKind: "balanced", // CATEGORIZATION → mid tier
             system,
             prompt,
             schema: EmailIntelligenceSchema,

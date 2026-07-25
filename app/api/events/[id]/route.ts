@@ -11,6 +11,7 @@ function toActionSource(evSource: string): ActionItem["source"] {
   switch (evSource) {
     case "email":      return "email";
     case "slack":      return "slack";
+    case "teams":      return "teams";
     case "calendar":
     case "zoom_email": return "meeting";
     case "manual":     return "manual";

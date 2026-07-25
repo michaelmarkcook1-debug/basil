@@ -15,6 +15,7 @@
 
 import { generateTextSafe } from "@/lib/ai/generate";
 import { getTextModel, MAX_TOKENS } from "@/lib/ai/model-config";
+import { familyForTier } from "@/lib/ai/pricing";
 import { getSystemPrompt } from "@/lib/ai/system-prompt";
 import { parseAndValidate } from "@/lib/ai/parse-json";
 import { ZoomMeetingExtractSchema } from "@/lib/ai/schemas";
@@ -80,6 +81,8 @@ export interface ZoomMeetingExtract {
   followUps: string[];
   /** Key topics and themes discussed — not decisions or actions, just what was covered. */
   topics: string[];
+  /** Detected tone/attitude shifts among attendees (warming/cooling), only when notable. */
+  toneShifts: Array<{ person: string; direction: "warming" | "cooling" | "neutral"; summary: string }>;
   /** 0–1 extraction confidence (0.5 = sparse email, 1.0 = rich structured summary). */
   confidence: number;
 }
@@ -98,6 +101,7 @@ function emptyExtract(subject: string, date: string): ZoomMeetingExtract {
     blockers: [],
     followUps: [],
     topics: [],
+    toneShifts: [],
     confidence: 0,
   };
 }
@@ -194,6 +198,8 @@ EXTRACTION RULES (follow strictly):
    - 0.5  = partial notes or short summary without structure
    - 0.3  = sparse email, mostly boilerplate/link with little content
 
+10. toneShifts — ONLY when an attendee shows a NOTABLE change in warmth, engagement, or disposition versus routine professional tone (e.g. visibly cooling, newly enthusiastic, frustrated). The "person" MUST be one of the attendees. Omit entirely for ordinary meetings — do not manufacture shifts.
+
 IMPORTANT: Extract from ALL sections — AI summary, transcript, action items list, and any inline notes. Empty arrays are always correct over invented content.
 
 Respond with ONLY valid JSON — no markdown fences, no explanation, no preamble:
@@ -207,6 +213,7 @@ Respond with ONLY valid JSON — no markdown fences, no explanation, no preamble
   "blockers": ["blocker description"],
   "followUps": ["follow-up item"],
   "topics": ["key topic"],
+  "toneShifts": [{"person": "attendee name", "direction": "warming|cooling|neutral", "summary": "1-sentence observed change in warmth/engagement/disposition"}],
   "confidence": 0.8
 }`;
 
@@ -214,16 +221,22 @@ Respond with ONLY valid JSON — no markdown fences, no explanation, no preamble
     const system = await getSystemPrompt(username);
     const { text } = await generateTextSafe(
       {
-        model: getTextModel("default"),
+        // DATA GATHERING → lowest tier. This pulls known fields (actions,
+        // decisions, attendees) out of an already-summarised email; it is not
+        // judgement work, so it does not need the flagship.
+        model: getTextModel("fast"),
         maxOutputTokens: MAX_TOKENS.long,  // 8192 — full transcript extracts need more output room
         system,
         messages: [{ role: "user", content: prompt }],
       },
-      // Reserve at the "long" output budget (8192) to match maxOutputTokens above;
-      // familyForTier("long") === "opus" so pricing is unchanged, only the
-      // worst-case reservation grows to cover the real output ceiling.
+      // kind stays "long" DESPITE the fast model: `kind` here drives the output
+      // reservation ceiling (8192, matching maxOutputTokens above) and the
+      // per-attempt timeout — a full transcript extract needs the generous one,
+      // and the short "fast" timeout would abort it mid-flight.
       "long",
-      { username, feature: "zoom:extract" }
+      // ...so price it explicitly from the model actually used (luna), or the
+      // "long" tier would reserve at flagship rates for a lowest-tier call.
+      { username, feature: "zoom:extract", family: familyForTier("fast") }
     );
 
     return parseExtract(text, metadata);

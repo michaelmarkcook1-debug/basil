@@ -126,12 +126,21 @@ export function checkRateLimit(
   return { allowed: true };
 }
 
-/** Extract the real client IP from common proxy headers or fall back to a constant. */
+/**
+ * Extract the client IP for rate-limit keying.
+ *
+ * Prefer `x-real-ip`: on Vercel the platform sets it to the true client IP and
+ * it is NOT client-spoofable. The LEFT-most `X-Forwarded-For` entry IS
+ * client-controllable (a caller can prepend an arbitrary value), so trusting it
+ * lets an attacker rotate the header per request and defeat the brute-force /
+ * enumeration limiter entirely. If we must fall back to XFF, use the LAST entry
+ * (appended by the trusted proxy), never the first.
+ */
 export function getClientIp(req: Request): string {
   const headers = req instanceof Request ? req.headers : new Headers();
   return (
-    headers.get("x-forwarded-for")?.split(",")[0]?.trim() ||
-    headers.get("x-real-ip") ||
+    headers.get("x-real-ip")?.trim() ||
+    headers.get("x-forwarded-for")?.split(",").pop()?.trim() ||
     "unknown"
   );
 }

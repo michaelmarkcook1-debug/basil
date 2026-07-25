@@ -52,13 +52,20 @@ export async function proxy(req: NextRequest) {
   let authenticated = false;
 
   if (token) {
-    try {
-      const rawSecret = process.env.AUTH_SECRET || "dev-secret-change-me";
-      const secret    = new TextEncoder().encode(rawSecret);
-      const { payload } = await jwtVerify(token, secret);
-      authenticated = !!(payload.username && payload.authenticated);
-    } catch {
-      // Invalid / expired JWT — treat as unauthenticated
+    // NEVER fall back to a public dev secret in production — a forged JWT signed
+    // with the well-known "dev-secret-change-me" would otherwise pass. With no
+    // AUTH_SECRET in prod we verify with nothing → request stays unauthenticated
+    // → redirected to login (fail-closed). The dev fallback is dev-only.
+    const rawSecret = process.env.AUTH_SECRET
+      || (process.env.NODE_ENV !== "production" ? "dev-secret-change-me" : "");
+    if (rawSecret) {
+      try {
+        const secret = new TextEncoder().encode(rawSecret);
+        const { payload } = await jwtVerify(token, secret);
+        authenticated = !!(payload.username && payload.authenticated);
+      } catch {
+        // Invalid / expired JWT — treat as unauthenticated
+      }
     }
   }
 

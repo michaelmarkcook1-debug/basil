@@ -3,7 +3,7 @@ import { getStigRequestUser } from "@/lib/stig/auth";
 import { runStigAsk } from "@/lib/stig/engine";
 import { SpendCapError } from "@/lib/ai/spend-guard";
 import { mapProviderError } from "@/lib/stig/error-mapper";
-import { checkRateLimit, getClientIp } from "@/lib/rate-limit";
+import { checkRateLimitDurable } from "@/lib/rate-limit";
 import type { StigAskRequest } from "@/lib/stig/types";
 
 export const dynamic = "force-dynamic";
@@ -29,8 +29,10 @@ export async function POST(req: Request) {
   const user = await getStigRequestUser(req);
   if (!user) return NextResponse.json({ error: "Unauthorised" }, { status: 401 });
 
-  const ip = getClientIp(req);
-  const rl = checkRateLimit(`stig:ask:${ip}`, STIG_RATE_LIMIT);
+  // Durable (cross-instance) limiter keyed on the AUTHENTICATED principal — this
+  // is an AI-spend guardrail, so a per-instance in-memory Map (ceiling ×N warm
+  // instances) and an IP key (spoofable, shared behind NAT) are both wrong here.
+  const rl = await checkRateLimitDurable(`stig:ask:${user.username.toLowerCase()}`, STIG_RATE_LIMIT);
   if (!rl.allowed) {
     return NextResponse.json(
       { error: "Too many requests — slow down" },

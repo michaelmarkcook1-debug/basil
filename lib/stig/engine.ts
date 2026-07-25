@@ -1,7 +1,7 @@
 import "server-only";
 
 import { stepCountIs, type ModelMessage } from "ai";
-import { getTextModel, MAX_TOKENS, PROVIDER_MODE } from "@/lib/ai/model-config";
+import { getChatModel, MAX_TOKENS, PROVIDER_MODE } from "@/lib/ai/model-config";
 import { generateTextSafe } from "@/lib/ai/generate";
 import { SpendCapError } from "@/lib/ai/spend-guard";
 import { getSystemPrompt } from "@/lib/ai/system-prompt";
@@ -92,7 +92,7 @@ ${question}`,
   let answerText: string;
   try {
     const result = await generateTextSafe({
-      model: getTextModel(kind),
+      model: getChatModel(kind),
       maxOutputTokens: mode === "voice" ? 900 : MAX_TOKENS.default,
       system,
       messages,

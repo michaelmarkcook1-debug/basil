@@ -116,6 +116,7 @@ interface UserSettings {
   useIpTimezone?: boolean;
   briefingEmail?: boolean;
   briefingSlack?: boolean;
+  aliasEmails?: string[];
   profile?: {
     firstName?: string;
     surname?: string;
@@ -141,8 +142,8 @@ interface AppDef {
 }
 
 function StateBadge({ state, mode }: { state?: IntegrationState | "loading"; mode?: "manual" | "planned" }) {
-  if (mode === "manual") return <Badge className="bg-slate-100 text-slate-600 border-slate-200 text-xs">Manual</Badge>;
-  if (mode === "planned") return <Badge className="bg-slate-100 text-slate-500 border-slate-200 text-xs">Planned</Badge>;
+  if (mode === "manual") return <Badge className="bg-muted/50 text-muted-foreground border-border text-xs">Manual</Badge>;
+  if (mode === "planned") return <Badge className="bg-muted/40 text-muted-foreground/80 border-border text-xs">Planned</Badge>;
   if (!state || state === "loading") {
     return <Badge variant="secondary" className="gap-1 text-xs"><Loader2 className="h-3 w-3 animate-spin" />Checking</Badge>;
   }
@@ -155,7 +156,7 @@ function StateBadge({ state, mode }: { state?: IntegrationState | "loading"; mod
   if (state === "error") {
     return <Badge className="bg-signal-critical-subtle text-signal-critical border-signal-critical-border gap-1 text-xs font-semibold"><XCircle className="h-3 w-3" />Error</Badge>;
   }
-  return <Badge className="bg-slate-100 text-slate-600 border-slate-300 gap-1 text-xs"><XCircle className="h-3 w-3" />Not connected</Badge>;
+  return <Badge className="bg-muted/50 text-muted-foreground border-border gap-1 text-xs"><XCircle className="h-3 w-3" />Not connected</Badge>;
 }
 
 function isConnected(status?: IntegrationStatus | null) {
@@ -352,7 +353,55 @@ function StigApiTab({
     siri: "/api/stig/siri",
     briefing: "/api/stig/briefing",
   };
-  const tokenReady = !!status?.auth?.tokenAuthConfigured;
+
+  // Per-user Siri token (self-serve; preferred). Legacy env-token still counts.
+  const [siriTokenStatus, setSiriTokenStatus] = React.useState<{ active: boolean; createdAt: string | null; lastUsedAt: string | null } | null>(null);
+  const [freshToken, setFreshToken] = React.useState<string | null>(null);
+  const [tokenBusy, setTokenBusy] = React.useState(false);
+  const [tokenError, setTokenError] = React.useState<string | null>(null);
+  React.useEffect(() => {
+    fetch("/api/siri/token")
+      .then((r) => (r.ok ? r.json() : null))
+      .then(setSiriTokenStatus)
+      .catch(() => setSiriTokenStatus(null));
+  }, []);
+
+  async function generateSiriToken() {
+    setTokenBusy(true);
+    setTokenError(null);
+    try {
+      const res = await fetch("/api/siri/token", { method: "POST" });
+      if (res.ok) {
+        const data = await res.json() as { token: string };
+        setFreshToken(data.token);
+        setSiriTokenStatus({ active: true, createdAt: new Date().toISOString(), lastUsedAt: null });
+      } else {
+        setTokenError(`Token generation failed (HTTP ${res.status}). Try again.`);
+      }
+    } catch {
+      setTokenError("Network error generating token. Try again.");
+    }
+    finally { setTokenBusy(false); }
+  }
+
+  async function revokeSiriTokenUi() {
+    setTokenBusy(true);
+    setTokenError(null);
+    try {
+      const res = await fetch("/api/siri/token", { method: "DELETE" });
+      if (res.ok) {
+        setFreshToken(null);
+        setSiriTokenStatus({ active: false, createdAt: null, lastUsedAt: null });
+      } else {
+        setTokenError(`Revoke failed (HTTP ${res.status}). Try again.`);
+      }
+    } catch {
+      setTokenError("Network error revoking token. Try again.");
+    }
+    finally { setTokenBusy(false); }
+  }
+
+  const tokenReady = !!siriTokenStatus?.active || !!status?.auth?.tokenAuthConfigured;
   const openaiReady = !!status?.model?.openaiReady;
   const gatewayReady = !!status?.model?.gatewayReady;
   const modelReady = openaiReady || gatewayReady;
@@ -372,8 +421,7 @@ function StigApiTab({
   const siriEndpoint = `${appUrl}/api/stig/siri`;
   const curlSnippet = `curl -s -X POST "${siriEndpoint}" \\
   -H "Content-Type: application/json" \\
-  -H "Authorization: Bearer YOUR_TOKEN" \\
-  -d '{"question":"What should I focus on today?"}'`;
+  -d '{"question":"What should I focus on today?","token":"YOUR_TOKEN"}'`;
 
   async function testBrain() {
     setTesting(true);
@@ -482,10 +530,9 @@ function StigApiTab({
 
           {!tokenReady && (
             <div className="rounded-lg border border-muted bg-background/60 p-3 text-xs text-muted-foreground">
-              For Siri/phone access without a browser session, set{" "}
-              <EnvPill value="STIG_API_TOKEN" copied={copied === "STIG_API_TOKEN"} setCopied={setCopied} /> and{" "}
-              <EnvPill value="STIG_API_USERNAME" copied={copied === "STIG_API_USERNAME"} setCopied={setCopied} />.
-              Browser calls still work with the normal Basil login session.
+              For Siri/phone access without a browser session, generate your personal token in{" "}
+              <strong>Siri Shortcut setup</strong> just below. Browser calls still work with the
+              normal Basil login session.
             </div>
           )}
 
@@ -537,9 +584,9 @@ function StigApiTab({
             </div>
           </div>
 
-          {env && !env.STIG_API_TOKEN && (
+          {env && !env.STIG_API_TOKEN && !siriTokenStatus?.active && (
             <p className="text-xs text-muted-foreground">
-              STIG_API_TOKEN is optional but recommended before exposing Siri or external API access. Sensible. Unfashionably secure.
+              External API access uses your personal Siri token (see Siri Shortcut setup below). Sensible. Unfashionably secure.
             </p>
           )}
         </CardContent>
@@ -555,7 +602,7 @@ function StigApiTab({
           <CardHeader className="pb-3 hover:bg-muted/30 transition-colors">
             <div className="flex items-center justify-between gap-3">
               <div className="flex items-center gap-3">
-                <div className="rounded-lg p-2 bg-slate-100 text-slate-600">
+                <div className="rounded-lg p-2 bg-muted/50 text-muted-foreground">
                   <Smartphone className="h-4 w-4" />
                 </div>
                 <div>
@@ -591,33 +638,82 @@ function StigApiTab({
               <span className="rounded-full bg-muted px-2.5 py-1 font-medium">3 Speak Text</span>
             </div>
 
-            {/* Step 1: Token */}
+            {/* Step 1: Token — self-serve, per-user */}
             <div className="space-y-2">
               <div className="flex items-center gap-2">
                 <span className={`flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-xs font-bold ${tokenReady ? "bg-signal-positive text-white" : "bg-slate-200 text-slate-700"}`}>1</span>
-                <p className="text-sm font-semibold">Configure token auth</p>
+                <p className="text-sm font-semibold">Get your Siri token</p>
                 {tokenReady && <CheckCircle2 className="h-3.5 w-3.5 text-signal-positive" />}
               </div>
-              {tokenReady ? (
-                <p className="ml-7 text-xs text-signal-positive">
-                  ✓ Token auth is configured. Siri can authenticate without a browser session.
-                </p>
-              ) : (
-                <div className="ml-7 space-y-2">
-                  <p className="text-xs text-muted-foreground">
-                    Add two env vars in your Vercel project settings so Siri can authenticate without logging in:
-                  </p>
-                  <div className="flex flex-wrap gap-2">
-                    <EnvPill value="STIG_API_TOKEN" copied={copied === "STIG_API_TOKEN"} setCopied={setCopied} />
-                    <span className="text-xs text-muted-foreground self-center">→ any secret string you choose</span>
+              <div className="ml-7 space-y-2">
+                {tokenError && (
+                  <p className="rounded-md border border-signal-critical-border bg-signal-critical-subtle px-2.5 py-1.5 text-xs text-signal-critical">{tokenError}</p>
+                )}
+                {freshToken ? (
+                  <div className="space-y-2">
+                    <p className="text-xs font-medium text-signal-warning">
+                      Copy it now — for security it&apos;s shown only once. (Lost it? Just regenerate.)
+                    </p>
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <code className="flex-1 min-w-0 rounded-md bg-muted px-2.5 py-1.5 font-mono text-xs break-all">{freshToken}</code>
+                      <button
+                        type="button"
+                        onClick={() => copyText(freshToken, setCopied)}
+                        className="shrink-0 inline-flex items-center gap-1 rounded-md border px-2.5 py-1.5 text-xs font-medium hover:bg-muted/60"
+                      >
+                        {copied === freshToken ? <ClipboardCheck className="h-3 w-3 text-signal-positive" /> : <Copy className="h-3 w-3" />}
+                        {copied === freshToken ? "Copied" : "Copy token"}
+                      </button>
+                    </div>
+                    <p className="text-xs text-muted-foreground">Paste it into the Shortcut&apos;s Authorization header in step 3 (after &ldquo;Bearer &rdquo;).</p>
                   </div>
-                  <div className="flex flex-wrap gap-2">
-                    <EnvPill value="STIG_API_USERNAME" copied={copied === "STIG_API_USERNAME"} setCopied={setCopied} />
-                    <span className="text-xs text-muted-foreground self-center">→ your Basil username</span>
+                ) : siriTokenStatus?.active ? (
+                  <div className="space-y-2">
+                    <p className="text-xs text-signal-positive">
+                      ✓ Your personal Siri token is active
+                      {siriTokenStatus.createdAt && <> (created {new Date(siriTokenStatus.createdAt).toLocaleDateString()}</>}
+                      {siriTokenStatus.createdAt && (siriTokenStatus.lastUsedAt
+                        ? <>, last used {new Date(siriTokenStatus.lastUsedAt).toLocaleDateString()})</>
+                        : <>, not used yet)</>)}. Siri authenticates without a browser session.
+                    </p>
+                    <div className="flex flex-wrap gap-2">
+                      <button
+                        type="button"
+                        onClick={() => void generateSiriToken()}
+                        disabled={tokenBusy}
+                        className="inline-flex items-center gap-1.5 rounded-md border px-2.5 py-1.5 text-xs font-medium hover:bg-muted/60 disabled:opacity-50"
+                      >
+                        <RefreshCw className={`h-3 w-3 ${tokenBusy ? "animate-spin" : ""}`} />
+                        Regenerate (invalidates the old one)
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => void revokeSiriTokenUi()}
+                        disabled={tokenBusy}
+                        className="inline-flex items-center gap-1.5 rounded-md border border-signal-critical-border px-2.5 py-1.5 text-xs font-medium text-signal-critical hover:bg-signal-critical-subtle disabled:opacity-50"
+                      >
+                        <Trash2 className="h-3 w-3" />
+                        Revoke
+                      </button>
+                    </div>
                   </div>
-                  <p className="text-xs text-muted-foreground">Then redeploy for the changes to take effect.</p>
-                </div>
-              )}
+                ) : (
+                  <div className="space-y-2">
+                    <p className="text-xs text-muted-foreground">
+                      Siri can&apos;t use your browser login, so it authenticates with a personal token instead. One click — no configuration needed:
+                    </p>
+                    <button
+                      type="button"
+                      onClick={() => void generateSiriToken()}
+                      disabled={tokenBusy}
+                      className="inline-flex items-center gap-1.5 rounded-md bg-foreground px-3 py-1.5 text-xs font-semibold text-background hover:opacity-90 disabled:opacity-50"
+                    >
+                      {tokenBusy ? <Loader2 className="h-3 w-3 animate-spin" /> : <Smartphone className="h-3 w-3" />}
+                      Generate my Siri token
+                    </button>
+                  </div>
+                )}
+              </div>
             </div>
 
             {/* Step 2: Endpoint URL */}
@@ -687,14 +783,12 @@ function StigApiTab({
                         <div className="flex gap-2">
                           <span className="shrink-0 font-medium text-foreground/70 w-14">Body</span>
                           <div className="space-y-0.5">
-                            <p className="font-mono">JSON</p>
+                            <p className="font-mono">JSON — add two fields:</p>
                             <p className="font-mono">question → <em className="not-italic bg-signal-info-subtle border border-signal-info-border rounded px-1 text-signal-info">Dictated Text</em> (select from variables)</p>
+                            <p className="font-mono">token → paste your token from step 1</p>
                           </div>
                         </div>
-                        <div className="flex gap-2">
-                          <span className="shrink-0 font-medium text-foreground/70 w-14">Header</span>
-                          <span className="font-mono">Authorization: Bearer YOUR_TOKEN</span>
-                        </div>
+                        <p className="pt-0.5">No headers needed. (Advanced alternative: an <span className="font-mono">Authorization: Bearer &lt;token&gt;</span> header also works.)</p>
                       </div>
                     </div>
                   </div>
@@ -734,7 +828,7 @@ function StigApiTab({
                     {copied === curlSnippet ? "Copied ✓" : "Copy"}
                   </button>
                 </div>
-                <p className="text-xs text-muted-foreground">Replace <code className="bg-muted rounded px-1">YOUR_TOKEN</code> with the value you set for <code className="bg-muted rounded px-1">STIG_API_TOKEN</code>.</p>
+                <p className="text-xs text-muted-foreground">Replace <code className="bg-muted rounded px-1">YOUR_TOKEN</code> with your personal Siri token from step 1.</p>
               </div>
             </div>
 
@@ -911,18 +1005,26 @@ export default function SettingsPage() {
   const [reprocessing, setReprocessing] = useState(false);
   const [reprocessResult, setReprocessResult] = useState<string | null>(null);
 
+  const [syncing, setSyncing] = useState(false);
+  const [syncMsg, setSyncMsg] = useState<string | null>(null);
+
   const [deleteText, setDeleteText] = useState("");
   const [deleting, setDeleting] = useState(false);
 
   // Read ?tab= from URL to support deep links (e.g. ?tab=apps)
   // Map legacy tab names to new names for backwards compat
   const TAB_ALIASES: Record<string, string> = {
-    readiness: "setup",
-    "core-apps": "apps",
-    "ai-platforms": "apps",
-    "stig-api": "brain",
+    // Legacy tab names → the consolidated tabs, so old ?tab= deep links still resolve.
+    setup: "sources",
+    readiness: "sources",
+    apps: "sources",
+    "core-apps": "sources",
+    brain: "developer",
+    "stig-api": "developer",
+    "ai-platforms": "developer",
+    advanced: "developer",
   };
-  const [activeTab, setActiveTab] = useState<string>("setup");
+  const [activeTab, setActiveTab] = useState<string>("sources");
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     const tab = params.get("tab");
@@ -1068,6 +1170,7 @@ export default function SettingsPage() {
           useIpTimezone: draft.useIpTimezone,
           briefingEmail: draft.briefingEmail,
           briefingSlack: draft.briefingSlack,
+          aliasEmails: draft.aliasEmails ?? [],
         }),
       });
       const data = await res.json() as UserSettings & { error?: string };
@@ -1122,6 +1225,37 @@ export default function SettingsPage() {
       setPwMessage("Network error.");
     } finally {
       setPwSaving(false);
+    }
+  }
+
+  // The single "Sync now" — pulls the latest from connected sources (Slack sync +
+  // poll-ingest + calendar webhook). Deliberately does NOT run the separate
+  // "Re-process recent events" reclassification, per the "refresh sources only" intent.
+  async function syncNowSources() {
+    setSyncing(true);
+    setSyncMsg(null);
+    try {
+      const res = await fetch("/api/settings/sync-now", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ jobs: ["slack", "ingest", "calendar"] }),
+      });
+      const body = (await res.json()) as {
+        ok?: boolean;
+        results?: Record<string, { ok?: boolean; messageCount?: number; reason?: string; error?: string }>;
+      };
+      if (!res.ok || !body.ok) throw new Error("Sync failed");
+      const slack = body.results?.slack;
+      const bits: string[] = [];
+      if (slack?.ok && typeof slack.messageCount === "number") bits.push(`Slack: ${slack.messageCount} messages`);
+      else if (slack?.reason === "not_connected") bits.push("Slack not connected");
+      bits.push("ingest queued");
+      setSyncMsg(`Synced just now · ${bits.join(" · ")}`);
+      void loadAll();
+    } catch (e) {
+      setSyncMsg(e instanceof Error ? e.message : "Sync failed");
+    } finally {
+      setSyncing(false);
     }
   }
 
@@ -1363,43 +1497,41 @@ export default function SettingsPage() {
 
       <Tabs value={activeTab} onValueChange={setActiveTab}>
         <TabsList className="flex flex-wrap h-auto gap-1 bg-muted/60 p-1">
-          <TabsTrigger value="setup" className="text-xs font-medium">Setup</TabsTrigger>
-          <TabsTrigger value="brain" className="text-xs font-medium">Brain</TabsTrigger>
-          <TabsTrigger value="apps" className="text-xs font-medium">Apps</TabsTrigger>
+          <TabsTrigger value="sources" className="text-xs font-medium">Sources &amp; Sync</TabsTrigger>
           <TabsTrigger value="profile" className="text-xs">Profile</TabsTrigger>
           <TabsTrigger value="security" className="text-xs">Security</TabsTrigger>
-          <TabsTrigger value="advanced" className="text-xs">Advanced</TabsTrigger>
-          {/* Legacy deep-link aliases — kept for backwards compat */}
+          <TabsTrigger value="developer" className="text-xs">Developer</TabsTrigger>
+          {/* Legacy deep-link aliases resolve via TAB_ALIASES; hidden triggers keep old ?tab= links valid */}
+          <TabsTrigger value="setup" className="hidden" />
+          <TabsTrigger value="brain" className="hidden" />
+          <TabsTrigger value="apps" className="hidden" />
+          <TabsTrigger value="advanced" className="hidden" />
           <TabsTrigger value="readiness" className="hidden" />
           <TabsTrigger value="core-apps" className="hidden" />
           <TabsTrigger value="stig-api" className="hidden" />
           <TabsTrigger value="ai-platforms" className="hidden" />
         </TabsList>
 
-        {/* ── Setup (was Readiness) ────────────────────────────────────────── */}
-        <TabsContent value="setup" className="mt-6">
-          <ReadinessTab />
-        </TabsContent>
-        {/* Legacy alias */}
-        <TabsContent value="readiness" className="mt-6">
-          <ReadinessTab />
-        </TabsContent>
+        {/* ── Sources & Sync (merged Setup + Apps; one place, one Sync now) ──── */}
+        <TabsContent value="sources" className="mt-6 space-y-6">
+          {/* The single Sync now — pulls latest from connected sources */}
+          <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-border bg-card/60 px-4 py-3">
+            <div className="min-w-0">
+              <p className="text-sm font-semibold">Sync now</p>
+              <p className="text-xs text-muted-foreground">
+                {syncMsg ?? "Pull the latest from your connected sources. Basil also syncs automatically every few minutes."}
+              </p>
+            </div>
+            <Button size="sm" className="gap-1.5 shrink-0" onClick={syncNowSources} disabled={syncing}>
+              <RefreshCw className={`h-3.5 w-3.5 ${syncing ? "animate-spin" : ""}`} />
+              {syncing ? "Syncing…" : "Sync now"}
+            </Button>
+          </div>
 
-        {/* ── Brain (was Stig API) ─────────────────────────────────────────── */}
-        <TabsContent value="brain" className="mt-6">
-          <StigApiTab status={stigStatus} env={env} copied={copied} setCopied={setCopied} />
-        </TabsContent>
-        {/* Legacy alias */}
-        <TabsContent value="stig-api" className="mt-6">
-          <StigApiTab status={stigStatus} env={env} copied={copied} setCopied={setCopied} />
-        </TabsContent>
-
-        {/* ── Apps (was Core Apps + AI Platforms) ─────────────────────────── */}
-        <TabsContent value="apps" className="mt-6 space-y-6">
           <div>
-            <h2 className="text-lg font-semibold">App connections</h2>
+            <h2 className="text-lg font-semibold">Connected sources</h2>
             <p className="text-sm text-muted-foreground">
-              Slack is the operating core. Google, Linear and Zoom enrich the briefing. The rest are honest about current limits.
+              Slack is the operating core. Google (including your email aliases), Calendar, Zoom and Linear enrich the briefing.
             </p>
           </div>
           <div className="grid gap-4 lg:grid-cols-2">
@@ -1415,32 +1547,6 @@ export default function SettingsPage() {
               />
             ))}
           </div>
-          <div>
-            <h2 className="text-lg font-semibold">AI platforms</h2>
-            <p className="text-sm text-muted-foreground mb-4">
-              Track AI tools used in your work. Basil is the source of truth; AI tools are workers.
-            </p>
-            <AIPlatformsSection />
-          </div>
-        </TabsContent>
-        {/* Legacy aliases */}
-        <TabsContent value="core-apps" className="mt-6 space-y-4">
-          <div className="grid gap-4 lg:grid-cols-2">
-            {apps.map((app) => (
-              <ConnectionCard
-                key={app.key}
-                app={app}
-                linearKey={linearKey}
-                setLinearKey={setLinearKey}
-                linearSaving={linearSaving}
-                linearError={linearError}
-                onLinearConnect={connectLinear}
-              />
-            ))}
-          </div>
-        </TabsContent>
-        <TabsContent value="ai-platforms" className="mt-6">
-          <AIPlatformsSection />
         </TabsContent>
 
         {/* ── Profile ───────────────────────────────────────────────────────── */}
@@ -1478,6 +1584,17 @@ export default function SettingsPage() {
                   <Input value={draft?.meetingUrl ?? ""} onChange={(e) => setDraft((d) => d ? { ...d, meetingUrl: e.target.value } : d)} placeholder="https://zoom.us/j/…" />
                 </label>
               </div>
+              <label className="block space-y-1.5 text-xs font-medium text-muted-foreground">
+                Email aliases
+                <Input
+                  value={(draft?.aliasEmails ?? []).join(", ")}
+                  onChange={(e) => setDraft((d) => d ? { ...d, aliasEmails: e.target.value.split(",").map((s) => s.trim()).filter(Boolean) } : d)}
+                  placeholder="you@otherdomain.com, you@alias.io"
+                />
+                <span className="block text-[11px] font-normal text-muted-foreground/70">
+                  Other addresses you own (Gmail aliases / send-as). Basil treats mail from these as you — so it won&apos;t flag a &ldquo;reply to yourself&rdquo; or create a contact for you. Separate multiple with commas.
+                </span>
+              </label>
               <div className="flex flex-wrap justify-between gap-3">
                 <label className="flex items-center gap-2 text-sm text-muted-foreground">
                   <input
@@ -1549,8 +1666,26 @@ export default function SettingsPage() {
           </Card>
         </TabsContent>
 
-        {/* ── Advanced ──────────────────────────────────────────────────────── */}
-        <TabsContent value="advanced" className="mt-6 space-y-4">
+        {/* ── Developer (merged Brain + Advanced) — everything technical, out of the way ─ */}
+        <TabsContent value="developer" className="mt-6 space-y-6">
+          <div>
+            <h2 className="text-lg font-semibold">Developer &amp; diagnostics</h2>
+            <p className="text-sm text-muted-foreground">Advanced configuration, tooling and diagnostics — you don&apos;t normally need anything here.</p>
+          </div>
+
+          {/* Brain — model / API tokens / Siri voice */}
+          <StigApiTab status={stigStatus} env={env} copied={copied} setCopied={setCopied} />
+
+          {/* AI platform tracking */}
+          <div>
+            <h2 className="text-base font-semibold">AI platforms</h2>
+            <p className="mb-3 text-sm text-muted-foreground">Track AI tools used in your work. Basil is the source of truth; AI tools are workers.</p>
+            <AIPlatformsSection />
+          </div>
+
+          {/* Detailed readiness checks */}
+          <ReadinessTab />
+
           <HealthPanel />
 
           <div className="grid gap-4 lg:grid-cols-2">

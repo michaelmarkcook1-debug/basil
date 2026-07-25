@@ -71,6 +71,11 @@ function wordTokens(text: string): Set<string> {
   );
 }
 
+/** Canonical form for exact-duplicate comparison: case/punct/whitespace-blind. */
+function normalizeExact(s: string): string {
+  return s.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
+}
+
 function jaccardSimilarity(a: string, b: string): number {
   const ta = wordTokens(a);
   const tb = wordTokens(b);
@@ -173,6 +178,16 @@ function findDuplicate(
 
   for (const item of items) {
     if (item.status === "done") continue;
+
+    // Layer 0 — EXACT text match against ANY open item, age-unbounded.
+    // The 7-day bound below keeps the fuzzy layers cheap and avoids merging
+    // legitimately recurring tasks, but an IDENTICAL text while the original
+    // is still open is a duplicate at any age. Without this, a recurring
+    // calendar invite re-ingested >7 days after the original action minted a
+    // new identical row every time (each email has a fresh sourceRef, so
+    // layer 1 never fires): observed live as 4 visible copies of the same
+    // "Respond to scheduling request from Olivia…" commitment.
+    if (normalizeExact(text) === normalizeExact(item.text)) return item;
 
     // Layer 1 — idempotency: same sourceRef, similar text
     if (sourceRef && item.sourceRef === sourceRef) {
@@ -407,6 +422,7 @@ export async function listActions(username: string, options?: { fresh?: boolean 
         return {
           ...a,
           status: "done" as const,
+          archivedReason: "stale-overdue" as const,
           updatedAt: new Date().toISOString(),
         };
       });
@@ -420,7 +436,7 @@ export async function listActions(username: string, options?: { fresh?: boolean 
   }
   const staleIds = new Set(staleOverdue.map((a) => a.id));
   const afterStale = withOverdue.map((a) =>
-    staleIds.has(a.id) ? { ...a, status: "done" as const } : a
+    staleIds.has(a.id) ? { ...a, status: "done" as const, archivedReason: "stale-overdue" as const } : a
   );
 
   // ── Past-meeting attendance auto-archive ─────────────────────────────────────
@@ -436,7 +452,7 @@ export async function listActions(username: string, options?: { fresh?: boolean 
       const archived = current.map((a) => {
         if (!pastMeetingIds.has(a.id) || a.status === "done") return a;
         changed = true;
-        return { ...a, status: "done" as const, updatedAt: new Date().toISOString() };
+        return { ...a, status: "done" as const, archivedReason: "past-meeting" as const, updatedAt: new Date().toISOString() };
       });
       if (changed) {
         await writeAll(username, archived);
@@ -448,7 +464,7 @@ export async function listActions(username: string, options?: { fresh?: boolean 
   }
   const pastMeetingIds = new Set(pastMeeting.map((a) => a.id));
   const afterPastMeeting = afterStale.map((a) =>
-    pastMeetingIds.has(a.id) ? { ...a, status: "done" as const } : a
+    pastMeetingIds.has(a.id) ? { ...a, status: "done" as const, archivedReason: "past-meeting" as const } : a
   );
 
   // ── Time-bounded expiry auto-archive ─────────────────────────────────────────
@@ -467,7 +483,7 @@ export async function listActions(username: string, options?: { fresh?: boolean 
       const archived = current.map((a) => {
         if (!expiredIds.has(a.id) || a.status === "done") return a;
         changed = true;
-        return { ...a, status: "done" as const, updatedAt: new Date().toISOString() };
+        return { ...a, status: "done" as const, archivedReason: "expired" as const, updatedAt: new Date().toISOString() };
       });
       if (changed) {
         await writeAll(username, archived);
@@ -477,7 +493,7 @@ export async function listActions(username: string, options?: { fresh?: boolean 
   }
   const expiredIds = new Set(expired.map((a) => a.id));
   const live = afterPastMeeting.map((a) =>
-    expiredIds.has(a.id) ? { ...a, status: "done" as const } : a
+    expiredIds.has(a.id) ? { ...a, status: "done" as const, archivedReason: "expired" as const } : a
   );
 
   return live.sort(
@@ -613,6 +629,10 @@ export async function updateAction(
       | "eisenhower"
       | "eisenhowerReason"
       | "eisenhowerClassifiedAt"
+      // Signal-driven auto-resolution (calendar RSVP, sent reply) marks an
+      // action done AND tags why — so it lands in Done as "you accepted /
+      // replied", not conflated with genuinely hand-completed work.
+      | "archivedReason"
     >
   >
 ): Promise<ActionItem | null> {

@@ -83,11 +83,19 @@ export async function readUserRecords(): Promise<User[]> {
     try {
       return JSON.parse(decrypt(raw)) as User[];
     } catch (err) {
+      // CRITICAL fail-closed: the envelope EXISTS but can't be decrypted. That is a
+      // KEY problem (wrong / rotated / missing BASIL_TOKEN_ENCRYPTION_KEY), NOT a
+      // missing-file problem. We must NOT fall through to the legacy migration path
+      // below: doing so re-encrypts a stale users.json OVER the real (still-valid,
+      // just-currently-unreadable) secure-users.json and permanently destroys every
+      // account created since migration. Throwing surfaces a 500 that is fully
+      // recoverable by restoring the correct key; an overwrite is not recoverable.
       console.error(
-        "[secure-auth-store] Failed to decrypt user records (key mismatch?) — falling back to legacy users.json:",
+        "[secure-auth-store] Failed to decrypt EXISTING user records — refusing to overwrite with legacy data. " +
+          "Check BASIL_TOKEN_ENCRYPTION_KEY:",
         err instanceof Error ? err.message : err
       );
-      // Fall through to legacy users.json migration rather than losing all users
+      throw new Error("user-records-decrypt-failed: refusing to overwrite account database");
     }
   }
 
@@ -157,10 +165,13 @@ export async function mutateUserRecords(
  *
  * Legacy password-reset-tokens.json is intentionally NOT migrated — see doc.
  */
-export async function readResetTokenRecords(): Promise<HashedResetToken[]> {
+export async function readResetTokenRecords(fresh = false): Promise<HashedResetToken[]> {
+  const opts = fresh ? { fresh: true } : undefined;
   const raw = await readStore<EncryptedEnvelope | HashedResetToken[] | null>(
     SECURE_RESET_TOKENS_FILE,
-    null
+    null,
+    undefined,
+    opts,
   );
 
   if (raw !== null && isEnvelope(raw)) {
@@ -182,7 +193,7 @@ export async function readResetTokenRecords(): Promise<HashedResetToken[]> {
   }
 
   // Check plain-text fallback written when encryption key was absent
-  const plain = await readStore<HashedResetToken[] | null>(PLAIN_RESET_TOKENS_FILE, null);
+  const plain = await readStore<HashedResetToken[] | null>(PLAIN_RESET_TOKENS_FILE, null, undefined, opts);
   if (Array.isArray(plain) && plain.length > 0) {
     // Attempt to upgrade to encrypted now that key may be available
     try { await writeResetTokenRecords(plain); } catch { /* best-effort */ }

@@ -19,7 +19,7 @@ The confusion came from the folder name (`execautoclaude`) not matching the app 
 
 ### Basil (100% of this repo)
 
-**What it is:** A single-user executive assistant for Michael Cook. Connects to Google
+**What it is:** A single-user executive assistant for its owner. Connects to Google
 Calendar, Gmail, Google Drive, Slack, and WhatsApp. Uses Claude AI to brief, schedule,
 draft, and track decisions.
 

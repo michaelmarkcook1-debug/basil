@@ -180,13 +180,12 @@ test("scanner finds client calls to /api/integrations/linear", () => {
   );
 });
 
-test("scanner finds client calls to /api/linear", () => {
-  assert.ok(
-    routeCallSites.has("/api/linear"),
-    "Expected to find at least one client call to /api/linear — " +
-    "did the scanner skip the file or did the route get renamed?"
-  );
-});
+// NOTE: the bare /api/linear root route was RETIRED in the home redesign that
+// replaced the old "signals feed" panel (its only caller). The dashboard now
+// reads Linear via /api/today (which calls getMyOpenIssues() directly) and the
+// Linear page uses the /api/linear/* sub-routes. There is intentionally no
+// client call to the bare /api/linear, and app/api/linear/route.ts was removed.
+// The orphan guard below still fires if anyone re-adds that dead route.
 
 test("scanner finds client calls to /api/auth/linear", () => {
   assert.ok(

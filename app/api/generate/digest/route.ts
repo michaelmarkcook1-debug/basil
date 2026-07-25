@@ -23,6 +23,9 @@ import type { SlackMessage } from "@/lib/slack/client";
 import type { ZoomSummary } from "@/lib/google/zoom-summaries";
 import type { ReadSummary } from "@/lib/google/read-summaries";
 import type { Memory } from "@/lib/memory/types";
+import { getAllOverridesFromStore } from "@/lib/contacts/overrides-store";
+import type { ProfileOverride } from "@/lib/contact-profile-overrides";
+import { listUserContacts } from "@/lib/contacts/user-store";
 import {
   readGenerateCache,
   writeGenerateCache,
@@ -189,6 +192,8 @@ export async function POST() {
     actionsResult,
     decisionsResult,
     memoriesResult,
+    overridesResult,
+    contactsResult,
   ] = await Promise.all([
     (async (): Promise<CalendarEvent[]> => {
       try {
@@ -280,6 +285,11 @@ export async function POST() {
       console.error("Failed to fetch memories:", e);
       return [] as Memory[];
     }),
+    getAllOverridesFromStore(username).catch((e) => {
+      console.error("Failed to fetch contact overrides:", e);
+      return {} as Record<string, ProfileOverride>;
+    }),
+    listUserContacts(username).catch(() => [] as Awaited<ReturnType<typeof listUserContacts>>),
   ]);
 
   // ── Calendar: split past vs upcoming ──────────────────────────────────────
@@ -427,6 +437,39 @@ export async function POST() {
           .join("\n") + "\n"
       : "=== BASIL'S MEMORY NOTES ===\n(No recent notes)\n";
 
+  // ── Relationship tone & personality (last 21 days) ────────────────────────
+  // AI-observed warming/cooling + how each person operates — feeds the
+  // relationshipSignals section with real data instead of pure inference.
+  const overrides = (overridesResult ?? {}) as Record<string, ProfileOverride>;
+  const idToName = new Map<string, string>();
+  for (const c of contactsResult ?? []) if (c.id && c.name) idToName.set(c.id, c.name);
+  const toneCutoff = Date.now() - 21 * 24 * 60 * 60 * 1000;
+  const toneRows: string[] = [];
+  for (const ov of Object.values(overrides)) {
+    const recent = (ov.toneHistory ?? []).filter((t) => t.direction !== "neutral" && new Date(t.date).getTime() > toneCutoff);
+    if (!recent.length) continue;
+    const latest = recent[recent.length - 1];
+    const warming = recent.filter((t) => t.direction === "warming").length;
+    const cooling = recent.filter((t) => t.direction === "cooling").length;
+    const trend = cooling > warming ? "cooling" : warming > cooling ? "warming" : latest.direction;
+    toneRows.push(`- ${latest.person}: trending ${trend} (${recent.length} signal${recent.length === 1 ? "" : "s"}) — ${latest.summary}`);
+  }
+  const personaRows: string[] = [];
+  for (const [id, ov] of Object.entries(overrides)) {
+    const tick = ov.whatMakesThemTick?.trim();
+    const watch = ov.watchOut?.trim();
+    if (!tick && !watch) continue;
+    const name = idToName.get(id);
+    if (!name) continue;
+    personaRows.push(`- ${name}:${tick ? ` drivers — ${tick}` : ""}${watch ? `${tick ? ";" : ""} watch-out — ${watch}` : ""}`);
+  }
+  const toneRelBlock =
+    toneRows.length || personaRows.length
+      ? "=== RELATIONSHIP TONE & PERSONALITY (AI-observed, last 21 days) ===\n" +
+        (toneRows.length ? "Warmth shifts (cooling = needs attention, warming = momentum):\n" + toneRows.join("\n") + "\n" : "") +
+        (personaRows.length ? "How key people operate (drivers / watch-outs):\n" + personaRows.join("\n") + "\n" : "")
+      : "";
+
   // ── Signal density ─────────────────────────────────────────────────────────
   const totalSignal =
     pastEvents.length +
@@ -464,6 +507,7 @@ export async function POST() {
     actionsBlock,
     decisionsBlock,
     memoryBlock,
+    toneRelBlock,
     "",
     "╔══════════════════════════════════════╗",
     "║         END LIVE DATA                ║",
@@ -519,11 +563,12 @@ Return ONLY valid JSON, no markdown code fences.`;
   try {
     // #4 by-path down-tier: digests run on Sonnet ("balanced") to control cost.
     result = await generateTextSafe({
-      model: getTextModel("balanced"),
+      // CONTEXTUAL + REASONING over a long window → flagship, long context.
+      model: getTextModel("long"),
       maxOutputTokens: MAX_TOKENS.long,
       system: await getSystemPrompt(username, tz),
       prompt,
-    }, "balanced", { username, feature: "digest" });
+    }, "long", { username, feature: "digest" });
   } catch (e) {
     if (e instanceof SpendCapError) {
       return Response.json(

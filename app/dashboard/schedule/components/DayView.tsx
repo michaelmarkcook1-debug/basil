@@ -343,6 +343,7 @@ function EventDetailPopover({
                     onClick={onEdit}
                     className="p-1.5 rounded-md text-muted-foreground hover:text-foreground hover:bg-accent transition-colors"
                     title="Edit event"
+                    aria-label="Edit event"
                   >
                     <Pencil className="h-3.5 w-3.5" />
                   </button>
@@ -351,6 +352,7 @@ function EventDetailPopover({
                     disabled={deleting}
                     className="p-1.5 rounded-md text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors disabled:opacity-50"
                     title="Cancel event"
+                    aria-label="Cancel event"
                   >
                     {deleting ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Trash2 className="h-3.5 w-3.5" />}
                   </button>
@@ -360,6 +362,7 @@ function EventDetailPopover({
                 onClick={onClose}
                 className="p-1.5 rounded-md text-muted-foreground hover:text-foreground hover:bg-accent transition-colors"
                 title="Close"
+                aria-label="Close"
               >
                 <X className="h-3.5 w-3.5" />
               </button>
@@ -435,6 +438,7 @@ function EventDetailPopover({
                 onClick={copyLink}
                 className="h-9 w-9 flex items-center justify-center rounded-md border border-border text-muted-foreground hover:text-foreground hover:bg-accent transition-colors"
                 title="Copy link"
+                aria-label="Copy meeting link"
               >
                 {copied ? <Check className="h-3.5 w-3.5 text-signal-positive" /> : <Copy className="h-3.5 w-3.5" />}
               </button>
@@ -883,7 +887,7 @@ function EditModal({
           <h3 className="font-semibold text-base">
             {isNew ? "New Event" : "Edit Event"}
           </h3>
-          <button onClick={onClose} className="text-muted-foreground hover:text-foreground transition-colors">
+          <button onClick={onClose} className="text-muted-foreground hover:text-foreground transition-colors" aria-label="Close">
             <X className="h-4 w-4" />
           </button>
         </div>

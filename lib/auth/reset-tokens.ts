@@ -14,19 +14,14 @@ import {
   writeResetTokenRecords,
   hashResetToken,
 } from "@/lib/storage/secure-auth-store";
+import { withLock } from "@/lib/storage/lock";
 import { randomBytes } from "node:crypto";
 
 const TTL_MS = 60 * 60 * 1000; // 1 hour
-
-/** Purge expired or used tokens to keep the file small. */
-async function gc(): Promise<void> {
-  const now = Date.now();
-  const records = await readResetTokenRecords();
-  const clean = records.filter(
-    (t) => !t.used && new Date(t.expiresAt).getTime() > now
-  );
-  if (clean.length !== records.length) await writeResetTokenRecords(clean);
-}
+// Single global lock: the reset-token file is one shared record set, so every
+// create/consume must serialise (and read fresh) or a concurrent write can drop
+// a just-issued token or resurrect a consumed one across serverless instances.
+const RESET_LOCK = "secure-reset-tokens";
 
 /**
  * Create a reset token for the given user.
@@ -36,25 +31,30 @@ async function gc(): Promise<void> {
  * The raw token is never persisted — only its SHA-256 hash is stored.
  */
 export async function createResetToken(username: string, email: string): Promise<string> {
-  await gc();
-  const records = await readResetTokenRecords();
+  return withLock(RESET_LOCK, async () => {
+    const now = Date.now();
+    const records = await readResetTokenRecords(true);
 
-  // Invalidate any existing tokens for this user
-  const others = records.filter(
-    (t) => t.username.toLowerCase() !== username.toLowerCase()
-  );
+    // Drop expired/used tokens AND any existing tokens for this user in one pass.
+    const others = records.filter(
+      (t) =>
+        !t.used &&
+        new Date(t.expiresAt).getTime() > now &&
+        t.username.toLowerCase() !== username.toLowerCase(),
+    );
 
-  const rawToken = randomBytes(32).toString("hex");
-  const entry = {
-    tokenHash: hashResetToken(rawToken),
-    username,
-    email,
-    expiresAt: new Date(Date.now() + TTL_MS).toISOString(),
-    used: false,
-  };
+    const rawToken = randomBytes(32).toString("hex");
+    const entry = {
+      tokenHash: hashResetToken(rawToken),
+      username,
+      email,
+      expiresAt: new Date(now + TTL_MS).toISOString(),
+      used: false,
+    };
 
-  await writeResetTokenRecords([...others, entry]);
-  return rawToken; // raw token returned to caller; never stored
+    await writeResetTokenRecords([...others, entry]);
+    return rawToken; // raw token returned to caller; never stored
+  });
 }
 
 /**
@@ -79,10 +79,12 @@ export async function validateResetToken(presentedToken: string): Promise<string
  */
 export async function consumeResetToken(presentedToken: string): Promise<void> {
   const tokenHash = hashResetToken(presentedToken);
-  const records = await readResetTokenRecords();
-  const idx = records.findIndex((t) => t.tokenHash === tokenHash);
-  if (idx !== -1) {
-    records[idx] = { ...records[idx], used: true };
-    await writeResetTokenRecords(records);
-  }
+  await withLock(RESET_LOCK, async () => {
+    const records = await readResetTokenRecords(true);
+    const idx = records.findIndex((t) => t.tokenHash === tokenHash);
+    if (idx !== -1) {
+      records[idx] = { ...records[idx], used: true };
+      await writeResetTokenRecords(records);
+    }
+  });
 }

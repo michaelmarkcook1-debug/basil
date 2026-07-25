@@ -20,6 +20,7 @@
  */
 
 import { NextResponse } from "next/server";
+import { timingSafeEqualStr } from "@/lib/auth/safe-compare";
 import { readUserRecords, writeUserRecords } from "@/lib/storage/secure-auth-store";
 import { getUsers } from "@/lib/users";
 import { forceFlushSnapshot } from "@/lib/storage/persistent";
@@ -39,7 +40,7 @@ export async function POST(req: Request) {
   }
 
   const authHeader = req.headers.get("x-admin-token") ?? "";
-  if (authHeader !== token) {
+  if (!timingSafeEqualStr(authHeader, token)) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 

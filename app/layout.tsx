@@ -88,9 +88,11 @@ export const metadata: Metadata = {
 export const viewport: Viewport = {
   width: "device-width",
   initialScale: 1,
-  // Prevent iOS from zooming on input focus — critical for standalone PWA feel
-  maximumScale: 1,
-  userScalable: false,
+  // NOTE: maximumScale/userScalable are deliberately NOT set. Locking zoom is a
+  // direct WCAG 1.4.4 failure — it stops low-vision users pinch-zooming anywhere
+  // in the app. It was here to stop iOS zooming on input focus, but globals.css
+  // already solves that properly by setting inputs to 16px, so the lock was
+  // costing accessibility for nothing.
   viewportFit: "cover", // lets content extend behind the notch / Dynamic Island
   themeColor: [
     { media: "(prefers-color-scheme: light)", color: "#f5f4f0" },

@@ -4,7 +4,9 @@ import { useCallback, useEffect, useState } from "react";
 import {
   AlertTriangle,
   ArrowRight,
+  BellOff,
   Check,
+  ExternalLink,
   Hash,
   Loader2,
   MessageSquare,
@@ -17,6 +19,7 @@ import {
 
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { relativeTime } from "@/lib/utils";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -49,6 +52,10 @@ interface Signal {
   whyItMatters: string;
   recommendedAction: string;
   createdAt: string;
+  /** `slack:<channelId>` for this signal's source — lets the user mute it. */
+  sourceKey?: string | null;
+  /** Deep link that opens the exact DM/channel in Slack so the user can reply. */
+  threadUrl?: string | null;
 }
 
 interface CommandSummary {
@@ -114,8 +121,8 @@ const SIGNAL_META: Record<
   channel_heat: {
     label: "Channel heat",
     icon: Thermometer,
-    colour: "text-pink-600",
-    bgColour: "bg-pink-50 border-pink-200",
+    colour: "text-pink-400",
+    bgColour: "bg-pink-500/10 border-pink-500/25",
   },
   person_needs_attention: {
     label: "Person needs attention",
@@ -129,7 +136,7 @@ const URGENCY_BADGE: Record<Signal["urgency"], string> = {
   critical: "bg-signal-critical-subtle text-signal-critical border-signal-critical-border",
   high: "bg-signal-warning-subtle text-signal-warning border-signal-warning-border",
   medium: "bg-signal-info-subtle text-signal-info border-signal-info-border",
-  low: "bg-gray-100 text-gray-600 border-gray-200",
+  low: "bg-muted/40 text-muted-foreground border-border",
 };
 
 // ─── Conversion helper ────────────────────────────────────────────────────────
@@ -156,6 +163,27 @@ function SignalCard({ signal }: { signal: Signal }) {
   const [converting, setConverting] = useState<ConvertTarget | null>(null);
   const [done, setDone] = useState<ConvertTarget | null>(null);
   const [convError, setConvError] = useState("");
+  const [muting, setMuting] = useState(false);
+  const [muted, setMuted] = useState(false);
+
+  // Mute this source (DM/channel) so it stops surfacing here and in ingestion.
+  // Reuses the learning-loop mute store; reversible on "What Basil learned".
+  async function handleMute() {
+    if (!signal.sourceKey) return;
+    setMuting(true);
+    try {
+      await fetch("/api/learning/suggestions", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ sourceKey: signal.sourceKey, decision: "mute", sourceLabel: signal.channelName }),
+      });
+      setMuted(true);
+    } catch {
+      /* non-fatal */
+    } finally {
+      setMuting(false);
+    }
+  }
 
   async function handleConvert(target: ConvertTarget) {
     setConverting(target);
@@ -178,19 +206,19 @@ function SignalCard({ signal }: { signal: Signal }) {
   ];
 
   return (
-    <Card className={`basil-card border ${meta.bgColour}`}>
+    <Card className={`basil-card border ${meta.bgColour} ${muted ? "opacity-60" : ""}`}>
       <CardContent className="p-4 space-y-3">
-        {/* Header row */}
+        {/* Header row: type + urgency + time */}
         <div className="flex items-start justify-between gap-3">
-          <div className="flex items-center gap-2 min-w-0">
+          <div className="flex items-center gap-1.5 min-w-0">
             <Icon className={`h-4 w-4 shrink-0 ${meta.colour}`} />
-            <span className={`text-xs font-semibold uppercase tracking-[0.15em] ${meta.colour}`}>
+            <span className={`text-[11px] font-semibold uppercase tracking-[0.14em] ${meta.colour}`}>
               {meta.label}
             </span>
           </div>
           <div className="flex items-center gap-2 shrink-0">
             <span
-              className={`text-xs font-semibold uppercase tracking-[0.1em] px-2 py-0.5 rounded-full border ${URGENCY_BADGE[signal.urgency]}`}
+              className={`text-[10px] font-semibold uppercase tracking-[0.1em] px-2 py-0.5 rounded-full border ${URGENCY_BADGE[signal.urgency]}`}
             >
               {signal.urgency}
             </span>
@@ -200,35 +228,46 @@ function SignalCard({ signal }: { signal: Signal }) {
 
         {/* Channel + people */}
         <div className="flex items-center gap-2 flex-wrap text-xs text-muted-foreground">
-          <span className="font-medium text-foreground/80">#{signal.channelName}</span>
+          <span className="font-medium text-foreground">#{signal.channelName}</span>
           {signal.people.length > 0 && (
             <>
-              <span>·</span>
+              <span className="text-muted-foreground/50">·</span>
               <span>{signal.people.join(", ")}</span>
             </>
           )}
         </div>
 
-        {/* Message text */}
-        <p className="text-sm text-foreground/90 leading-relaxed line-clamp-3">{signal.summary}</p>
+        {/* Message text — the hero: full-contrast, readable */}
+        <p className="text-[15px] text-foreground leading-relaxed line-clamp-4">{signal.summary}</p>
 
         {/* Why it matters */}
         {signal.whyItMatters && (
-          <div className="rounded-lg bg-white/70 border border-black/5 px-3 py-2">
-            <p className="text-xs text-muted-foreground uppercase tracking-[0.12em] mb-0.5">
+          <div className="rounded-lg bg-white/[0.04] border border-white/10 px-3 py-2">
+            <p className="text-[10px] text-muted-foreground uppercase tracking-[0.12em] mb-0.5">
               Why it matters
             </p>
-            <p className="text-xs text-foreground/80">{signal.whyItMatters}</p>
+            <p className="text-xs text-foreground/90 leading-relaxed">{signal.whyItMatters}</p>
           </div>
         )}
 
-        {/* Recommended action */}
+        {/* Recommended action hint */}
         {signal.recommendedAction && (
-          <p className="text-xs text-muted-foreground italic">{signal.recommendedAction}</p>
+          <p className="text-xs text-muted-foreground/80 italic">{signal.recommendedAction}</p>
         )}
 
-        {/* Convert buttons */}
-        <div className="flex flex-wrap gap-1.5 pt-1">
+        {/* Actions: engage (open in Slack) + file into Basil + mute */}
+        <div className="flex flex-wrap items-center gap-1.5 pt-1">
+          {signal.threadUrl && (
+            <a
+              href={signal.threadUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-medium border border-gold/30 bg-gold/[0.12] text-gold transition-colors hover:bg-gold/20"
+            >
+              <ExternalLink className="h-3 w-3" />
+              Open in Slack
+            </a>
+          )}
           {convertButtons.map(({ target, label }) => (
             <button
               key={target}
@@ -237,7 +276,7 @@ function SignalCard({ signal }: { signal: Signal }) {
               className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-md text-xs font-medium border transition-all
                 ${done === target
                   ? "bg-signal-positive-subtle border-signal-positive-border text-signal-positive"
-                  : "bg-white/80 border-black/10 text-muted-foreground hover:text-foreground hover:border-black/20 disabled:opacity-50 disabled:cursor-not-allowed"
+                  : "bg-white/[0.04] border-white/10 text-muted-foreground hover:text-foreground hover:border-white/20 disabled:opacity-50 disabled:cursor-not-allowed"
                 }`}
             >
               {converting === target ? (
@@ -248,6 +287,27 @@ function SignalCard({ signal }: { signal: Signal }) {
               {done === target ? "Saved" : label}
             </button>
           ))}
+          {signal.sourceKey && (
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <button
+                  onClick={() => void handleMute()}
+                  disabled={muting || muted}
+                  className={`ml-auto inline-flex items-center gap-1 px-2.5 py-1 rounded-md text-xs font-medium border transition-all
+                    ${muted
+                      ? "bg-muted/40 border-white/10 text-muted-foreground"
+                      : "bg-white/[0.04] border-white/10 text-muted-foreground hover:text-signal-critical hover:border-signal-critical/40 disabled:opacity-50"
+                    }`}
+                >
+                  {muting ? <Loader2 className="h-3 w-3 animate-spin" /> : <BellOff className="h-3 w-3" />}
+                  {muted ? "Muted" : "Mute"}
+                </button>
+              </TooltipTrigger>
+              <TooltipContent side="top" className="max-w-56 text-xs">
+                Stop surfacing this DM/channel here and in ingestion. Reversible on the &ldquo;What Basil learned&rdquo; page.
+              </TooltipContent>
+            </Tooltip>
+          )}
         </div>
 
         {convError && (
@@ -424,7 +484,9 @@ export default function SlackCommandPage() {
         <>
           {/* Summary stats */}
           <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-            {(["reply_needed", "blocker", "promise_made", "decision_pending"] as SignalType[]).map((t) => {
+            {/* "Decision pending" was a dead card — the API always returns 0. Show the
+                live "Stale thread" count instead so every tile reflects real signal. */}
+            {(["reply_needed", "blocker", "promise_made", "stale_thread"] as SignalType[]).map((t) => {
               const meta = SIGNAL_META[t];
               const Icon = meta.icon;
               const count = typeCounts[t];
@@ -433,7 +495,7 @@ export default function SlackCommandPage() {
                 t === "reply_needed" ? response.summary.replyNeeded :
                 t === "blocker" ? response.summary.blockers :
                 t === "promise_made" ? response.summary.promises :
-                t === "decision_pending" ? response.summary.decisions :
+                t === "stale_thread" ? response.summary.staleThreads :
                 count;
               const displayCount = Math.max(count, summaryCount);
               const isActive = activeFilter === t;
@@ -477,7 +539,7 @@ export default function SlackCommandPage() {
                     className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium border transition-all ${
                       isActive
                         ? `${meta.bgColour} ${meta.colour}`
-                        : "bg-white border-black/10 text-muted-foreground hover:text-foreground"
+                        : "bg-white/[0.04] border-white/10 text-muted-foreground hover:text-foreground hover:border-white/20"
                     }`}
                   >
                     <Icon className="h-3 w-3" />
@@ -489,7 +551,7 @@ export default function SlackCommandPage() {
               {activeFilter && (
                 <button
                   onClick={() => setActiveFilter(null)}
-                  className="inline-flex items-center gap-1 px-3 py-1.5 rounded-full text-xs text-muted-foreground hover:text-foreground border border-black/10"
+                  className="inline-flex items-center gap-1 px-3 py-1.5 rounded-full text-xs text-muted-foreground hover:text-foreground border border-white/10 hover:border-white/20"
                 >
                   Clear filter
                 </button>

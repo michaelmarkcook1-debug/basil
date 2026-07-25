@@ -112,12 +112,49 @@ export async function pgListJson(scope: string): Promise<string[]> {
   return res.rows.map((r) => r.key);
 }
 
+/**
+ * Copy every (scope, key, data) entry from Blob into Postgres, then write a
+ * sentinel row so this never re-runs. Without this, flipping DATABASE_URL on
+ * silently FORKS the dataset: Postgres starts empty while the app now reads
+ * Postgres exclusively, making every pre-existing Blob record invisible.
+ * Safe to call with an empty array (fresh install, nothing to copy) — the
+ * sentinel is still recorded so a cold start doesn't re-scan Blob every time.
+ */
+export async function pgMigrateFromBlob(
+  entries: Array<{ scope: string; key: string; data: unknown }>
+): Promise<void> {
+  const p = getPool();
+  if (!p) return;
+  await ensureSchema(p);
+
+  console.log(`[postgres] Migrating ${entries.length} file(s) from Vercel Blob…`);
+  // Sequential, not Promise.all — this runs once on a cold start under a
+  // migration guard; a modest connection pool (max: 5) shouldn't be hammered
+  // with hundreds of concurrent inserts for what is a one-time copy.
+  for (const { scope, key, data } of entries) {
+    await pgWriteJson(scope, key, data);
+  }
+
+  await pgWriteJson("", "_migrated_from_blob", {
+    migratedAt: new Date().toISOString(),
+    fileCount: entries.length,
+  });
+  console.log(`[postgres] Migration complete — ${entries.length} file(s) written.`);
+}
+
+/** Returns true if the Blob→Postgres migration sentinel row exists. */
+export async function pgIsMigratedFromBlob(): Promise<boolean> {
+  const row = await pgReadJson<{ migratedAt?: string } | null>("", "_migrated_from_blob", null);
+  return row !== null;
+}
+
 /** Delete every row under a user's scope prefix — for GDPR account purge. */
 export async function pgPurgeUserData(username: string): Promise<number> {
   const p = getPool();
   if (!p) return 0;
   await ensureSchema(p);
-  const safe = username.replace(/[^a-zA-Z0-9._-]/g, "_");
+  // Lowercase first: usernames are case-insensitive, so purge targets the one store.
+  const safe = username.toLowerCase().replace(/[^a-zA-Z0-9._-]/g, "_");
   // user-scoped files live under scope "users/<safe>" (and exactly that scope).
   const res = await p.query("DELETE FROM basil_store WHERE scope = $1 OR scope LIKE $2", [
     `users/${safe}`,

@@ -34,7 +34,7 @@ import {
 } from "@/components/extra-context-input";
 import { SignalSummary } from "@/components/ui/trust-badge";
 
-interface EventMeta { title: string; time: string; attendees: string[]; dateLabel?: string }
+interface EventMeta { title: string; time: string; attendees: string[]; dateLabel?: string; date?: string }
 
 interface OpenAction {
   id: string;
@@ -98,7 +98,7 @@ function priorityStyle(priority: string): { border: string; badge: string } {
     return { border: "border-l-amber-500", badge: "border-signal-warning-border text-signal-warning bg-signal-warning-subtle" };
   }
   if (/park|low|fyi|note|backlog|defer/.test(p)) {
-    return { border: "border-l-slate-400", badge: "border-slate-300 text-slate-600 bg-slate-50" };
+    return { border: "border-l-slate-400", badge: "border-border text-muted-foreground bg-muted/30" };
   }
   return { border: "border-l-gold", badge: "border-gold/50 text-[oklch(0.58_0.15_85)] bg-gold/10" };
 }
@@ -191,6 +191,7 @@ export default function MeetingPrepPage() {
             time: event.isAllDay ? "All day" : `${formatTime(event.start)} – ${formatTime(event.end)}`,
             attendees: event.attendees || [],
             dateLabel: event.dateLabel,
+            date: typeof event.start === "string" ? event.start.slice(0, 10) : undefined,
           });
         } else {
           setMeta({ title: `Meeting`, time: "", attendees: [] });
@@ -209,13 +210,16 @@ export default function MeetingPrepPage() {
     setLoading(true);
     setError("");
     try {
-      const today = new Date().toISOString().split("T")[0];
       // User contacts are now read from the server store directly — no need
       // to forward them through the request body.
       const meetingPayload = {
         title: meta.title,
         attendees: meta.attendees,
-        date: today,
+        // Send the MEETING'S real date, not "today". The prep header, the
+        // "earlier today" carry-in filter, and the server cache key all key off
+        // this — a Tuesday meeting generated on Friday was reading as if it were
+        // Friday's meeting.
+        date: meta.date || new Date().toISOString().split("T")[0],
         time: meta.time.split(" – ")[0] || "14:00",
       };
 
@@ -491,7 +495,7 @@ export default function MeetingPrepPage() {
           {/* Open Actions — tracked actions relevant to this meeting */}
           {prep.openActions && prep.openActions.length > 0 && (
             <div>
-              <SectionHeader icon={ListChecks} label="Tracked Actions" color="text-slate-500" />
+              <SectionHeader icon={ListChecks} label="Tracked Actions" color="text-muted-foreground" />
               <div className="space-y-1.5">
                 {prep.openActions.map((a) => {
                   const todayLocal = new Date().toISOString().split("T")[0];

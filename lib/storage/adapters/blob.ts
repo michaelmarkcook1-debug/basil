@@ -255,7 +255,8 @@ export async function blobIsMigrated(): Promise<boolean> {
  * @returns Number of blobs deleted.
  */
 export async function blobPurgeUserData(username: string): Promise<number> {
-  const sanitized = username.replace(/[^a-zA-Z0-9._-]/g, "_");
+  // Lowercase first: usernames are case-insensitive, so purge targets the one store.
+  const sanitized = username.toLowerCase().replace(/[^a-zA-Z0-9._-]/g, "_");
   const scopePrefix = `${PREFIX}/users/${sanitized}/`;
 
   let deleted = 0;
@@ -275,4 +276,39 @@ export async function blobPurgeUserData(username: string): Promise<number> {
   } while (cursor);
 
   return deleted;
+}
+
+/**
+ * Read every stored file under basil/** (scope, key, parsed JSON content) —
+ * used ONLY for the one-time Blob→Postgres migration in persistent.ts. Skips
+ * the backup tree and the migration sentinels themselves.
+ */
+export async function blobReadAllRaw(): Promise<Array<{ scope: string; key: string; data: unknown }>> {
+  const out: Array<{ scope: string; key: string; data: unknown }> = [];
+  let cursor: string | undefined;
+
+  do {
+    const result = await list({ prefix: `${PREFIX}/`, cursor, limit: 100 });
+    for (const b of result.blobs) {
+      const rel = b.pathname.slice(PREFIX.length + 1); // "users/<u>/file.json" or "file.json"
+      if (rel.startsWith("_backups/")) continue;
+      if (rel === "_migrated" || rel === "_migrated_from_blob") continue;
+
+      const parts = rel.split("/");
+      const key = parts.pop()!;
+      const scope = parts.join("/");
+
+      try {
+        const res = await fetchBlob(b.url);
+        if (!res.ok) continue; // skip unreadable entries — non-fatal for a migration copy
+        const data = await res.json();
+        out.push({ scope, key, data });
+      } catch {
+        continue; // one bad file must not abort the whole migration
+      }
+    }
+    cursor = result.hasMore ? result.cursor : undefined;
+  } while (cursor);
+
+  return out;
 }

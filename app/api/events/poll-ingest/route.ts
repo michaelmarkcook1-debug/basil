@@ -7,9 +7,10 @@ import { eventFromIngest } from "@/lib/events/rules";
 import { publish } from "@/lib/events/bus";
 import { generateDraftForEvent } from "@/lib/events/drafter";
 import type { IngestPayload, BasilEvent } from "@/lib/events/types";
-import { getTodayEvents } from "@/lib/google/calendar";
+import { getTodayEvents, getEventsForMonth } from "@/lib/google/calendar";
 import { getRecentEmails, searchEmails, checkThreadForSentReply } from "@/lib/google/gmail";
 import { getRecentSlackMessages } from "@/lib/slack/client";
+import { getMutedSourceKeys } from "@/lib/learning/store";
 import { listActions, updateAction, createAction } from "@/lib/actions/store";
 import { createDecision, listDecisions } from "@/lib/decisions/store";
 import { getMyOpenIssues, linearPriorityToBasil } from "@/lib/linear/client";
@@ -19,6 +20,7 @@ import { processZoomMeeting } from "@/lib/zoom/process-meeting";
 import { getSelfIdentity, isSelf } from "@/lib/self-identity";
 import { ZOOM_GMAIL_QUERY, detectZoomEmail } from "@/lib/google/zoom-email-detector";
 import { processRegularEmail, processZoomEmail } from "@/lib/email/process-gmail-message";
+import { triageEmail } from "@/lib/email/triage";
 import { getSessionUser } from "@/lib/auth";
 import { getUsers, isAdminUser } from "@/lib/users";
 import { fetchSlackThread, formatThreadTranscript } from "@/lib/slack/fetch-thread";
@@ -34,7 +36,9 @@ import { hashContent } from "@/lib/ingest/content-hash";
 import { isHashUnchanged, recordIngest } from "@/lib/ingest/index";
 import { appendAuditEntries, auditSkipped } from "@/lib/ingest/audit-log";
 import { listUserContacts, updateUserContactInStore } from "@/lib/contacts/user-store";
-import { contacts as seedContacts } from "@/lib/contacts-data";
+import { touchContactsRecency, type RecencyTouch } from "@/lib/contacts/touch-recency";
+import { resolveAttendanceActions } from "@/lib/actions/resolve-calendar";
+import { sampleContacts } from "@/lib/contacts-data";
 
 /**
  * POST /api/events/poll-ingest
@@ -97,7 +101,7 @@ export async function POST(req: Request) {
   const [userContacts] = await Promise.all([
     listUserContacts(username).catch(() => []),
   ]);
-  const allContacts = [...seedContacts, ...userContacts];
+  const allContacts = [...sampleContacts(), ...userContacts];
 
   /** Lowercase name tokens for every contact — first name and full name. */
   const contactNameSet = new Set<string>();
@@ -139,7 +143,7 @@ export async function POST(req: Request) {
    * display name. Non-fatal — failures are swallowed silently.
    * Only updates if the new date is newer than the stored value.
    */
-  const touchContactLastInteraction = async (displayName: string, isoDate: string): Promise<void> => {
+  const touchContactLastInteraction = async (displayName: string, isoDate: string, source: "slack" | "email" = "slack"): Promise<void> => {
     if (!displayName?.trim()) return;
     const nameLower = displayName.toLowerCase();
     // Find the best matching user-added contact (seed contacts are read-only)
@@ -153,7 +157,7 @@ export async function POST(req: Request) {
     if (match.lastInteraction && match.lastInteraction >= isoDate) return;
     await updateUserContactInStore(username, match.id, {
       lastInteraction: isoDate,
-      activitySource: "slack",
+      activitySource: source, // reflect the REAL source — email touches were mislabelled "slack"
     }).catch(() => {/* non-fatal */});
   };
 
@@ -172,7 +176,7 @@ export async function POST(req: Request) {
     });
   }
 
-  const [emails, slacks, calEvents, zoomEmails, outlookEmails, teamsMessages, selfIdentity] = await Promise.all([
+  const [emails, slacks, calEvents, zoomEmails, outlookEmails, teamsMessages, selfIdentity, mutedSources] = await Promise.all([
     track("email", getRecentEmails(username, 20)),
     track("slack", getRecentSlackMessages(username, 30)),
     track("calendar", getTodayEvents(username)),
@@ -180,6 +184,8 @@ export async function POST(req: Request) {
     track("outlook_email", getRecentOutlookMessages(username, 20, 2)),
     track("teams", getRecentTeamsMessages(username, 30, 3)),
     getSelfIdentity(username),
+    // Channels the user asked Basil to stop surfacing (learned + confirmed).
+    getMutedSourceKeys(username).catch(() => new Set<string>()),
   ]);
 
   // Build a Set of Gmail message IDs confirmed as Zoom emails so the regular
@@ -203,6 +209,14 @@ export async function POST(req: Request) {
     const signal = detectZoomEmail({ from: e.from, subject: e.subject, snippet: e.snippet });
     if (signal.isZoom && signal.confidence >= 0.8) {
       zoomEmailIds.add(e.id);
+      continue;
+    }
+
+    // Aggressive junk gate — drop empty/"Test", no-reply notifications, and
+    // newsletters/marketing/digests BEFORE a durable event is created for them.
+    const triage = triageEmail({ from: e.from, fromEmail: e.fromEmail, subject: e.subject, snippet: e.snippet });
+    if (triage.lowValue) {
+      console.log(`[poll-ingest] skipped low-value email (${triage.reason}): ${e.subject?.slice(0, 60)}`);
       continue;
     }
 
@@ -238,9 +252,28 @@ export async function POST(req: Request) {
     channelName: string;
   }>();
 
+  // Contact-recency touches from Slack — captured for EVERY real message below,
+  // not just the ones that pass the classification gate. This is what makes a
+  // DM/shared-channel conversation count toward "last interaction" so an active
+  // contact stops being flagged as "gone quiet". Applied in one batch after the
+  // loop (see touchContactsRecency).
+  const slackRecencyTouches: RecencyTouch[] = [];
+
   for (const m of slacks) {
     if (isSelf(m.author, selfIdentity)) continue;
     if (isBotChannel(m.channel)) continue;
+    // Suspend ingestion for channels the user muted via the learning prompt —
+    // EXCEPT a direct @mention of the user, which always bypasses a mute (a
+    // learned mute must never swallow a genuinely high-signal ping).
+    if (m.channelId && !m.isMention && mutedSources.has(`slack:${m.channelId}`)) continue;
+
+    // Recency: the author, plus DM/Group-DM members (lower-cased first names) so
+    // an outbound DM where the contact wasn't the most recent author still counts.
+    slackRecencyTouches.push({ name: m.author, date: m.date, source: "slack" });
+    for (const member of m.channelMembers ?? []) {
+      slackRecencyTouches.push({ name: member, date: m.date, source: "slack" });
+    }
+
     const isDM = m.channel.startsWith("DM:");
     const isGroupDM = m.channel.startsWith("Group DM");
     const externalId = `slack:${m.channelId || m.channel}:${m.id}`;
@@ -277,14 +310,102 @@ export async function POST(req: Request) {
     }
   }
 
+  // Persist Slack + CALENDAR recency post-response (after()) so the synchronous
+  // cron path isn't blocked by per-contact store writes under the per-user lock.
+  // Advances each contact's lastInteraction whether or not anything became a signal.
+  //
+  // Calendar was NOT a recency source before — only Slack and Zoom-summary
+  // touches existed — so a colleague you meet 3×/week in a recurring standup
+  // but who never DMs you was flagged "Stakeholder has gone quiet" (observed
+  // live: Trey Carlson, "no activity for 13 days", two days after a shared
+  // accepted meeting). Only meetings that already ENDED count (this cron runs
+  // at 05:45, before the day's meetings), with a 48h lookback — idempotent,
+  // since touches only ever advance recency forward.
+  after(async () => {
+    const calendarTouches: RecencyTouch[] = [];
+    const windowEvents: Awaited<ReturnType<typeof getEventsForMonth>> = [];
+    try {
+      const now = new Date();
+      // current + next month covers upcoming demos for RSVP resolution; prev
+      // month only near a boundary so the 48h recency lookback isn't clipped.
+      const next = new Date(now.getFullYear(), now.getMonth() + 1, 1);
+      const months = [
+        [now.getFullYear(), now.getMonth()] as const,
+        [next.getFullYear(), next.getMonth()] as const,
+      ];
+      if (now.getDate() <= 2) {
+        const prev = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+        months.unshift([prev.getFullYear(), prev.getMonth()] as const);
+      }
+      const lookbackMs = 48 * 3_600_000;
+      for (const [y, mo] of months) {
+        const events = await getEventsForMonth(username, y, mo).catch(() => []);
+        windowEvents.push(...events);
+        for (const ev of events) {
+          if (ev.isAllDay) continue;
+          const endMs = new Date(ev.end).getTime();
+          // Recency: only meetings that ALREADY ENDED (cron runs 05:45).
+          if (Number.isNaN(endMs) || endMs > now.getTime() || endMs < now.getTime() - lookbackMs) continue;
+          for (const a of ev.attendees ?? []) {
+            if (!a?.trim()) continue;
+            // mapEvent already strips the user themselves. Attendee strings are
+            // displayName when Google has one, else the raw email.
+            calendarTouches.push({
+              name: a,
+              email: a.includes("@") ? a : undefined,
+              date: ev.end,
+              source: "calendar",
+            });
+          }
+        }
+      }
+    } catch { /* calendar unavailable — Slack touches still apply */ }
+    await touchContactsRecency(username, [...slackRecencyTouches, ...calendarTouches]).catch(() => 0);
+
+    // ── Calendar-RSVP commitment resolution ──────────────────────────────────
+    // Close "Confirm attendance / Expect invite" commitments the user has
+    // already answered on the calendar (accepted/declined) — the piece the
+    // owner flagged: "I already accepted the Kyndryl demo" yet the commitment
+    // still sat in Upcoming. See lib/actions/resolve-calendar.ts for the strict
+    // (date + counterparty) matching that prevents closing the wrong task.
+    try {
+      const openActions = await listActions(username);
+      const toResolve = resolveAttendanceActions(openActions, windowEvents).slice(0, 25);
+      for (const { action, reason } of toResolve) {
+        await updateAction(username, action.id, {
+          status: "done",
+          archivedReason: reason === "invite-arrived" ? "reply-sent" : "rsvp-confirmed",
+          lastActivityAt: new Date().toISOString(),
+        }).catch((e) => {
+          console.error(`[poll-ingest] failed to resolve action ${action.id}:`, e instanceof Error ? e.message : e);
+          return null;
+        });
+      }
+      if (toResolve.length) {
+        console.log(`[poll-ingest] resolved ${toResolve.length} attendance commitment(s) from calendar RSVP for ${username}`);
+      }
+    } catch (e) {
+      console.error("[poll-ingest] calendar-RSVP resolution failed:", e instanceof Error ? e.message : e);
+    }
+  });
+
   // ── Outlook emails (Microsoft 365) ──────────────────────────────────────
   for (const e of outlookEmails) {
+    // Apply the SAME gates as the Gmail loop — Outlook previously bypassed both,
+    // so self-sent mail and junk/newsletters became durable events with no filter.
+    if (isSelf(e.from, selfIdentity) || isSelf(e.fromEmail, selfIdentity)) continue;
+    const triage = triageEmail({ from: e.from, fromEmail: e.fromEmail, subject: e.subject, snippet: e.snippet });
+    if (triage.lowValue) {
+      console.log(`[poll-ingest] skipped low-value Outlook email (${triage.reason}): ${e.subject?.slice(0, 60)}`);
+      continue;
+    }
     payloads.push({
       source: "email",
       externalId: `outlook:${e.id}`,
       title: e.subject || "(no subject)",
       body: e.snippet || "",
       from: e.from,
+      fromEmail: e.fromEmail,
       date: e.date,
       hints: { isDM: false },
     });
@@ -301,9 +422,14 @@ export async function POST(req: Request) {
 
   for (const m of teamsMessages) {
     if (isSelf(m.author, selfIdentity)) continue;
+    // Parity with the Slack loop: skip bot/system DMs (same channel-naming
+    // convention, "DM: Name") and respect the same per-source mute mechanism,
+    // namespaced "teams:<chatOrChannelId>" so it doesn't collide with Slack mutes.
+    if (isBotChannel(m.channel)) continue;
+    if (m.chatOrChannelId && !m.isMention && mutedSources.has(`teams:${m.chatOrChannelId}`)) continue;
     const externalId = `teams:${m.chatOrChannelId}:${m.id}`;
     payloads.push({
-      source: "slack", // ActionItem.source has no "teams" — use "slack" as closest
+      source: "teams", // provenance is now honest — was mislabelled "slack"
       externalId,
       title: `${m.channel} — ${m.author}`,
       body: m.text,
@@ -381,8 +507,11 @@ export async function POST(req: Request) {
     if (p.source === "email" && p.externalId) {
       emailsToClassify.push({ payload: p, eventId: event.id });
     }
-    // Queue qualifying Slack events for thread-aware intelligence classification
-    if (p.source === "slack" && p.externalId) {
+    // Queue qualifying Slack/Teams events for thread-aware intelligence classification.
+    // Teams payloads now carry source:"teams" (previously mislabelled "slack",
+    // which is why this gate must check both) — the slackMeta/teamsMeta lookups
+    // below already correctly separate the two regardless of which branch matched.
+    if ((p.source === "slack" || p.source === "teams") && p.externalId) {
       const slackMeta = slackMetaMap.get(p.externalId);
       const teamsMeta = teamsMetaMap.get(p.externalId);
 
@@ -462,7 +591,7 @@ export async function POST(req: Request) {
         });
         // Update contact lastInteraction after email processing
         if (payload.from && payload.date) {
-          await touchContactLastInteraction(payload.from, payload.date).catch(() => { /* basil-ci-allow-silent-catch: contact recency update is non-fatal */ });
+          await touchContactLastInteraction(payload.from, payload.date, "email").catch(() => { /* basil-ci-allow-silent-catch: contact recency update is non-fatal */ });
         }
       }
       // Flush snapshot after all mutations so BASIL_DATA is updated before

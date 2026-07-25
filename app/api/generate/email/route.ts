@@ -54,11 +54,13 @@ Return only the email body text, nothing else.`;
 
   try {
     const { text } = await generateTextSafe({
-      model: getTextModel("fast"),
+      // CONTEXTUAL + REASONING → flagship. Composing an email the owner will
+      // actually send is judgement work, not data gathering.
+      model: getTextModel("default"),
       system: systemPrompt,
       prompt: userPrompt,
       maxOutputTokens: 600,
-    }, "fast", { username, feature: "email-compose" });
+    }, "default", { username, feature: "email-compose" });
 
     return NextResponse.json({ body: text.trim() });
   } catch (e) {

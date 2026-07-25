@@ -29,6 +29,12 @@ export async function POST(req: Request) {
   if (!user) {
     return NextResponse.json({ error: "Wrong username or password" }, { status: 401 });
   }
+  // Reject suspended accounts at the door — don't mint a session cookie or bump
+  // lastLoginAt for a disabled user (downstream guards reject them anyway, but a
+  // valid-signature JWT + a success response for a suspended account is wrong).
+  if (user.disabled) {
+    return NextResponse.json({ error: "This account has been disabled." }, { status: 403 });
+  }
   // Record last login time (best-effort, non-blocking)
   updateUser(username, { lastLoginAt: new Date().toISOString() }).catch(() => {}); // fire-and-forget
   const sessionVersion = user.sessionVersion ?? 1;

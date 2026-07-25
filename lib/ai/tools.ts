@@ -629,6 +629,10 @@ export function buildAssistantTools(username: string, firstName?: string, timezo
       inputSchema: z.object({
         id: z.string().describe("The action id."),
       }),
+      // Marking a real commitment done is a mutation — require confirmation, like
+      // removeAction. The model can otherwise close a tracked commitment off a
+      // misread ("I finished the deck" about something else) with no undo.
+      needsApproval: true,
       execute: async ({ id }) => {
         const updated = await updateAction(username, id, { status: "done" });
         if (!updated) return { result: "not_found", id };

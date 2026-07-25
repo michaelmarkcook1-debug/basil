@@ -177,6 +177,13 @@ export const ZoomMeetingExtractSchema = z.object({
   followUps:    z.array(z.string()).default([]),
   /** Key topics and themes discussed — not decisions, not action items, just what was covered. */
   topics:       z.array(z.string()).default([]),
+  /**
+   * Detected tone/attitude shifts among attendees — only when a notable change
+   * in warmth, engagement, or disposition is explicitly observable in the
+   * summary/transcript. Feeds the per-contact tone history (same store as
+   * email/Slack/Zoom-API tone).
+   */
+  toneShifts:   z.array(ToneShiftSchema).default([]),
   confidence:   confidenceSchema,
 });
 
@@ -200,6 +207,13 @@ export const MeetingIntelligenceSchema = z.object({
   })).default([]),
   summary:    z.string().default(""),
   keyTopics:  z.array(z.string()).default([]),
+  /**
+   * Detected tone/attitude shifts among attendees — only when a notable change
+   * in warmth, engagement, or disposition is explicitly observable. Feeds the
+   * per-contact tone history (same store as email/Slack tone), so Zoom meetings
+   * contribute to relationship-tone tracking, briefings, and contact profiles.
+   */
+  toneShifts: z.array(ToneShiftSchema).default([]),
 });
 
 export type MeetingIntelligenceOutput = z.infer<typeof MeetingIntelligenceSchema>;

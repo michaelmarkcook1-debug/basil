@@ -7,12 +7,14 @@
  */
 
 import { readStore, writeStore } from "@/lib/storage/persistent";
+import { withLock } from "@/lib/storage/lock";
 
 const WATCH_FILE = "google-watch.json";
 
 /** Convert a username to a filesystem-safe directory component. */
 function safeUser(username: string): string {
-  return username.replace(/[^a-zA-Z0-9._-]/g, "_");
+  // Lowercase first: usernames are case-insensitive, so all per-user paths agree.
+  return username.toLowerCase().replace(/[^a-zA-Z0-9._-]/g, "_");
 }
 
 function subdir(username: string): string {
@@ -42,18 +44,26 @@ export async function getWatchState(username: string): Promise<WatchState> {
   return readStore<WatchState>(WATCH_FILE, {}, subdir(username));
 }
 
+// Both updaters run under a per-user lock and read FRESH inside it. Gmail and
+// Calendar watch renewals (webhook + cron + Sync now) can fire concurrently;
+// an unlocked read-modify-write off the stale /tmp cache would drop a
+// just-written historyId / syncToken and silently regress incremental sync.
 export async function updateGmail(username: string, patch: Partial<GmailWatchState>): Promise<void> {
-  const s = await getWatchState(username);
-  await writeStore<WatchState>(WATCH_FILE, {
-    ...s,
-    gmail: { ...s.gmail, ...patch },
-  }, subdir(username), { durability: "strong" });
+  await withLock(`${subdir(username)}/${WATCH_FILE}`, async () => {
+    const s = await readStore<WatchState>(WATCH_FILE, {}, subdir(username), { fresh: true });
+    await writeStore<WatchState>(WATCH_FILE, {
+      ...s,
+      gmail: { ...s.gmail, ...patch },
+    }, subdir(username), { durability: "strong" });
+  });
 }
 
 export async function updateCalendar(username: string, patch: Partial<CalendarWatchState>): Promise<void> {
-  const s = await getWatchState(username);
-  await writeStore<WatchState>(WATCH_FILE, {
-    ...s,
-    calendar: { ...s.calendar, ...patch },
-  }, subdir(username), { durability: "strong" });
+  await withLock(`${subdir(username)}/${WATCH_FILE}`, async () => {
+    const s = await readStore<WatchState>(WATCH_FILE, {}, subdir(username), { fresh: true });
+    await writeStore<WatchState>(WATCH_FILE, {
+      ...s,
+      calendar: { ...s.calendar, ...patch },
+    }, subdir(username), { durability: "strong" });
+  });
 }

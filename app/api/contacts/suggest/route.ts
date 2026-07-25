@@ -2,9 +2,9 @@ import { NextResponse } from "next/server";
 import { getRecentEmails } from "@/lib/google/gmail";
 import { getRecentSlackMessages } from "@/lib/slack/client";
 import { getSessionUser } from "@/lib/auth";
-import { contacts } from "@/lib/contacts-data";
 import { getSelfIdentity, isSelf } from "@/lib/self-identity";
-import { findContactByName } from "@/lib/contacts-lookup";
+import { findContactByName, findContactByEmail } from "@/lib/contacts-lookup";
+import { listUserContacts } from "@/lib/contacts/user-store";
 import type { ContactSuggestion } from "@/lib/types/contact";
 
 /**
@@ -46,14 +46,30 @@ function isBotIdentity(s: string): boolean {
   return BOT_PATTERNS.some((p) => p.test(s));
 }
 
+/**
+ * Strip the "(via X)" relay suffix Google/Slack bolt onto a sender's name.
+ *
+ * Google Docs comment mail arrives as `Malcolm Frank (via Google Docs)`. That
+ * string matches no existing contact, so it sailed past the de-dupe and minted
+ * a SECOND "Malcolm Frank (via Google Docs)" contact beside the real Malcolm
+ * Frank — a whole duplicate class, one per relay product. The relay is transport
+ * metadata, not part of the person's name.
+ */
+function stripRelaySuffix(name: string): string {
+  return name.replace(/\s*\(via [^)]*\)\s*$/i, "").trim();
+}
+
 /** Parse a raw Gmail "From" header into { name, email }. */
 function parseFromHeader(raw: string): { name: string; email?: string } {
   const m = raw.match(/^(.*?)\s*<([^>]+)>\s*$/);
   if (m) {
-    return { name: m[1].replace(/^"|"$/g, "").trim() || m[2], email: m[2].trim().toLowerCase() };
+    return {
+      name: stripRelaySuffix(m[1].replace(/^"|"$/g, "").trim()) || m[2],
+      email: m[2].trim().toLowerCase(),
+    };
   }
   if (raw.includes("@")) return { name: raw.trim(), email: raw.trim().toLowerCase() };
-  return { name: raw.trim() };
+  return { name: stripRelaySuffix(raw.trim()) };
 }
 
 function slugify(source: string): string {
@@ -68,10 +84,21 @@ export async function GET() {
   const username = (await getSessionUser());
   if (!username) return NextResponse.json({ error: "Unauthorised" }, { status: 401 });
 
-  const [emails, slacks, identity] = await Promise.all([
+  const [emails, slacks, identity, knownContacts] = await Promise.all([
     getRecentEmails(username, 100).catch(() => []),
     getRecentSlackMessages(username, 100).catch(() => []),
     getSelfIdentity(username),
+    // THE de-dupe source. Without this the "already a contact?" checks below
+    // only ever searched sampleContacts() — which is gated OFF and returns [] —
+    // so NOTHING was ever de-duped and the strip kept offering people who are
+    // already contacts (observed: 7 of 12 suggestions were existing contacts,
+    // incl. Ed Baum, Malcolm Frank, Isaac Frank). Accepting one minted a
+    // duplicate: that is how "Matthew Paquette" was created alongside the real
+    // "Matt Paquette", and how the 375 auto-added contacts accumulated.
+    // findContactByName's own docs say to pass user contacts as `extra`; they
+    // ARE readable server-side now (the activity route already does this), so
+    // the original "localStorage-only" caveat no longer applies.
+    listUserContacts(username).catch(() => []),
   ]);
 
   // Keyed by a stable identity — email when we have it, else slugified name.
@@ -120,8 +147,8 @@ export async function GET() {
     if (isBotIdentity(name) || (email && isBotIdentity(email))) continue;
 
     // Skip if already in contacts (by name or email match)
-    if (findContactByName(name)) continue;
-    if (email && contacts.some((c) => c.email?.toLowerCase() === email)) continue;
+    if (findContactByName(name, knownContacts)) continue;
+    if (email && findContactByEmail(email, knownContacts)) continue;
 
     const key = email || slugify(name);
     bump(key, {
@@ -139,7 +166,7 @@ export async function GET() {
     if (isBotIdentity(m.author)) continue;
     if (isBotIdentity(m.channel)) continue;
 
-    if (findContactByName(m.author)) continue;
+    if (findContactByName(m.author, knownContacts)) continue;
 
     const key = slugify(m.author);
     bump(key, {

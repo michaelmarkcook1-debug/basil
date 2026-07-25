@@ -15,12 +15,23 @@ import { withLock } from "@/lib/events/lock";
 const HISTORY_FILE = "chat-history.json";
 const MAX_STORED_MESSAGES = 200; // keep last 200 messages per user (~100 exchanges)
 
+/** Lightweight record of a tool call within a message — what Basil actually did. */
+export interface StoredToolReceipt {
+  toolName: string;
+  /** Final state at save time: "output-available" | "output-denied" | etc. */
+  state: string;
+  /** Tool call arguments — capped by the caller before storage. */
+  input?: unknown;
+}
+
 export interface StoredMessage {
   id: string;
   role: "user" | "assistant";
-  /** Plain-text content only — tool calls are not stored for replay. */
+  /** Plain-text content only. */
   content: string;
   createdAt: string;
+  /** Tool calls made as part of this message (drafts sent, meetings booked, etc.) — a receipt, not a full replay. */
+  toolReceipts?: StoredToolReceipt[];
 }
 
 function lockKey(username: string) {
@@ -41,9 +52,16 @@ export async function appendChatMessages(
 ): Promise<void> {
   if (messages.length === 0) return;
   return withLock(lockKey(username), async () => {
-    const existing = await readUserStore<StoredMessage[]>(username, HISTORY_FILE, []);
-    const merged = [...existing, ...messages];
-    // Keep only the most recent N messages
+    const existing = await readUserStore<StoredMessage[]>(username, HISTORY_FILE, [], { fresh: true });
+    // Idempotent append: skip any message whose id is already stored. This lets
+    // the client POST its whole (growing) session every turn without duplicating,
+    // and — crucially — means a new turn can only ADD to the archive, never
+    // replace it. The old PUT-replace auto-save silently wiped ALL prior
+    // conversations whenever a fresh session saved its first exchange.
+    const seen = new Set(existing.map((m) => m.id));
+    const fresh = messages.filter((m) => !seen.has(m.id));
+    if (fresh.length === 0) return;
+    const merged = [...existing, ...fresh];
     const trimmed = merged.length > MAX_STORED_MESSAGES
       ? merged.slice(merged.length - MAX_STORED_MESSAGES)
       : merged;

@@ -1,6 +1,7 @@
 import "server-only";
 
 import { getRecentSlackMessages, type SlackMessage } from "@/lib/slack/client";
+import { getMutedSourceKeys } from "@/lib/learning/store";
 
 export interface SlackCommandData {
   generatedAt: string;
@@ -13,11 +14,9 @@ export interface SlackCommandData {
 }
 
 function looksBlocked(text: string): boolean {
-  return /\b(blocked|blocker|stuck|waiting on|can'?t proceed|cannot proceed|at risk|risk|urgent|escalat)/i.test(text);
-}
-
-function looksLikeAsk(text: string): boolean {
-  return /\b(can you|could you|please|need you|michael\?|thoughts\?|wdyt|approve|review|decide|sign off|ok to|are you able|do you want)\b/i.test(text);
+  // "at risk" stays; bare "risk" is removed — it matched ordinary sentences
+  // ("no risk", "risk appetite", "de-risk") and manufactured false criticals.
+  return /\b(blocked|blocker|stuck|waiting on|can'?t proceed|cannot proceed|at risk|urgent|escalat)/i.test(text);
 }
 
 function looksLikePromise(text: string): boolean {
@@ -29,22 +28,54 @@ function ageHours(iso: string): number {
 }
 
 export async function buildSlackCommandCentre(username: string, limit = 80): Promise<SlackCommandData> {
-  const messages = await getRecentSlackMessages(username, limit);
+  const [allMessages, mutedKeys] = await Promise.all([
+    getRecentSlackMessages(username, limit),
+    getMutedSourceKeys(username).catch(() => new Set<string>()),
+  ]);
+  // Respect per-contact / per-channel mutes — the user's "silence this" option.
+  // Keyed by `slack:<channelId>` (same store as the learning loop), so a muted
+  // DM/channel is dropped from every signal below. Nothing is muted by default;
+  // this only applies once the user explicitly mutes a source.
+  const messages = allMessages.filter(
+    (m) => !(m.channelId && mutedKeys.has(`slack:${m.channelId}`))
+  );
 
-  const needsReply = messages
-    .filter((m) => m.isMention || m.channelId?.startsWith("D") || looksLikeAsk(m.text))
+  // "Awaiting your reply" = a message NOT sent by you, that is either an @-mention
+  // of you OR is in a DM / group-DM you're part of (channelMembers is only set for
+  // DMs/group-DMs). Plain channel chatter you're a nominal member of — but not
+  // mentioned in — is NOT yours to reply to, so it's excluded.
+  // Conversation-level: consider only the NEWEST message per conversation
+  // (messages are sorted newest-first). If that newest message is from YOU, you
+  // have already replied — the conversation is NOT awaiting your reply. This
+  // fixes the "you answered a minute ago but it still shows reply-needed / stale
+  // for 7 days" bug, and stops a busy DM from spamming one card per message.
+  const newestPerConversation: SlackMessage[] = [];
+  const seenConversations = new Set<string>();
+  for (const m of messages) {
+    const key = m.channelId ?? m.channel;
+    if (seenConversations.has(key)) continue;
+    seenConversations.add(key);
+    newestPerConversation.push(m);
+  }
+
+  const needsReply = newestPerConversation
+    .filter((m) => !m.fromSelf && (m.isMention || m.channelMembers !== undefined))
     .slice(0, 12);
 
+  // Blockers / promises exclude YOUR OWN messages: your "this is urgent" is not a
+  // team blocker to chase, and your own "I'll send it over" is not a promise to
+  // hunt down. Without this, the user's own words came back as red criticals.
   const blockers = messages
-    .filter((m) => looksBlocked(m.text))
+    .filter((m) => !m.fromSelf && looksBlocked(m.text))
     .slice(0, 12);
 
   const promises = messages
-    .filter((m) => looksLikePromise(m.text))
+    .filter((m) => !m.fromSelf && looksLikePromise(m.text))
     .slice(0, 12);
 
-  const staleThreads = messages
-    .filter((m) => (m.isMention || looksLikeAsk(m.text) || looksBlocked(m.text)) && ageHours(m.date) >= 18)
+  // Stale = a conversation whose newest message is an unanswered inbound one >18h old.
+  const staleThreads = newestPerConversation
+    .filter((m) => !m.fromSelf && (m.isMention || m.channelMembers !== undefined || looksBlocked(m.text)) && ageHours(m.date) >= 18)
     .slice(0, 12);
 
   const channelHeatmap = Object.values(

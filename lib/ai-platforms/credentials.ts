@@ -101,11 +101,32 @@ export async function validateAIPlatformKey(platform: AIKeyPlatform, apiKey: str
   }
 
   if (platform === "perplexity") {
-    const data = await fetchJson("https://api.perplexity.ai/models", {
-      headers: { Authorization: `Bearer ${key}` },
-    }) as { data?: Array<{ id?: string }> };
-    const count = Array.isArray(data.data) ? data.data.length : 0;
-    return `Perplexity API connected${count > 0 ? ` — ${count} model${count === 1 ? "" : "s"}` : ""}`;
+    // Perplexity has NO GET /models or key-info endpoint (the old /models call
+    // 404'd for every key — verified). The only way to validate a key is to
+    // authenticate against POST /chat/completions (verified: returns 401 for a
+    // bad key, not 404). A 401/403 means the key is bad; anything else (200, or
+    // a 4xx about params/model) means it authenticated.
+    const res = await fetch("https://api.perplexity.ai/chat/completions", {
+      method: "POST",
+      headers: { Authorization: `Bearer ${key}`, "Content-Type": "application/json" },
+      body: JSON.stringify({
+        model: "sonar",
+        messages: [{ role: "user", content: "ping" }],
+        max_tokens: 1,
+      }),
+      signal: AbortSignal.timeout(12_000),
+    });
+    if (res.status === 401 || res.status === 403) {
+      throw new Error("Invalid or unauthorized Perplexity API key");
+    }
+    if (res.status === 404) {
+      throw new Error("Perplexity chat endpoint not found (HTTP 404)");
+    }
+    if (res.status >= 500) {
+      throw new Error(`Perplexity API error (HTTP ${res.status})`);
+    }
+    // 200 / 400 / 422 all confirm the key authenticated.
+    return "Perplexity API connected";
   }
 
   if (platform === "grok") {

@@ -1,10 +1,13 @@
 import { NextResponse } from "next/server";
 import { getSessionUser } from "@/lib/auth";
-import { PROVIDER_MODE } from "@/lib/ai/model-config";
+import { PROVIDER_MODE, getChatModel } from "@/lib/ai/model-config";
 import { generateTextSafe } from "@/lib/ai/generate";
 
 export const dynamic = "force-dynamic";
-export const maxDuration = 30;
+// 45s so the fast-tier fallback chain (≤12s primary + ≤12s cross-provider
+// fallback) always completes inside the function budget, with headroom for a
+// cold start. The old 30s could 504 if the primary attempt ran slow.
+export const maxDuration = 45;
 
 export async function GET() {
   const username = await getSessionUser();
@@ -17,6 +20,14 @@ export async function GET() {
     // generateTextSafe so the Anthropic direct → OpenAI fallback chain applies
     // if the primary (gateway) is unavailable or has no credits.
     const result = await generateTextSafe({
+      // Probe the ASSISTANT's model (getChatModel), not getTextModel("fast").
+      // The chat page renders this response's `model` as "AI ready · <model>",
+      // so probing the cheap fast tier made Ask Basil permanently advertise
+      // itself as "claude-haiku-4-5" — a label for a 16-token connectivity
+      // probe, not the model actually answering the user. The tier below stays
+      // "fast" purely for its short timeout/reservation; it no longer picks the
+      // model, because `model` is now supplied explicitly.
+      model: getChatModel(),
       messages: [
         { role: "system", content: "You are a connectivity test. Reply with exactly one word." },
         { role: "user",   content: "Reply with the single word: ready" },

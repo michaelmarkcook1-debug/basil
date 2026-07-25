@@ -14,6 +14,49 @@ import { emitChange } from "./sync/channel";
 
 const USER_CONTACTS_KEY = "sage-user-contacts";
 const DISMISSED_SUGGESTIONS_KEY = "sage-dismissed-suggestions";
+
+/**
+ * Ids of contacts the user has DELETED — i.e. delete tombstones.
+ *
+ * Why this has to exist: loadUserContactsFromServer() unions the server list
+ * with "local-only" records, on the assumption that a record present locally
+ * but absent from the server simply hasn't synced yet. That assumption is
+ * indistinguishable from the record having been DELETED on the server — so
+ * every delete was silently resurrected on the next load, in both directions:
+ *   • delete on the server → localOnly merges it straight back
+ *   • delete locally       → the server copy wins and restores it
+ * A deleted contact could therefore never stay deleted (and drift accumulated:
+ * 399 local vs 392 server). A tombstone records intent, so the union can tell
+ * "not yet synced" apart from "deliberately removed".
+ *
+ * Cleared when the user explicitly re-adds that contact, so this can't
+ * permanently block someone from coming back.
+ */
+const DELETED_CONTACTS_KEY = "sage-user-contacts-deleted";
+
+function getDeletedContactIds(): string[] {
+  if (typeof window === "undefined") return [];
+  try {
+    const raw = localStorage.getItem(DELETED_CONTACTS_KEY);
+    return raw ? (JSON.parse(raw) as string[]) : [];
+  } catch {
+    return [];
+  }
+}
+
+function addDeletedContactId(id: string): void {
+  if (typeof window === "undefined") return;
+  const ids = getDeletedContactIds();
+  if (ids.includes(id)) return;
+  localStorage.setItem(DELETED_CONTACTS_KEY, JSON.stringify([...ids, id]));
+}
+
+function clearDeletedContactId(id: string): void {
+  if (typeof window === "undefined") return;
+  const ids = getDeletedContactIds();
+  if (!ids.includes(id)) return;
+  localStorage.setItem(DELETED_CONTACTS_KEY, JSON.stringify(ids.filter((x) => x !== id)));
+}
 /** Set once after the first successful migration push, never reset. */
 const MIGRATION_KEY = "sage-user-contacts-migrated-v1";
 
@@ -150,12 +193,42 @@ export async function loadUserContactsFromServer(): Promise<Contact[]> {
     });
 
     // Merge: server (with profile protection) wins for records it knows about;
-    // preserve local-only records not yet confirmed by the server.
-    const serverIds = new Set(serverWithProfileProtection.map((c) => c.id));
-    const localOnly = current.filter((c) => !serverIds.has(c.id));
-    const merged = [...serverWithProfileProtection, ...localOnly];
+    // preserve local-only records not yet confirmed by the server — EXCEPT ones
+    // the user deleted. Without the tombstone filter, "local-only" silently
+    // resurrects every deleted contact on the next load (see
+    // DELETED_CONTACTS_KEY), which is why deletes never stuck and local drifted
+    // ahead of the server. Tombstoned records are also dropped from the server
+    // list, so a delete still looks deleted while the server catches up.
+    const tombstoned = new Set(getDeletedContactIds());
+    const serverVisible = serverWithProfileProtection.filter((c) => !tombstoned.has(c.id));
+    const serverIds = new Set(serverVisible.map((c) => c.id));
+    const localOnly = current.filter((c) => !serverIds.has(c.id) && !tombstoned.has(c.id));
+    const merged = [...serverVisible, ...localOnly];
 
     localStorage.setItem(USER_CONTACTS_KEY, JSON.stringify(merged));
+
+    // ── Reconcile: push stranded records up ────────────────────────────────
+    // addUserContact() writes locally FIRST, then POSTs. If that POST fails
+    // (offline, cold instance, 500) nothing ever retries, so the contact lives
+    // only in this browser forever: invisible on other devices, and invisible
+    // to every server-side surface (briefings, Ask Basil, activity). Measured
+    // live: 7 stranded records, one of them a fully curated `verified` contact
+    // that was one cache-clear from being lost.
+    //
+    // This load IS the retry. Safe now that tombstones exist: localOnly already
+    // excludes deliberately-deleted records, so this can only ever re-upload
+    // things that never made it, not resurrect deletions.
+    //
+    // Fire-and-forget: reconciliation must never block or fail the read — if it
+    // doesn't land, the next load simply tries again.
+    if (localOnly.length > 0) {
+      void fetch("/api/contacts/user", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ import: localOnly }),
+      }).catch(() => { /* retried on the next load */ });
+    }
+
     return merged;
   } catch {
     return getUserContacts(); // fall back to stale cache
@@ -171,6 +244,9 @@ export async function loadUserContactsFromServer(): Promise<Contact[]> {
  */
 export async function addUserContact(c: Contact): Promise<Contact> {
   const normalised = normalize(c);
+  // An explicit add overrides an earlier delete: lift the tombstone, or this
+  // person could never be re-added on this device.
+  clearDeletedContactId(normalised.id);
   // Optimistic local update.
   const existing = getUserContacts();
   if (!existing.some((x) => x.id === normalised.id)) {
@@ -269,6 +345,12 @@ export async function bulkAddUserContacts(contacts: Contact[]): Promise<number> 
  * Delete a user contact: remove from server store, update cache.
  */
 export async function deleteUserContact(id: string): Promise<void> {
+  // Record the INTENT first. Removing it from the cache alone isn't enough: the
+  // next loadUserContactsFromServer() would merge it straight back (from the
+  // server copy, or from "local-only" if the server delete failed). The
+  // tombstone is what makes a delete actually stick.
+  addDeletedContactId(id);
+
   // Optimistic local update.
   const existing = getUserContacts();
   localStorage.setItem(
@@ -278,7 +360,7 @@ export async function deleteUserContact(id: string): Promise<void> {
   try {
     await fetch(`/api/contacts/user/${id}`, { method: "DELETE" });
     emitChange("contacts");
-  } catch { /* cache already updated */ }
+  } catch { /* cache already updated; the tombstone keeps it hidden */ }
 }
 
 // ── Dismissed suggestions — local-only UX state ──────────────────────────────

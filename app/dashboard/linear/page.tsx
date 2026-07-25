@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useCallback, useMemo } from "react";
 import { Card, CardContent } from "@/components/ui/card";
+import { DataState } from "@/components/ui/data-state";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -51,7 +52,7 @@ function PriorityDot({ priority, className }: { priority: number; className?: st
       : priority === 3
       ? "text-signal-warning"
       : priority === 4
-      ? "text-slate-400"
+      ? "text-muted-foreground/70"
       : "text-slate-300";
   return <Circle className={cn("h-2.5 w-2.5 fill-current", color, className)} />;
 }
@@ -65,10 +66,10 @@ function StateChip({ state }: { state: { name: string; type: string } }) {
       : state.type === "started"
       ? "text-signal-info bg-signal-info-subtle border-signal-info-border"
       : state.type === "cancelled"
-      ? "text-slate-400 bg-slate-100 border-slate-200"
+      ? "text-muted-foreground/70 bg-muted/40 border-border"
       : state.type === "triage"
       ? "text-signal-info bg-signal-info-subtle border-signal-info-border"
-      : "text-slate-600 bg-slate-100 border-slate-200";
+      : "text-muted-foreground bg-muted/50 border-border";
   return (
     <span className={cn("inline-flex items-center rounded-full border px-2 py-0.5 text-xs font-medium", cls)}>
       {state.name}
@@ -429,7 +430,7 @@ function InboxReplyPanel({
             Replying to{" "}
             <span className="font-mono text-xs">{notif.issue?.identifier}</span>
           </p>
-          <button onClick={onClose} className="text-muted-foreground/50 hover:text-muted-foreground">
+          <button onClick={onClose} className="text-muted-foreground/50 hover:text-muted-foreground" aria-label="Cancel reply">
             <X className="h-3.5 w-3.5" />
           </button>
         </div>
@@ -491,6 +492,7 @@ function ForwardToast({ visible }: { visible: boolean }) {
 
 export default function LinearPage() {
   const [issues, setIssues] = useState<LinearIssue[]>([]);
+  const [error, setError] = useState<Error | null>(null);
   const [teams, setTeams] = useState<LinearTeam[]>([]);
   const [states, setStates] = useState<LinearWorkflowState[]>([]);
   const [loading, setLoading] = useState(true);
@@ -597,6 +599,7 @@ export default function LinearPage() {
   // Load issues when filters change
   const loadIssues = useCallback(async () => {
     setLoading(true);
+    setError(null);
     try {
       const params = new URLSearchParams();
       if (teamFilter !== "all") params.set("teamId", teamFilter);
@@ -605,12 +608,14 @@ export default function LinearPage() {
 
       const res = await fetch(`/api/linear/issues?${params.toString()}`);
       if (res.status === 503) { setNotConnected(true); setLoading(false); return; }
-      if (!res.ok) { setLoading(false); return; }
+      // A non-ok / thrown fetch previously fell through to an empty "no issues"
+      // list — indistinguishable from genuinely having no issues. Surface it.
+      if (!res.ok) { setError(new Error(`Linear returned ${res.status}`)); setLoading(false); return; }
       const data = (await res.json()) as { issues: LinearIssue[] };
       setIssues(data.issues);
       setNotConnected(false);
-    } catch {
-      // silent
+    } catch (e) {
+      setError(e instanceof Error ? e : new Error("Failed to load Linear issues"));
     } finally {
       setLoading(false);
     }
@@ -909,6 +914,7 @@ export default function LinearPage() {
             disabled={refreshing}
             className="text-muted-foreground/60 hover:text-muted-foreground transition-colors"
             title="Refresh"
+            aria-label="Refresh issues"
           >
             <RefreshCw className={cn("h-4 w-4", refreshing && "animate-spin")} />
           </button>
@@ -1252,6 +1258,8 @@ export default function LinearPage() {
         <div className="flex-1 min-w-0 space-y-2">
           {loading ? (
             <SkeletonCards />
+          ) : error ? (
+            <DataState fill error={error} onRetry={() => void loadIssues()} />
           ) : filteredIssues.length === 0 ? (
             <Card className="rounded-lg border border-border/60">
               <CardContent className="py-12 text-center space-y-2">
@@ -1305,6 +1313,7 @@ export default function LinearPage() {
                     rel="noopener noreferrer"
                     className="text-muted-foreground/60 hover:text-gold transition-colors"
                     title="Open in Linear"
+                    aria-label="Open issue in Linear"
                   >
                     <ExternalLink className="h-3.5 w-3.5" />
                   </a>
@@ -1312,6 +1321,7 @@ export default function LinearPage() {
                 <button
                   onClick={closePanel}
                   className="text-muted-foreground/50 hover:text-muted-foreground"
+                  aria-label="Close issue panel"
                 >
                   <X className="h-4 w-4" />
                 </button>

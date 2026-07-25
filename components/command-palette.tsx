@@ -24,7 +24,6 @@ import {
 } from "@/components/ui/command";
 import {
   Home,
-  Newspaper,
   ListTodo,
   Scale,
   CalendarDays,
@@ -33,26 +32,32 @@ import {
   Brain,
   Zap,
   MessageSquare,
+  MessageCircle,
   Settings,
   Search as SearchIcon,
   Sparkles,
+  Folder,
+  Lightbulb,
   Plus,
 } from "lucide-react";
 
 // ── Destinations ──────────────────────────────────────────────────────────────
 // Mirror of the sidebar so anything reachable by nav is reachable by Cmd-K.
 const NAV_DESTINATIONS = [
-  { label: "Home",          href: "/dashboard",           icon: Home,         keywords: "dashboard overview" },
-  { label: "Briefing",      href: "/dashboard/briefing",  icon: Newspaper,    keywords: "morning today report summary" },
-  { label: "Actions",       href: "/dashboard/actions",   icon: ListTodo,     keywords: "tasks todo workspace commitments" },
+  // The 5 primary surfaces first, labels matching the sidebar exactly.
+  { label: "Today",         href: "/dashboard",           icon: Home,         keywords: "dashboard home overview radar feed briefing" },
+  { label: "Linear",        href: "/dashboard/linear",    icon: Zap,          keywords: "issues tickets engineering bugs" },
+  { label: "Meetings",      href: "/dashboard/meetings",  icon: CalendarCheck,keywords: "prep brief cheatsheet upcoming calendar" },
+  { label: "People",        href: "/dashboard/contacts",  icon: Users,        keywords: "contacts people directory relationships" },
+  { label: "Commitments",   href: "/dashboard/actions",   icon: ListTodo,     keywords: "tasks todo workspace actions" },
+  { label: "AI Tools",   href: "/dashboard/ai-projects", icon: Zap,        keywords: "ai tools projects claude code github vercel grok perplexity codex chatgpt openai" },
+  // Secondary surfaces.
   { label: "Decisions",     href: "/dashboard/decisions", icon: Scale,        keywords: "choices ratified resolved" },
   { label: "Schedule",      href: "/dashboard/schedule",  icon: CalendarDays, keywords: "calendar diary month day events" },
-  { label: "Meeting Prep",  href: "/dashboard/meetings",  icon: CalendarCheck,keywords: "prep brief cheatsheet upcoming" },
-  { label: "Relationships", href: "/dashboard/contacts",  icon: Users,        keywords: "contacts people directory" },
+  { label: "Projects",      href: "/dashboard/projects",  icon: Folder,       keywords: "project truth work streams initiatives what am i working on" },
   { label: "Memory",        href: "/dashboard/memory",    icon: Brain,        keywords: "notes context recall" },
-  // Linear lives on Home — keep the palette entry as a deep-link so power
-  // users who type "linear" still get there.
-  { label: "Linear (deep)", href: "/dashboard/linear",    icon: Zap,          keywords: "issues tickets engineering bugs" },
+  { label: "What Basil learned", href: "/dashboard/learning", icon: Lightbulb, keywords: "learning behaviour priors preferences training feedback" },
+  { label: "Slack Command Centre", href: "/dashboard/slack-command", icon: MessageCircle, keywords: "slack signals reply blockers promises stale threads" },
   { label: "Ask Basil",     href: "/dashboard/chat",      icon: MessageSquare,keywords: "chat assistant ai" },
   { label: "Settings",      href: "/dashboard/settings",  icon: Settings,     keywords: "preferences profile integrations" },
 ] as const;

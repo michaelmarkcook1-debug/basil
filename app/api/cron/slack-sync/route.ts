@@ -9,6 +9,10 @@ import { getSlackConfig } from "@/lib/slack/client";
 import { writeUserStore, readUserStore } from "@/lib/storage/user-store";
 import { HEALTH_META_FILE, type HealthMeta } from "@/lib/system/health";
 
+// Loops every connected user sequentially — give it the platform-max budget so
+// the tail of the user list isn't silently truncated as accounts grow.
+export const maxDuration = 300;
+
 // Vercel cron hits this hourly — warms the in-memory Slack cache for every
 // connected user AND probes `auth.test` so revoked tokens surface within ~1h
 // instead of going silent until the user notices messages aren't sending.
@@ -31,13 +35,17 @@ function isFatalAuthError(err: unknown): boolean {
   return [...FATAL_AUTH_ERRORS].some((code) => msg.includes(code));
 }
 export async function GET(req: Request) {
-  // Protect against non-cron callers in production
+  // Require CRON_SECRET — fail closed: if the secret is not set, deny all
+  // callers so the endpoint is never accidentally open. (Matches the other six
+  // cron routes.) Previously this was the lone outlier: it omitted the
+  // !cronSecret guard, so an unset/rotated-out secret made the comparison
+  // `authHeader !== "Bearer undefined"` — any caller sending that exact header
+  // got in. It was also fully open outside NODE_ENV==="production", and it fans
+  // out over EVERY user's Slack, so an open door here is a DoS + rate-limit burn.
   const authHeader = req.headers.get("authorization");
-  if (
-    process.env.NODE_ENV === "production" &&
-    authHeader !== `Bearer ${process.env.CRON_SECRET}`
-  ) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  const cronSecret = process.env.CRON_SECRET;
+  if (!cronSecret || authHeader !== `Bearer ${cronSecret}`) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 403 });
   }
 
   const users = await getUsers();

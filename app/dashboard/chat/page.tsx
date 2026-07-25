@@ -25,6 +25,7 @@ import { useSearchParams, useRouter } from "next/navigation";
 import { emitChange, type SyncDomain } from "@/lib/sync/channel";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import { Markdown } from "@/components/ui/markdown";
 import { Textarea } from "@/components/ui/textarea";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
@@ -208,7 +209,8 @@ function ChatPageInner() {
     if (!lastAssistant) return;
 
     const domainsToNotify = new Set<SyncDomain>();
-    for (const part of lastAssistant.parts) {
+    // Guard: a message that errored before any part streamed can have no `parts`.
+    for (const part of lastAssistant.parts ?? []) {
       if (typeof part.type !== "string") continue;
       if (!part.type.startsWith("tool-")) continue;
 
@@ -283,23 +285,47 @@ function ChatPageInner() {
     // Session cache — instant same-tab restore
     try { localStorage.setItem(CHAT_STORAGE_KEY, JSON.stringify(messages)); } catch { /* ignore */ }
 
-    // Server — durable, cross-device, per-user (PUT = full replace)
+    // Server — durable, cross-device, per-user. POST = idempotent APPEND (dedup by
+    // id server-side): a new session can only ADD to the archive. The old PUT-replace
+    // wiped every prior conversation the moment a fresh session saved its first turn.
     const storedMessages = messages
       .filter((m) => m.role === "user" || m.role === "assistant")
       .map((m) => {
         // In AI SDK v6, text content is always in parts — there is no .content shorthand
         const textPart = m.parts?.find((p) => (p as { type: string }).type === "text") as { type: string; text: string } | undefined;
+        // Tool receipts — WHAT Basil actually did (drafted an email, booked a
+        // meeting, etc.) was previously never archived; only the answer text
+        // that happened to follow was saved. Capture a lightweight summary
+        // (name + final state + input) so history reflects real actions taken.
+        const toolReceipts = (m.parts ?? [])
+          .filter((p) => typeof (p as { type?: unknown }).type === "string" && (p as { type: string }).type.startsWith("tool-"))
+          .map((p) => {
+            const tp = p as Record<string, unknown>;
+            const toolName = (tp.type as string).replace("tool-", "");
+            const state = typeof tp.state === "string" ? tp.state : "unknown";
+            return { toolName, state, input: tp.input };
+          })
+          // Cap serialized size per receipt so a large draft body can't bloat storage.
+          .map((r) => {
+            const json = JSON.stringify(r.input ?? {});
+            return json.length > 1000 ? { ...r, input: { truncated: true } } : r;
+          });
         return {
           id: m.id,
           role: m.role as "user" | "assistant",
           content: textPart?.text ?? "",
           createdAt: new Date().toISOString(),
+          ...(toolReceipts.length > 0 ? { toolReceipts } : {}),
         };
       })
-      .filter((m) => m.content.trim().length > 0);
+      // A tool-only message (no text) still records what Basil did — don't drop it.
+      .filter((m) => m.content.trim().length > 0 || (m.toolReceipts?.length ?? 0) > 0);
 
     fetch("/api/chat/history", {
-      method: "PUT",
+      // POST = idempotent APPEND (server dedups by id). Was PUT (replace), which
+      // cleared the entire archive on the FIRST save of every fresh session —
+      // silently destroying all prior conversations. A save can now only ADD.
+      method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ messages: storedMessages }),
     }).then(() => { serverSaved.current = true; }).catch((e: unknown) => {
@@ -351,20 +377,11 @@ function ChatPageInner() {
       sessionStorage.setItem(CHAT_CLEARED_FLAG, "1");
     } catch { /* ignore */ }
 
-    // Atomic server overwrite. AWAIT it so a click → Home navigation
-    // sequence can't beat the network round-trip and rehydrate old data.
-    try {
-      await fetch("/api/chat/history", {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ messages: [] }),
-      });
-    } catch (e: unknown) {
-      console.warn(
-        "[basil-fetch] network_error",
-        { route: "/api/chat/history", component: "ChatPage", error: e instanceof Error ? e.message : String(e) }
-      );
-    }
+    // Deliberately does NOT wipe the server archive. "New chat" starts a fresh
+    // VISIBLE conversation while prior conversations stay in history (one click
+    // away via the History button). Permanently deleting all history is a
+    // separate, explicit action (DELETE /api/chat/history), never a side effect
+    // of starting a new chat.
   }
 
   function handleSubmit(e: React.FormEvent) {
@@ -456,13 +473,32 @@ function ChatPageInner() {
       const archive = Array.isArray(data?.messages) ? data.messages : [];
       if (archive.length === 0) return;
 
-      const uiMessages = archive.map((m: { id: string; role: string; content: string; createdAt: string }) => ({
-        id: m.id,
-        role: m.role as "user" | "assistant",
-        parts: [{ type: "text" as const, text: m.content }],
-        content: m.content,
-        createdAt: new Date(m.createdAt),
-      }));
+      const uiMessages = archive.map((m: {
+        id: string; role: string; content: string; createdAt: string;
+        toolReceipts?: Array<{ toolName: string; state: string; input?: unknown }>;
+      }) => {
+        const parts: Array<Record<string, unknown>> = [];
+        if (m.content) parts.push({ type: "text" as const, text: m.content });
+        // Rehydrate archived tool receipts as synthetic tool parts — reuses the
+        // existing tool-part renderer (icon + name + done/denied state) so a
+        // reopened conversation shows what Basil actually did, not just the reply.
+        for (const r of m.toolReceipts ?? []) {
+          parts.push({
+            type: `tool-${r.toolName}`,
+            state: r.state === "output-denied" ? "output-denied" : "output-available",
+            input: r.input,
+          });
+        }
+        return {
+          id: m.id,
+          role: m.role as "user" | "assistant",
+          // Synthetic tool parts are dynamically shaped per tool name — same
+          // pattern as the live renderer's `part as Record<string, unknown>` cast.
+          parts: parts as unknown as UIMessage["parts"],
+          content: m.content,
+          createdAt: new Date(m.createdAt),
+        };
+      });
 
       // Prepend archive so any in-progress conversation stays at the bottom
       setMessages((prev) => (prev.length === 0 ? uiMessages : [...uiMessages, ...prev]));
@@ -598,14 +634,16 @@ function ChatPageInner() {
             <p className="text-xs font-medium text-muted-foreground">
               {message.role === "user" ? "You" : "Basil"}
             </p>
-            {message.parts.map((part, i) => {
+            {(message.parts ?? []).map((part, i) => {
               if (part.type === "text") {
                 const isAssistant = message.role === "assistant";
                 const actionKey = message.id + "action";
                 const memoryKey = message.id + "memory";
                 return (
                   <div key={`${message.id}-${i}`}>
-                    <div className="text-sm leading-relaxed whitespace-pre-wrap">{part.text}</div>
+                    {isAssistant
+                      ? <Markdown text={part.text} />
+                      : <div className="text-sm leading-relaxed whitespace-pre-wrap">{part.text}</div>}
                     {isAssistant && part.text.trim().length > 0 && (
                       <div className="mt-2 flex gap-1.5">
                         <button

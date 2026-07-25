@@ -21,6 +21,7 @@ import { createHash } from "node:crypto";
 import type { ActionItem } from "@/lib/types/action";
 import type { Decision } from "@/lib/types/decision";
 import type { Contact } from "@/lib/contacts-data";
+import type { ToneObservation } from "@/lib/contact-profile-overrides";
 import type {
   ChangeEvent,
   ChangeCategory,
@@ -37,6 +38,9 @@ const MAX_CONTINUOUS_PER_CATEGORY = 3;
 
 /** Silence threshold in days for relationship-change detection. */
 const SILENCE_DAYS = 7;
+
+/** A tone shift is surfaced on the feed only if observed within this many days. */
+const TONE_RECENCY_DAYS = 14;
 
 // ── Scoring ───────────────────────────────────────────────────────────────────
 
@@ -83,11 +87,42 @@ function daysSince(iso: string): number {
 }
 
 /**
+ * Today's calendar date as YYYY-MM-DD in the given IANA timezone. Using the raw
+ * `new Date().toISOString().split("T")[0]` returns the UTC date, so during e.g.
+ * BST between 00:00–01:00 local it reports "yesterday" — flagging the wrong
+ * items as "Due today". en-CA formats as ISO (YYYY-MM-DD).
+ */
+function localDateString(timezone: string): string {
+  try {
+    return new Intl.DateTimeFormat("en-CA", { timeZone: timezone }).format(new Date());
+  } catch {
+    return new Intl.DateTimeFormat("en-CA", { timeZone: "Europe/London" }).format(new Date());
+  }
+}
+
+/**
+ * True when a contact "name" is really just a phone number (WhatsApp/SMS imports
+ * with no resolved name, e.g. "+447856763041"). A bare number going quiet is
+ * noise, not an actionable relationship — these are suppressed from change events.
+ */
+function isPhoneishName(name: string): boolean {
+  const trimmed = (name ?? "").trim();
+  if (!trimmed) return true;
+  // Only +, digits, spaces, hyphens, parens — and at least 7 digits.
+  if (!/^[+\d\s()\-.]+$/.test(trimmed)) return false;
+  return (trimmed.match(/\d/g)?.length ?? 0) >= 7;
+}
+
+/**
  * Determines which contacts are "key" based on interaction recency.
  * Top 25% by recency (floor 5, cap 20) get elevated priority — no hardcoded names.
  */
 function buildKeyContactSet(contacts: Contact[]): Set<string> {
   const withInteraction = contacts
+    // Ranking is purely by recency, so a chatty newsletter that mails weekly
+    // would out-rank real colleagues and claim a "key contact" slot. Only
+    // curated contacts may be key.
+    .filter((c) => !(c.status === "pending" && (c.tags ?? []).includes("auto-added")))
     .filter((c) => c.lastInteraction)
     .sort(
       (a, b) =>
@@ -103,7 +138,7 @@ function buildKeyContactSet(contacts: Contact[]): Set<string> {
 
 // ── Action changes ────────────────────────────────────────────────────────────
 
-function actionChanges(actions: ActionItem[], since: Date): ChangeEvent[] {
+function actionChanges(actions: ActionItem[], since: Date, todayLocal: string): ChangeEvent[] {
   const events: ChangeEvent[] = [];
   const now = new Date().toISOString();
 
@@ -212,7 +247,7 @@ function actionChanges(actions: ActionItem[], since: Date): ChangeEvent[] {
     if (
       a.status === "open" &&
       a.dueDate &&
-      a.dueDate === new Date().toISOString().split("T")[0]
+      a.dueDate === todayLocal
     ) {
       events.push({
         id: changeId("action", a.id, "due_today"),
@@ -295,7 +330,8 @@ function decisionChanges(decisions: Decision[], since: Date): ChangeEvent[] {
 
 function relationshipChanges(
   contacts: Contact[],
-  since: Date
+  since: Date,
+  toneHistory?: Map<string, ToneObservation[]>
 ): ChangeEvent[] {
   const events: ChangeEvent[] = [];
   let continuousCount = 0;
@@ -311,8 +347,50 @@ function relationshipChanges(
   });
 
   for (const c of sorted) {
-    if (!c.lastInteraction) continue;
+    // Suppress phone-number-only contacts — a bare number isn't an actionable
+    // relationship signal, just import noise.
+    if (isPhoneishName(c.name)) continue;
 
+    // Suppress auto-added contacts the user never curated. The suggester mints
+    // contacts from any recurring sender — newsletters and marketing blasts
+    // included — so "GlobalData Technology has gone quiet" was literally "a
+    // mailing list stopped mailing". A contact only becomes a RELATIONSHIP
+    // (whose silence, re-engagement, or tone is worth a card) once the user
+    // has confirmed it: status past "pending", or the auto-added tag removed.
+    if (c.status === "pending" && (c.tags ?? []).includes("auto-added")) continue;
+
+    // ── Tone shift (warming / cooling) ────────────────────────────────────────
+    // Surfaced independently of email recency so a cooling stakeholder shows on
+    // the feed even when their last email is stale. Cooling is critical-lane
+    // (severity "critical"); warming is a low-severity positive note. Only the
+    // most recent non-neutral observation within TONE_RECENCY_DAYS is emitted.
+    const obs = toneHistory?.get(c.id);
+    if (obs && obs.length) {
+      const recent = obs
+        .filter((o) => o.direction !== "neutral" && daysSince(o.date) <= TONE_RECENCY_DAYS)
+        .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())[0];
+      if (recent) {
+        const cooling = recent.direction === "cooling";
+        const toneSeverity: ChangeSeverity = cooling ? "critical" : "low";
+        events.push({
+          id: changeId("contact", c.id, "tone", recent.direction, recent.date),
+          category: "relationship",
+          severity: toneSeverity,
+          score: computeScore(toneSeverity, "relationship", recent.date),
+          title: cooling ? "Stakeholder cooling" : "Stakeholder warming",
+          context: `${c.name} — ${recent.summary}`,
+          implication: c.title ? `→ ${c.title}` : undefined,
+          occurredAt: recent.date,
+          source: "contacts",
+          entityId: c.id,
+          entityHref: "/dashboard/contacts",
+          delta: { field: "tone", to: recent.direction },
+          seen: false,
+        });
+      }
+    }
+
+    if (!c.lastInteraction) continue;
     const silenceDays = daysSince(c.lastInteraction);
     const isKey = keyContactIds.has(c.id);
     const now = new Date().toISOString();
@@ -424,7 +502,9 @@ function threadChanges(
         occurredAt,
         source: "threads",
         entityId: t.id,
-        entityHref: "/dashboard/signals",
+        // Signals folded into Today — point at the home feed, not the old
+        // (removed) /dashboard/signals surface.
+        entityHref: "/dashboard",
         delta: { field: "activity", to: "new signals" },
         seen: false,
       });
@@ -475,17 +555,23 @@ export interface ComputeDeltasInput {
   threads?: MinimalThread[];
   /** The time window: only changes at or after this point are surfaced. */
   since: Date;
+  /** Optional per-contact tone history (contactId → observations) for surfacing
+   *  warming/cooling shifts on the feed. Omit to skip tone events. */
+  toneHistory?: Map<string, ToneObservation[]>;
+  /** IANA timezone for day-boundary math (e.g. "Due today"). Default Europe/London. */
+  timezone?: string;
 }
 
 export function computeDeltas(input: ComputeDeltasInput): ChangesResponse {
-  const { actions, decisions, contacts, threads = [], since } = input;
+  const { actions, decisions, contacts, threads = [], since, toneHistory } = input;
   const generatedAt = new Date().toISOString();
+  const todayLocal = localDateString(input.timezone || "Europe/London");
 
   // Collect all events from each source
   const all: ChangeEvent[] = [
-    ...actionChanges(actions, since),
+    ...actionChanges(actions, since, todayLocal),
     ...decisionChanges(decisions, since),
-    ...relationshipChanges(contacts, since),
+    ...relationshipChanges(contacts, since, toneHistory),
     ...threadChanges(threads, since),
   ];
 

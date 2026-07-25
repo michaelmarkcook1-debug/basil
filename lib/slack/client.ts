@@ -1,5 +1,6 @@
 import { WebClient, LogLevel } from "@slack/web-api";
 import { getIntegrationToken, saveIntegrationToken, deleteIntegrationToken } from "@/lib/storage/secure-token-store";
+import { renderSlackText } from "@/lib/slack/render";
 
 export interface SlackConfig {
   botToken?:  string;
@@ -124,6 +125,8 @@ export interface SlackMessage {
   text: string;
   date: string;
   isMention: boolean;
+  /** True when the message was sent BY the user themselves (msg.user === their own Slack id). Used to exclude self-authored messages from "awaiting your reply" surfaces. */
+  fromSelf?: boolean;
   /** True when this message is from a channel the user is a member of, or a DM/Group DM they're in. Non-member channels are filtered out at fetch time, so emitted messages are member-relevant. */
   isMember?: boolean;
 }
@@ -144,14 +147,29 @@ async function resolveUserName(web: WebClient, userId: string): Promise<string> 
 }
 
 function cleanSlackText(text: string): string {
-  return text
-    .replace(/<@(\w+)>/g, (_, uid) => `@${userNameCache.get(uid) || uid}`)
-    .replace(/<(https?:\/\/[^|>]+)\|([^>]+)>/g, "$2")
-    .replace(/<(https?:\/\/[^>]+)>/g, "$1")
+  if (!text) return "";
+  // 1) Resolve @-mentions to cached display names FIRST, so a cache hit yields
+  //    "@Real Name" rather than the raw "@U07ABC" that renderSlackText falls back to.
+  let t = text.replace(/<@(\w+)>/g, (_m, uid) => `@${userNameCache.get(uid) || uid}`);
+  // 2) Resolve Slack special tags via the shared renderer (single source of truth):
+  //    <!date^…|fallback> → "Friday, June 26, 2026", <!here/channel/everyone>,
+  //    <@U…|display> → "@display", <#C…|name> → "name", <url|label> → "label".
+  //    This is what fixes the raw "*Today*-<!date^…>" markup leaking into the UI.
+  t = renderSlackText(t);
+  // 3) Strip mrkdwn emphasis markers that would otherwise render literally.
+  t = t
+    .replace(/\*([^*\n]+)\*/g, "$1")                         // *bold*
+    .replace(/~([^~\n]+)~/g, "$1")                           // ~strike~
+    .replace(/(^|[\s(])_([^_\n]+)_(?=$|[\s).,!?])/g, "$1$2") // _italic_ (guards snake_case)
+    .replace(/`([^`\n]+)`/g, "$1");                          // `code`
+  // 4) Decode the entities Slack escapes, then collapse whitespace.
+  return t
     .replace(/&amp;/g, "&")
     .replace(/&lt;/g, "<")
     .replace(/&gt;/g, ">")
-    .substring(0, 300);
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, 300);
 }
 
 /** The authenticated Slack user's own id (U0…) for the active token, or undefined. */
@@ -178,6 +196,14 @@ function mentionsSelf(rawText: string | undefined, selfUserId: string | undefine
 type CacheEntry = { data: SlackMessage[]; fetchedAt: number };
 const messageCache = new Map<string, CacheEntry>();
 const CACHE_TTL_MS = 60_000; // 60s
+
+/** True for a Slack Web API 429 rate-limit rejection (rejectRateLimitedCalls: true). */
+function isRateLimited(err: unknown): boolean {
+  const e = err as { code?: string; statusCode?: number; data?: { error?: string } } | null;
+  return e?.code === "slack_webapi_rate_limited"
+    || e?.statusCode === 429
+    || e?.data?.error === "ratelimited";
+}
 
 // ── Read recent messages across all conversation types ──
 // Fetches channels AND DMs separately to ensure DMs aren't crowded out.
@@ -323,10 +349,16 @@ export async function getRecentSlackMessages(
               ? new Date(parseFloat(msg.ts) * 1000).toISOString()
               : new Date().toISOString(),
             isMention: mentionsSelf(msg.text, selfUserId),
+            fromSelf: !!selfUserId && msg.user === selfUserId,
             isMember,
           });
         }
-      } catch {
+      } catch (err) {
+        // A 429 rate-limit means TRUNCATED data. Re-throw so the whole fetch is
+        // marked failed (or serves the complete stale cache) instead of silently
+        // recording a partial poll as a successful "quiet" inbox. Genuine
+        // access errors (channel we can't read) are still skipped below.
+        if (isRateLimited(err)) throw err;
         /* skip channels we can't access */
       }
     }
@@ -337,8 +369,12 @@ export async function getRecentSlackMessages(
     messageCache.set(cacheKey, { data: result, fetchedAt: Date.now() });
     return result;
   } catch (e) {
-    // If rate-limited, serve any stale cached data instead of returning empty
+    // A COMPLETE stale cache beats truncated/empty data.
     if (cached) return cached.data;
+    // No cache to fall back on: a rate-limit is a real failure, so REJECT — the
+    // caller's track() / health panel then shows "connected but failing" instead
+    // of recording a misleadingly-empty inbox as a successful poll.
+    if (isRateLimited(e)) throw e;
     console.error("Slack messages error:", e instanceof Error ? e.message : e);
     return [];
   }

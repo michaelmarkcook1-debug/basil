@@ -103,7 +103,6 @@ const ROUTES = [
   "app/api/events/seed/route.ts",
   "app/api/events/stream/route.ts",
   "app/api/email/route.ts",
-  "app/api/linear/route.ts",
   "app/api/slack/route.ts",
 ];
 

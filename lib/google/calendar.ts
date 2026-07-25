@@ -113,6 +113,15 @@ export async function createCalendarEvent(username: string, params: {
    * default) the event has no video call attached.
    */
   addVideoCall?: boolean;
+  /** Free-text agenda / notes for the event body. */
+  description?: string;
+  /** Physical or virtual location (used when no zoomLink is set). */
+  location?: string;
+  /** Explicit end time "HH:MM". When provided (and after startTime), it takes
+   *  precedence over `duration`. */
+  endTime?: string;
+  /** IANA timezone the wall-clock times are in. Defaults to Europe/London. */
+  timezone?: string;
 }): Promise<{ id: string; htmlLink: string }> {
   const auth = await getAuthedClient(username);
   if (!auth) throw new Error("Google Calendar not connected");
@@ -121,9 +130,21 @@ export async function createCalendarEvent(username: string, params: {
 
   // Compute start + end as naive wall-clock strings and let Google interpret
   // them in Europe/London (handles BST/GMT transitions correctly).
+  const timezone = params.timezone || "Europe/London";
+
   const [sh, sm] = params.startTime.split(":").map((n) => parseInt(n, 10));
   const totalStartMin = sh * 60 + sm;
-  const totalEndMin = totalStartMin + params.duration;
+
+  // Effective duration: an explicit endTime (later than the start) wins over the
+  // `duration` param, so the form's end-time field is honoured exactly.
+  let durationMin = params.duration;
+  if (params.endTime) {
+    const [eh, em] = params.endTime.split(":").map((n) => parseInt(n, 10));
+    const endTotal = eh * 60 + em;
+    if (Number.isFinite(endTotal) && endTotal > totalStartMin) durationMin = endTotal - totalStartMin;
+  }
+
+  const totalEndMin = totalStartMin + durationMin;
   const endHours = Math.floor(totalEndMin / 60);
   const endMins = totalEndMin % 60;
 
@@ -137,22 +158,28 @@ export async function createCalendarEvent(username: string, params: {
   const endDateStr = endDate.toISOString().slice(0, 10);
   const endDateTime = `${endDateStr}T${String(endHourInDay).padStart(2, "0")}:${String(endMins).padStart(2, "0")}:00`;
 
-  // ── Video conferencing decision tree ────────────────────────────────────────
-  // 1. Explicit zoomLink → use it verbatim (location + description prefix).
-  // 2. addVideoCall = true → ask Google Calendar to auto-create a Google Meet
-  //    link via conferenceData. The link surfaces on the returned event.
-  // 3. Otherwise → no video call attached.
   const requestBody: Record<string, unknown> = {
     summary: params.title,
-    start: { dateTime: startDateTime, timeZone: "Europe/London" },
-    end:   { dateTime: endDateTime,   timeZone: "Europe/London" },
+    start: { dateTime: startDateTime, timeZone: timezone },
+    end:   { dateTime: endDateTime,   timeZone: timezone },
     attendees: params.attendees.map((email) => ({ email })),
   };
 
+  // ── Description: user notes, plus a "Join:" line when a Zoom link is set. ────
+  const descriptionParts: string[] = [];
+  if (params.description?.trim()) descriptionParts.push(params.description.trim());
+  if (params.zoomLink) descriptionParts.push(`Join: ${params.zoomLink}`);
+  if (descriptionParts.length > 0) requestBody.description = descriptionParts.join("\n\n");
+
+  // ── Location / video conferencing decision tree ──────────────────────────────
+  // 1. Explicit zoomLink → location. 2. Else a user-supplied location string.
+  // 3. addVideoCall (and no zoomLink) → Google Calendar auto-creates a Meet link.
   if (params.zoomLink) {
     requestBody.location = params.zoomLink;
-    requestBody.description = `Join: ${params.zoomLink}`;
-  } else if (params.addVideoCall) {
+  } else if (params.location?.trim()) {
+    requestBody.location = params.location.trim();
+  }
+  if (!params.zoomLink && params.addVideoCall) {
     requestBody.conferenceData = {
       createRequest: {
         // Random ID per request — Google ignores duplicates.
@@ -166,6 +193,10 @@ export async function createCalendarEvent(username: string, params: {
     calendarId: "primary",
     // conferenceDataVersion=1 is required for Meet auto-generation to take effect.
     conferenceDataVersion: params.addVideoCall && !params.zoomLink ? 1 : 0,
+    // sendUpdates="all" → Google emails a calendar invite to every attendee.
+    // Without it, attendees are added silently and never notified — which is the
+    // entire point of "invite contacts".
+    sendUpdates: "all",
     requestBody,
   });
 
@@ -544,6 +575,8 @@ export async function updateCalendarEvent(
   await calendar.events.patch({
     calendarId: "primary",
     eventId,
+    // Notify attendees of the change (esp. newly-added ones get an invite).
+    sendUpdates: "all",
     requestBody: {
       ...(params.title     ? { summary: params.title } : {}),
       ...(startDT          ? { start: { dateTime: startDT, timeZone: tz } } : {}),

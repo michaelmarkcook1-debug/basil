@@ -18,18 +18,35 @@
 
 import "server-only";
 import type { ModelKind } from "./model-config";
-import { MAX_TOKENS } from "./model-config";
+import { RESERVE_OUTPUT_TOKENS } from "./model-config";
 
 /** Model families we price. */
-export type PriceFamily = "opus" | "sonnet" | "haiku" | "gpt5";
+export type PriceFamily =
+  | "opus" | "sonnet" | "haiku" | "gpt5"
+  | "gpt56luna" | "gpt56terra" | "gpt56sol";
 
-/** USD per 1,000,000 tokens. Estimates — see module note. */
+/**
+ * USD per 1,000,000 tokens. Estimates — see module note.
+ * The gpt56* rates are copied from the live ai-gateway.vercel.sh/v1/models
+ * listing and back the owner's tiering policy (gather → luna, categorize →
+ * terra, reason → sol).
+ */
 export const FAMILY_PRICING: Record<PriceFamily, { inputPerM: number; outputPerM: number }> = {
   opus:   { inputPerM: 15,   outputPerM: 75 }, // claude-opus-4.8
-  sonnet: { inputPerM: 3,    outputPerM: 15 }, // claude-sonnet-4.x
+  sonnet: { inputPerM: 3,    outputPerM: 15 }, // claude-sonnet-4.x / sonnet-5
   haiku:  { inputPerM: 1,    outputPerM: 5 },  // claude-haiku-4.5
-  gpt5:   { inputPerM: 1.25, outputPerM: 10 }, // gpt-5.4 (OpenAI fallback)
+  gpt5:   { inputPerM: 1.25, outputPerM: 10 }, // gpt-5.4 (legacy OpenAI fallback)
+  gpt56luna:  { inputPerM: 1,   outputPerM: 6 },  // data gathering
+  gpt56terra: { inputPerM: 2.5, outputPerM: 15 }, // categorization
+  gpt56sol:   { inputPerM: 5,   outputPerM: 30 }, // contextual + reasoning (incl. the pinned assistant)
 };
+
+/**
+ * Price family for the pinned assistant model (Ask Basil). Chat call sites use
+ * this INSTEAD of familyForTier(), because the assistant's model is pinned
+ * rather than tier-resolved.
+ */
+export const CHAT_PRICE_FAMILY: PriceFamily = "gpt56sol";
 
 export interface TokenUsage {
   inputTokens?: number;
@@ -51,11 +68,17 @@ export function costUsd(family: PriceFamily, usage: TokenUsage | undefined): num
  * (see lib/ai/tiering.ts) and the resulting family flows to the spend guard.
  */
 export function familyForTier(kind: ModelKind): PriceFamily {
+  // Mirrors the OPENAI_MODEL_IDS tiering policy, which is the PRIMARY path
+  // (AI_PREFER_OPENAI is set): fast → luna, balanced → terra, default/long → sol.
+  // If the Anthropic fallback runs instead, its real rates (haiku $1/$5,
+  // sonnet-5 $3/$15) sit at or below these, so the estimate stays conservative.
+  // NOTE: the assistant (Ask Basil) does NOT price via this — its model is
+  // pinned, so it uses CHAT_PRICE_FAMILY.
   switch (kind) {
-    case "fast": return "haiku";
-    case "balanced": return "sonnet";
+    case "fast": return "gpt56luna";      // basic data gathering
+    case "balanced": return "gpt56terra"; // categorization
     case "default":
-    case "long": return "opus";
+    case "long": return "gpt56sol";       // contextual + reasoning
   }
 }
 
@@ -66,10 +89,19 @@ export function familyForTier(kind: ModelKind): PriceFamily {
  */
 export const WORST_CASE_INPUT_TOKENS = 24_000;
 
-/** Worst-case USD for a tier — used to RESERVE budget before a call runs. */
+/**
+ * Worst-case USD for a tier — used to RESERVE budget before a call runs.
+ *
+ * Uses RESERVE_OUTPUT_TOKENS, NOT the MAX_TOKENS ceiling. Those were the same
+ * number until the GPT-5.6 (reasoning) switch forced the ceiling up to leave
+ * room for reasoning tokens: reserving at that ceiling × 8 steps would hold
+ * ~$7.68 for one chat message and 429 the user off their own cap. The real cost
+ * is reconciled from actual usage by commitSpend() immediately after the call,
+ * so this only has to be a sane pre-flight estimate.
+ */
 export function worstCaseCostUsd(kind: ModelKind, family: PriceFamily): number {
   return costUsd(family, {
     inputTokens: WORST_CASE_INPUT_TOKENS,
-    outputTokens: MAX_TOKENS[kind],
+    outputTokens: RESERVE_OUTPUT_TOKENS[kind],
   });
 }

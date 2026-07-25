@@ -120,6 +120,19 @@ export async function generateValidated<T>(opts: Opts<T>): Promise<T> {
     // validation-repair logic below so a budget rejection is never mistaken for
     // a validation failure.
     const reservation = opts.meter ? await reserveSpend(opts.meter, opts.meterKind ?? "default") : null;
+    // OpenAI strict structured outputs require EVERY property to appear in
+    // `required` — our Zod schemas use .optional()/.default() throughout, which
+    // strict mode rejects ("Invalid schema for response_format … Missing 'x'").
+    // Force non-strict json_schema for OpenAI; our own Zod validation + repair
+    // pass is the real safety net. The `openai` namespace is ignored by other
+    // providers, so this is a no-op for Anthropic/gateway calls.
+    const providerOptions: ProviderOptions = {
+      ...(opts.providerOptions ?? {}),
+      openai: {
+        strictJsonSchema: false,
+        ...(opts.providerOptions?.openai ?? {}),
+      },
+    };
     try {
       const result = await generateText({
         model: opts.model,
@@ -127,7 +140,7 @@ export async function generateValidated<T>(opts: Opts<T>): Promise<T> {
         output,
         system,
         prompt: opts.prompt,
-        ...(opts.providerOptions ? { providerOptions: opts.providerOptions } : {}),
+        providerOptions,
       });
       if (reservation) await commitSpend(reservation, result.usage);
       return result.output as T;
@@ -196,7 +209,26 @@ export async function generateValidated<T>(opts: Opts<T>): Promise<T> {
       retryExcerpt: retryExcerpt.slice(0, 200),
     });
 
-    throw new AIValidationError(schemaPath, modelExcerpt, fieldErrors);
+    // Distinguish a genuine structured-output failure (the model returned
+    // something, it just didn't match the schema) from a provider/transport
+    // failure (404 model-not-found, 401 auth, credit-exhausted, network).
+    // Only the former is an AIValidationError. Surfacing the latter AS-IS keeps
+    // observability honest: the dispatcher records a provider_error with the
+    // real message instead of an empty `validation failed at "unknown"`.
+    if (!NoObjectGeneratedError.isInstance(retryErr)) {
+      throw retryErr;
+    }
+
+    // No object generated (truncation / non-JSON / refusal) with no Zod field
+    // errors — give the AIValidationError a non-empty, diagnosable message
+    // instead of a bare trailing colon.
+    const reasons = fieldErrors.length
+      ? fieldErrors
+      : [
+          `no parseable object (finishReason=${retryErr.finishReason ?? "unknown"})` +
+            (retryExcerpt ? `; output="${retryExcerpt.slice(0, 120)}"` : ""),
+        ];
+    throw new AIValidationError(schemaPath, modelExcerpt, reasons);
   }
 }
 

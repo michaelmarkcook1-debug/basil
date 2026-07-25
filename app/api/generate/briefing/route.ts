@@ -39,6 +39,9 @@ import { getReadSummariesFromGmail } from "@/lib/google/read-summaries";
 import type { ReadSummary } from "@/lib/google/read-summaries";
 import { listMemories } from "@/lib/memory/store";
 import type { Memory } from "@/lib/memory/types";
+import { getAllOverridesFromStore } from "@/lib/contacts/overrides-store";
+import type { ProfileOverride } from "@/lib/contact-profile-overrides";
+import { listUserContacts } from "@/lib/contacts/user-store";
 import {
   parseExtraContext,
   formatExtraContextBlock,
@@ -51,19 +54,52 @@ import {
   isCacheValid,
   computeInputHash,
   BRIEFING_TTL_MS,
+  type CacheType,
 } from "@/lib/generate-cache/store";
 import type { Briefing } from "@/lib/types/briefing";
+
+// Map a ?type= query value to its per-type cache slot; defaults to the morning
+// chief-of-staff read (what the home's "Full briefing" surface expects).
+const VALID_BRIEFING_TYPES = new Set(["morning", "midday", "evening", "weekly", "meeting"]);
+function briefingCacheKey(type: string | null): CacheType {
+  const t = type && VALID_BRIEFING_TYPES.has(type) ? type : "morning";
+  return `briefing-${t}` as CacheType;
+}
 import { buildProjectTruth, formatProjectRadar } from "@/lib/projects/truth";
 import { checkRateLimit, getClientIp } from "@/lib/rate-limit";
 
 const GEN_BRIEFING_RATE_LIMIT = 5; // Briefings are expensive — 5 per minute per IP
 
-// ── GET — return today's cached briefing ────────────────────────────────────
-export async function GET() {
+/**
+ * Briefing-specific depth directive, appended to the generic chat system prompt.
+ *
+ * The shared Ask-Basil persona (getSystemPrompt) is tuned for terse chat replies
+ * ("Empty is acceptable", "No filler") — exactly wrong for a morning briefing,
+ * where the user wants a thorough chief-of-staff read. This addendum flips that
+ * posture for the briefing path only: go deep on sections that HAVE signal, name
+ * people specifically, and cross-reference sources. It does NOT relax the
+ * anti-fabrication guardrails — depth must come from real source data, never
+ * invented filler. Honest brevity is still correct when a section is genuinely
+ * empty; the goal is to stop the model defaulting to thin output on a rich day.
+ */
+const BRIEFING_DEPTH_DIRECTIVE = `
+
+---
+BRIEFING MODE — override the terse-by-default posture for THIS task only:
+- You are writing Michael's morning briefing as a sharp chief of staff, not a chat reply. Be thorough and specific.
+- For every section that HAS source data, write 3-5 substantive bullets. Name people, accounts, and email subjects explicitly. Cross-reference signals across sources (calendar + email + Slack + Zoom/Read.ai + memory) into single, reasoned items.
+- Each item should say what it is AND why it matters now — earn the reader's attention with insight, not just a list.
+- Depth must come from the SOURCE DATA only. Never invent names, numbers, or events to fill space. A section with no real signal stays short and honest ("Inbox quiet") — do not pad it.
+- Net: a rich day deserves a rich briefing. Only genuinely low-signal days should be brief.`;
+
+// ── GET — return today's cached briefing (per type; default = morning) ──────
+export async function GET(req: Request) {
   const username = await getSessionUser();
   if (!username) return Response.json({ error: "Unauthorised" }, { status: 401 });
 
-  const record = await readGenerateCache<Briefing>(username, "briefing");
+  // ?type= selects which briefing; the home's "Full briefing" wants the morning
+  // chief-of-staff read, so that's the default.
+  const record = await readGenerateCache<Briefing>(username, briefingCacheKey(new URL(req.url).searchParams.get("type")));
   if (!record || !isCacheValid(record)) return Response.json(null);
 
   return Response.json(record.content);
@@ -84,7 +120,7 @@ export async function DELETE(req: Request) {
   }
   if (!username) return Response.json({ error: "Unauthorised" }, { status: 401 });
 
-  await deleteGenerateCache(username, "briefing");
+  await deleteGenerateCache(username, briefingCacheKey(new URL(req.url).searchParams.get("type")));
   return Response.json({ ok: true });
 }
 
@@ -251,6 +287,8 @@ export async function POST(req: Request) {
     readResult,
     memoriesResult,
     projectTruthResult,
+    overridesResult,
+    contactsResult,
   ] = await Promise.all([
     getTodayEvents(username, tz).catch((err) => {
       console.error("Calendar fetch failed:", err);
@@ -292,6 +330,14 @@ export async function POST(req: Request) {
       console.error("Project truth fetch failed:", err);
       return null;
     }),
+    // Contact overrides carry AI-observed tone history (warming/cooling) and
+    // operating-profile reads (drivers / watch-outs) — fed into the briefing so
+    // every section can reflect how each relationship is actually trending.
+    getAllOverridesFromStore(username).catch((err) => {
+      console.error("Contact overrides fetch failed:", err);
+      return {} as Record<string, ProfileOverride>;
+    }),
+    listUserContacts(username).catch(() => [] as Awaited<ReturnType<typeof listUserContacts>>),
   ]);
 
   // ── Calendar ─────────────────────────────────────────────────────────────
@@ -476,6 +522,42 @@ export async function POST(req: Request) {
           )
           .join("\n")
       : "";
+
+  // ── Relationship tone & personality (last 21 days) ────────────────────────
+  // AI-observed warmth shifts (warming/cooling) + operating-profile reads
+  // (drivers / watch-outs), so peopleAndAccounts and meetingsNeedingPrep reflect
+  // how each relationship is trending and how each person actually operates.
+  const overrides = (overridesResult ?? {}) as Record<string, ProfileOverride>;
+  const idToName = new Map<string, string>();
+  for (const c of contactsResult ?? []) {
+    if (c.id && c.name) idToName.set(c.id, c.name);
+  }
+  const toneCutoff = Date.now() - 21 * 24 * 60 * 60 * 1000;
+  const toneLines: string[] = [];
+  for (const ov of Object.values(overrides)) {
+    const recent = (ov.toneHistory ?? []).filter(
+      (t) => t.direction !== "neutral" && new Date(t.date).getTime() > toneCutoff
+    );
+    if (recent.length === 0) continue;
+    const latest = recent[recent.length - 1];
+    const warming = recent.filter((t) => t.direction === "warming").length;
+    const cooling = recent.filter((t) => t.direction === "cooling").length;
+    const trend = cooling > warming ? "cooling" : warming > cooling ? "warming" : latest.direction;
+    toneLines.push(
+      `- ${latest.person}: trending ${trend} (${recent.length} signal${recent.length === 1 ? "" : "s"}, latest ${latest.date}) — ${latest.summary}`
+    );
+  }
+  const personaLines: string[] = [];
+  for (const [id, ov] of Object.entries(overrides)) {
+    const tick = ov.whatMakesThemTick?.trim();
+    const watch = ov.watchOut?.trim();
+    if (!tick && !watch) continue;
+    const name = idToName.get(id);
+    if (!name) continue;
+    personaLines.push(`- ${name}:${tick ? ` drivers — ${tick}` : ""}${watch ? `${tick ? ";" : ""} watch-out — ${watch}` : ""}`);
+  }
+  const toneBlock = toneLines.slice(0, 12).join("\n");
+  const personaBlock = personaLines.slice(0, 12).join("\n");
 
   const projectRadarBlock = projectTruthResult
     ? formatProjectRadar(projectTruthResult.projects)
@@ -691,6 +773,12 @@ ${readBlock}
 ` : ""}${memoryBlock ? `
 ### RELATIONSHIP MEMORY — person/context notes accumulated over prior interactions
 ${memoryBlock}
+` : ""}${toneBlock ? `
+### RELATIONSHIP TONE — AI-observed warmth shifts (warming/cooling) over the last 21 days. A cooling stakeholder is a check-in signal; a warming one is momentum. Surface the material ones in peopleAndAccounts; never invent beyond these observations.
+${toneBlock}
+` : ""}${personaBlock ? `
+### PERSONALITY READ — how key people operate (drivers + watch-outs). Use this to make peopleAndAccounts and meetingsNeedingPrep specific and well-judged. Never invent beyond these notes.
+${personaBlock}
 ` : ""}${extraBlock ? `\n${extraBlock}\n` : ""}---
 
 ## Briefing structure
@@ -723,7 +811,7 @@ Every name, company, email subject, Slack quote, action text, decision, and comm
 - DECISION LOG entries are already-made decisions. Only surface them as "this decision has pending follow-ups" — never as "this still needs to be decided".
 - Relationship memory notes are accumulated facts about people — use them to enrich peopleAndAccounts and meetingsNeedingPrep. Never invent claims beyond what the memory says.
 - PROJECT RADAR is a source-attributed heuristic. Use it to explain active projects, but do not claim a project is blocked unless a listed risk/blocker says so.
-- Signal density today: ${totalSignal} live source item(s)${recentMemories.length > 0 ? ` + ${recentMemories.length} memory note(s)` : ""}. If signal is low, produce a shorter briefing — an honest 2-item brief beats a padded fabrication.
+- Signal density today: ${totalSignal} live source item(s)${recentMemories.length > 0 ? ` + ${recentMemories.length} memory note(s)` : ""}. When signal exists, go deep — 3-5 substantive, person-named, cross-referenced bullets per populated section. Only when signal is genuinely near-zero should the briefing be short; an honest 2-item brief beats padded fabrication, but a busy day deserves a thorough one.
 - Items marked [UNCONFIRMED] or "UNCONFIRMED — awaiting review" are candidates Basil identified from signals but Michael has not yet verified. Present these as tentative ("may have been decided", "worth checking", "appears to") — never as confirmed facts or firm commitments.
 ${extraBlock ? "- Extra context Michael provided is FIRST-CLASS signal — weave into the relevant sections, reference by filename where applicable.\n" : ""}
 ---
@@ -763,15 +851,19 @@ Return ONLY valid JSON, no markdown code fences:
 
   let result: Awaited<ReturnType<typeof generateTextSafe>>;
   try {
-    // #4 by-path down-tier: briefings run on Sonnet ("balanced"), ~5x cheaper
-    // than Opus, while keeping the long output budget. Revert model to
-    // getTextModel("long") here to restore Opus if briefing quality regresses.
+    // Briefings run on the TOP tier ("long" → Opus when Claude is available,
+    // else the strongest configured fallback). The daily brief is the surface
+    // Michael reads first — reasoning quality matters more than token cost here.
+    // (Previously down-tiered to Sonnet "balanced" to save ~5x; that produced
+    // visibly thin briefings, so it's reverted.) The generic chat persona is
+    // appended with a briefing-specific DEPTH directive so the model is told to
+    // go deep, rather than defaulting to the terse output Ask-Basil rewards.
     result = await generateTextSafe({
-      model: getTextModel("balanced"),
+      model: getTextModel("long"),
       maxOutputTokens: MAX_TOKENS.long,
-      system: await getSystemPrompt(username, tz),
+      system: (await getSystemPrompt(username, tz)) + BRIEFING_DEPTH_DIRECTIVE,
       ...(messages ? { messages } : { prompt: promptText }),
-    }, "balanced", { username, feature: "briefing" });
+    }, "long", { username, feature: "briefing" });
   } catch (e) {
     if (e instanceof SpendCapError) {
       return Response.json(
@@ -844,7 +936,10 @@ Return ONLY valid JSON, no markdown code fences:
       String(decisionsResult.length),
       String(memoriesResult.length),
     );
-    await writeGenerateCache(username, "briefing", briefingData, {
+    // Key the cache by briefing TYPE — the 5 types (morning / midday / evening /
+    // etc.) previously shared one "briefing" slot, so generating one overwrote the
+    // others and the home's "Full briefing" could silently render meeting-prep text.
+    await writeGenerateCache(username, `briefing-${briefingType}`, briefingData, {
       inputHash,
       ttlMs: BRIEFING_TTL_MS,
     });

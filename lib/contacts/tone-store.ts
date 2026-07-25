@@ -9,7 +9,7 @@
 
 import type { ToneObservation } from "@/lib/contact-profile-overrides";
 import type { ToneShift } from "@/lib/email/classify-email";
-import { contacts as SEED_CONTACTS } from "@/lib/contacts-data";
+import { sampleContacts } from "@/lib/contacts-data";
 import { listUserContacts } from "@/lib/contacts/user-store";
 import { appendToneObservation } from "@/lib/contacts/overrides-store";
 
@@ -62,7 +62,7 @@ async function findContactIdByName(
   personName: string
 ): Promise<string | undefined> {
   // Seed contacts (compile-time, no I/O)
-  const seedMatch = SEED_CONTACTS.find((c) => isNameMatch(personName, c.name));
+  const seedMatch = sampleContacts().find((c) => isNameMatch(personName, c.name));
   if (seedMatch) return seedMatch.id;
 
   // User-added contacts

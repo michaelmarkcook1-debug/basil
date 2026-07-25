@@ -3,6 +3,8 @@ import { listDecisions } from "@/lib/decisions/store";
 import { listMemories } from "@/lib/memory/store";
 import { getMyOpenIssues } from "@/lib/linear/client";
 import { getRecentSlackMessages } from "@/lib/slack/client";
+import { getRecentEmails } from "@/lib/google/gmail";
+import { getZoomSummariesFromGmail } from "@/lib/google/zoom-summaries";
 import { readProjectsStore } from "@/lib/ai-projects/store";
 import { PLATFORM_LABELS } from "@/lib/ai-projects/types";
 import { readUserStore } from "@/lib/storage/user-store";
@@ -190,7 +192,9 @@ function addSignal(
 }
 
 function looksBlocked(text: string): boolean {
-  return /\b(blocked|blocker|stuck|waiting on|can't proceed|cannot proceed|at risk|risk|urgent|escalat)/i.test(text);
+  // "at risk" stays; bare "risk" removed — it matched ordinary text ("no risk",
+  // "de-risk", "risk appetite") and marked whole projects blocked/high-priority.
+  return /\b(blocked|blocker|stuck|waiting on|can't proceed|cannot proceed|at risk|urgent|escalat)/i.test(text);
 }
 
 function summariseProject(p: MutableProject): CanonicalProject {
@@ -260,6 +264,8 @@ export async function buildProjectTruth(username: string): Promise<ProjectTruthD
     linearIssues,
     slackMessages,
     manualProjects,
+    emails,
+    zoomSummaries,
   ] = await Promise.all([
     listActions(username).catch(() => []),
     listDecisions(username).catch(() => []),
@@ -268,6 +274,8 @@ export async function buildProjectTruth(username: string): Promise<ProjectTruthD
     getMyOpenIssues(username).catch(() => []),
     getRecentSlackMessages(username, 60).catch(() => []),
     readUserStore<CanonicalProject[]>(username, MANUAL_PROJECTS_FILE, []).catch(() => []),
+    getRecentEmails(username, 25).catch(() => []),
+    getZoomSummariesFromGmail(username, 14, 10).catch(() => []),
   ]);
 
   const map = new Map<string, MutableProject>();
@@ -275,11 +283,18 @@ export async function buildProjectTruth(username: string): Promise<ProjectTruthD
   // ── Manual projects — always included first so they appear even with no integrations ──
   for (const mp of manualProjects) {
     const name = normaliseName(mp.name);
-    const existing = map.get(name);
-    if (!existing) {
-      // Seed the map directly with the stored canonical project
-      map.set(name, {
+    // Key by the SAME slug addSignal() uses. Previously the manual seed keyed by
+    // the raw name while signals keyed by slugify(name), so a manual "Basil" and a
+    // detected "Basil" rendered as two separate cards and the manual one stayed at
+    // 0 signals forever. Starting from a fully-initialised project guarantees the
+    // arrays/counters exist so subsequent addSignal() calls merge cleanly into it.
+    const id = slugify(name);
+    if (!map.has(id)) {
+      const base = createProject(name, (mp.category as ProjectCategory) ?? "unknown");
+      map.set(id, {
+        ...base,
         ...mp,
+        id,
         name,
         score: 10, // manual projects always surface
       });
@@ -405,6 +420,38 @@ export async function buildProjectTruth(username: string): Promise<ProjectTruthD
         blocker: blocked,
         risk: blocked ? `${msg.channel}: ${msg.text}` : undefined,
       });
+    }
+  }
+
+  // ── Email — project mentions in subject/snippet (e.g. "Re: Acme migration") ──
+  for (const e of emails) {
+    const text = `${e.subject} ${e.snippet}`;
+    for (const name of projectNamesFromText(text)) {
+      addSignal(map, name, categoryFor(name, text), {
+        id: `email:${e.id}`,
+        source: "email",
+        title: `Email · ${e.from}: ${e.subject}`.slice(0, 120),
+        summary: e.snippet,
+        occurredAt: e.date,
+        strength: 2,
+        platform: "Email",
+      }, { priority: "medium" });
+    }
+  }
+
+  // ── Zoom summaries (from Gmail) — meeting topics + recap text mention projects ──
+  for (const z of zoomSummaries) {
+    const text = `${z.title} ${z.body}`;
+    for (const name of projectNamesFromText(text)) {
+      addSignal(map, name, categoryFor(name, text), {
+        id: `zoom:${z.link ?? z.title}:${z.date}`,
+        source: "zoom",
+        title: `Zoom · ${z.title}`.slice(0, 120),
+        summary: z.body.slice(0, 300),
+        occurredAt: z.date,
+        strength: 3,
+        platform: "Zoom",
+      }, { priority: "medium" });
     }
   }
 

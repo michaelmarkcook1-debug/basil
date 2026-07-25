@@ -6,6 +6,7 @@
  * queue and confirms completion.
  */
 import { NextResponse } from "next/server";
+import { timingSafeEqualStr } from "@/lib/auth/safe-compare";
 import { forceFlushSnapshot, getSnapshotDiagnostics } from "@/lib/storage/persistent";
 
 export async function POST(req: Request) {
@@ -20,7 +21,7 @@ export async function POST(req: Request) {
   const { searchParams } = new URL(req.url);
   const secret = searchParams.get("secret") ?? "";
 
-  if (secret !== expected) {
+  if (!timingSafeEqualStr(secret, expected)) {
     return NextResponse.json({ error: "forbidden" }, { status: 403 });
   }
 

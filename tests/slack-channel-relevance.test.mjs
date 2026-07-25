@@ -76,11 +76,16 @@ test("SlackMessage and IngestPayload.hints carry isMember", () => {
 
 // ── Classify relevance gate ───────────────────────────────────────────────────
 
-test("shouldClassifySlack hard-rejects known non-member, non-addressed messages", () => {
+test("shouldClassifySlack hard-rejects non-addressed channel messages (stricter than isMember)", () => {
   const src = read("lib/slack/classify-slack.ts");
+  // The gate evolved to be STRICTER than the old isMember check: channel
+  // chatter is never classified unless it's a DM / Group DM / @-mention.
   assert.ok(
-    src.includes("isMember") &&
-      /isMember\s*===\s*false\s*&&\s*!opts\.isDM\s*&&\s*!opts\.isGroupDM\s*&&\s*!opts\.isMention/.test(src),
-    "shouldClassifySlack must return false when isMember === false and not DM/GroupDM/mention"
+    /if\s*\(opts\.isDM\s*\|\|\s*opts\.isGroupDM\s*\|\|\s*opts\.isMention\)\s*return\s*true/.test(src),
+    "DMs, Group DMs and @-mentions must be classified"
+  );
+  assert.ok(
+    /void\s+opts\.isMember;[\s\S]{0,200}return\s+false/.test(src),
+    "all other channel messages must be rejected regardless of isMember"
   );
 });

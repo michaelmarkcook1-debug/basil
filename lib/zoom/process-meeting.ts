@@ -18,6 +18,7 @@ import { MeetingIntelligenceSchema } from "@/lib/ai/schemas";
 import { createAction } from "@/lib/actions/store";
 import { createDecision } from "@/lib/decisions/store";
 import { createMemory } from "@/lib/memory/store";
+import { writeToneObservations } from "@/lib/contacts/tone-store";
 import { actionTier, decisionTier, memoryTier, needsReviewFlag } from "@/lib/trust/policy";
 import { getSystemPrompt } from "@/lib/ai/system-prompt";
 import type { ZoomMeeting, ZoomParticipant, ZoomRecording } from "./client";
@@ -45,6 +46,7 @@ interface MeetingIntelligence {
   decisions: Array<{ text: string; title?: string; decidedBy?: string; rationale?: string; confidence: number }>;
   summary: string;
   keyTopics: string[];
+  toneShifts: Array<{ person: string; direction: "warming" | "cooling" | "neutral"; summary: string }>;
 }
 
 async function extractMeetingIntelligence(
@@ -57,7 +59,8 @@ async function extractMeetingIntelligence(
   try {
     const sysPrompt = await getSystemPrompt(username).catch(() => "");
     const { text } = await generateTextSafe({
-      model: getTextModel("fast"),
+      // CATEGORIZATION → mid tier.
+      model: getTextModel("balanced"),
       maxOutputTokens: MAX_TOKENS.fast,
       system: sysPrompt ||
         "You are an executive assistant extracting structured intelligence from meeting transcripts. Be conservative — only extract what is explicitly stated.",
@@ -75,7 +78,8 @@ Return JSON only, no markdown:
   "actions": [{"text": "...", "owner": "...", "dueDate": "YYYY-MM-DD or null", "confidence": 0.0-1.0}],
   "decisions": [{"text": "...", "title": "...", "decidedBy": "...", "rationale": "...", "confidence": 0.0-1.0}],
   "summary": "2-3 sentence meeting summary",
-  "keyTopics": ["topic1", "topic2"]
+  "keyTopics": ["topic1", "topic2"],
+  "toneShifts": [{"person": "attendee name", "direction": "warming|cooling|neutral", "summary": "1-sentence observed change in warmth/engagement/disposition"}]
 }
 
 Rules:
@@ -83,8 +87,9 @@ Rules:
 - Only include decisions that were explicitly confirmed/agreed, not just discussed
 - Confidence 0.9 = explicit assignment; 0.7 = clear but unattributed; 0.5 = inferred
 - Return empty arrays if nothing qualifies
-- summary: factual, no speculation`,
-    }, "fast", { username, feature: "zoom:process" });
+- summary: factual, no speculation
+- toneShifts: ONLY when an attendee shows a NOTABLE change in warmth, engagement, or disposition versus routine professional tone (e.g. visibly cooling, newly enthusiastic, frustrated). The "person" MUST be one of the attendees. Omit entirely for ordinary meetings — do not manufacture shifts.`,
+    }, "balanced", { username, feature: "zoom:process" });
 
     const parseResult = parseAndValidate(text, MeetingIntelligenceSchema, "[process-meeting]");
     return parseResult.ok ? parseResult.data : null;
@@ -124,7 +129,10 @@ export async function processZoomMeeting(
         if (tier === "skip") continue;
         await createAction(username, {
           text:       item.text,
-          owner:      item.owner ?? attendeeNames[0] ?? "Unknown",
+          // Only use the owner the model actually extracted. Defaulting to the
+          // first attendee fabricated ownership — attributing an unowned action
+          // to whoever happened to be listed first. "Unknown" is honest.
+          owner:      item.owner ?? "Unknown",
           dueDate:    item.dueDate ?? undefined,
           source:     "meeting",
           confidence: item.confidence,
@@ -156,6 +164,15 @@ export async function processZoomMeeting(
         });
         decisionIds.push(created.id);
         decisionsCreated++;
+      }
+
+      // Tone observations → per-contact tone history (same store as email/Slack).
+      // Feeds relationship-tone tracking, the People page, briefings, and contact
+      // profiles — so Zoom meetings now contribute to tone + contact tracing.
+      if (intel.toneShifts?.length) {
+        await writeToneObservations(username, intel.toneShifts, dateStr, "zoom", sourceRef).catch((err) => {
+          console.error("[process-meeting] tone observation write failed:", err instanceof Error ? err.message : err);
+        });
       }
 
       // Meeting summary → memory

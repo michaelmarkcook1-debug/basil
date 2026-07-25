@@ -329,6 +329,90 @@ export default function ProjectsPage() {
         </Card>
       )}
 
+      {/* Create form — top-level so the header button works whether or not projects exist */}
+      {showCreateForm && (
+        <div className="rounded-2xl basil-card p-6 space-y-4">
+          <div className="flex items-center justify-between">
+            <h3 className="text-base font-semibold">Create project manually</h3>
+            <button
+              onClick={() => { setShowCreateForm(false); setCreateError(""); }}
+              className="text-muted-foreground hover:text-foreground"
+              aria-label="Cancel"
+            >
+              <X className="h-4 w-4" />
+            </button>
+          </div>
+
+          {createError && (
+            <p className="rounded-md bg-signal-critical-subtle px-3 py-2 text-xs text-signal-critical">{createError}</p>
+          )}
+
+          <div className="space-y-3">
+            <label className="block space-y-1.5 text-xs font-medium text-muted-foreground">
+              Project name <span className="text-signal-critical">*</span>
+              <Input
+                value={createForm.name}
+                onChange={(e) => setCreateForm((f) => ({ ...f, name: e.target.value }))}
+                placeholder="e.g. Example Holdings v2"
+                required
+              />
+            </label>
+
+            <label className="block space-y-1.5 text-xs font-medium text-muted-foreground">
+              Summary
+              <Textarea
+                value={createForm.summary}
+                onChange={(e) => setCreateForm((f) => ({ ...f, summary: e.target.value }))}
+                placeholder="What is this project about?"
+                rows={2}
+              />
+            </label>
+
+            <label className="block space-y-1.5 text-xs font-medium text-muted-foreground">
+              Priority
+              <select
+                value={createForm.priority}
+                onChange={(e) => setCreateForm((f) => ({ ...f, priority: e.target.value as CreateProjectForm["priority"] }))}
+                className="mt-1 block w-full rounded-md border border-input bg-background px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-gold"
+              >
+                <option value="critical">Critical</option>
+                <option value="high">High</option>
+                <option value="medium">Medium</option>
+                <option value="low">Low</option>
+              </select>
+            </label>
+
+            <label className="block space-y-1.5 text-xs font-medium text-muted-foreground">
+              Next best action
+              <Input
+                value={createForm.nextBestAction}
+                onChange={(e) => setCreateForm((f) => ({ ...f, nextBestAction: e.target.value }))}
+                placeholder="What should happen next?"
+              />
+            </label>
+          </div>
+
+          <div className="flex gap-2 pt-1">
+            <Button
+              size="sm"
+              onClick={createProject}
+              disabled={creating || !createForm.name.trim()}
+              className="gap-1.5"
+            >
+              {creating ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Plus className="h-3.5 w-3.5" />}
+              Create project
+            </Button>
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => { setShowCreateForm(false); setCreateError(""); }}
+            >
+              Cancel
+            </Button>
+          </div>
+        </div>
+      )}
+
       {loading ? (
         <div className="rounded-2xl basil-card p-10 text-center text-sm text-muted-foreground">
           Building project truth layer…
@@ -359,88 +443,6 @@ export default function ProjectsPage() {
             </div>
           </div>
 
-          {showCreateForm && (
-            <div className="rounded-2xl basil-card p-6 space-y-4">
-              <div className="flex items-center justify-between">
-                <h3 className="text-base font-semibold">Create project manually</h3>
-                <button
-                  onClick={() => { setShowCreateForm(false); setCreateError(""); }}
-                  className="text-muted-foreground hover:text-foreground"
-                  aria-label="Cancel"
-                >
-                  <X className="h-4 w-4" />
-                </button>
-              </div>
-
-              {createError && (
-                <p className="rounded-md bg-signal-critical-subtle px-3 py-2 text-xs text-signal-critical">{createError}</p>
-              )}
-
-              <div className="space-y-3">
-                <label className="block space-y-1.5 text-xs font-medium text-muted-foreground">
-                  Project name <span className="text-signal-critical">*</span>
-                  <Input
-                    value={createForm.name}
-                    onChange={(e) => setCreateForm((f) => ({ ...f, name: e.target.value }))}
-                    placeholder="e.g. Example Holdings v2"
-                    required
-                  />
-                </label>
-
-                <label className="block space-y-1.5 text-xs font-medium text-muted-foreground">
-                  Summary
-                  <Textarea
-                    value={createForm.summary}
-                    onChange={(e) => setCreateForm((f) => ({ ...f, summary: e.target.value }))}
-                    placeholder="What is this project about?"
-                    rows={2}
-                  />
-                </label>
-
-                <label className="block space-y-1.5 text-xs font-medium text-muted-foreground">
-                  Priority
-                  <select
-                    value={createForm.priority}
-                    onChange={(e) => setCreateForm((f) => ({ ...f, priority: e.target.value as CreateProjectForm["priority"] }))}
-                    className="mt-1 block w-full rounded-md border border-input bg-background px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-gold"
-                  >
-                    <option value="critical">Critical</option>
-                    <option value="high">High</option>
-                    <option value="medium">Medium</option>
-                    <option value="low">Low</option>
-                  </select>
-                </label>
-
-                <label className="block space-y-1.5 text-xs font-medium text-muted-foreground">
-                  Next best action
-                  <Input
-                    value={createForm.nextBestAction}
-                    onChange={(e) => setCreateForm((f) => ({ ...f, nextBestAction: e.target.value }))}
-                    placeholder="What should happen next?"
-                  />
-                </label>
-              </div>
-
-              <div className="flex gap-2 pt-1">
-                <Button
-                  size="sm"
-                  onClick={createProject}
-                  disabled={creating || !createForm.name.trim()}
-                  className="gap-1.5"
-                >
-                  {creating ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Plus className="h-3.5 w-3.5" />}
-                  Create project
-                </Button>
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  onClick={() => { setShowCreateForm(false); setCreateError(""); }}
-                >
-                  Cancel
-                </Button>
-              </div>
-            </div>
-          )}
         </div>
       )}
     </div>

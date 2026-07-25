@@ -16,6 +16,19 @@ export async function POST(req: Request) {
     );
   }
 
+  // Registration gate. Open self-registration lets any anonymous visitor create
+  // an account that immediately draws on per-user AI/storage budget — a real
+  // cost/abuse vector for a single-owner "Executive OS". Default CLOSED in
+  // production; set ALLOW_REGISTRATION=true to open it (or create users via the
+  // admin surface). Non-production (local dev) stays open for convenience.
+  const isProd = process.env.VERCEL_ENV === "production" || process.env.NODE_ENV === "production";
+  if (isProd && process.env.ALLOW_REGISTRATION !== "true") {
+    return NextResponse.json(
+      { error: "Self-registration is disabled. Ask an administrator for an account." },
+      { status: 403 }
+    );
+  }
+
   let name: string, surname: string, country: string, email: string, username: string, password: string;
   try {
     ({ name, surname, country, email, username, password } = await req.json());

@@ -130,7 +130,15 @@ export async function POST(req: Request) {
   // account has no email), log the link server-side so a self-hosted operator
   // can still complete the reset from their own logs.
   if (!emailSent) {
-    console.info(`[forgot-password] reset link for ${user.username} (email not sent): ${resetUrl}`);
+    // SECURITY: never log the full reset URL in production — Vercel runtime logs
+    // are readable by anyone with project access, so a logged link is an
+    // account-takeover vector. Surface it only in local/dev for operator
+    // convenience; in production, flag the misconfiguration without the secret.
+    if (process.env.NODE_ENV !== "production") {
+      console.info(`[forgot-password] reset link (dev only, email not sent): ${resetUrl}`);
+    } else {
+      console.warn("[forgot-password] reset email could not be delivered — set RESEND_API_KEY to enable email delivery.");
+    }
   }
 
   return NextResponse.json({ ok: true, emailSent });

@@ -23,9 +23,11 @@ import {
   X,
   Pencil,
   Save,
+  Plus,
 } from "lucide-react";
 import Link from "next/link";
 import { DayView, type DayEvent } from "./components/DayView";
+import { NewEventDialog } from "./components/NewEventDialog";
 
 interface CalEvent {
   id: string;
@@ -100,7 +102,10 @@ export default function SchedulePage() {
   const [events, setEvents] = useState<CalEvent[]>([]);
   const [connected, setConnected] = useState(false);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<Error | null>(null);
   const [selectedDay, setSelectedDay] = useState<number | null>(now.getDate());
+  const [newEventOpen, setNewEventOpen] = useState(false);
+  const [toast, setToast] = useState<string | null>(null);
   const [basilInput, setBasilInput] = useState("");
   const [basilLoading, setBasilLoading] = useState(false);
   const [approving, setApproving] = useState<number | null>(null);
@@ -152,14 +157,17 @@ export default function SchedulePage() {
   // Fetch events for the visible month
   const fetchEvents = useCallback(() => {
     setLoading(true);
+    setError(null);
     fetch(`/api/calendar/month?year=${year}&month=${month}`)
-      .then((r) => r.json())
+      .then((r) => { if (!r.ok) throw new Error(`calendar ${r.status}`); return r.json(); })
       .then((d) => {
         setConnected(d.connected);
         setEvents(d.events || []);
         setLoading(false);
       })
-      .catch(() => setLoading(false));
+      // Previously swallowed → an empty calendar that looked like "no events"
+      // rather than a failed load.
+      .catch((e: unknown) => { setError(e instanceof Error ? e : new Error("Failed to load calendar")); setLoading(false); });
   }, [year, month]);
 
   useEffect(() => {
@@ -405,12 +413,45 @@ export default function SchedulePage() {
 
   const pendingProposals = proposed.map((p, i) => ({ ...p, _index: i })).filter((p) => p.status === "proposed");
 
+  // Prefill the New Event form with the day the user has selected (or today).
+  const selectedDateISO = selectedDay
+    ? `${year}-${String(month + 1).padStart(2, "0")}-${String(selectedDay).padStart(2, "0")}`
+    : getTodayISO();
+
   return (
     <div className="h-full flex flex-col overflow-hidden">
+      <NewEventDialog
+        open={newEventOpen}
+        onOpenChange={setNewEventOpen}
+        defaultDate={selectedDateISO}
+        onCreated={({ title, attendeeCount }) => {
+          fetchEvents();
+          setToast(
+            attendeeCount > 0
+              ? `Created "${title}" — invite${attendeeCount === 1 ? "" : "s"} sent to ${attendeeCount} ${attendeeCount === 1 ? "person" : "people"}.`
+              : `Created "${title}".`,
+          );
+          setTimeout(() => setToast(null), 5000);
+        }}
+      />
+      {toast && (
+        <div className="fixed bottom-5 right-5 z-50 max-w-sm rounded-lg border border-signal-positive-border bg-signal-positive-subtle px-4 py-2.5 text-sm text-signal-positive shadow-lg flex items-start gap-2">
+          <Check className="h-4 w-4 shrink-0 mt-0.5" />
+          <span>{toast}</span>
+        </div>
+      )}
       {/* ── Top bar ──────────────────────────────────────────────────────── */}
       <div className="flex flex-wrap items-center gap-x-3 gap-y-1 px-4 py-2 min-h-12 border-b border-border/40 shrink-0 bg-background/80 backdrop-blur-sm">
         <CalendarPlus className="h-4 w-4 text-gold shrink-0" />
         <span className="font-semibold text-sm">Schedule</span>
+
+        <Button
+          size="sm"
+          className="h-7 gap-1.5 ml-1"
+          onClick={() => setNewEventOpen(true)}
+        >
+          <Plus className="h-3.5 w-3.5" /> New event
+        </Button>
 
         <div className="flex-1" />
 
@@ -419,6 +460,7 @@ export default function SchedulePage() {
           <button
             onClick={prevMonth}
             className="p-1.5 rounded hover:bg-accent transition-colors text-muted-foreground hover:text-foreground"
+            aria-label="Previous month"
           >
             <ChevronLeft className="h-3.5 w-3.5" />
           </button>
@@ -428,6 +470,7 @@ export default function SchedulePage() {
           <button
             onClick={nextMonth}
             className="p-1.5 rounded hover:bg-accent transition-colors text-muted-foreground hover:text-foreground"
+            aria-label="Next month"
           >
             <ChevronRight className="h-3.5 w-3.5" />
           </button>
@@ -440,14 +483,21 @@ export default function SchedulePage() {
           Today
         </button>
 
-        {!connected && !loading && (
+        {error && !loading ? (
+          <button
+            onClick={fetchEvents}
+            className="flex items-center gap-1.5 text-xs text-signal-critical bg-signal-critical-subtle border border-signal-critical-border/60 px-2.5 py-1 rounded-md hover:opacity-90 transition-opacity"
+          >
+            <Unplug className="h-3 w-3" /> Couldn&apos;t load calendar — retry
+          </button>
+        ) : !connected && !loading ? (
           <Link
             href="/dashboard/settings"
             className="flex items-center gap-1.5 text-xs text-signal-warning bg-signal-warning-subtle border border-signal-warning-border/60 px-2.5 py-1 rounded-md hover:bg-signal-warning-subtle transition-colors"
           >
             <Unplug className="h-3 w-3" /> Calendar not connected
           </Link>
-        )}
+        ) : null}
       </div>
 
       {/* ── Body ─────────────────────────────────────────────────────────── */}

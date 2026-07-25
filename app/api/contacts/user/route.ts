@@ -6,6 +6,15 @@ import {
 } from "@/lib/contacts/user-store";
 import type { Contact } from "@/lib/contacts-data";
 import { getSessionUser } from "@/lib/auth";
+import { deleteGenerateCache } from "@/lib/generate-cache/store";
+
+/** See the note in ./[id]/route.ts — adding a contact must also drop the
+ *  People page's 30-minute activity cache, or the new person won't appear. */
+async function invalidateActivityCache(username: string) {
+  await deleteGenerateCache(username, "contact-activity").catch((e) =>
+    console.warn("[contacts] activity cache invalidation failed:", e instanceof Error ? e.message : e)
+  );
+}
 
 /**
  * GET /api/contacts/user
@@ -32,6 +41,7 @@ export async function POST(req: Request) {
     // Bulk migration path
     if (Array.isArray(body?.import)) {
       const added = await bulkImportUserContacts(username, body.import as Contact[]);
+      await invalidateActivityCache(username);
       return NextResponse.json({ imported: added }, { status: 201 });
     }
 
@@ -43,6 +53,7 @@ export async function POST(req: Request) {
       );
     }
     const saved = await addUserContactToStore(username, contact);
+    await invalidateActivityCache(username);
     return NextResponse.json({ contact: saved }, { status: 201 });
   } catch {
     return NextResponse.json(

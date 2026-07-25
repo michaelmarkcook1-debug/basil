@@ -35,6 +35,13 @@ export interface User {
   lastLoginAt?: string;
   onboardingCompleted?: boolean;
   profile?: UserProfile;
+  /**
+   * Additional email addresses the user owns (Gmail aliases / send-as addresses,
+   * e.g. a second domain that delivers to the same inbox). Treated as "self" for
+   * signal filtering (so alias mail is never surfaced as a stranger or a
+   * follow-up to reply to) and selectable as a send-from address. Lower-cased.
+   */
+  aliasEmails?: string[];
   /** When true the account is suspended — all sessions are rejected immediately. */
   disabled?: boolean;
   /** Incremented on password change or admin revocation to invalidate existing JWTs. */
@@ -55,6 +62,10 @@ export function toSafeUser(user: User): SafeUser {
 }
 
 const BCRYPT_ROUNDS = 12;
+// A fixed, valid cost-12 bcrypt hash used only to burn an equivalent amount of
+// time when validating credentials for a non-existent user (anti-enumeration).
+// It is not a hash of any real or guessable password.
+const DUMMY_BCRYPT_HASH = "$2b$12$K6zyxTZ.93Zsx306wAmFa.A1YsmtvTNE.9I89mJQxl9pl9nOZNcpu";
 
 /** Returns true if the string looks like a bcrypt hash. */
 function isBcryptHash(s: string): boolean {
@@ -141,7 +152,14 @@ export async function validateCredentials(
   const user = users.find(
     (u) => u.username.toLowerCase() === username.toLowerCase()
   );
-  if (!user) return null;
+  if (!user) {
+    // Equalize response time whether or not the username exists: run a real
+    // cost-12 bcrypt.compare against a fixed dummy hash before returning null.
+    // Without this, "no such user" returns instantly while a real username
+    // pays the bcrypt cost — a timing oracle that enables username enumeration.
+    await bcrypt.compare(password, DUMMY_BCRYPT_HASH);
+    return null;
+  }
 
   if (isBcryptHash(user.password)) {
     const ok = await bcrypt.compare(password, user.password);
@@ -203,7 +221,9 @@ export async function updateUser(
   patch: Partial<Omit<User, "id" | "username" | "createdAt">>
 ): Promise<void> {
   await mutateUserRecords(async (users) => {
-    const idx = users.findIndex((u) => u.username === username);
+    // Case-insensitive match — usernames are case-insensitive and getSessionUser
+    // returns the lowercased form, so the stored record (any casing) must match.
+    const idx = users.findIndex((u) => u.username.toLowerCase() === username.toLowerCase());
     if (idx !== -1) {
       const copy = [...users];
       copy[idx] = { ...copy[idx], ...patch };
@@ -211,7 +231,7 @@ export async function updateUser(
     }
     // env-admin user not yet in file — materialize their record first
     const allUsers = await getUsers();
-    const user = allUsers.find((u) => u.username === username);
+    const user = allUsers.find((u) => u.username.toLowerCase() === username.toLowerCase());
     if (user) return [...users, { ...user, ...patch }];
     return users;
   });

@@ -19,6 +19,7 @@
  */
 
 import { NextResponse } from "next/server";
+import { timingSafeEqualStr } from "@/lib/auth/safe-compare";
 import { listActions, deleteAction } from "@/lib/actions/store";
 
 export const dynamic = "force-dynamic";
@@ -40,7 +41,7 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "ADMIN_API_TOKEN is not configured." }, { status: 503 });
   }
   const authHeader = req.headers.get("x-admin-token") ?? "";
-  if (authHeader !== token) {
+  if (!timingSafeEqualStr(authHeader, token)) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 

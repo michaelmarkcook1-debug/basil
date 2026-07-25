@@ -66,7 +66,6 @@ function IntelSkeleton() {
 
 function FocusModeIntel() {
   const [stats, setStats] = useState<{
-    critical: number;
     high: number;
     overdue: number;
   } | null>(null);
@@ -79,9 +78,11 @@ function FocusModeIntel() {
         if (!d?.actions) return;
         const actions = d.actions;
         setStats({
-          critical: actions.filter(
-            (a) => a.priority === "high" && a.status !== "done"
-          ).length,
+          // Was TWO identical filters (`critical` and `high`, both
+          // priority==="high" && !done) that were then SUMMED below — so this
+          // widget reported exactly double the real number of high-priority
+          // items. ActionPriority is only "high" | "medium" | "low"; there is no
+          // "critical" tier, so one count is the whole truth.
           high: actions.filter(
             (a) => a.priority === "high" && a.status !== "done"
           ).length,
@@ -94,7 +95,7 @@ function FocusModeIntel() {
 
   if (loading) return <IntelSkeleton />;
 
-  const totalOpen = stats ? stats.critical + stats.high : 0;
+  const totalOpen = stats ? stats.high : 0;
 
   return (
     <div className="flex items-center gap-3 flex-wrap text-xs">
@@ -104,7 +105,8 @@ function FocusModeIntel() {
           ? stats.overdue > 0
             ? `${plural(stats.overdue, "overdue action")} · ${plural(totalOpen, "high-priority item")} open`
             : `${plural(totalOpen, "high-priority item")} open`
-          : "Loading commitments…"}
+          : /* loading is already false here — claiming "Loading" would be a lie. */
+            "Commitments unavailable"}
       </span>
       <Link
         href="/dashboard/actions"
@@ -125,7 +127,11 @@ function CoordinationModeIntel() {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    fetch("/api/contacts", { cache: "no-store" })
+    // /api/contacts does NOT exist (only its sub-routes do) — it 404'd on every
+    // load, so `stats` never populated and this widget sat on the null branch
+    // reading "Loading contacts…" forever. /api/contacts/all is the real route
+    // and already returns exactly the { contacts } shape read below.
+    fetch("/api/contacts/all", { cache: "no-store" })
       .then((r) => (r.ok ? r.json() : null))
       .then((d: { contacts?: { lastInteraction?: string }[] } | null) => {
         if (!d?.contacts) return;
@@ -152,7 +158,10 @@ function CoordinationModeIntel() {
           ? stats.quietCount > 0
             ? `${plural(stats.quietCount, "contact")} quiet this week`
             : "All key contacts active"
-          : "Loading contacts…"}
+          : /* Not loading and still no stats ⇒ the fetch failed. Saying
+               "Loading…" here would claim work is in flight that already
+               finished — say what's actually true. */
+            "Contact activity unavailable"}
       </span>
       <Link
         href="/dashboard/contacts"
@@ -251,7 +260,8 @@ function InboxRecoveryIntel() {
           ? stats.total === 0
             ? "Inbox clear — nothing to process"
             : `${plural(stats.total, "item")} to process${stats.critical > 0 ? ` · ${stats.critical} high-priority` : ""}${stats.review > 0 ? ` · ${stats.review} need review` : ""}`
-          : "Loading inbox…"}
+          : /* loading is already false here — claiming "Loading" would be a lie. */
+            "Inbox unavailable"}
       </span>
       <Link
         href="/dashboard/actions"

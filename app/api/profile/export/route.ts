@@ -20,7 +20,7 @@ export async function GET() {
   const username = await getSessionUser();
   if (!username) return NextResponse.json({ error: "Unauthorised" }, { status: 401 });
 
-  const subdir = `users/${username.replace(/[^a-zA-Z0-9._-]/g, "_")}`;
+  const subdir = `users/${username.toLowerCase().replace(/[^a-zA-Z0-9._-]/g, "_")}`;
 
   let files: string[] = [];
   try {

@@ -393,10 +393,10 @@ function ContactDetail({
                     onKeyDown={e => { if (e.key === "Enter") saveName(); if (e.key === "Escape") setEditingName(false); }}
                     className="text-xl font-semibold bg-transparent border-b-2 border-gold outline-none w-48"
                   />
-                  <button onClick={saveName} disabled={nameSaving} className="text-signal-positive hover:text-signal-positive disabled:opacity-50">
+                  <button onClick={saveName} disabled={nameSaving} className="text-signal-positive hover:text-signal-positive disabled:opacity-50" aria-label="Save name">
                     <Check className="h-4 w-4" />
                   </button>
-                  <button onClick={() => setEditingName(false)} className="text-muted-foreground hover:text-foreground">
+                  <button onClick={() => setEditingName(false)} className="text-muted-foreground hover:text-foreground" aria-label="Cancel editing name">
                     <X className="h-4 w-4" />
                   </button>
                 </div>
@@ -830,7 +830,7 @@ function ContactDetail({
                             ? "bg-signal-positive-subtle text-signal-positive"
                             : obs.direction === "cooling"
                             ? "bg-signal-warning-subtle text-signal-warning"
-                            : "bg-slate-100 text-slate-600"
+                            : "bg-muted/50 text-muted-foreground"
                         }`}>
                           {obs.direction === "warming" ? "↑ Warming" : obs.direction === "cooling" ? "↓ Cooling" : "→ Neutral"}
                         </span>
@@ -1319,6 +1319,7 @@ export default function ContactsPage() {
                 disabled={activityLoading}
                 className="text-muted-foreground/50 hover:text-gold transition-colors"
                 title="Refresh from Calendar, Gmail & Slack"
+                aria-label="Refresh activity from Calendar, Gmail & Slack"
               >
                 {activityLoading ? (
                   <Loader2 className="h-3 w-3 animate-spin" />
@@ -1415,6 +1416,7 @@ export default function ContactsPage() {
               disabled={suggestLoading}
               className="text-muted-foreground/50 hover:text-gold transition-colors"
               title="Scan recent email & Slack for people not yet in contacts"
+              aria-label="Scan for new contact suggestions"
             >
               {suggestLoading ? (
                 <Loader2 className="h-3 w-3 animate-spin" />

@@ -4,21 +4,24 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import {
   Sparkles,
+  Zap,
   CalendarCheck,
   Users,
-  MessageSquare,
+  BrainCircuit,
   MoreHorizontal,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
-// Primary 4 tabs — the day's most-used surfaces, with Ask Basil promoted to a
-// first-class tab. Signals folded into Today; People promoted here (the rest —
-// Commitments / Memory — live behind "More").
+// Primary bottom-bar tabs. Today, Linear, AI Projects, Meetings, People are the
+// thumb-reachable surfaces; Commitments + Memory + Ask Basil live behind "More"
+// (which opens the full sidebar drawer). AI Projects is promoted here so the
+// GitHub/Vercel/Linear project view is one tap away on phone, not buried in More.
 const TABS = [
-  { href: "/dashboard",          label: "Today",     icon: Sparkles },
-  { href: "/dashboard/meetings", label: "Meetings",  icon: CalendarCheck },
-  { href: "/dashboard/contacts", label: "People",    icon: Users },
-  { href: "/dashboard/chat",     label: "Ask Basil", icon: MessageSquare },
+  { href: "/dashboard",            label: "Today",    icon: Sparkles },
+  { href: "/dashboard/linear",     label: "Linear",   icon: Zap },
+  { href: "/dashboard/ai-projects", label: "AI Tools", icon: BrainCircuit },
+  { href: "/dashboard/meetings",   label: "Meetings", icon: CalendarCheck },
+  { href: "/dashboard/contacts",   label: "People",   icon: Users },
 ] as const;
 
 interface MobileBottomNavProps {

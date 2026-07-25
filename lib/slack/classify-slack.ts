@@ -310,7 +310,7 @@ Respond with ONLY valid JSON — no markdown fences, no explanation:
         username,
         intent: "classify_slack",
         sourceRef: null,
-        modelKind: "fast",
+        modelKind: "balanced", // CATEGORIZATION → mid tier
         system: enrichedSystem,
         prompt,
         schema: SlackIntelligenceSchema,
@@ -332,11 +332,12 @@ Respond with ONLY valid JSON — no markdown fences, no explanation:
   try {
     const system = await getSystemPrompt(username);
     const { text } = await generateTextSafe({
-      model: getTextModel("fast"),
+      // CATEGORIZATION → mid tier (deciding what a Slack thread IS).
+      model: getTextModel("balanced"),
       maxOutputTokens: MAX_TOKENS.fast,
       system,
       messages: [{ role: "user", content: prompt }],
-    }, "fast", { username, feature: "classify:slack" });
+    }, "balanced", { username, feature: "classify:slack" });
 
     const result = parseIntelligence(text);
 
@@ -349,7 +350,7 @@ Respond with ONLY valid JSON — no markdown fences, no explanation:
             username,
             intent: "classify_slack",
             sourceRef: null,
-            modelKind: "fast",
+            modelKind: "balanced", // CATEGORIZATION → mid tier
             system,
             prompt,
             schema: SlackIntelligenceSchema,
@@ -413,18 +414,25 @@ export function shouldClassifySlack(opts: {
   isFromKeyPerson?: boolean;
   tags: string[];
 }): boolean {
-  // Relevance gate: when we KNOW the user is not a member of the channel and is
-  // not addressed in it (no DM/Group DM/@-mention), never classify it. This
-  // stops signals/actions/decisions surfacing from channels the user doesn't
-  // participate in. Membership/mention are derived per-user from the Slack auth
-  // identity upstream, so the rule holds for every deployment (no hardcoded user).
-  if (opts.isMember === false && !opts.isDM && !opts.isGroupDM && !opts.isMention) {
-    return false;
-  }
+  // Direct & personal — always relevant: 1:1 DMs, group DMs, and any message
+  // that @-mentions the user. The user is explicitly party to these.
+  if (opts.isDM || opts.isGroupDM || opts.isMention) return true;
 
-  if (opts.isDM || opts.isGroupDM || opts.isMention || opts.isFromKeyPerson) return true;
-
-  // Only classify channel messages when the rule engine already flagged signal
-  const classifyTags = new Set(["action", "decision", "money", "legal", "hiring"]);
-  return opts.tags.some((t) => classifyTags.has(t));
+  // Everything else is broadcast CHANNEL chatter. We do NOT surface it.
+  //
+  // `is_member` is deliberately NOT trusted as a relevance signal: Slack
+  // auto-joins everyone to #general/#random and users are often nominal members
+  // of team channels (#dev, etc.) they don't actually participate in — so
+  // "member" ≠ "this is for me". The authoritative signal that a channel message
+  // concerns the user is an @-mention (handled above). A message merely being
+  // from a known contact (`isFromKeyPerson`) does NOT override this — key people
+  // constantly post in channels the user isn't part of, which is exactly the
+  // leak that kept resurfacing dev/general/random noise.
+  //
+  // Net: channel messages are only classified when they @-mention the user.
+  // Anything in a channel that genuinely needs the user will @-mention them.
+  void opts.tags;
+  void opts.isMember;
+  void opts.isFromKeyPerson;
+  return false;
 }

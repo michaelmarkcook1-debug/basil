@@ -18,7 +18,14 @@ export interface ActionItem {
   ownerId?: string;
   dueDate?: string;
   status: "open" | "done" | "overdue";
-  source: "meeting" | "slack" | "email" | "manual" | "chat" | "linear";
+  /**
+   * When set, this item reached "done" via an automatic lifecycle SWEEP, not a
+   * real completion. Kept as status:"done" so every existing active/done filter
+   * still treats it as terminal, but flagged so the Done list and completion
+   * metrics don't conflate silently-expired work with genuinely-finished work.
+   */
+  archivedReason?: "stale-overdue" | "past-meeting" | "expired" | "rsvp-confirmed" | "reply-sent";
+  source: "meeting" | "slack" | "teams" | "email" | "manual" | "chat" | "linear";
   createdAt: string;
   updatedAt: string;
 

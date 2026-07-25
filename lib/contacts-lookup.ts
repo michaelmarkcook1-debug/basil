@@ -1,4 +1,4 @@
-import { contacts as seedContacts, type Contact } from "./contacts-data";
+import { sampleContacts, type Contact } from "./contacts-data";
 
 /**
  * Match a single contact against a lookup string (name or email). Shared by
@@ -27,7 +27,7 @@ export function findContactByName(
   const lower = name.toLowerCase();
   return (
     extra.find((c) => matches(c, lower)) ||
-    seedContacts.find((c) => matches(c, lower))
+    sampleContacts().find((c) => matches(c, lower))
   );
 }
 
@@ -38,7 +38,7 @@ export function findContactByEmail(
   const lower = email.toLowerCase();
   return (
     extra.find((c) => c.email?.toLowerCase() === lower) ||
-    seedContacts.find((c) => c.email?.toLowerCase() === lower)
+    sampleContacts().find((c) => c.email?.toLowerCase() === lower)
   );
 }
 
@@ -79,7 +79,7 @@ export function timezoneFromLocation(location: string | undefined): string | und
 }
 
 export function getAllPersonaSummaries(): string {
-  return seedContacts
+  return sampleContacts()
     .map(
       (c) =>
         `- **${c.name}** (${c.title}): Personality: ${c.personality.substring(0, 120)}... Tick: ${c.whatMakesThemTick.substring(0, 80)}. Watch: ${c.watchOut.substring(0, 80)}.`

@@ -203,11 +203,13 @@ CRITICAL: The reply must address the specific content of THIS message. If you fi
     const system = await getSystemPrompt(username);
     // #4 by-path down-tier: auto-drafts run on Sonnet ("balanced"), not Opus.
     const { text } = await generateTextSafe({
-      model: getTextModel("balanced"),
+      // CONTEXTUAL + REASONING → flagship. A reply draft in Michael's voice is
+      // judgement work a human reads and sends, not categorization.
+      model: getTextModel("default"),
       maxOutputTokens: MAX_TOKENS.default,
       system,
       messages: [{ role: "user", content: userPrompt }],
-    }, "balanced", { username, feature: "draft" });
+    }, "default", { username, feature: "draft" });
 
     // Parse the JSON response
     let parsed: { body?: string; caveat?: string } = {};

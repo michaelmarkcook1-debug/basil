@@ -9,10 +9,8 @@ import {
   Users,
   CheckSquare,
   Brain,
-  Newspaper,
   CalendarDays,
   Scale,
-  FileText,
   Folder,
   MessageCircle,
   ChevronDown,
@@ -20,30 +18,40 @@ import {
   Search,
   Settings,
   Shield,
+  Zap,
+  Lightbulb,
+  BrainCircuit,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
-// ── Navigation structure — five surfaces, organized around the user's day ───────
-// Today (the brief + signals), Meetings, People, Commitments, Memory.
+// ── Navigation structure — primary surfaces, organized around the user's day ─────
+// Today (the brief + signals), Linear, Meetings, People, Commitments, Memory.
 // Signals folded into Today (one home, not two competing models).
+// Linear promoted to primary nav — it's a headline signal and was previously
+// only reachable via a home-page panel or Cmd-K (never ≤1 click, absent on mobile).
 // Ask Basil is an overlay/CTA, not a destination.
 
+// Five primary surfaces, identical on desktop, mobile, and Cmd-K. Memory drops
+// to "More" (a power feature, not a daily destination); Ask Basil is the gold CTA
+// above, not a nav slot.
 const PRIMARY_NAV = [
   { href: "/dashboard",           label: "Today",        icon: Sparkles },
+  { href: "/dashboard/linear",    label: "Linear",       icon: Zap },
   { href: "/dashboard/meetings",  label: "Meetings",     icon: CalendarCheck },
   { href: "/dashboard/contacts",  label: "People",       icon: Users },
   { href: "/dashboard/actions",   label: "Commitments",  icon: CheckSquare },
-  { href: "/dashboard/memory",    label: "Memory",       icon: Brain },
+  { href: "/dashboard/ai-projects", label: "AI Tools", icon: BrainCircuit },
 ] as const;
 
-// Pages absorbed into a primary surface in the redesign, still reachable here
-// (and via Cmd-K) until their contents are merged into tabs of the parent.
+// Secondary surfaces. "Full briefing" + "Weekly digest" are removed — the
+// briefing is now the collapsed card on Today, and the home feed subsumes the
+// digest's roll-up. Memory lives here now.
 const MORE_NAV = [
-  { href: "/dashboard/briefing",  label: "Full briefing", icon: Newspaper },
-  { href: "/dashboard/digest",    label: "Weekly digest", icon: FileText },
+  { href: "/dashboard/memory",    label: "Memory",        icon: Brain },
   { href: "/dashboard/schedule",  label: "Schedule",      icon: CalendarDays },
   { href: "/dashboard/decisions", label: "Decisions",     icon: Scale },
   { href: "/dashboard/projects",  label: "Projects",      icon: Folder },
+  { href: "/dashboard/learning",  label: "What Basil learned", icon: Lightbulb },
   { href: "/dashboard/slack-command", label: "Slack command", icon: MessageCircle },
 ] as const;
 
@@ -64,6 +72,7 @@ function NavItem({ href, label, icon: Icon, active, expanded, onNavigate }: NavI
       href={href}
       onClick={onNavigate}
       title={label}
+      aria-label={label}
       className={cn(
         "group relative flex items-center gap-3 rounded-lg px-3 py-2.5 transition-all duration-150",
         active
@@ -199,6 +208,7 @@ export function AppSidebar({
           href="/dashboard/chat"
           onClick={onNavigate}
           title="Ask Basil"
+          aria-label="Ask Basil"
           className="flex items-center justify-center w-full rounded-lg p-2.5 border border-gold/30 bg-gold/[0.07] text-gold hover:bg-gold/[0.12] transition-all"
         >
           <MessageSquare size={16} strokeWidth={1.8} />

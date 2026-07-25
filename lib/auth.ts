@@ -104,7 +104,11 @@ export async function getSessionUser(): Promise<string | null> {
     const userSv = user.sessionVersion ?? 1;
     if (tokenSv !== userSv) return null;
 
-    return username;
+    // Normalise to lowercase: usernames are case-insensitive. Returning the
+    // canonical lowercase form here means every downstream consumer — storage
+    // paths, per-user caches, spend counters — keys off one identity, so a
+    // differently-cased login can never fork into a second account.
+    return username.toLowerCase();
   } catch {
     return null;
   }
@@ -175,7 +179,8 @@ export async function getSessionUserLite(): Promise<string | null> {
   try {
     const { payload } = await jwtVerify(token, secret);
     const username = payload.username as string | undefined;
-    return username ?? null;
+    // Normalise to lowercase — usernames are case-insensitive (matches getSessionUser).
+    return username ? username.toLowerCase() : null;
   } catch {
     return null;
   }

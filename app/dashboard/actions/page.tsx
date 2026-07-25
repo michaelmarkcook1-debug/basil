@@ -42,6 +42,7 @@ import {
 import { useRouter } from "next/navigation";
 import { findContactByName } from "@/lib/contacts-lookup";
 import { isActionStalled } from "@/lib/actions/utils";
+import { cn } from "@/lib/utils";
 import { dashboardCache } from "@/lib/dashboard-cache";
 import type { ActionItem, ActionCategory } from "@/lib/types/action";
 import { DataState } from "@/components/ui/data-state";
@@ -77,7 +78,7 @@ function PriorityBadge({ priority }: { priority?: ActionItem["priority"] }) {
   const styles: Record<NonNullable<ActionItem["priority"]>, string> = {
     high: "bg-signal-critical-subtle text-signal-critical border-signal-critical-border",
     medium: "bg-signal-warning-subtle text-signal-warning border-signal-warning-border",
-    low: "bg-slate-100 text-slate-600 border-slate-200",
+    low: "bg-muted/50 text-muted-foreground border-border",
   };
   return (
     <span
@@ -121,7 +122,7 @@ function ExpiryBadge({ expiresAt }: { expiresAt?: string }) {
       : minLeft < 240
         ? `⏱ ${Math.floor(minLeft / 60)}h ${minLeft % 60}m`
         : `⏱ expires ${new Date(expiresAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}`;
-  const urgency = minLeft < 30 ? "bg-signal-critical-subtle text-signal-critical border-signal-critical-border" : minLeft < 120 ? "bg-signal-warning-subtle text-signal-warning border-signal-warning-border" : "bg-slate-100 text-slate-600 border-slate-200";
+  const urgency = minLeft < 30 ? "bg-signal-critical-subtle text-signal-critical border-signal-critical-border" : minLeft < 120 ? "bg-signal-warning-subtle text-signal-warning border-signal-warning-border" : "bg-muted/50 text-muted-foreground border-border";
   return (
     <span className={`inline-flex items-center rounded-full border px-2 py-0.5 text-xs font-medium ${urgency}`} title={`Expires at ${new Date(expiresAt).toLocaleString()}`}>
       {label}
@@ -146,9 +147,13 @@ function SourceBadge({ source }: { source: ActionItem["source"] }) {
   const styles: Record<ActionItem["source"], string> = {
     meeting: "bg-signal-info-subtle text-signal-info",
     slack:   "bg-signal-positive-subtle text-signal-positive",
+    teams:   "bg-muted/50 text-muted-foreground",
     email:   "bg-signal-info-subtle text-signal-info",
-    manual:  "bg-slate-100 text-slate-600",
-    chat:    "bg-indigo-100 text-indigo-700",
+    manual:  "bg-muted/50 text-muted-foreground",
+    // Was bg-indigo-100/text-indigo-700 — a light-theme leftover that read as an
+    // unreadable pale chip on the dark theme. Ask-Basil-sourced items now use the
+    // app's own assistant accent (gold), consistent with the sidebar/chat UI.
+    chat:    "bg-gold/10 text-gold",
     linear:  "bg-signal-info-subtle text-signal-info",
   };
   return (
@@ -279,6 +284,28 @@ function ActionCard({
 
           {/* Meta row */}
           <div className="flex items-center gap-2 mt-1.5 flex-wrap">
+            {/* Resolution marker. Signal-driven closes (you accepted an invite /
+                sent a reply) read as what you DID; lifecycle sweeps read as
+                auto-archived. Neither is conflated with a manual completion. */}
+            {action.archivedReason && (() => {
+              const signalDriven = action.archivedReason === "rsvp-confirmed" || action.archivedReason === "reply-sent";
+              const label =
+                action.archivedReason === "rsvp-confirmed" ? "you responded on your calendar"
+                : action.archivedReason === "reply-sent" ? "you replied"
+                : action.archivedReason === "stale-overdue" ? "expired overdue"
+                : action.archivedReason === "past-meeting" ? "meeting passed"
+                : "time-boxed";
+              return (
+                <span className={cn(
+                  "inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide",
+                  signalDriven
+                    ? "border-signal-positive-border bg-signal-positive-subtle text-signal-positive"
+                    : "border-border bg-muted/40 text-muted-foreground"
+                )}>
+                  {signalDriven ? "" : "Auto-archived · "}{label}
+                </span>
+              );
+            })()}
             {/* Owner */}
             <div className="flex items-center gap-1.5">
               {contact && (
@@ -614,9 +641,9 @@ const QUADRANTS: Array<{
     important: false,
     bg: "bg-slate-500/[0.03]",
     border: "border-slate-300/40",
-    headerBg: "bg-slate-100/60",
-    headerText: "text-slate-500",
-    badgeBg: "bg-slate-100 text-slate-500",
+    headerBg: "bg-muted/40",
+    headerText: "text-muted-foreground",
+    badgeBg: "bg-muted/40 text-muted-foreground",
     Icon: Minus,
   },
 ];
@@ -862,6 +889,22 @@ export default function ActionsPage() {
     usePersistentDraft<ActionFormDraft>("draft-action", { defaultValue: ACTION_DRAFT_DEFAULT });
   const migratedRef = useRef(false);
 
+  // ?new=1 — the Cmd-K palette's "New action" quick action. The palette
+  // advertised this param but nothing read it, so the shortcut navigated here
+  // and silently did nothing. (Separate effect from the filter/view sync above
+  // because setForm comes from the persistent-draft hook declared just above.)
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const p = new URLSearchParams(window.location.search);
+    if (p.get("new") === "1") {
+      setForm((f) => ({ ...f, showForm: true }));
+      const clean = new URL(window.location.href);
+      clean.searchParams.delete("new");
+      window.history.replaceState(null, "", clean.toString());
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   // ── Undo system ────────────────────────────────────────────────────────────
   const undoTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [undoEntry, setUndoEntry] = useState<{
@@ -933,11 +976,18 @@ export default function ActionsPage() {
           if (raw) {
             const parsed = JSON.parse(raw) as ActionItem[];
             if (Array.isArray(parsed) && parsed.length > 0) {
-              await fetch("/api/actions", {
+              const res = await fetch("/api/actions", {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({ import: parsed }),
               });
+              // fetch() does NOT reject on 5xx. Without this check the
+              // removeItem below ran even when the import had failed, so a
+              // server error PERMANENTLY DESTROYED every legacy action — the
+              // only copy. Keep the local copy unless the server confirmed it.
+              if (!res.ok) {
+                throw new Error(`legacy action import failed (${res.status})`);
+              }
             }
             window.localStorage.removeItem(LEGACY_STORAGE_KEY);
           }
@@ -1247,7 +1297,7 @@ export default function ActionsPage() {
         <div>
           <h1 className="text-2xl font-semibold tracking-tight flex items-center gap-2">
             <ListChecks className="h-6 w-6 text-gold" />
-            Action Tracker
+            Commitments
           </h1>
           <p className="text-sm text-muted-foreground mt-1">
             Commitments from meetings, Slack, and email. Basil can read and add to this list.
