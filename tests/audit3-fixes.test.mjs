@@ -149,6 +149,16 @@ test("the home feed fetcher throws, and a failed feed is not an all-clear", () =
     "the 'Nothing needs you' empty state must be gated on there being no error");
 });
 
+test("every locked read-modify-write in actions/store reads FRESH", () => {
+  // A read off the untimed per-instance /tmp cache defeats the lock entirely:
+  // the write is serialised but derived from a stale snapshot, so this instance
+  // overwrites actions another instance created. All 12 sites were bare.
+  const src = read("lib/actions/store.ts");
+  const bare = [...src.matchAll(/await readAll\(username\);/g)];
+  assert.deepEqual(bare.map(() => "bare readAll"), [],
+    "readAll inside a withLock must pass { fresh: true } — otherwise the lock guards a stale read");
+});
+
 // ── False success: a failed write must never show a success affordance ───────
 
 test("the sync buttons do not claim success on a failed request", () => {

@@ -38,6 +38,19 @@ function lockKey(username: string): string {
   return `actions:${username}`;
 }
 
+/**
+ * ⚠️ EVERY read that feeds a read-modify-write MUST pass `{ fresh: true }`.
+ *
+ * Without it the read comes from the per-instance /tmp cache, which has no TTL.
+ * That silently defeats the surrounding `withLock`: the lock serialises the
+ * write, but the value being written was derived from a snapshot that may be
+ * minutes old, so this instance happily overwrites actions another instance
+ * created — a lost update the lock was supposed to prevent.
+ *
+ * The only read that may skip it is the caller-controlled list read below,
+ * where the caller decides its own freshness. Pattern reference:
+ * lib/google/watch-state.ts (lock + fresh together).
+ */
 async function readAll(username: string, options?: { fresh?: boolean }): Promise<ActionItem[]> {
   return readUserStore<ActionItem[]>(username, ACTIONS_FILE, [], options);
 }
@@ -306,7 +319,7 @@ export async function listActions(username: string, options?: { fresh?: boolean 
   const { items: deduped, changed: dedupChanged } = mergeExistingDuplicates(items);
   if (dedupChanged) {
     withLock(lockKey(username), async () => {
-      const current = await readAll(username);
+      const current = await readAll(username, { fresh: true });
       const { items: clean, changed } = mergeExistingDuplicates(current);
       if (changed) await writeAll(username, clean);
     }).catch((err) => console.error("[actions] background dedup failed:", err));
@@ -318,7 +331,7 @@ export async function listActions(username: string, options?: { fresh?: boolean 
   const needsCategory = deduped.filter((a) => a.category === undefined && a.status !== "done");
   if (needsCategory.length > 0) {
     withLock(lockKey(username), async () => {
-      const current = await readAll(username);
+      const current = await readAll(username, { fresh: true });
       let changed = false;
       const patched = current.map((a) => {
         if (a.category !== undefined || a.status === "done") return a;
@@ -383,7 +396,7 @@ export async function listActions(username: string, options?: { fresh?: boolean 
 
   if (notMineItems.length > 0) {
     withLock(lockKey(username), async () => {
-      const current = await readAll(username);
+      const current = await readAll(username, { fresh: true });
       const cleaned = current.filter(
         (a) => !isGroupOwner(a.owner) && !isOtherPersonOwner(a.owner) && !isUnknownOwnerOverdue(a)
       );
@@ -414,7 +427,7 @@ export async function listActions(username: string, options?: { fresh?: boolean 
   if (staleOverdue.length > 0) {
     const staleIds = new Set(staleOverdue.map((a) => a.id));
     withLock(lockKey(username), async () => {
-      const current = await readAll(username);
+      const current = await readAll(username, { fresh: true });
       let changed = false;
       const archived = current.map((a) => {
         if (!staleIds.has(a.id) || a.status === "done") return a;
@@ -447,7 +460,7 @@ export async function listActions(username: string, options?: { fresh?: boolean 
   if (pastMeeting.length > 0) {
     const pastMeetingIds = new Set(pastMeeting.map((a) => a.id));
     withLock(lockKey(username), async () => {
-      const current = await readAll(username);
+      const current = await readAll(username, { fresh: true });
       let changed = false;
       const archived = current.map((a) => {
         if (!pastMeetingIds.has(a.id) || a.status === "done") return a;
@@ -478,7 +491,7 @@ export async function listActions(username: string, options?: { fresh?: boolean 
   if (expired.length > 0) {
     const expiredIds = new Set(expired.map((a) => a.id));
     withLock(lockKey(username), async () => {
-      const current = await readAll(username);
+      const current = await readAll(username, { fresh: true });
       let changed = false;
       const archived = current.map((a) => {
         if (!expiredIds.has(a.id) || a.status === "done") return a;
@@ -545,7 +558,7 @@ export interface CreateActionInput {
  */
 export async function createAction(username: string, input: CreateActionInput): Promise<ActionItem> {
   return withLock(lockKey(username), async () => {
-    const items = await readAll(username);
+    const items = await readAll(username, { fresh: true });
     const now = new Date().toISOString();
 
     // Dedup check — skip or merge if a near-duplicate already exists
@@ -637,7 +650,7 @@ export async function updateAction(
   >
 ): Promise<ActionItem | null> {
   return withLock(lockKey(username), async () => {
-    const items = await readAll(username);
+    const items = await readAll(username, { fresh: true });
     const idx = items.findIndex((a) => a.id === id);
     if (idx === -1) return null;
     const now = new Date().toISOString();
@@ -658,7 +671,7 @@ export async function updateAction(
 
 export async function deleteAction(username: string, id: string): Promise<boolean> {
   return withLock(lockKey(username), async () => {
-    const items = await readAll(username);
+    const items = await readAll(username, { fresh: true });
     const next = items.filter((a) => a.id !== id);
     if (next.length === items.length) return false;
     await writeAll(username, next);
@@ -675,7 +688,7 @@ export async function linkDecisionToAction(
   decisionId: string
 ): Promise<ActionItem | null> {
   return withLock(lockKey(username), async () => {
-    const items = await readAll(username);
+    const items = await readAll(username, { fresh: true });
     const idx = items.findIndex((a) => a.id === actionId);
     if (idx === -1) return null;
     const existing = items[idx].linkedDecisionIds ?? [];
@@ -708,7 +721,7 @@ export async function createActionTracked(
 ): Promise<CreateActionResult> {
   // Read a snapshot of existing IDs before the create call.
   // The create call acquires its own lock internally.
-  const before = await readAll(username);
+  const before = await readAll(username, { fresh: true });
   const existingIds = new Set(before.map((a) => a.id));
   const item = await createAction(username, input);
   return { item, created: !existingIds.has(item.id) };
@@ -716,7 +729,7 @@ export async function createActionTracked(
 
 export async function bulkImport(username: string, incoming: ActionItem[]): Promise<number> {
   return withLock(lockKey(username), async () => {
-    const items = await readAll(username);
+    const items = await readAll(username, { fresh: true });
     const existingIds = new Set(items.map((a) => a.id));
     let added = 0;
     for (const a of incoming) {
