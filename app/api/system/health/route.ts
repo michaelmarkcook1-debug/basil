@@ -14,6 +14,7 @@
 import { NextResponse } from "next/server";
 import { getSessionUser } from "@/lib/auth";
 import { gatherSystemHealth } from "@/lib/system/health";
+import { isDistributedLock } from "@/lib/storage/lock";
 
 export const dynamic = "force-dynamic";
 
@@ -30,7 +31,11 @@ export async function GET() {
 
   try {
     const report = await gatherSystemHealth(username);
-    return NextResponse.json(report);
+    // Surface whether locking is genuinely cross-instance. isDistributedLock()
+    // existed but was consumed NOWHERE, so there was no way to tell that every
+    // withLock in production had silently degraded to a per-instance mutex —
+    // which is exactly how the lost-update exposure stayed invisible.
+    return NextResponse.json({ ...report, distributedLock: isDistributedLock() });
   } catch (err) {
     console.error("[system/health] Unexpected error:", err);
     return NextResponse.json(

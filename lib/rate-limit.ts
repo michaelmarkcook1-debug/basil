@@ -18,6 +18,7 @@
 
 import { Ratelimit, type Duration } from "@upstash/ratelimit";
 import { Redis } from "@upstash/redis";
+import { resolveRedisRestConfig } from "@/lib/storage/redis-config";
 
 interface Entry {
   count: number;
@@ -34,13 +35,24 @@ const DEFAULT_MAX    = 10;
 let rlRedis: Redis | null | undefined;
 function getRlRedis(): Redis | null {
   if (rlRedis !== undefined) return rlRedis;
-  if (process.env.UPSTASH_REDIS_REST_URL && process.env.UPSTASH_REDIS_REST_TOKEN) {
+  // Same dual-naming problem as lib/storage/lock.ts — the Marketplace
+  // provisions KV_REST_API_*, not the UPSTASH_REDIS_REST_* that fromEnv() reads.
+  const cfg = resolveRedisRestConfig();
+  if (cfg) {
     try {
-      rlRedis = Redis.fromEnv();
-    } catch {
+      rlRedis = new Redis(cfg);
+    } catch (err) {
+      console.error("[rate-limit] Upstash client init failed — limits are PER-INSTANCE:", err);
       rlRedis = null;
     }
   } else {
+    // This one is a security control, so its degradation must be visible: the
+    // effective login ceiling becomes limit × warm instances, and resets to
+    // zero on every cold start.
+    console.warn(
+      "[rate-limit] No Upstash REST credentials — auth rate limits are PER-INSTANCE " +
+      "and reset on cold start. Brute-force protection is substantially weaker."
+    );
     rlRedis = null;
   }
   return rlRedis;

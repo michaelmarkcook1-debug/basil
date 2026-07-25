@@ -149,6 +149,29 @@ test("the home feed fetcher throws, and a failed feed is not an all-clear", () =
     "the 'Nothing needs you' empty state must be gated on there being no error");
 });
 
+test("Redis gates accept the KV_* names the Marketplace actually provisions", () => {
+  // The Vercel Upstash integration provisions KV_REST_API_URL/TOKEN, but
+  // Redis.fromEnv() only reads UPSTASH_REDIS_REST_URL/TOKEN. Gating on the
+  // latter alone meant a correctly-installed integration changed NOTHING —
+  // locks stayed per-instance and auth rate limits stayed per-instance.
+  const cfg = read("lib/storage/redis-config.ts");
+  assert.ok(/KV_REST_API_URL/.test(cfg) && /KV_REST_API_TOKEN/.test(cfg),
+    "the resolver must accept the Marketplace KV_* names");
+  assert.ok(/UPSTASH_REDIS_REST_URL/.test(cfg) && /UPSTASH_REDIS_REST_TOKEN/.test(cfg),
+    "…and still accept the SDK's own UPSTASH_* names");
+
+  for (const p of ["lib/storage/lock.ts", "lib/rate-limit.ts"]) {
+    const src = read(p);
+    assert.ok(/resolveRedisRestConfig\(\)/.test(src), `${p} must resolve via the shared resolver`);
+    // Match an actual ASSIGNMENT, not prose — the comments in these files
+    // legitimately name Redis.fromEnv() while explaining why it isn't used.
+    assert.ok(!/=\s*Redis\.fromEnv\(\)/.test(src),
+      `${p} must not call Redis.fromEnv() — it ignores the KV_* names`);
+    assert.ok(/console\.(warn|error)/.test(src),
+      `${p} must announce the degraded path — silent degradation is what hid this`);
+  }
+});
+
 test("every locked read-modify-write in actions/store reads FRESH", () => {
   // A read off the untimed per-instance /tmp cache defeats the lock entirely:
   // the write is serialised but derived from a stale snapshot, so this instance

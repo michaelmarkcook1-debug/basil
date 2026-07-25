@@ -18,19 +18,30 @@
 
 import "server-only";
 import { Redis } from "@upstash/redis";
+import { resolveRedisRestConfig } from "@/lib/storage/redis-config";
 
 // ── Redis singleton (lazy) ────────────────────────────────────────────────────
 
 let redisClient: Redis | null | undefined;
 function getRedis(): Redis | null {
   if (redisClient !== undefined) return redisClient;
-  if (process.env.UPSTASH_REDIS_REST_URL && process.env.UPSTASH_REDIS_REST_TOKEN) {
+  // Accepts BOTH the UPSTASH_* and the KV_* naming — the Vercel Marketplace
+  // provisions the latter, so gating on Redis.fromEnv()'s UPSTASH_* names alone
+  // meant a correctly-installed integration still left every lock per-instance.
+  const cfg = resolveRedisRestConfig();
+  if (cfg) {
     try {
-      redisClient = Redis.fromEnv();
-    } catch {
+      redisClient = new Redis(cfg);
+    } catch (err) {
+      console.error("[lock] Upstash client init failed — falling back to a PER-INSTANCE lock:", err);
       redisClient = null;
     }
   } else {
+    // Loud, once: silent degradation here is what made lost updates invisible.
+    console.warn(
+      "[lock] No Upstash REST credentials (UPSTASH_REDIS_REST_* or KV_REST_API_*). " +
+      "Locks are PER-INSTANCE only — concurrent writes across lambdas can lose updates."
+    );
     redisClient = null;
   }
   return redisClient;
