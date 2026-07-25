@@ -120,7 +120,10 @@ export function ActionControls({
       onClick={onClick}
       disabled={busy !== null}
       className={cn(
-        "flex items-center gap-1 rounded-md px-2 py-1 text-[11px] font-medium transition-colors disabled:opacity-50",
+        // min-h-11 (44px) on mobile only — these sit on a phone list where the
+        // destructive control is adjacent to the common one; px-2 py-1 gave a
+        // ~22px target. Desktop keeps the original compact density.
+        "flex items-center gap-1 rounded-md px-2.5 py-1 min-h-11 sm:min-h-0 text-[11px] font-medium transition-colors disabled:opacity-50",
         suggested && "ring-1 ring-gold/50",
         active
           ? "bg-gold/15 text-gold"
@@ -132,7 +135,12 @@ export function ActionControls({
       )}
     >
       {busy === label ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Icon className="h-3.5 w-3.5" />}
-      <span className="hidden sm:inline">{label}</span>
+      {/* Label stays visible on mobile. Hiding it collapsed Done / Push /
+          Delegate / DELETE into four ~22px icons sitting side by side — half the
+          44px minimum, with the destructive one immediately beside the common
+          one. An icon-only Delete next to an icon-only Done is a mis-tap that
+          costs the user real data. */}
+      <span>{label}</span>
     </button>
   );
 

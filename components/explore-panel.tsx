@@ -24,6 +24,7 @@ export function ExplorePanel({ notes, onSave, className = "" }: ExplorePanelProp
   const [open, setOpen] = useState(false);
   const [draft, setDraft] = useState(notes ?? "");
   const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState(false);
   const lastSaved = useRef(notes ?? "");
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
@@ -38,9 +39,18 @@ export function ExplorePanel({ notes, onSave, className = "" }: ExplorePanelProp
   const handleBlur = useCallback(async () => {
     if (draft === lastSaved.current) return; // no change — skip write
     setSaving(true);
+    setSaveError(false);
     try {
       await onSave(draft);
       lastSaved.current = draft;
+      setSaveError(false);
+    } catch (err) {
+      // try/finally with NO catch meant a failed save surfaced nowhere: the
+      // panel still promised "Auto-saves when you click away" for a note that
+      // was gone. lastSaved is deliberately NOT advanced, so the next blur
+      // retries rather than treating the lost text as already persisted.
+      console.error("[explore-panel] save failed:", err);
+      setSaveError(true);
     } finally {
       setSaving(false);
     }
@@ -86,7 +96,11 @@ export function ExplorePanel({ notes, onSave, className = "" }: ExplorePanelProp
               placeholder:text-muted-foreground/50"
           />
           <p className="text-xs text-muted-foreground mt-1">
-            {saving ? "Saving…" : "Auto-saves when you click away"}
+            {saving
+              ? "Saving…"
+              : saveError
+                ? "Couldn't save — your text is still here, click away to retry"
+                : "Auto-saves when you click away"}
           </p>
         </div>
       )}

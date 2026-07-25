@@ -959,8 +959,14 @@ function ChatPageInner() {
             );
           })()}
 
-          {/* ── Full history layout ─────────────────────────────────────────── */}
-          {showHistory && messages.length > 0 ? (
+          {/* ── Conversation layout ─────────────────────────────────────────
+              Gated on messages ALONE, deliberately. This was
+              `showHistory && messages.length > 0`, which tied the LIVE thread to
+              the History toggle: clicking "Collapse chat history" made the
+              conversation you were in the middle of vanish. The toggle's job is
+              to pull in PREVIOUS conversations (see loadHistory above), not to
+              decide whether the current one is visible. */}
+          {messages.length > 0 ? (
             <>
               <ScrollArea className="flex-1 p-3 sm:p-6" ref={scrollRef}>
                 {messageList}

@@ -149,6 +149,64 @@ test("the home feed fetcher throws, and a failed feed is not an all-clear", () =
     "the 'Nothing needs you' empty state must be gated on there being no error");
 });
 
+// ── False success: a failed write must never show a success affordance ───────
+
+test("the sync buttons do not claim success on a failed request", () => {
+  for (const p of ["app/dashboard/memory/page.tsx", "app/dashboard/decisions/page.tsx"]) {
+    const src = read(p);
+    assert.ok(!/try \{ await fetch\("\/api\/events\/poll-ingest", \{ method: "POST" \}\); \} catch \{ \/\* ignore \*\/ \}/.test(src),
+      `${p}: the swallowed catch + unconditional setDone reported "Syncing…" on a 500`);
+    assert.ok(/setFailed\(true\)/.test(src) && /Sync failed/.test(src),
+      `${p}: a failed sync must be visible to the user`);
+  }
+});
+
+test("a failed explore-panel save is surfaced and the text is kept", () => {
+  const src = read("components/explore-panel.tsx");
+  assert.ok(/catch \(err\)/.test(src) && /setSaveError\(true\)/.test(src),
+    "try/finally with no catch let a lost note read as auto-saved");
+  const idx = src.indexOf("catch (err)");
+  assert.ok(!/lastSaved\.current = draft/.test(src.slice(idx, idx + 300)),
+    "lastSaved must NOT advance on failure, or the next blur skips the retry");
+});
+
+test("calendar reply / forward / RSVP only claim success after the server confirms", () => {
+  const src = read("app/dashboard/schedule/components/DayView.tsx");
+  assert.ok((src.match(/if \(!res\.ok\) throw new Error/g) || []).length >= 2,
+    "reply and forward must both check res.ok before showing Sent/Forwarded");
+  const rsvp = src.slice(src.indexOf("async function handleRsvp"));
+  const body = rsvp.slice(0, rsvp.indexOf("\n  }"));
+  assert.ok(/catch \(err\)/.test(body) && /finally/.test(body),
+    "handleRsvp had neither catch nor finally — a throw disabled all three buttons forever");
+  assert.ok(/role="alert"/.test(src) && /actionError/.test(src),
+    "the failure must actually be RENDERED, not just stored in state");
+});
+
+// ── Interaction: escapable, reachable, tappable ──────────────────────────────
+
+test("chat exposes a Stop control and never hides the live conversation", () => {
+  const src = read("app/dashboard/chat/page.tsx");
+  assert.ok(/status, error, stop \}/.test(src) || /\bstop\b[^;]*\} =\s*\n?\s*useChat/.test(src),
+    "useChat must expose stop — without it a stalled stream locks the UI permanently");
+  assert.ok(/aria-label="Stop generating"/.test(src), "a Stop control must be rendered while streaming");
+  assert.ok(!/\{showHistory && messages\.length > 0 \?/.test(src),
+    "the live conversation must not be gated on the History toggle");
+});
+
+test("Linear cards are keyboard-operable", () => {
+  const src = read("app/dashboard/linear/page.tsx");
+  assert.ok(/role="button"/.test(src) && /tabIndex=\{0\}/.test(src) && /onKeyDown=/.test(src),
+    "Card renders a div; onClick alone made the whole Linear list keyboard-unreachable");
+});
+
+test("action controls keep a 44px target and a visible label on mobile", () => {
+  const src = read("components/actions/action-controls.tsx");
+  assert.ok(!/hidden sm:inline">\{label\}/.test(src),
+    "hiding the label collapsed Done/Push/Delegate/Delete into ~22px icons");
+  assert.ok(/min-h-11 sm:min-h-0/.test(src),
+    "mobile needs a 44px minimum target — Delete sits beside Done");
+});
+
 test("mode-intelligence does not double-count high-priority actions", () => {
   const src = read("components/ui/mode-intelligence.tsx");
   assert.ok(!/stats\.critical \+ stats\.high/.test(src),

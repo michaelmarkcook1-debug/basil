@@ -371,12 +371,25 @@ function DecisionCard({
 function SyncButton({ onSynced }: { onSynced?: () => void }) {
   const [syncing, setSyncing] = useState(false);
   const [done, setDone] = useState(false);
+  const [failed, setFailed] = useState(false);
   return (
     <button
       disabled={syncing}
       onClick={async () => {
         setSyncing(true);
-        try { await fetch("/api/events/poll-ingest", { method: "POST" }); } catch { /* ignore */ }
+        setFailed(false);
+        // See the identical fix in memory/page.tsx: the swallowed catch plus an
+        // unconditional setDone(true) reported "Syncing in background…" even
+        // when the request had failed outright.
+        try {
+          const res = await fetch("/api/events/poll-ingest", { method: "POST" });
+          if (!res.ok) throw new Error(String(res.status));
+        } catch (err) {
+          console.warn("[decisions] sync failed:", err);
+          setSyncing(false);
+          setFailed(true);
+          return;
+        }
         setSyncing(false);
         setDone(true);
         onSynced?.();
@@ -388,7 +401,10 @@ function SyncButton({ onSynced }: { onSynced?: () => void }) {
       className="inline-flex items-center gap-2 text-sm text-[oklch(0.58_0.15_85)] hover:underline disabled:opacity-50"
     >
       <RefreshCw className={`h-3.5 w-3.5 ${syncing ? "animate-spin" : ""}`} />
-      {done ? "Syncing in background…" : syncing ? "Syncing…" : "Sync recent activity"}
+      {failed ? "Sync failed — tap to retry"
+        : done ? "Syncing in background…"
+        : syncing ? "Syncing…"
+        : "Sync recent activity"}
     </button>
   );
 }

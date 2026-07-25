@@ -146,13 +146,28 @@ function IssueCard({
   const isDone = issue.state.type === "completed" || issue.state.type === "cancelled";
 
   return (
+    // Card renders a plain <div>, so an onClick alone made the ENTIRE Linear
+    // list keyboard-unreachable — no role, no tabIndex, no key handler. Adding
+    // button semantics + Enter/Space rather than swapping the element keeps the
+    // existing layout and styling intact.
     <Card
+      role="button"
+      tabIndex={0}
+      aria-pressed={selected}
+      aria-label={`${issue.identifier} ${issue.title}`}
       className={cn(
         "rounded-lg border border-border/60 cursor-pointer transition-all hover:border-border group",
+        "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gold/60",
         selected && "border-gold/40 bg-gold/[0.03]",
         isDone && "opacity-55 hover:opacity-80"
       )}
       onClick={() => onSelect(issue)}
+      onKeyDown={(e) => {
+        if (e.key === "Enter" || e.key === " ") {
+          e.preventDefault(); // Space would otherwise scroll the list
+          onSelect(issue);
+        }
+      }}
     >
       <CardContent className="p-3 flex items-center gap-3">
         {/* Priority dot — hidden for done issues (priority is moot once closed) */}

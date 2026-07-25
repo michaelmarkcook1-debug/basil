@@ -71,12 +71,26 @@ const KIND_STYLE: Record<
 function MemorySyncButton({ onSynced }: { onSynced?: () => void }) {
   const [syncing, setSyncing] = useState(false);
   const [done, setDone] = useState(false);
+  const [failed, setFailed] = useState(false);
   return (
     <button
       disabled={syncing}
       onClick={async () => {
         setSyncing(true);
-        try { await fetch("/api/events/poll-ingest", { method: "POST" }); } catch { /* ignore */ }
+        setFailed(false);
+        // Was `try { await fetch(...) } catch { /* ignore */ }` followed by an
+        // unconditional setDone(true) — so a 500 (or an offline phone) still
+        // reported "Syncing in background…" and the user waited for memories
+        // that were never coming.
+        try {
+          const res = await fetch("/api/events/poll-ingest", { method: "POST" });
+          if (!res.ok) throw new Error(String(res.status));
+        } catch (err) {
+          console.warn("[memory] sync failed:", err);
+          setSyncing(false);
+          setFailed(true);
+          return;
+        }
         setSyncing(false);
         setDone(true);
         onSynced?.();
@@ -88,7 +102,10 @@ function MemorySyncButton({ onSynced }: { onSynced?: () => void }) {
       className="inline-flex items-center gap-2 text-sm text-[oklch(0.58_0.15_85)] hover:underline disabled:opacity-50"
     >
       <RefreshCw className={`h-3.5 w-3.5 ${syncing ? "animate-spin" : ""}`} />
-      {done ? "Syncing in background…" : syncing ? "Syncing…" : "Sync recent activity"}
+      {failed ? "Sync failed — tap to retry"
+        : done ? "Syncing in background…"
+        : syncing ? "Syncing…"
+        : "Sync recent activity"}
     </button>
   );
 }
