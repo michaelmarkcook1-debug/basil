@@ -317,23 +317,27 @@ export async function listActions(username: string, options?: { fresh?: boolean 
   // Fire-and-forget: re-reads inside the lock to avoid races; never blocks the
   // response — the deduped view is returned to the caller immediately.
   const { items: deduped, changed: dedupChanged } = mergeExistingDuplicates(items);
-  if (dedupChanged) {
-    withLock(lockKey(username), async () => {
-      const current = await readAll(username, { fresh: true });
-      const { items: clean, changed } = mergeExistingDuplicates(current);
-      if (changed) await writeAll(username, clean);
-    }).catch((err) => console.error("[actions] background dedup failed:", err));
-  }
-
-  // ── Category backfill ───────────────────────────────────────────────────────
-  // Assign category/decisionRequired to legacy items that predate classification.
-  // Fire-and-forget: same pattern as dedup — read inside lock, write if changed.
   const needsCategory = deduped.filter((a) => a.category === undefined && a.status !== "done");
-  if (needsCategory.length > 0) {
+
+  // ── Background maintenance: ONE lock, both passes ────────────────────────────
+  // These used to be two separate fire-and-forget withLock() calls on the SAME
+  // key, launched back-to-back. While the lock silently degraded to an
+  // in-process mutex that was survivable; the moment Upstash made it a real
+  // cross-instance lock they began contending with each other (and with every
+  // concurrent listActions), producing
+  // "[lock] could not acquire actions:<user> after 30 attempts" on /api/today.
+  //
+  // They also both did read → mutate → write over the same store, so running
+  // them separately meant two Blob reads and two writes to accomplish what one
+  // pass can. Combined: one acquisition, one read, at most one write.
+  if (dedupChanged || needsCategory.length > 0) {
     withLock(lockKey(username), async () => {
       const current = await readAll(username, { fresh: true });
-      let changed = false;
-      const patched = current.map((a) => {
+
+      const { items: clean, changed: cleanChanged } = mergeExistingDuplicates(current);
+      let changed = cleanChanged;
+
+      const patched = clean.map((a) => {
         if (a.category !== undefined || a.status === "done") return a;
         const result = classifyAction(a.text, a.priority);
         if (result.category === undefined && !result.decisionRequired) return a;
@@ -344,8 +348,9 @@ export async function listActions(username: string, options?: { fresh?: boolean 
           ...(result.decisionRequired            && { decisionRequired: true }),
         };
       });
+
       if (changed) await writeAll(username, patched);
-    }).catch((err) => console.error("[actions] background category backfill failed:", err));
+    }).catch((err) => console.error("[actions] background maintenance failed:", err));
   }
 
   // ── Owner filter — group refs and named third-parties ──────────────────────

@@ -154,16 +154,19 @@ export function AttentionDonut({ segments, total }: { segments: DonutSeg[]; tota
   const circ = 2 * Math.PI * r;
   const sum = segments.reduce((n, s) => n + s.value, 0) || 1;
 
-  let offset = 0;
+  // Accumulate the running offset inside the reduce rather than mutating a
+  // variable declared outside the render body — reassigning across a render is
+  // the kind of thing that breaks silently under concurrent rendering, and the
+  // immutability lint rule flags it for exactly that reason.
   const arcs = segments
     .filter((s) => s.value > 0)
-    .map((s) => {
-      const frac = s.value / sum;
-      const dash = frac * circ;
-      const arc = { color: s.color, dash, gap: circ - dash, offset };
-      offset += dash;
-      return arc;
-    });
+    .reduce<Array<{ color: string; dash: number; gap: number; offset: number }>>((acc, s) => {
+      const dash = (s.value / sum) * circ;
+      const prev = acc[acc.length - 1];
+      const offset = prev ? prev.offset + prev.dash : 0;
+      acc.push({ color: s.color, dash, gap: circ - dash, offset });
+      return acc;
+    }, []);
 
   return (
     <div className="flex items-center gap-5">

@@ -64,7 +64,7 @@ export function Markdown({ text, className = "" }: { text: string; className?: s
     buf.length = 0;
   };
 
-  let para: string[] = [];
+  const para: string[] = [];
   while (i < lines.length) {
     const line = lines[i];
 

@@ -76,7 +76,21 @@ async function withLocalLock<T>(key: string, fn: () => Promise<T>): Promise<T> {
 export interface LockOptions {
   /** Lock TTL — auto-released if the holder dies. Default 5s. */
   ttlMs?: number;
-  /** Acquire attempts before giving up. Default 30. */
+  /**
+   * Acquire attempts before giving up. Default 80.
+   *
+   * ⚠️ INVARIANT: retries × waitMs MUST exceed ttlMs.
+   *
+   * This was 30 (× 100ms = 3s) against a 5s TTL, so a waiter gave up two
+   * seconds BEFORE a dead holder's lock could even expire — it could never
+   * outlast a stuck lock, only fail. That stayed invisible while the lock
+   * silently degraded to an in-process mutex; the moment Upstash made it a real
+   * cross-instance lock it surfaced immediately as
+   * "[lock] could not acquire actions:<user> after 30 attempts" on /api/today.
+   *
+   * 80 × 100ms = 8s > 5s TTL, so a waiter now either gets the lock when the
+   * holder finishes or waits out the TTL of a holder that died.
+   */
   retries?: number;
   /** Wait between attempts. Default 100ms. */
   waitMs?: number;
@@ -94,7 +108,7 @@ export async function withLock<T>(key: string, fn: () => Promise<T>, opts: LockO
   const lockKey = `lock:${key}`;
   const token = crypto.randomUUID();
   const ttlMs = opts.ttlMs ?? 5000;
-  const retries = opts.retries ?? 30;
+  const retries = opts.retries ?? 80; // 80 × 100ms = 8s > 5s ttl (see LockOptions)
   const waitMs = opts.waitMs ?? 100;
 
   let acquired = false;

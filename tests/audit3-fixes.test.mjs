@@ -172,6 +172,32 @@ test("every [id] write route validates its body instead of casting", () => {
   }
 });
 
+test("the lock's retry budget outlasts its own TTL", () => {
+  // If retries × waitMs <= ttlMs, a waiter gives up BEFORE a dead holder's lock
+  // can expire — it can never outlast a stuck lock, only fail. That was the
+  // live "[lock] could not acquire actions:<user> after 30 attempts" error:
+  // 30 × 100ms = 3s against a 5s TTL. Invisible while the lock was a no-op
+  // in-process mutex; immediate once Upstash made it real.
+  const src = read("lib/storage/lock.ts");
+  const ttl = Number(/opts\.ttlMs \?\? (\d+)/.exec(src)?.[1]);
+  const retries = Number(/opts\.retries \?\? (\d+)/.exec(src)?.[1]);
+  const wait = Number(/opts\.waitMs \?\? (\d+)/.exec(src)?.[1]);
+  assert.ok(ttl > 0 && retries > 0 && wait > 0, "lock defaults must all parse");
+  assert.ok(retries * wait > ttl,
+    `retry budget (${retries}×${wait}=${retries * wait}ms) must exceed the lock TTL (${ttl}ms)`);
+});
+
+test("background maintenance takes ONE lock, not two on the same key", () => {
+  // Two fire-and-forget withLock() calls on the same key, launched back-to-back,
+  // contend with each other the moment the lock is genuinely cross-instance.
+  const src = read("lib/actions/store.ts");
+  const listFn = src.slice(src.indexOf("export async function listActions"));
+  const body = listFn.slice(0, listFn.indexOf("\n  // ── Owner filter"));
+  const locks = [...body.matchAll(/withLock\(lockKey\(username\)/g)];
+  assert.equal(locks.length, 1,
+    `listActions must acquire the actions lock at most once for background maintenance (found ${locks.length})`);
+});
+
 test("Redis gates accept the KV_* names the Marketplace actually provisions", () => {
   // The Vercel Upstash integration provisions KV_REST_API_URL/TOKEN, but
   // Redis.fromEnv() only reads UPSTASH_REDIS_REST_URL/TOKEN. Gating on the
