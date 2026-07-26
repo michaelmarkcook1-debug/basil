@@ -8,7 +8,8 @@ import { parseAndValidate } from "@/lib/ai/parse-json";
 import { DigestOutputSchema } from "@/lib/ai/schemas";
 import { getSettings } from "@/lib/settings/store";
 import { getEventsForMonth } from "@/lib/google/calendar";
-import { getRecentEmails } from "@/lib/google/gmail";
+import { getRecentEmails, getSentEmails } from "@/lib/google/gmail";
+import { fromSentEmail, fromOwnSlackMessage, formatOutboundBlock } from "@/lib/briefing/outbound-evidence";
 import { getRecentSlackMessages } from "@/lib/slack/client";
 import { getZoomSummariesFromGmail } from "@/lib/google/zoom-summaries";
 import { getReadSummariesFromGmail } from "@/lib/google/read-summaries";
@@ -186,6 +187,7 @@ export async function POST() {
     calendarEvents,
     emails,
     slackMessages,
+    sentEmails,
     zoomSummaries,
     readSummaries,
     teamsMeetings,
@@ -240,6 +242,19 @@ export async function POST() {
         return await getRecentSlackMessages(username, 30);
       } catch (e) {
         console.error("Failed to fetch Slack messages:", e);
+        return [];
+      }
+    })(),
+
+    // The user's OWN sent mail — resolution evidence ONLY, never a signal
+    // source. getRecentEmails is in:inbox, so without this the digest cannot
+    // see the user resolving anything by email and reports settled work under
+    // BLOCKERS. 14 days: the weekly brief looks back further than the daily one.
+    (async (): Promise<GmailMessage[]> => {
+      try {
+        return await getSentEmails(username, 30, 14);
+      } catch (e) {
+        console.error("Failed to fetch sent emails:", e);
         return [];
       }
     })(),
@@ -470,6 +485,17 @@ export async function POST() {
         (personaRows.length ? "How key people operate (drivers / watch-outs):\n" + personaRows.join("\n") + "\n" : "")
       : "";
 
+  // ── Outbound evidence — what Michael already did ──────────────────────────
+  // Deliberately NOT counted in totalSignal below: this is resolution evidence,
+  // not new signal, and inflating the density figure with it would misreport how
+  // busy the week actually was.
+  const outboundEvents = [
+    ...sentEmails.map(fromSentEmail),
+    ...slackMessages
+      .filter((m) => m.fromSelf)
+      .map((m) => fromOwnSlackMessage({ channel: m.channel, text: m.text, date: m.date })),
+  ];
+
   // ── Signal density ─────────────────────────────────────────────────────────
   const totalSignal =
     pastEvents.length +
@@ -498,6 +524,13 @@ export async function POST() {
     formatCalendarBlock(upcomingEvents, "NEXT 7 DAYS — CALENDAR"),
     formatEmailBlock(emails, "RECENT EMAILS (last 7 days)"),
     formatSlackBlock(slackMessages),
+    `=== WHAT MICHAEL ALREADY DID (his OWN sent email + his OWN Slack messages) ===
+RESOLUTION EVIDENCE. Read this BEFORE writing blockers. It exists so settled work
+is never reported as outstanding. It is NOT a source of new actions or
+commitments — do not mine it for work to add.
+
+${formatOutboundBlock(outboundEvents)}
+`,
     zoomSummaries.length > 0 ? formatZoomBlock(zoomSummaries) : "",
     readSummaries.length > 0 ? formatReadBlock(readSummaries) : "",
     teamsMeetings.length > 0
@@ -552,7 +585,7 @@ JSON. Each field is free-form text (paragraphs, bullets, numbered lists) or null
   "majorMeetings": "Key meetings, 1:1s, and calls from the past 7 days. Who was there, what came out of it, what the signal means. Draw from PAST 7 DAYS CALENDAR and Zoom/Read.ai summaries. Cross-reference Slack/email threads involving the same people. Null if no meetings in the data.",
   "whatChanged": "What moved this week. Actions completed. Momentum made or lost. Work shipped or advanced. Draw from COMPLETED THIS WEEK and OPENED THIS WEEK actions, calendar, and Zoom/Read.ai recaps. Name specific items. Null if nothing evident.",
   "decisionsLog": "Decisions logged or clearly implied in the past 7-14 days. Each decision traceable to a line in the live data. Include rationale and follow-on consequences where present. Draw from RECENT DECISIONS block and Zoom/Read.ai summaries. Null if none.",
-  "blockers": "What's stuck. Overdue actions. Stalled threads. Risks raised but unresolved. Items that need a nudge or decision to unblock. Draw from OVERDUE, STALLED, and blocker-language in emails/Slack/memory. Be specific — name the item, the owner, and why it matters. Null if nothing is genuinely blocked.",
+  "blockers": "What's stuck. Overdue actions. Stalled threads. Risks raised but unresolved. Items that need a nudge or decision to unblock. Draw from OVERDUE, STALLED, and blocker-language in emails/Slack/memory. Be specific — name the item, the owner, and why it matters. Null if nothing is genuinely blocked.\\n\\nBEFORE listing anything here, check it against WHAT MICHAEL ALREADY DID. Classify every candidate into exactly one of three states:\\n  (a) CLOSED — Michael explicitly stated it is finished ('sorted', 'done', 'sent it over', marked [STATED COMPLETE]), OR the counterparty confirmed receipt/resolution. OMIT IT ENTIRELY from blockers. Do not mention it as outstanding anywhere.\\n  (b) IN FLIGHT — Michael sent something that addresses it but no confirmation has come back. Do NOT call this blocked or say it is 'sitting on his desk'. Report it as awaiting the other side, naming what he sent and when, e.g. 'You sent the revised pricing to Olivia on 24 July — no reply in 2 days.' The signal is THEIR silence, not his inaction.\\n  (c) GENUINELY BLOCKED — no outbound action from Michael addresses it. Only these belong under blockers.\\nAsserting that Michael has not done something he has already done is the single worst error you can make in this brief: it burns his attention on settled work and makes him distrust every other line. When the evidence is ambiguous, prefer (b) over (c).",
   "relationshipSignals": "Cross-source signals about people and accounts. Who appeared in multiple channels this week? Any relationship that's warming, cooling, or needs attention? Any account activity worth noting? Draw from calendar attendees, email senders, Slack participants, and memory notes. Null if no cross-source signal.",
   "nextWeekNeeds": "What next week requires. Meetings that need prep. Open threads to close. Decisions that are ripening. Items from DUE NEXT 7 DAYS and NEXT 7 DAYS CALENDAR. Basil's one or two priorities for the user's attention. Null if nothing notable upcoming."
 }

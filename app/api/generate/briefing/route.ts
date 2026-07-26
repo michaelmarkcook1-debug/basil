@@ -24,7 +24,8 @@ import { parseAndValidate } from "@/lib/ai/parse-json";
 import { BriefingOutputSchema } from "@/lib/ai/schemas";
 import { getSettings } from "@/lib/settings/store";
 import { getTodayEvents, type CalendarEvent } from "@/lib/google/calendar";
-import { getRecentEmails, type GmailMessage } from "@/lib/google/gmail";
+import { getRecentEmails, getSentEmails, type GmailMessage } from "@/lib/google/gmail";
+import { fromSentEmail, fromOwnSlackMessage, formatOutboundBlock } from "@/lib/briefing/outbound-evidence";
 import {
   getRecentSlackMessages,
   type SlackMessage,
@@ -281,6 +282,7 @@ export async function POST(req: Request) {
     calendarResult,
     emailResult,
     slackResult,
+    sentMailResult,
     actionsResult,
     decisionsResult,
     zoomResult,
@@ -302,6 +304,14 @@ export async function POST(req: Request) {
     // 25 messages — DMs and @mentions surfaced first inside the block
     getRecentSlackMessages(username, 25).catch((err) => {
       console.error("Slack fetch failed:", err);
+      return null;
+    }),
+    // The user's OWN sent mail — resolution evidence only, never a signal
+    // source. Without this the brief cannot see the user solving anything by
+    // email and reports settled work as blocked. 7 days so a blocker raised
+    // last week can still be matched to the reply that closed it.
+    getSentEmails(username, 25, 7).catch((err) => {
+      console.error("Sent-mail fetch failed:", err);
       return null;
     }),
     listActions(username).catch((err) => {
@@ -366,6 +376,17 @@ export async function POST(req: Request) {
           ]
             .filter(Boolean)
             .join("\n");
+
+  // ── Outbound evidence — what MICHAEL did (resolution checking only) ───────
+  // Sent mail + his own Slack messages. Without this the brief can see problems
+  // arrive but never see him solve them, and reports settled work as blocked.
+  const outboundEvents = [
+    ...(sentMailResult ?? []).map(fromSentEmail),
+    ...(slackResult ?? [])
+      .filter((m) => m.fromSelf)
+      .map((m) => fromOwnSlackMessage({ channel: m.channel, text: m.text, date: m.date })),
+  ];
+  const outboundBlock = formatOutboundBlock(outboundEvents);
 
   // ── Slack — DMs and @mentions prominently, channel activity second ────────
   const slackMessages = slackResult ?? [];
@@ -764,6 +785,13 @@ ${emailBlock}
 
 ### SLACK — last 48h
 ${slackBlock}
+
+### WHAT MICHAEL ALREADY DID — last 7 days (his OWN sent email + his OWN Slack messages)
+This is RESOLUTION EVIDENCE. It exists so you never report settled work as
+outstanding. It is NOT a source of new actions, commitments, or signals — do not
+mine it for work to add.
+
+${outboundBlock}
 ${zoomBlock ? `
 ### ZOOM MEETING SUMMARIES — last 7 days (AI Companion recaps — what was actually said on prior calls)
 ${zoomBlock}

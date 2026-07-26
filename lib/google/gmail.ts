@@ -27,7 +27,29 @@ export async function getRecentEmails(
 ): Promise<GmailMessage[]> {
   // Restrict to inbox only — without this, Gmail returns sent mail too, causing
   // emails FROM the user to be ingested and incorrectly flagged by the rules engine.
+  // NOTE: getSentEmails() below is the deliberate counterpart — see its docstring.
   return searchEmails(username, "in:inbox", maxResults, maxAgeDays);
+}
+
+/**
+ * The user's OWN sent mail.
+ *
+ * Separate from getRecentEmails on purpose. That function is inbox-only so the
+ * user's outbound mail is never ingested as an inbound signal — correct, but it
+ * left Basil unable to see the user RESOLVING anything by email. A brief once
+ * reported "Kyndryl pricing is sitting on your desk" days after the user had
+ * emailed the deck out, because the sending was structurally invisible.
+ *
+ * Results from here are for RESOLUTION CHECKING ONLY — establishing that the
+ * user already acted. They must never be fed to the classifier as new signals,
+ * which is what the inbox restriction exists to prevent.
+ */
+export async function getSentEmails(
+  username: string,
+  maxResults = 25,
+  maxAgeDays = 7
+): Promise<GmailMessage[]> {
+  return searchEmails(username, "in:sent", maxResults, maxAgeDays);
 }
 
 /**
