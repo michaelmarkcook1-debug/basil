@@ -31,15 +31,29 @@ import { getEntitlement } from "@/lib/billing/entitlement-store";
 import { effectiveKind } from "@/lib/ai/tiering";
 import { CHAT_PRICE_FAMILY } from "@/lib/ai/pricing";
 
-// 200 KB limit — covers very long chat histories while preventing abuse
-const MAX_BODY_BYTES = 200_000;
+/**
+ * Body ceiling. Was 200 KB, sized for text-only histories — far too small the
+ * moment anyone attaches an image.
+ *
+ * Attachments are inlined as base64 (~1.33× the raw bytes) AND useChat resends
+ * the ENTIRE conversation every turn, so one screenshot didn't just fail its own
+ * send — it sat in history and broke every later message, including plain text.
+ * That is why "attach an image" and "paste a URL" both appeared broken: same
+ * trapped image.
+ *
+ * Images are now downscaled client-side (lib/images/downscale.ts) so typical
+ * payloads are small; this ceiling is the backstop, set below Vercel's ~4.5 MB
+ * serverless body limit so we reject with a readable message rather than having
+ * the platform sever the request.
+ */
+const MAX_BODY_BYTES = 4_000_000;
 // Per-user: 30 AI calls per minute (generous for normal use, blocks runaway loops)
 const CHAT_RATE_LIMIT = 30;
 
 export async function POST(req: Request) {
   const contentLength = req.headers.get("content-length");
   if (contentLength && parseInt(contentLength, 10) > MAX_BODY_BYTES) {
-    return Response.json({ error: "Request body too large (max 200 KB)" }, { status: 413 });
+    return Response.json({ error: "Request body too large — try a smaller image, or start a new chat to clear attachment history" }, { status: 413 });
   }
 
   // Auth first — the rate-limit key is the authenticated USERNAME (not the

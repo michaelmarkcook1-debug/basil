@@ -33,13 +33,15 @@ interface IncomingMessage {
 }
 
 // Match the web chat route's protections (this endpoint previously had neither).
-const MAX_BODY_BYTES = 200_000;
+// Kept in step with app/api/chat/route.ts — see the reasoning there. 200 KB was
+// sized for text-only histories and broke the moment an image was attached.
+const MAX_BODY_BYTES = 4_000_000;
 const MOBILE_CHAT_RATE_LIMIT = 30; // per user per minute — shared with web chat
 
 export async function POST(req: Request) {
   const contentLength = req.headers.get("content-length");
   if (contentLength && parseInt(contentLength, 10) > MAX_BODY_BYTES) {
-    return Response.json({ error: "Request body too large (max 200 KB)" }, { status: 413 });
+    return Response.json({ error: "Request body too large — try a smaller image, or start a new chat to clear attachment history" }, { status: 413 });
   }
 
   const username = await getSessionUser();

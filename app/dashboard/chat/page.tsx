@@ -25,6 +25,7 @@ import { useSearchParams, useRouter } from "next/navigation";
 import { emitChange, type SyncDomain } from "@/lib/sync/channel";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import { downscaleImage } from "@/lib/images/downscale";
 import { Markdown } from "@/components/ui/markdown";
 import { Textarea } from "@/components/ui/textarea";
 import { ScrollArea } from "@/components/ui/scroll-area";
@@ -425,10 +426,19 @@ function ChatPageInner() {
     }
   }
 
-  const handleFileChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleFileChange = useCallback(async (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = Array.from(e.target.files ?? []);
     if (!files.length) return;
-    const newStaged: StagedFile[] = files.map((file) => ({
+    // Reset the input immediately — we're about to await, and the element is
+    // reused. (Also lets the same file be re-attached after removal.)
+    if (fileInputRef.current) fileInputRef.current.value = "";
+
+    // Downscale BEFORE staging. Attachments are inlined as base64 and the whole
+    // history is resent every turn, so an oversized screenshot doesn't just
+    // fail its own send — it poisons every later message in the conversation.
+    const processed = await Promise.all(files.map((f) => downscaleImage(f)));
+
+    const newStaged: StagedFile[] = processed.map((file) => ({
       id: `${file.name}-${file.size}-${Date.now()}-${Math.random()}`,
       file,
       previewUrl: file.type.startsWith("image/")
@@ -436,8 +446,6 @@ function ChatPageInner() {
         : undefined,
     }));
     setStagedFiles((prev) => [...prev, ...newStaged]);
-    // Reset input so the same file can be re-attached if removed
-    if (fileInputRef.current) fileInputRef.current.value = "";
   }, []);
 
   const removeFile = useCallback((id: string) => {
