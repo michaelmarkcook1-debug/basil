@@ -26,6 +26,7 @@ import { getSessionUser } from "@/lib/auth";
 import { getSettings } from "@/lib/settings/store";
 import { resolveTimezone } from "@/lib/timezone";
 import { checkRateLimitDurable } from "@/lib/rate-limit";
+import { repairOrphanedToolCalls } from "@/lib/ai/repair-history";
 import { reserveSpend, commitSpend, releaseSpend, SpendCapError } from "@/lib/ai/spend-guard";
 import { getEntitlement } from "@/lib/billing/entitlement-store";
 import { effectiveKind } from "@/lib/ai/tiering";
@@ -113,9 +114,22 @@ export async function POST(req: Request) {
     return Response.json({ error: "Invalid JSON body" }, { status: 400 });
   }
 
+  // A tool call that never returned leaves an orphaned tool_use in history with
+  // no tool_result. Providers reject that outright ("Tool result is missing for
+  // tool call toolu_…"), and because the whole history is resent every turn, ONE
+  // interrupted tool call permanently bricks the conversation — every later
+  // message fails too. Repair before converting.
+  const { messages: safeMessages, repaired } = repairOrphanedToolCalls(messages);
+  if (repaired > 0) {
+    console.warn(
+      `[api/chat] repaired ${repaired} orphaned tool call(s) — a prior turn was ` +
+      `interrupted mid-tool; without this the conversation would be unusable`
+    );
+  }
+
   const [settings, modelMessages] = await Promise.all([
     getSettings(username),
-    convertToModelMessages(messages),
+    convertToModelMessages(safeMessages),
   ]);
 
   const firstName = settings.name.split(" ")[0] ?? settings.name;

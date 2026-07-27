@@ -3,16 +3,62 @@ import { getSessionUser } from "@/lib/auth";
 import { getChatHistory, appendChatMessages, clearChatHistory } from "@/lib/chat/store";
 import type { StoredMessage } from "@/lib/chat/store";
 
+/** Default recall window — recent enough to be relevant, small enough to be cheap. */
+const DEFAULT_DAYS = 14;
+const DEFAULT_LIMIT = 40;
+const MAX_LIMIT = 200;
+
 /**
- * GET /api/chat/history
- * Returns the stored chat history for the authenticated user.
+ * GET /api/chat/history?days=14&limit=40&q=kyndryl
+ *
+ * Returns a WINDOW of history, not the whole archive.
+ *
+ * Loading everything was wrong twice over: it dragged up to 200 messages of
+ * unrelated conversation into the thread, and every one of those is then resent
+ * to the model on every subsequent turn — paying tokens (and latency) to carry
+ * months of irrelevant context.
+ *
+ * - `days`  — date window, newest-first (default 14).
+ * - `limit` — hard cap after the date filter (default 40, max 200).
+ * - `q`     — optional context filter; keeps only messages mentioning the term,
+ *             for pulling one past thread back without the rest.
+ *
+ * `total` is always the full archive size so the UI can honestly say what it is
+ * NOT showing — a silent truncation would read as "this is all your history".
  */
-export async function GET() {
+export async function GET(req: Request) {
   const username = await getSessionUser();
   if (!username) return NextResponse.json({ error: "Unauthorised" }, { status: 401 });
 
-  const messages = await getChatHistory(username);
-  return NextResponse.json({ messages });
+  const { searchParams } = new URL(req.url);
+  const days = Math.max(1, Math.min(365, Number(searchParams.get("days")) || DEFAULT_DAYS));
+  const limit = Math.max(1, Math.min(MAX_LIMIT, Number(searchParams.get("limit")) || DEFAULT_LIMIT));
+  const q = (searchParams.get("q") ?? "").trim().toLowerCase();
+
+  const all = await getChatHistory(username);
+  const cutoff = Date.now() - days * 86_400_000;
+
+  let windowed = all.filter((m) => {
+    const t = new Date(m.createdAt).getTime();
+    // Undated legacy rows are kept rather than silently dropped — losing real
+    // history to a missing field would be worse than showing a little extra.
+    return !Number.isFinite(t) || t >= cutoff;
+  });
+
+  if (q) {
+    windowed = windowed.filter((m) => m.content.toLowerCase().includes(q));
+  }
+
+  // Newest-first cap, then restore chronological order for rendering.
+  const capped = windowed.slice(Math.max(0, windowed.length - limit));
+
+  return NextResponse.json({
+    messages: capped,
+    total: all.length,
+    returned: capped.length,
+    window: { days, limit, q: q || undefined },
+    truncated: capped.length < all.length,
+  });
 }
 
 /**

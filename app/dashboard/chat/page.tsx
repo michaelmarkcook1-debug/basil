@@ -68,6 +68,15 @@ const CHAT_STORAGE_KEY = "sage-chat-session-v2";
  */
 const CHAT_CLEARED_FLAG = "sage-chat-just-cleared";
 
+/**
+ * History recall window. Previously the client pulled the ENTIRE archive (up to
+ * 200 messages) into the thread. Because useChat resends the whole conversation
+ * on every turn, that meant paying tokens and latency to carry months of
+ * unrelated context for the rest of the session — and burying the current topic.
+ */
+const HISTORY_DAYS = 14;
+const HISTORY_LIMIT = 40;
+
 const toolIcons: Record<string, typeof Calendar> = {
   getCalendarEvents: Calendar,
   searchEmails: Mail,
@@ -139,6 +148,9 @@ function ChatPageInner() {
   const [input, setInput] = useState("");
   const [stagedFiles, setStagedFiles] = useState<StagedFile[]>([]);
   const [brainReady, setBrainReady] = useState<boolean | null>(null);
+  const [historyMeta, setHistoryMeta] = useState<
+    { total: number; returned: number; truncated: boolean } | null
+  >(null);
   const [brainModel, setBrainModel] = useState<string | null>(null);
   const [firstName, setFirstName] = useState<string | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -480,10 +492,19 @@ function ChatPageInner() {
     archiveLoaded.current = true;
     setHistoryLoading(true);
     try {
-      const res = await fetch("/api/chat/history");
+      // A WINDOW, not the whole archive. Pulling everything dragged months of
+      // unrelated conversation into the thread — and because the full history is
+      // resent on every turn, you then pay tokens and latency to carry it for the
+      // rest of the session.
+      const res = await fetch(`/api/chat/history?days=${HISTORY_DAYS}&limit=${HISTORY_LIMIT}`);
       if (!res.ok) return;
       const data = await res.json();
       const archive = Array.isArray(data?.messages) ? data.messages : [];
+      setHistoryMeta(
+        typeof data?.total === "number"
+          ? { total: data.total, returned: data.returned ?? archive.length, truncated: !!data.truncated }
+          : null
+      );
       if (archive.length === 0) return;
 
       const uiMessages = archive.map((m: {
@@ -549,8 +570,70 @@ function ChatPageInner() {
   }, []);
 
   // ── Shared input form rendered in both layouts ──────────────────────────────
+  // Rendered inside the composer (below) rather than at the top of the page —
+  // an error about the message you just sent belongs where you are looking.
+  const errorBanner = error ? (() => {
+    let userMessage: string = "Something went wrong. Please try again.";
+    let narrowingOptions: string[] | undefined;
+    try {
+      const parsed = JSON.parse(error.message) as { error?: string; narrowingOptions?: string[] };
+      if (parsed.error) userMessage = parsed.error;
+      if (parsed.narrowingOptions) narrowingOptions = parsed.narrowingOptions;
+    } catch {
+      const msg = error.message ?? "";
+      const looksLikeProviderError =
+        /sk-|org-|openai|anthropic|rate_limit|tokens per minute|context_length/i.test(msg);
+      userMessage = looksLikeProviderError
+        ? "Basil encountered an error. Please try again."
+        : msg || "Something went wrong. Please try again.";
+    }
+    return (
+      <div className="mx-4 mt-2 rounded-lg border border-destructive/40 bg-destructive/5 px-4 py-3 text-sm text-destructive space-y-2">
+        <div className="flex items-start gap-2">
+          <AlertTriangle className="h-4 w-4 shrink-0 mt-0.5" />
+          <span>
+            <strong>Chat unavailable:</strong> {userMessage}
+            {" — "}
+            <a href="/dashboard/settings" className="underline">
+              Check Settings → Readiness
+            </a>
+          </span>
+        </div>
+        {narrowingOptions && narrowingOptions.length > 0 && (
+          <div className="flex flex-wrap gap-1.5 pl-6">
+            {narrowingOptions.map((opt) => (
+              <Button
+                key={opt}
+                variant="outline"
+                size="sm"
+                className="text-xs border-destructive/30 text-destructive hover:bg-destructive/10 h-auto py-1"
+                onClick={() => { hasSentMessage.current = true; sendMessage({ text: opt }); }}
+              >
+                {opt}
+              </Button>
+            ))}
+          </div>
+        )}
+      </div>
+    );
+  })() : null;
+
   const inputForm = (
     <form onSubmit={handleSubmit} className="space-y-2">
+      {/* Directly above the composer, so a failure is visible where the user's
+          attention already is. It previously rendered at the very top of the
+          page — off-screen in any real conversation. */}
+      {errorBanner}
+
+      {/* Say what is NOT loaded. Silent windowing would read as "this is all
+          your history", which is the same class of lie as an empty list on a
+          failed fetch. */}
+      {historyMeta?.truncated && (
+        <p className="px-1 text-[11px] text-muted-foreground">
+          Showing the last {HISTORY_DAYS} days ({historyMeta.returned} of {historyMeta.total} messages).
+          Older history is kept — ask Basil about it and it will search further back.
+        </p>
+      )}
       {/* Hidden file input */}
       <input
         ref={fileInputRef}
@@ -921,51 +1004,6 @@ function ChatPageInner() {
             </div>
           )}
 
-          {error && (() => {
-            let userMessage: string = "Something went wrong. Please try again.";
-            let narrowingOptions: string[] | undefined;
-            try {
-              const parsed = JSON.parse(error.message) as { error?: string; narrowingOptions?: string[] };
-              if (parsed.error) userMessage = parsed.error;
-              if (parsed.narrowingOptions) narrowingOptions = parsed.narrowingOptions;
-            } catch {
-              const msg = error.message ?? "";
-              const looksLikeProviderError =
-                /sk-|org-|openai|anthropic|rate_limit|tokens per minute|context_length/i.test(msg);
-              userMessage = looksLikeProviderError
-                ? "Basil encountered an error. Please try again."
-                : msg || "Something went wrong. Please try again.";
-            }
-            return (
-              <div className="mx-4 mt-2 rounded-lg border border-destructive/40 bg-destructive/5 px-4 py-3 text-sm text-destructive space-y-2">
-                <div className="flex items-start gap-2">
-                  <AlertTriangle className="h-4 w-4 shrink-0 mt-0.5" />
-                  <span>
-                    <strong>Chat unavailable:</strong> {userMessage}
-                    {" — "}
-                    <a href="/dashboard/settings" className="underline">
-                      Check Settings → Readiness
-                    </a>
-                  </span>
-                </div>
-                {narrowingOptions && narrowingOptions.length > 0 && (
-                  <div className="flex flex-wrap gap-1.5 pl-6">
-                    {narrowingOptions.map((opt) => (
-                      <Button
-                        key={opt}
-                        variant="outline"
-                        size="sm"
-                        className="text-xs border-destructive/30 text-destructive hover:bg-destructive/10 h-auto py-1"
-                        onClick={() => { hasSentMessage.current = true; sendMessage({ text: opt }); }}
-                      >
-                        {opt}
-                      </Button>
-                    ))}
-                  </div>
-                )}
-              </div>
-            );
-          })()}
 
           {/* ── Conversation layout ─────────────────────────────────────────
               Gated on messages ALONE, deliberately. This was
