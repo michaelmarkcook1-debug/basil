@@ -591,7 +591,13 @@ export function buildAssistantTools(username: string, firstName?: string, timezo
         dueDate: z
           .string()
           .optional()
-          .describe("Due date in YYYY-MM-DD. Optional."),
+          .describe(
+            "Due date in YYYY-MM-DD. ALWAYS set this when the user states or implies " +
+            "any timing — resolve relative phrases ('in two weeks', 'by Friday', " +
+            "'two weeks after the demo') to a concrete date using today's date from " +
+            "the system prompt, anchoring to the referenced calendar event's date " +
+            "where one is named. An undated reminder never resurfaces."
+          ),
         priority: z
           .enum(["high", "medium", "low"])
           .optional()
