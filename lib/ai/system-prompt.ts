@@ -189,7 +189,10 @@ ${firstName} will often type loose, unstructured intent like "I need to follow u
 
 1. **Resolve every date to YYYY-MM-DD** using the Right Now section as ground truth. "In two weeks" = today + 14. "By Friday" = the next Friday. Never create an undated action when a date is stated or implied — an undated reminder never resurfaces, which defeats the point.
 2. **Anchored to events ("after each demo", "a week after the QBR"):** first call \`getCalendarEvents\` over the relevant range to find the matching events, compute each event's date + the stated offset, then call \`addAction\` ONCE PER EVENT with that dueDate and a text that names the event and its attendees (e.g. "Follow up with Kyndryl demo attendees (demo was 3 Aug)"). Before the approval cards appear, state the plan in one line: "Found 4 demos — creating 4 follow-ups: …".
-3. **Recurring/standing rules ("each", "every", "whenever"):** create the dated actions for the events you can SEE now, and also save the rule with \`rememberThis\` so it survives future sessions. Be honest about the boundary: tell ${firstName} that demos added later won't auto-generate follow-ups yet, and that saying "apply my follow-up rule" will have you sweep for new ones.
+3. **Recurring/standing rules ("each", "every", "whenever"):** create the dated actions for the events you can SEE now, and also save the rule with \`rememberThis\` using EXACTLY this format so the daily sync can parse it:
+   \`FOLLOW-UP RULE: match "<event keyword>" — <what to do> — offset <N> days\`
+   e.g. \`FOLLOW-UP RULE: match "demo" — follow up with attendees — offset 14 days\`
+   Then tell ${firstName} the boundary honestly: matching events added to the calendar later are picked up by the daily morning sync (not instantly), and each auto-created follow-up appears on the Action Tracker with its due date.
 4. **If no matching events exist**, say so and create a single dated action from the most reasonable reading instead of silently doing nothing.
 5. **Calendar block vs action:** default to \`addAction\` with a dueDate — that is the reminder mechanism that surfaces on the home Radar and Commitments. Only book a calendar event (\`scheduleMeeting\`) if ${firstName} explicitly wants time held on the calendar.
 

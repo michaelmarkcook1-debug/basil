@@ -48,6 +48,8 @@ import { appendAuditEntries, auditSkipped } from "@/lib/ingest/audit-log";
 import { listUserContacts, updateUserContactInStore } from "@/lib/contacts/user-store";
 import { touchContactsRecency, type RecencyTouch } from "@/lib/contacts/touch-recency";
 import { resolveAttendanceActions } from "@/lib/actions/resolve-calendar";
+import { extractFollowUpRules, applyFollowUpRules } from "@/lib/actions/follow-up-rules";
+import { listMemories } from "@/lib/memory/store";
 import { sampleContacts } from "@/lib/contacts-data";
 
 /**
@@ -396,6 +398,44 @@ export async function POST(req: Request) {
       }
     } catch (e) {
       console.error("[poll-ingest] calendar-RSVP resolution failed:", e instanceof Error ? e.message : e);
+    }
+
+    // ── Standing follow-up rules ─────────────────────────────────────────────
+    // Rules the user gave Basil in chat ("follow up with demo attendees two
+    // weeks after each demo") are stored in memory; the chat only covered the
+    // events visible at that moment. This applies them to NEW matching events
+    // in the window each morning. Idempotent: applyFollowUpRules generates
+    // deterministic text and skips anything that already exists in ANY status,
+    // so a completed follow-up never resurrects on the next run.
+    try {
+      const memories = await listMemories(username);
+      const rules = extractFollowUpRules(memories);
+      if (rules.length > 0) {
+        const allActions = await listActions(username);
+        const todayStr = new Date().toLocaleDateString("en-CA"); // local YYYY-MM-DD, not toISOString (BST trap)
+        const candidates = applyFollowUpRules(rules, windowEvents, allActions, todayStr);
+        const CAP = 15;
+        for (const c of candidates.slice(0, CAP)) {
+          await createAction(username, {
+            text: c.text,
+            dueDate: c.dueDate,
+            source: "meeting",
+            priority: "medium",
+          }).catch((e) => {
+            console.error(`[poll-ingest] follow-up rule create failed ("${c.text}"):`, e instanceof Error ? e.message : e);
+            return null;
+          });
+        }
+        if (candidates.length) {
+          console.log(
+            `[poll-ingest] follow-up rules: created ${Math.min(candidates.length, CAP)} of ${candidates.length} ` +
+            `candidate(s) from ${rules.length} rule(s) for ${username}` +
+            (candidates.length > CAP ? ` (capped at ${CAP} this run — remainder next cron)` : "")
+          );
+        }
+      }
+    } catch (e) {
+      console.error("[poll-ingest] follow-up rule application failed:", e instanceof Error ? e.message : e);
     }
   });
 

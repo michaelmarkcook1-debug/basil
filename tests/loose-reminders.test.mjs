@@ -31,8 +31,13 @@ test("the prompt teaches the loose-reminder workflow", () => {
     "an undated reminder never resurfaces — dates are mandatory when implied");
   assert.ok(/rememberThis/.test(prompt.slice(prompt.indexOf("## Loose Reminders"))),
     "standing rules must be persisted to memory");
-  assert.ok(/won't auto-generate/.test(prompt),
-    "the model must be HONEST that future events don't auto-generate reminders yet");
+  // The boundary changed on 2026-07-28: the daily sync now APPLIES stored rules
+  // to new events. The prompt must (a) save rules in the canonical parseable
+  // format and (b) state the real boundary — daily, not instant.
+  assert.ok(/FOLLOW-UP RULE: match/.test(prompt),
+    "standing rules must be saved in the canonical format the ingest parser reads");
+  assert.ok(/daily morning sync \(not instantly\)/.test(prompt),
+    "the model must state the honest boundary: rules apply on the daily sync, not in real time");
 });
 
 test("addAction's dueDate description demands resolved relative dates", () => {
