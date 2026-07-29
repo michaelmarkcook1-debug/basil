@@ -28,6 +28,23 @@ export const ZOOM_GMAIL_QUERY =
   'subject:"meeting recap" OR subject:"meeting highlights" OR ' +
   'subject:"your Zoom meeting" OR subject:"meeting ended")';
 
+/**
+ * Gmail query for FORWARDED Zoom artifacts.
+ *
+ * ZOOM_GMAIL_QUERY is `from:`-restricted to Zoom's own domains — correct for
+ * direct mail, but a summary a colleague forwards arrives from THEIR address
+ * and can never match it, so forwarded recaps were invisible to every consumer
+ * (briefing, digest, meeting prep, ingest). This query drops the sender
+ * restriction and instead requires BOTH a forward prefix and a Zoom artifact
+ * subject, keeping it narrow enough not to sweep in ordinary mail. Fetch it
+ * ALONGSIDE the canonical query and dedupe by message id; final classification
+ * still goes through detectZoomEmail (which now scores forwarded signals).
+ */
+export const ZOOM_FORWARDED_GMAIL_QUERY =
+  'subject:((fwd OR fw) ("meeting summary" OR "AI Companion" OR "Smart Summary" OR ' +
+  '"meeting recap" OR "meeting notes" OR "recording available" OR ' +
+  '"transcript available" OR "meeting highlights"))';
+
 // Known Zoom sender display name patterns (for detection when domain is stripped)
 const ZOOM_SENDER_NAME_PATTERNS = [
   /^zoom\s*ai\s*companion$/i,
@@ -126,6 +143,22 @@ export function detectZoomEmail(email: {
     signals.push("subject:zoom-pattern");
   }
 
+  // Signal 2b: FORWARDED Zoom artifact. A colleague forwarding a summary sends
+  // it from THEIR address, so every sender signal above fails and the summary
+  // was invisible to the pipeline — despite being exactly the content the user
+  // wants Basil to know about. Two forwarded-specific signals:
+  //   - "Fwd:"/"FW:" prefix + a Zoom artifact subject (strong: forwarding a
+  //     zoom-subject email is a deliberate share of the artifact)
+  //   - the forwarding preamble quoting Zoom as the ORIGINAL sender
+  //     ("From: Zoom AI Companion <no-reply@zoom.us>") in the body
+  const isForwardSubject = /^\s*(?:fwd?|fw)\s*:/i.test(email.subject);
+  if (isForwardSubject && ZOOM_SUBJECT_PATTERNS.some((p) => p.test(email.subject))) {
+    signals.push("subject:forwarded-zoom-artifact");
+  }
+  if (/from:.{0,80}(?:@(?:notify\.)?zoom\.us|zoom\s+ai\s+companion)/i.test(bodyText)) {
+    signals.push("body:forwarded-from-zoom");
+  }
+
   // Signal 3: Body contains Zoom-specific structural markers
   const bodyMatchCount = ZOOM_BODY_MARKERS.filter((p) => p.test(bodyText)).length;
   if (bodyMatchCount >= 2) {
@@ -134,9 +167,13 @@ export function detectZoomEmail(email: {
     signals.push("body:zoom-marker(1)");
   }
 
-  // A domain-confirmed sender is definitive — treat as ≥2 signals on its own
+  // A domain-confirmed sender is definitive — treat as ≥2 signals on its own.
+  // Likewise a forwarding preamble that quotes Zoom as the ORIGINAL sender:
+  // "From: Zoom AI Companion <no-reply@zoom.us>" inside the body is as close to
+  // proof as a forwarded email can offer.
   const hasDomainSignal = signals.includes("sender:zoom-domain");
-  const isZoom = hasDomainSignal || signals.length >= 2;
+  const hasForwardPreamble = signals.includes("body:forwarded-from-zoom");
+  const isZoom = hasDomainSignal || hasForwardPreamble || signals.length >= 2;
 
   // Confidence: scales with signal count and whether the domain matched
   const bodySignals = signals.filter((s) => s.startsWith("body:")).length;
@@ -145,6 +182,8 @@ export function detectZoomEmail(email: {
     : hasDomainSignal && signals.length >= 3 ? 0.97
     : hasDomainSignal && signals.length === 2 ? 0.93
     : hasDomainSignal ? 0.88           // domain alone — high but not certain
+    : hasForwardPreamble && signals.length >= 2 ? 0.88
+    : hasForwardPreamble ? 0.80        // preamble alone — forwarder changed the subject
     : signals.length >= 3 ? 0.85
     : signals.length === 2 && bodySignals > 0 ? 0.78
     : signals.length === 2 ? 0.70

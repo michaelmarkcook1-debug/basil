@@ -28,7 +28,7 @@ import { isZoomConnected } from "@/lib/zoom/auth";
 import { getPastMeetings, getMeetingParticipants, getRecentRecordingsWithTranscripts } from "@/lib/zoom/client";
 import { processZoomMeeting } from "@/lib/zoom/process-meeting";
 import { getSelfIdentity, isSelf } from "@/lib/self-identity";
-import { ZOOM_GMAIL_QUERY, detectZoomEmail } from "@/lib/google/zoom-email-detector";
+import { ZOOM_GMAIL_QUERY, ZOOM_FORWARDED_GMAIL_QUERY, detectZoomEmail } from "@/lib/google/zoom-email-detector";
 import { processRegularEmail, processZoomEmail } from "@/lib/email/process-gmail-message";
 import { triageEmail } from "@/lib/email/triage";
 import { getSessionUser } from "@/lib/auth";
@@ -192,7 +192,23 @@ export async function POST(req: Request) {
     track("email", getRecentEmails(username, 20)),
     track("slack", getRecentSlackMessages(username, 30)),
     track("calendar", getTodayEvents(username)),
-    track("zoom_email", searchEmails(username, ZOOM_GMAIL_QUERY, 25)),
+    // Direct + FORWARDED Zoom recaps. The canonical query is from:-restricted
+    // to Zoom's domains, so a summary a colleague forwards (their address, not
+    // Zoom's) could never match and was invisible to ingest. The forwarded
+    // query drops the sender restriction, so its hits must pass detectZoomEmail
+    // (which scores forwarded-specific signals) before being trusted.
+    track("zoom_email", (async () => {
+      const [direct, fwd] = await Promise.all([
+        searchEmails(username, ZOOM_GMAIL_QUERY, 25),
+        searchEmails(username, ZOOM_FORWARDED_GMAIL_QUERY, 10).catch(() => []),
+      ]);
+      const ids = new Set(direct.map((m) => m.id));
+      const confirmedFwd = fwd.filter(
+        (m) => !ids.has(m.id) &&
+          detectZoomEmail({ from: m.from, subject: m.subject, snippet: m.snippet }).isZoom
+      );
+      return [...direct, ...confirmedFwd];
+    })()),
     track("outlook_email", getRecentOutlookMessages(username, 20, 2)),
     track("teams", getRecentTeamsMessages(username, 30, 3)),
     getSelfIdentity(username),

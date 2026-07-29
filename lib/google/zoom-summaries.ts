@@ -11,7 +11,7 @@
 
 import { searchEmails, getEmailBody } from "./gmail";
 import { searchDriveFiles } from "./drive";
-import { ZOOM_GMAIL_QUERY } from "./zoom-email-detector";
+import { ZOOM_GMAIL_QUERY, ZOOM_FORWARDED_GMAIL_QUERY, detectZoomEmail } from "./zoom-email-detector";
 
 export interface ZoomSummary {
   /** "gmail" or "drive" — where we found it. */
@@ -49,33 +49,76 @@ function clip(s: string, max = 2000): string {
   return t.length <= max ? t : t.slice(0, max - 1).trimEnd() + "…";
 }
 
-/** Gmail-side Zoom recaps from the last `days` days. */
+/** Strip any stack of leading "Fwd:"/"FW:" prefixes from a subject. */
+function stripForwardPrefix(subject: string): string {
+  return subject.replace(/^(\s*(?:fwd?|fw)\s*:\s*)+/i, "").trim();
+}
+
+/** Dedupe key for "same recap arriving twice" (direct + forwarded). */
+function recapKey(subject: string, dateIso: string): string {
+  return `${stripForwardPrefix(subject).toLowerCase().replace(/\s+/g, " ")}|${(dateIso || "").slice(0, 10)}`;
+}
+
+/** Gmail-side Zoom recaps from the last `days` days — direct AND forwarded. */
 export async function getZoomSummariesFromGmail(username: string, days = 14, maxResults = 8): Promise<ZoomSummary[]> {
   try {
-    const query = `${ZOOM_GMAIL_QUERY} newer_than:${days}d`;
-    const messages = await searchEmails(username, query, maxResults);
+    // Two searches, not one: the canonical query is from:-restricted to Zoom's
+    // domains, so a recap a colleague FORWARDS could never match it and was
+    // invisible here. The forwarded query is looser (no sender restriction), so
+    // its hits must additionally pass detectZoomEmail before being trusted.
+    const [direct, forwarded] = await Promise.all([
+      searchEmails(username, `${ZOOM_GMAIL_QUERY} newer_than:${days}d`, maxResults),
+      searchEmails(username, `${ZOOM_FORWARDED_GMAIL_QUERY} newer_than:${days}d`, maxResults)
+        .catch(() => []),
+    ]);
+    const directIds = new Set(direct.map((m) => m.id));
+    const forwardedOnly = forwarded.filter((m) => !directIds.has(m.id));
+    const messages = [
+      ...direct.map((m) => ({ m, isForwarded: false })),
+      ...forwardedOnly.map((m) => ({ m, isForwarded: true })),
+    ];
     if (messages.length === 0) return [];
 
     // Pull full body for each — the summary is the whole point.
     const bodies = await Promise.all(
-      messages.map(async (m) => {
+      messages.map(async ({ m, isForwarded }) => {
         try {
           const full = await getEmailBody(username, m.id);
-          return { m, full };
+          return { m, isForwarded, full };
         } catch {
-          return { m, full: null };
+          return { m, isForwarded, full: null };
         }
       })
     );
 
-    return bodies
-      .filter((b) => b.full)
-      .map(({ m, full }) => ({
+    const out: ZoomSummary[] = [];
+    // Direct copies are processed first (see `messages` order), so when the
+    // same recap arrived both directly and forwarded, the direct one wins the
+    // dedupe slot and the forwarded duplicate is dropped.
+    const seen = new Set<string>();
+    for (const { m, isForwarded, full } of bodies) {
+      if (!full) continue;
+      const bodyText = stripTags(full.body || m.snippet || "");
+      if (isForwarded) {
+        // The looser query can catch non-Zoom mail (e.g. a forwarded Meet
+        // recap). Only keep hits the multi-signal detector confirms.
+        const signal = detectZoomEmail({ from: m.from, subject: m.subject, snippet: m.snippet, body: bodyText });
+        if (!signal.isZoom) continue;
+      }
+      const key = recapKey(m.subject || "", m.date);
+      if (seen.has(key)) continue;
+      seen.add(key);
+      const cleanTitle = stripForwardPrefix(m.subject || "") || "Zoom summary";
+      out.push({
         source: "gmail" as const,
-        title: m.subject || "Zoom summary",
+        // Keep the forwarder visible — "who shared this with me" is real
+        // context for the model without needing a schema change downstream.
+        title: isForwarded ? `${cleanTitle} (forwarded by ${m.from})` : cleanTitle,
         date: m.date,
-        body: clip(stripTags(full!.body || m.snippet || "")),
-      }));
+        body: clip(bodyText),
+      });
+    }
+    return out;
   } catch (e) {
     console.error("getZoomSummariesFromGmail error:", e);
     return [];
