@@ -207,6 +207,16 @@ export async function POST(req: Request) {
         (m) => !ids.has(m.id) &&
           detectZoomEmail({ from: m.from, subject: m.subject, snippet: m.snippet }).isZoom
       );
+      // Distinct log line so a sync run gives an unambiguous answer to "did the
+      // forwarded-copy fix actually catch anything new" — without this, a
+      // forwarded recap ingested via the direct query's dedup path is
+      // indistinguishable in the logs from one the forwarded query alone caught.
+      if (confirmedFwd.length > 0) {
+        console.log(
+          `[poll-ingest] zoom_email: confirmed ${confirmedFwd.length} FORWARDED recap(s) ` +
+          `not caught by the direct query: ${confirmedFwd.map((m) => `${m.id} "${m.subject}"`).join(", ")}`
+        );
+      }
       return [...direct, ...confirmedFwd];
     })()),
     track("outlook_email", getRecentOutlookMessages(username, 20, 2)),
