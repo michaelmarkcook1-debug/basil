@@ -30,15 +30,30 @@ import type { UIMessage } from "ai";
  * failed and say so, rather than the call vanishing and leaving it to invent
  * what happened.
  *
- * `approval-requested` is deliberately left alone — that is a LEGITIMATE pending
- * state in this app's tool-approval flow, and messages awaiting approval are
- * resent on purpose. Erroring those out would break approvals entirely.
+ * The approval states are deliberately left alone — they are LEGITIMATE pending
+ * states in this app's tool-approval flow, and messages in them are resent on
+ * purpose. Erroring those out would break approvals entirely.
+ *
+ * BOTH approval states must be preserved, which this originally got wrong.
+ * Per ai@6 (see the ToolUIPart union in node_modules/ai/dist/index.d.ts):
+ *   approval-requested → waiting on the user. approval: { id }
+ *   approval-responded → the user ANSWERED and the tool has not run yet.
+ *                        approval: { id, approved }, with `output?: never`
+ * Only "approval-requested" was allow-listed here, so the instant a user
+ * approved something, the very next turn rewrote that approved-but-not-yet-run
+ * call into output-error and the tool NEVER EXECUTED. Reported in production
+ * 2026-07-30: meetings approved in chat silently never reached Google Calendar
+ * — the assistant had said it scheduled them, and no error surfaced anywhere.
+ * A settled state is one with a RESULT, never merely one the user has touched.
  */
 
 /** Tool-part states that are already settled — a result exists. */
 const TERMINAL_STATES = new Set(["output-available", "output-error", "output-denied"]);
-/** Pending by design — the approval round-trip owns these. Do not touch. */
-const AWAITING_USER_STATES = new Set(["approval-requested"]);
+/**
+ * Pending by design — the approval round-trip owns these. Do not touch.
+ * Neither carries an output yet; both are answered later in the same flow.
+ */
+const AWAITING_USER_STATES = new Set(["approval-requested", "approval-responded"]);
 
 interface LooseToolPart {
   type: string;

@@ -50,6 +50,32 @@ test("repair terminates orphans without touching legitimate pending states", () 
     "a repaired conversation must be logged — silence would hide a real reliability problem");
 });
 
+test("BOTH approval states survive the repair — approving must not kill the call", () => {
+  // ai@6 defines two approval states (ToolUIPart union, node_modules/ai/dist/index.d.ts):
+  //   approval-requested → waiting on the user
+  //   approval-responded → the user ANSWERED; the tool has NOT run yet (output?: never)
+  // Only the first was allow-listed, so the turn after a user approved something,
+  // the approved-but-not-yet-executed call was rewritten to output-error and the
+  // tool never ran. Production 2026-07-30: meetings approved in Basil chat never
+  // reached Google Calendar, with no error shown anywhere.
+  assert.ok(/"approval-requested",\s*"approval-responded"/.test(repair),
+    "approval-responded must be preserved too — it is pre-execution, not settled");
+
+  // Contract lock: mirror of the repair decision.
+  const TERMINAL = new Set(["output-available", "output-error", "output-denied"]);
+  const AWAITING = new Set(["approval-requested", "approval-responded"]);
+  const wouldError = (state) => !TERMINAL.has(state) && !AWAITING.has(state);
+
+  assert.equal(wouldError("approval-responded"), false,
+    "an APPROVED scheduleMeeting call must still execute — this is the calendar bug");
+  assert.equal(wouldError("approval-requested"), false, "still awaiting the user");
+  assert.equal(wouldError("output-available"), false, "settled");
+  assert.equal(wouldError("output-denied"), false, "explicitly denied is settled");
+  // Genuine orphans must still be repaired, or conversations brick again.
+  assert.equal(wouldError("input-available"), true, "a real orphan must still be terminated");
+  assert.equal(wouldError("input-streaming"), true, "a severed stream is still an orphan");
+});
+
 test("errors render above the composer, not at the top of the page", () => {
   assert.ok(/const errorBanner = error \?/.test(page),
     "the error block must be a value that can be placed next to the input");
