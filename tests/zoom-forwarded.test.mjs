@@ -63,6 +63,7 @@ const SUBJ = [
   /transcript\s+(?:is\s+)?(?:now\s+)?available/i,
   /recording\s+(?:is\s+)?(?:now\s+)?available/i,
   /zoom\s+recording/i, /zoom\s+meeting\s+notes?/i, /\[zoom\]/i,
+  /meeting\s+assets?\b/i,
 ];
 const detect = (from, subject, body) => {
   const signals = [];
@@ -101,4 +102,25 @@ test("behaviour: forwarded recaps detect, ordinary forwards do not", () => {
   assert.equal(
     detect("Zoom AI Companion <no-reply@zoom.us>", "Meeting Summary - Weekly Sync", ""),
     true);
+});
+
+test("behaviour: real production case — 'meeting assets' subject, retitled forward", () => {
+  // Found live 2026-07-29 against michael@talentgenius.io: a colleague forwarded
+  // Zoom's "your meeting assets are ready" notification, retitled to name the
+  // meeting. It matched NEITHER the base ZOOM_SUBJECT_PATTERNS nor either Gmail
+  // query — invisible end-to-end until "meeting assets" was added to all three.
+  const REAL_SUBJECT = "Fwd: Meeting assets for social media and buyer campaigns are ready!";
+  assert.equal(
+    detect("Colleague <colleague@talentgenius.io>", REAL_SUBJECT, ""),
+    true,
+    "the exact real forwarded subject must now detect as Zoom");
+
+  const ASSETS = /meeting\s+assets?\b/i;
+  const FORWARDED_QUERY_PHRASES = /"meeting summary"|"AI Companion"|"Smart Summary"|"meeting recap"|"meeting notes"|"recording available"|"transcript available"|"meeting highlights"|"meeting assets"/;
+  const detector = read("lib/google/zoom-email-detector.ts");
+  assert.ok(ASSETS.test(detector), "ZOOM_SUBJECT_PATTERNS must include a meeting-assets pattern");
+  const query = detector.slice(detector.indexOf("export const ZOOM_GMAIL_QUERY"), detector.indexOf("export const ZOOM_FORWARDED_GMAIL_QUERY"));
+  assert.ok(/"meeting assets"/.test(query), "the DIRECT query must also cover meeting-assets — a direct send would have been missed too");
+  const fwdQuery = detector.slice(detector.indexOf("export const ZOOM_FORWARDED_GMAIL_QUERY"));
+  assert.ok(/"meeting assets"/.test(fwdQuery), "the forwarded query must cover meeting-assets");
 });

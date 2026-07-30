@@ -26,7 +26,8 @@ export const ZOOM_GMAIL_QUERY =
   'subject:"meeting notes" OR subject:"Zoom Meeting" OR ' +
   'subject:"cloud recording" OR subject:"action items" OR ' +
   'subject:"meeting recap" OR subject:"meeting highlights" OR ' +
-  'subject:"your Zoom meeting" OR subject:"meeting ended")';
+  'subject:"your Zoom meeting" OR subject:"meeting ended" OR ' +
+  'subject:"meeting assets")';
 
 /**
  * Gmail query for FORWARDED Zoom artifacts.
@@ -43,7 +44,7 @@ export const ZOOM_GMAIL_QUERY =
 export const ZOOM_FORWARDED_GMAIL_QUERY =
   'subject:((fwd OR fw) ("meeting summary" OR "AI Companion" OR "Smart Summary" OR ' +
   '"meeting recap" OR "meeting notes" OR "recording available" OR ' +
-  '"transcript available" OR "meeting highlights"))';
+  '"transcript available" OR "meeting highlights" OR "meeting assets"))';
 
 // Known Zoom sender display name patterns (for detection when domain is stripped)
 const ZOOM_SENDER_NAME_PATTERNS = [
@@ -76,6 +77,12 @@ const ZOOM_SUBJECT_PATTERNS = [
   /zoom\s+recording/i,
   /zoom\s+meeting\s+notes?/i,
   /\[zoom\]/i,
+  // "Your meeting assets are ready" — Zoom's bundled recording/transcript/
+  // summary-ready notification. Confirmed live: a colleague's forward
+  // retitled to "Meeting assets for social media and buyer campaigns are
+  // ready!" matched NEITHER this list nor the Gmail-side queries, so the
+  // real email was invisible end-to-end — not a hypothetical gap.
+  /meeting\s+assets?\b/i,
 ];
 
 // Body markers inside the email body that indicate Zoom-generated content
