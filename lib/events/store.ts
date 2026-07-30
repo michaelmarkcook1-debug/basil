@@ -234,18 +234,48 @@ export async function compactEvents(username: string): Promise<number> {
       return false;
     });
 
-    // Hard cap: keep only the most recent MAX_EVENTS non-pending events
-    // if the store is still too large after age-based pruning.
+    // Hard cap: bound the store, but NEVER at the cost of a just-ingested event.
+    //
+    // The previous form computed `slice(0, MAX_EVENTS - mustKeep.length)`. Once
+    // the must-keep set alone exceeds the cap that end index goes NEGATIVE, and
+    // `slice(0, -n)` drops from the END of the list — so every evictable event
+    // was discarded, newest included, on every single run.
+    //
+    // That is not hypothetical. Observed on production 2026-07-30 with 359
+    // stored events, ALL of them status "pending" (nothing ever resolves them),
+    // so mustKeep=359 > MAX_EVENTS=300 → slice(0, -59) → []. poll-ingest
+    // reported `ingested: 19, zoom.ingested: 15` and the store came back at
+    // exactly 359 every time, having deleted all 34 new records it had just
+    // written. 393 - 359 = 34, which is precisely the `eventsCompacted: 34`
+    // the endpoint reported — the count was a data-loss tally, not housekeeping.
+    // That is why three weeks of Zoom recaps could never be backfilled.
     let compacted = afterAging;
     if (compacted.length > MAX_EVENTS) {
-      const mustKeep = compacted.filter(
-        (e) => e.status === "pending" || e.status === "executing" || e.status === "approved"
-      );
+      const isOperational = (e: BasilEvent) =>
+        e.status === "pending" || e.status === "executing" || e.status === "approved";
+      // Recent events are protected from the cap outright. The age rule above
+      // already ruled they're worth keeping, and silently dropping a record
+      // created seconds ago is indistinguishable to the user from ingest
+      // having never run.
+      const isRecent = (e: BasilEvent) => new Date(e.createdAt).getTime() > cutoff;
+
+      const protectedEvents = compacted.filter((e) => isOperational(e) || isRecent(e));
       const evictable = compacted
-        .filter((e) => e.status !== "pending" && e.status !== "executing" && e.status !== "approved")
-        .sort((a, b) => b.createdAt.localeCompare(a.createdAt)) // newest first
-        .slice(0, MAX_EVENTS - mustKeep.length);
-      compacted = [...mustKeep, ...evictable];
+        .filter((e) => !isOperational(e) && !isRecent(e))
+        .sort((a, b) => b.createdAt.localeCompare(a.createdAt)); // newest first
+      // Math.max(0, …) is the guard: never let the end index go negative.
+      const room = Math.max(0, MAX_EVENTS - protectedEvents.length);
+      compacted = [...protectedEvents, ...evictable.slice(0, room)];
+
+      if (protectedEvents.length > MAX_EVENTS) {
+        // Deliberately over the cap. Staying oversized is the correct trade
+        // against deleting live data, but it must not be silent — this is the
+        // signal that events are accumulating without ever being resolved.
+        console.warn(
+          `[events:${username}] ${protectedEvents.length} protected events exceed the ${MAX_EVENTS} cap — ` +
+          `store intentionally left oversized rather than dropping live records.`
+        );
+      }
     }
 
     const pruned = before - compacted.length;
