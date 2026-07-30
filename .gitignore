@@ -43,3 +43,6 @@ next-env.d.ts
 # OAuth tokens
 .data/
 .env*.local
+
+# SWC plugin cache (build artifact)
+.swc/

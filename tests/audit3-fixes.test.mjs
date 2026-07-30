@@ -231,6 +231,37 @@ test("every locked read-modify-write in actions/store reads FRESH", () => {
     "readAll inside a withLock must pass { fresh: true } — otherwise the lock guards a stale read");
 });
 
+test("every locked read-modify-write in events/store reads FRESH", () => {
+  // Same bug class as actions/store above, found the hard way. Observed live
+  // 2026-07-30: poll-ingest reported ingesting 15 zoom_email events, and the
+  // durable store was written minutes later containing ZERO of them — its
+  // newest record more than an hour stale. A lock holder had read the stale
+  // /tmp snapshot, appended to it, and written the whole array back, erasing
+  // every event created in between. The events store looked correct because it
+  // *does* take the lock; the lock just never promised freshness.
+  const src = read("lib/events/store.ts");
+
+  // Scoped to withLock bodies on purpose. listEvents/getEvent/hasExternalId
+  // read without mutating, so the /tmp cache is the correct, fast choice there
+  // — forcing fresh would mean re-fetching a ~500KB blob per call (hasExternalId
+  // alone runs once per ingest candidate). Only a read that is followed by a
+  // write can destroy data.
+  for (const m of src.matchAll(/withLock\(lockKey\(username\), async \(\) => \{([\s\S]*?)\n  \}\);/g)) {
+    const body = m[1];
+    if (!/writeAll\(|writeUserStore\(/.test(body)) continue; // no write → no clobber risk
+    assert.ok(!/await readAll\(username\);/.test(body),
+      `a locked read-modify-write reads stale:\n${body.slice(0, 200)}`);
+  }
+
+  // normaliseLegacyFields rewrites the ENTIRE array and reads the store
+  // directly rather than via readAll, so it needs its own assertion — and it is
+  // the first thing hasExternalId() touches, so it fires on read-only paths.
+  const legacy = src.slice(src.indexOf("async function normaliseLegacyFields"));
+  const legacyRead = legacy.slice(0, legacy.indexOf("let dirty"));
+  assert.ok(/\{\s*fresh:\s*true\s*\}/.test(legacyRead),
+    "normaliseLegacyFields rewrites the whole array — a stale read there clobbers everything");
+});
+
 // ── False success: a failed write must never show a success affordance ───────
 
 test("the sync buttons do not claim success on a failed request", () => {

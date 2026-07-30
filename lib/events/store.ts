@@ -16,8 +16,23 @@ function lockKey(username: string) {
 
 // ── Internal read / write ────────────────────────────────────────────────────
 
-async function readAll(username: string): Promise<BasilEvent[]> {
-  return readUserStore<BasilEvent[]>(username, EVENTS_FILE, []);
+/**
+ * Read the events store.
+ *
+ * `fresh: true` bypasses the /tmp write-through cache and re-reads the durable
+ * store. EVERY read inside a withLock() read-modify-write MUST pass it.
+ *
+ * The lock provides mutual exclusion, NOT freshness — those are different
+ * guarantees, and conflating them cost real user data. Observed live
+ * 2026-07-30: poll-ingest created 15 zoom_email events, yet the durable store
+ * was written minutes later containing zero of them, its newest record over an
+ * hour stale. A lock holder had read the stale /tmp snapshot, appended to that,
+ * and written the whole array back — silently erasing every event created in
+ * the interim. The same bug was fixed in lib/actions/store.ts earlier; the
+ * events store was missed because it looked correct: it *does* hold the lock.
+ */
+async function readAll(username: string, options?: { fresh?: boolean }): Promise<BasilEvent[]> {
+  return readUserStore<BasilEvent[]>(username, EVENTS_FILE, [], options);
 }
 
 async function writeAll(username: string, events: BasilEvent[]): Promise<void> {
@@ -40,7 +55,11 @@ async function normaliseLegacyFields(username: string): Promise<void> {
   normalisedByUser.add(username);
 
   await withLock(lockKey(username), async () => {
-    const all = await readUserStore<BasilEvent[]>(username, EVENTS_FILE, []);
+    // fresh: true — this rewrites the ENTIRE array, so a stale read here
+    // clobbers every event written since the cache was populated. It is also
+    // the first thing hasExternalId() touches, so it runs on cold paths that
+    // are otherwise read-only.
+    const all = await readUserStore<BasilEvent[]>(username, EVENTS_FILE, [], { fresh: true });
     let dirty = false;
 
     for (const e of all) {
@@ -110,7 +129,7 @@ export async function createEvent(
   };
 
   return withLock(lockKey(username), async () => {
-    const all = await readAll(username);
+    const all = await readAll(username, { fresh: true });
     all.push(unified);
     await writeAll(username, all);
     return unified;
@@ -127,7 +146,7 @@ export async function updateEvent(
   patch: Partial<Omit<BasilEvent, "id" | "createdAt">>
 ): Promise<BasilEvent | null> {
   return withLock(lockKey(username), async () => {
-    const all = await readAll(username);
+    const all = await readAll(username, { fresh: true });
     const idx = all.findIndex((e) => e.id === id);
     if (idx === -1) return null;
 
@@ -154,7 +173,7 @@ export async function updateEventStatus(
 
 export async function deleteEvent(username: string, id: string): Promise<boolean> {
   return withLock(lockKey(username), async () => {
-    const all = await readAll(username);
+    const all = await readAll(username, { fresh: true });
     const next = all.filter((e) => e.id !== id);
     if (next.length === all.length) return false;
     await writeAll(username, next);
@@ -193,7 +212,7 @@ const MAX_EVENTS   = 300;
  */
 export async function compactEvents(username: string): Promise<number> {
   return withLock(lockKey(username), async () => {
-    const all    = await readAll(username);
+    const all    = await readAll(username, { fresh: true });
     const before = all.length;
     const cutoff = Date.now() - PRUNE_AGE_MS;
 
