@@ -21,6 +21,8 @@
  */
 
 import { getRecentEmails, getGmailAddress, checkThreadForSentReply } from "@/lib/google/gmail";
+import { getEventsForDateRange } from "@/lib/google/calendar";
+import { findAnsweringCalendarEvent, type InviteCalendarEvent } from "@/lib/followups/invitation-rsvp";
 import { getSlackUserClientForUser } from "@/lib/slack/client";
 import { getSelfIdentity, isSelf } from "@/lib/self-identity";
 import type { PendingFollowup, DetectFollowupsResult } from "@/lib/followups/types";
@@ -115,6 +117,28 @@ async function mapLimit<T, R>(items: T[], limit: number, fn: (item: T) => Promis
   return out;
 }
 
+/**
+ * Calendar events around now, for invitation-RSVP suppression.
+ *
+ * Window spans backwards as well as forwards: an invitation email can still be
+ * sitting unanswered-looking in the inbox after the meeting has happened, and
+ * that is exactly the case that nags loudest. Never throws — an unavailable
+ * calendar must not take the whole follow-up list down with it.
+ */
+async function loadRsvpEvents(username: string): Promise<InviteCalendarEvent[]> {
+  const day = (offsetDays: number) =>
+    new Date(Date.now() + offsetDays * 86_400_000).toISOString().slice(0, 10);
+  try {
+    return await getEventsForDateRange(username, day(-30), day(60));
+  } catch (err) {
+    console.warn(
+      "[followups] calendar RSVP lookup failed — not suppressing answered invitations:",
+      err instanceof Error ? err.message : err,
+    );
+    return [];
+  }
+}
+
 async function detectGmail(
   username: string,
   cutoff: number,
@@ -165,7 +189,31 @@ async function detectGmail(
     return true;
   });
 
+  // Calendar RSVP state, so an invitation the user ANSWERED on the calendar
+  // stops being reported as awaiting a reply. checkThreadForSentReply below can
+  // never see this: accepting an invite sends no message into the Gmail thread,
+  // so without this an accepted meeting nags forever and climbs the ranking as
+  // it ages. Best-effort — if calendar is unavailable we simply don't suppress
+  // (showing an extra card is far better than hiding a real request).
+  const rsvpEvents = await loadRsvpEvents(username);
+
   const results = await mapLimit(candidates, GMAIL_CONCURRENCY, async (m) => {
+    const answered = rsvpEvents.length
+      ? findAnsweringCalendarEvent(
+          { subject: m.subject, snippet: m.snippet, from: m.from },
+          rsvpEvents,
+        )
+      : null;
+    if (answered) {
+      // Logged, not silent: a suppression rule that misfires would hide real
+      // mail, and that must be diagnosable from the logs alone.
+      console.log(
+        `[followups] suppressed "${(m.subject || "").slice(0, 60)}" — invitation already ` +
+        `${answered.myResponseStatus} on the calendar ("${answered.summary}")`
+      );
+      return null;
+    }
+
     const reply = await checkThreadForSentReply(username, m.id, m.date);
     if (reply !== null) return null; // user already replied in this thread
     const followup: PendingFollowup = {
