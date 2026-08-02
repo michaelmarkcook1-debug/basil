@@ -17,7 +17,32 @@ import { z } from "zod";
 // ── Shared sub-schemas ─────────────────────────────────────────────────────────
 
 const prioritySchema = z.enum(["high", "medium", "low"]);
-const confidenceSchema = z.number().min(0).max(1).catch(0.5);
+/**
+ * 0–1 confidence.
+ *
+ * Clamped with a transform, NOT .min(0).max(1) — and that distinction is worth
+ * real money. Those constraints serialise into the structured-output JSON
+ * Schema as `minimum`/`maximum`, which the provider rejects outright:
+ *
+ *   output_config.format.schema: For 'number' type, properties maximum,
+ *   minimum are not supported
+ *
+ * Because this sub-schema is embedded in 8 schemas, EVERY structured
+ * classification failed validation twice and then fell back to plain
+ * generateText. The fallback works, which is why it went unnoticed — but each
+ * rejected attempt had already shipped the full ~8K-token prompt to the
+ * provider and been BILLED for it. Worse, failed attempts never reach
+ * commitSpend (lib/ai/generate.ts releases the reservation on error), so those
+ * tokens are invisible in the spend log: real provider billing ran several
+ * times the recorded figure.
+ *
+ * A transform emits a bare {"type":"number"} while keeping the same runtime
+ * guarantee, and .catch() still absorbs a non-numeric value.
+ */
+const confidenceSchema = z
+  .number()
+  .transform((n) => (Number.isFinite(n) ? Math.min(1, Math.max(0, n)) : 0.5))
+  .catch(0.5);
 
 /**
  * A single detected tone/attitude shift in a relationship_signal message.
