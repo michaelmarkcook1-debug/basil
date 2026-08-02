@@ -126,14 +126,27 @@ export const ANTHROPIC_MODEL_IDS: Record<ModelKind, string> = {
   // work is mechanical, and Opus there would be pure waste.
   fast:     process.env.ANTHROPIC_MODEL_FAST     ?? "claude-haiku-4-5-20251001",
   // OWNER POLICY 2026-07-23: Anthropic is now the PRIMARY provider and Opus 5
-  // serves both user-facing tiers.
-  //   mid  (balanced — email/Slack categorisation) → Opus 5 @ effort LOW
+  // serves the user-facing tiers.
   //   top  (default/long — Ask Basil, meeting prep, briefings) → Opus 5 @ HIGH
   // "claude-opus-5" is the direct-API form of the gateway's
   // anthropic/claude-opus-5 (both verified live against
   // ai-gateway.vercel.sh/v1/models — model ids are NEVER written from memory
   // here; guessing them caused a full outage once already).
-  balanced: process.env.ANTHROPIC_MODEL_BALANCED ?? "claude-opus-5",
+  //
+  // REVISED 2026-07-30 (owner-approved, cost): the mid tier no longer runs
+  // Opus 5. Measured from the real spend log, classify:slack alone was 2,438
+  // calls / 19.4M input / 387K output in a month — $60 and 79% of a single
+  // day's $18.53, on a day the owner did not touch the app. The shape is the
+  // giveaway: ~7,957 input → 159 output tokens, i.e. "what IS this Slack
+  // thread", a bulk categorisation the cron runs 96×/day. Opus-grade reasoning
+  // changes that verdict very little and costs 5× the input rate.
+  //
+  // The WORKLOAD→TIER policy is unchanged — categorisation still dispatches at
+  // "balanced" (never "fast"), keeping its own tier, effort level and override.
+  // Only what that tier RESOLVES to moved. Dial it back up with
+  // ANTHROPIC_MODEL_BALANCED (claude-sonnet-5 ≈ $3/$15, claude-opus-5 ≈ $5/$25)
+  // with no deploy if classification quality regresses.
+  balanced: process.env.ANTHROPIC_MODEL_BALANCED ?? "claude-haiku-4-5-20251001",
   default:  process.env.ANTHROPIC_MODEL_DEFAULT  ?? "claude-opus-5",
   long:     process.env.ANTHROPIC_MODEL_LONG     ?? "claude-opus-5",
 };

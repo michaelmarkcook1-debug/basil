@@ -80,7 +80,10 @@ export function familyForTier(kind: ModelKind): PriceFamily {
   // pinned, so it uses CHAT_PRICE_FAMILY.
   switch (kind) {
     case "fast": return "haiku";      // basic data gathering
-    case "balanced": return "opus5";  // categorization (opus-5 @ effort low)
+    // Categorisation moved off Opus 5 on 2026-07-30 (owner-approved, cost):
+    // classify:slack was 79% of a day's spend at ~7,957-in/159-out per call.
+    // Tier assignment is unchanged — only the model the tier resolves to.
+    case "balanced": return "haiku";  // categorization (haiku 4.5 @ effort low)
     case "default":
     case "long": return "opus5";      // contextual + reasoning (opus-5 @ effort high)
   }

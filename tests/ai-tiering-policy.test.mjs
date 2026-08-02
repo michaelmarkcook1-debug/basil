@@ -7,11 +7,19 @@
  *   CATEGORIZATION         → mid tier     (balanced) → gpt-5.6-terra ($2.50/$15)
  *   CONTEXTUAL + REASONING → flagship     (default/long) → gpt-5.6-sol ($5/$30)
  *
- * Two things drift silently and are guarded here:
+ * The WORKLOAD→TIER assignment above is stable. What a tier RESOLVES to is a
+ * cost lever and has moved: on 2026-07-30 the Anthropic mid tier went from
+ * Opus 5 back to Haiku 4.5 (owner-approved) after the spend log showed
+ * categorisation was 79% of a day's AI bill. Note these two axes are separate —
+ * categorisation still dispatches at "balanced", never "fast".
+ *
+ * Three things drift silently and are guarded here:
  *   1. The tier→model mapping (a wrong/phantom id 404s every call — that has
  *      already caused one full AI outage via "gpt-5.5" / "gpt-5.4-mini").
  *   2. The workload→tier assignment. Classification originally ran on "fast",
  *      which put categorization on the LOWEST tier — the opposite of policy.
+ *   3. The mid tier silently drifting back onto a flagship model, which is what
+ *      made the bill triple.
  *
  * Static source analysis — no TypeScript compilation required.
  */
@@ -59,8 +67,25 @@ test("price families match the real per-tier model rates", () => {
   const fn = pricing.slice(pricing.indexOf("export function familyForTier"));
   const body = fn.slice(0, fn.indexOf("\n}") + 2);
   assert.ok(/case "fast": return "haiku"/.test(body), "fast prices as haiku");
-  assert.ok(/case "balanced": return "opus5"/.test(body), "balanced prices as opus-5");
-  assert.ok(/return "opus5"/.test(body), "default/long price as opus-5");
+  // REVISED 2026-07-30 (owner-approved): the mid tier is Haiku, not Opus 5.
+  assert.ok(/case "balanced": return "haiku"/.test(body), "balanced prices as haiku");
+  assert.ok(/return "opus5"/.test(body), "default/long still price as opus-5");
+});
+
+test("the mid tier does not resolve to a flagship model (cost guard)", () => {
+  // Measured 2026-07-30 from the real spend log: classify:slack ran 2,438 calls
+  // / 19.4M input / 387K output in a month — $60, and 79% of a single day's
+  // $18.53 on a day the owner never opened the app. At ~7,957-in/159-out per
+  // call it is bulk categorisation the cron runs 96×/day, where Opus-grade
+  // reasoning barely changes the verdict and costs 5× the input rate.
+  const block = cfg.slice(cfg.indexOf("export const ANTHROPIC_MODEL_IDS"), cfg.indexOf("export const ANTHROPIC_EFFORT"));
+  const balanced = /balanced:[^\n]*\?\?\s*"([^"]+)"/.exec(block);
+  assert.ok(balanced, "ANTHROPIC_MODEL_IDS.balanced must have a literal default");
+  assert.ok(!/opus/i.test(balanced[1]),
+    `the mid tier must not default to an Opus model (got "${balanced[1]}") — ` +
+    "categorisation is the highest-VOLUME workload, so tier choice dominates the bill");
+  assert.ok(/ANTHROPIC_MODEL_BALANCED/.test(block),
+    "the override must stay wired so the tier can be raised again without a deploy");
 });
 
 test("CATEGORIZATION workloads run on the mid tier, never the lowest", () => {

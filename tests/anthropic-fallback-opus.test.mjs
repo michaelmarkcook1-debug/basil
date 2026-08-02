@@ -22,16 +22,25 @@ const ROOT = resolve(import.meta.dirname, "..");
 const read = (p) => readFileSync(resolve(ROOT, p), "utf8");
 const cfg = read("lib/ai/model-config.ts");
 
-test("mid + top tiers run Opus 5; data-gathering stays cheap", () => {
+test("top tiers run Opus 5; mid + data-gathering stay cheap", () => {
   const start = cfg.indexOf("export const ANTHROPIC_MODEL_IDS");
   const table = cfg.slice(start, cfg.indexOf("\n};", start));
-  for (const tier of ["balanced", "default", "long"]) {
+  // Top tier — what a human actually reads — stays on Opus 5.
+  for (const tier of ["default", "long"]) {
     assert.ok(
       new RegExp(`${tier}:\\s*process\\.env\\.ANTHROPIC_MODEL_${tier.toUpperCase()}\\s*\\?\\?\\s*"claude-opus-5"`).test(table),
       `${tier} tier must resolve to claude-opus-5 (direct-API form of anthropic/claude-opus-5)`
     );
   }
-  assert.ok(/"claude-haiku-4-5-20251001"/.test(table),
+  // REVISED 2026-07-30 (owner-approved, cost). The mid tier came OFF Opus 5:
+  // the spend log showed classify:slack at 2,438 calls / 19.4M input tokens a
+  // month — 79% of a day's $18.53 on a day the owner never opened the app.
+  // ~7,957-in/159-out per call is bulk categorisation, not reasoning.
+  assert.ok(
+    /balanced:\s*process\.env\.ANTHROPIC_MODEL_BALANCED\s*\?\?\s*"claude-haiku-4-5-20251001"/.test(table),
+    "mid tier must resolve to Haiku 4.5 — it is the highest-VOLUME tier, so it dominates the bill"
+  );
+  assert.ok(/fast:\s*process\.env\.ANTHROPIC_MODEL_FAST\s*\?\?\s*"claude-haiku-4-5-20251001"/.test(table),
     "fast (data-gathering) must stay on Haiku — Opus there is pure waste");
 });
 
