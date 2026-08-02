@@ -161,9 +161,22 @@ export const ANTHROPIC_MODEL_IDS: Record<ModelKind, string> = {
  */
 type AnthropicEffort = "low" | "medium" | "high" | "max";
 const ANTHROPIC_EFFORT: Partial<Record<ModelKind, AnthropicEffort>> = {
-  // Mid tier is high-VOLUME (every email + Slack message), so it runs Opus 5 at
-  // the cheapest/fastest setting — the work is categorisation, not reasoning.
-  balanced: (process.env.ANTHROPIC_EFFORT_BALANCED as AnthropicEffort) ?? "low",
+  // NO `balanced` ENTRY — and this is load-bearing, not an omission.
+  //
+  // `effort` is an Opus-era parameter. Haiku 4.5 REJECTS it outright with
+  // "This model does not support the effort parameter", which fails the call —
+  // it does not degrade. `fast` has always been left out for exactly this
+  // reason; when the mid tier moved to Haiku on 2026-07-30 it inherited the
+  // same constraint. Leaving balanced: "low" here broke every Slack/email
+  // classification in production within minutes of that deploy: primary AND
+  // anthropic-direct fallback both failed on the parameter, and openai-direct
+  // then failed on exhausted credits, so classification returned nothing at all.
+  //
+  // Rule: only tiers whose model actually supports `effort` may appear here.
+  // If ANTHROPIC_MODEL_BALANCED is raised back to an Opus model, re-add
+  // balanced: "low" alongside it — the two settings move together.
+  //
+  // Top tier is what a human reads: think hard.
   // Top tier is what a human reads: think hard.
   default:  (process.env.ANTHROPIC_EFFORT_DEFAULT  as AnthropicEffort) ?? "high",
   long:     (process.env.ANTHROPIC_EFFORT_LONG     as AnthropicEffort) ?? "high",

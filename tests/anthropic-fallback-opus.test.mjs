@@ -44,11 +44,21 @@ test("top tiers run Opus 5; mid + data-gathering stay cheap", () => {
     "fast (data-gathering) must stay on Haiku — Opus there is pure waste");
 });
 
-test("effort is high for the top tier and low for the high-volume mid tier", () => {
+test("effort is set ONLY for tiers whose model supports it", () => {
   const start = cfg.indexOf("const ANTHROPIC_EFFORT");
-  const map = cfg.slice(start, cfg.indexOf("\n};", start));
-  assert.ok(/balanced:.*"low"/.test(map),
-    "mid tier is every email + Slack message — it must run at effort low");
+  // Strip // comments: this block documents WHY balanced is absent, and the
+  // prose mentions `balanced: "low"` — matching that would defeat the check.
+  const map = cfg.slice(start, cfg.indexOf("\n};", start))
+    .split("\n").filter((l) => !l.trim().startsWith("//")).join("\n");
+  // `effort` is Opus-era. Haiku 4.5 REJECTS it ("This model does not support
+  // the effort parameter") and the call FAILS rather than degrading. When the
+  // mid tier moved to Haiku on 2026-07-30, leaving balanced:"low" here broke
+  // every Slack/email classification in production within minutes — primary and
+  // anthropic-direct both failed on the parameter, openai-direct then failed on
+  // exhausted credits, so classification returned nothing at all.
+  assert.ok(!/\bbalanced:/.test(map),
+    "balanced runs Haiku, which rejects `effort` — it must have NO entry here; " +
+    "re-add it only if ANTHROPIC_MODEL_BALANCED goes back to an Opus model");
   assert.ok(/default:.*"high"/.test(map) && /long:.*"high"/.test(map),
     "top tier is what a human reads — effort high");
   assert.ok(!/\bfast:/.test(map),
