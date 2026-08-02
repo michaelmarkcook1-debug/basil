@@ -72,7 +72,31 @@ export async function executeEvent(
   const actionType = deriveActionType(event);
 
   // The body to send/store — prefer the user's edited version over the stored draft
-  const resolvedBody = (draftBody ?? event.draft?.body ?? "").trim();
+  let resolvedBody = (draftBody ?? event.draft?.body ?? "").trim();
+
+  // LAZY DRAFT: generate only at the moment of use.
+  //
+  // Drafts used to be written speculatively for every reply-worthy email during
+  // ingest, on the FLAGSHIP tier — measured 2026-08-02 at $0.96 of a $1.62 idle
+  // day (59%), the single largest line on a day the owner never opened the app.
+  // Almost none were ever sent: this path takes a user-edited `draftBody`, so a
+  // pre-written body is usually replaced, and until it is needed it is worth
+  // nothing. Generating here costs the same per draft actually used, and
+  // nothing at all for the ones that never are.
+  if (!resolvedBody && event.draft && (actionType === "send_email" || actionType === "send_slack")) {
+    try {
+      const { generateDraftForEvent } = await import("./drafter");
+      const generated = await generateDraftForEvent(event, username);
+      resolvedBody = (generated.body ?? "").trim();
+    } catch (err) {
+      // Fall through to the existing empty-body guard below, which returns a
+      // clean error — never send an empty message because generation failed.
+      console.error(
+        `[executor] on-demand draft generation failed for event ${event.id}:`,
+        err instanceof Error ? err.message : err
+      );
+    }
+  }
 
   switch (actionType) {
     // ── Outbound email ───────────────────────────────────────────────────────

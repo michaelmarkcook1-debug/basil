@@ -914,8 +914,26 @@ export async function POST(req: Request) {
     });
   }
 
-  // ── Generate AI drafts in parallel ───────────────────────────────────────
-  if (draftEvents.length > 0) {
+  // ── AI drafts: generated LAZILY, not here ────────────────────────────────
+  //
+  // This block used to write a reply draft for every draft-disposition event on
+  // the FLAGSHIP tier, during ingest, whether or not the draft was ever looked
+  // at. Measured 2026-08-02: "draft" was $0.96 of a $1.62 idle day — 59%, the
+  // largest single line, on a day the owner never opened the app. It is the
+  // direct answer to "why is Basil spending money when I'm not using it".
+  //
+  // It was also mostly wasted: the send path (PATCH /api/events/[id] →
+  // executeEvent) takes a user-EDITED draftBody, so a pre-written body is
+  // typically replaced, and no UI surface reads event.draft.body at all today.
+  //
+  // Generation now happens at the moment of use — executeEvent generates on
+  // demand when a body is needed and missing, and /api/events/[id]/draft
+  // remains for an explicit "show me a draft". Same cost per draft actually
+  // used; nothing for the ones that never are.
+  //
+  // Set BASIL_PREGENERATE_DRAFTS=true to restore eager generation (e.g. if a UI
+  // starts showing drafts inline and the wait becomes noticeable).
+  if (draftEvents.length > 0 && process.env.BASIL_PREGENERATE_DRAFTS === "true") {
     await Promise.allSettled(
       draftEvents.map(async (event) => {
         try {
@@ -935,6 +953,11 @@ export async function POST(req: Request) {
           console.error(`[poll-ingest] draft generation failed for event ${event.id}:`, err);
         }
       })
+    );
+  } else if (draftEvents.length > 0) {
+    console.log(
+      `[poll-ingest] ${draftEvents.length} draft event(s) left ungenerated — ` +
+      `drafts are now written on demand (set BASIL_PREGENERATE_DRAFTS=true to pre-generate)`
     );
   }
 
