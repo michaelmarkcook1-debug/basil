@@ -22,7 +22,7 @@ import { getSessionUser } from "@/lib/auth";
 import { resolveCronUser } from "@/lib/cron/identity";
 import { getSelfIdentity } from "@/lib/self-identity";
 import { hashContent } from "@/lib/ingest/content-hash";
-import { recordIngest } from "@/lib/ingest/index";
+import { isHashUnchanged, recordIngest } from "@/lib/ingest/index";
 import { appendAuditEntries } from "@/lib/ingest/audit-log";
 
 /**
@@ -118,6 +118,9 @@ export async function POST(req: Request) {
   // ── Queue classification via after() ────────────────────────────────────
   after(async () => {
     let processed = 0;
+    // Counted and logged, not silent: this number IS the saving, and if it ever
+    // collapses to 0 the guard has stopped working and the bill will climb again.
+    let skippedUnchanged = 0;
 
     // ── Email (Gmail + Outlook) ────────────────────────────────────────────
     for (const ev of emailEvents) {
@@ -184,6 +187,20 @@ export async function POST(req: Request) {
                 (ev.payload as { body?: string })?.body || ev.context || ""
               }`;
 
+        // Skip content we have already classified. poll-ingest has always done
+        // this; reprocess computed the hash, ran the expensive classify, and
+        // only THEN recorded it — so the guard it was writing was never read
+        // back. Result: every Slack thread in the window was re-classified from
+        // scratch every morning whether or not a single word had changed.
+        // Measured 2026-07-30: classify:slack was $14.63 of a $18.53 day, all of
+        // it inside the 06:00 UTC reprocess run, on a day the owner never
+        // opened the app.
+        const slackHash = hashContent(channelName, transcript);
+        if (await isHashUnchanged(username, externalId, slackHash)) {
+          skippedUnchanged++;
+          continue;
+        }
+
         // Classify the Slack intelligence
         const intel = await classifySlack({
           username,
@@ -208,7 +225,7 @@ export async function POST(req: Request) {
         });
         void recordIngest(username, {
           sourceRef: externalId,
-          hash: hashContent(channelName, transcript),
+          hash: slackHash, // same value the skip-check above read
           actionIds: slackResult.auditEntries.filter((e) => e.itemType === "action" && e.itemId).map((e) => e.itemId!),
           decisionIds: slackResult.auditEntries.filter((e) => e.itemType === "decision" && e.itemId).map((e) => e.itemId!),
           memoryIds: slackResult.auditEntries.filter((e) => e.itemType === "memory" && e.itemId).map((e) => e.itemId!),
@@ -244,6 +261,13 @@ export async function POST(req: Request) {
                 (ev.payload as { body?: string })?.body || ev.context || ""
               }`;
 
+        // Same unchanged-content guard as Slack above.
+        const teamsHash = hashContent(channelName, transcript);
+        if (await isHashUnchanged(username, externalId, teamsHash)) {
+          skippedUnchanged++;
+          continue;
+        }
+
         const intel = await classifyTeams({
           username,
           channelName,
@@ -266,7 +290,7 @@ export async function POST(req: Request) {
         });
         void recordIngest(username, {
           sourceRef: externalId,
-          hash: hashContent(channelName, transcript),
+          hash: teamsHash, // same value the skip-check above read
           actionIds: teamsResult.auditEntries.filter((e) => e.itemType === "action" && e.itemId).map((e) => e.itemId!),
           decisionIds: teamsResult.auditEntries.filter((e) => e.itemType === "decision" && e.itemId).map((e) => e.itemId!),
           memoryIds: teamsResult.auditEntries.filter((e) => e.itemType === "memory" && e.itemId).map((e) => e.itemId!),
@@ -280,7 +304,10 @@ export async function POST(req: Request) {
 
     // Flush snapshot so BASIL_DATA is updated before Vercel recycles the function.
     await forceFlushSnapshot();
-    console.log(`[reprocess] completed: ${processed}/${toClassify.length} events processed`);
+    console.log(
+      `[reprocess] completed: ${processed}/${toClassify.length} events processed` +
+      `, ${skippedUnchanged} skipped as unchanged (each skip is an AI call not made)`
+    );
   });
 
   const breakdown = [
