@@ -716,6 +716,17 @@ export async function POST(req: Request) {
             date: payload.date || new Date().toISOString(),
           });
 
+          // A FAILED classification is not "nothing here" — recording its hash
+          // would skip this message forever, so an AI outage would look like a
+          // quiet workspace. Leave it unrecorded and retry next run.
+          if (intel.classificationFailed) {
+            console.warn(
+              `[poll-ingest] slack ${slackSourceRef} classification FAILED — ` +
+              `not recording hash so it retries once AI is healthy`
+            );
+            continue;
+          }
+
           if (!shouldMaterializeSlack(intel)) {
             void recordIngest(username, { sourceRef: slackSourceRef, hash: slackContentHash });
             continue;
@@ -847,6 +858,15 @@ export async function POST(req: Request) {
             isMention: !!payload.hints?.isMention,
             date: payload.date || new Date().toISOString(),
           });
+
+          // Same rule as Slack: a failed call must not be recorded as a verdict.
+          if (intel.classificationFailed) {
+            console.warn(
+              `[poll-ingest] teams ${teamsSourceRef} classification FAILED — ` +
+              `not recording hash so it retries once AI is healthy`
+            );
+            continue;
+          }
 
           if (!shouldMaterializeTeams(intel)) {
             void recordIngest(username, { sourceRef: teamsSourceRef, hash: teamsContentHash });

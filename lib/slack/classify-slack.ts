@@ -112,6 +112,15 @@ export interface SlackIntelligence {
    * observable from the message language. Omit for routine communication.
    */
   toneShifts?: ToneShift[];
+  /**
+   * True when the AI call FAILED and this object is a placeholder, not a
+   * verdict. The placeholder is indistinguishable from a real "nothing here"
+   * result, so without this an outage looks like a quiet workspace — and the
+   * caller records an ingest hash, permanently skipping the message.
+   * NOT part of the AI schema; set only by the catch path. Callers MUST check
+   * it before recording an ingest hash.
+   */
+  classificationFailed?: boolean;
 }
 
 // ── Threshold constants ────────────────────────────────────────────────────────
@@ -370,7 +379,9 @@ Respond with ONLY valid JSON — no markdown fences, no explanation:
       "[slack-classify] classification failed:",
       err instanceof Error ? err.message : err
     );
-    return emptyIntelligence();
+    // Flagged so callers skip recordIngest — otherwise an outage permanently
+    // writes the message off as "nothing here".
+    return { ...emptyIntelligence(), classificationFailed: true };
   }
 }
 

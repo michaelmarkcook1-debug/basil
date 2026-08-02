@@ -164,6 +164,20 @@ export async function processRegularEmail(opts: ProcessEmailOpts): Promise<void>
       void runGmailShadow(normInputForShadow, contentHash, username);
     }
 
+    // A FAILED classification is not a verdict. Recording its hash here is what
+    // made a provider outage permanent: the placeholder is
+    // category:"low_value_noise", shouldMaterialize says no, the hash gets
+    // written, and isHashUnchanged skips the message forever — so mail that
+    // arrived while the AI was down was written off as junk and never
+    // reconsidered. Leave it unrecorded so the next run retries it.
+    if (intel.classificationFailed) {
+      console.warn(
+        `[email-process] ${sourceRef} classification FAILED (provider error) — ` +
+        `not recording hash so it is retried once AI is healthy`
+      );
+      return;
+    }
+
     if (!shouldMaterialize(intel)) {
       // Record in index so we don't re-classify this message on the next poll
       void recordIngest(username, { sourceRef, hash: contentHash });

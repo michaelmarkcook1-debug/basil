@@ -211,6 +211,16 @@ export async function POST(req: Request) {
           date: ev.createdAt,
         });
 
+        // A FAILED classification is not "nothing here" — see poll-ingest.
+        // Skipping the recordIngest below keeps it eligible for a retry.
+        if (intel.classificationFailed) {
+          console.warn(
+            `[reprocess] slack ${externalId} classification FAILED — ` +
+            `not recording hash so it retries once AI is healthy`
+          );
+          continue;
+        }
+
         if (!shouldMaterializeSlack(intel)) continue;
 
         const slackResult = await materializeSlackIntelligence({
@@ -276,6 +286,15 @@ export async function POST(req: Request) {
           isMention: false,
           date: ev.createdAt,
         });
+
+        // Same rule as Slack: a failed call must not be recorded as a verdict.
+        if (intel.classificationFailed) {
+          console.warn(
+            `[reprocess] teams ${externalId} classification FAILED — ` +
+            `not recording hash so it retries once AI is healthy`
+          );
+          continue;
+        }
 
         if (!shouldMaterializeTeams(intel)) continue;
 

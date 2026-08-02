@@ -101,6 +101,25 @@ export interface EmailIntelligence {
    * observable from the message language. Omit for routine communication.
    */
   toneShifts?: ToneShift[];
+  /**
+   * True when the AI call FAILED (outage, invalid key, exhausted credits) and
+   * this object is a placeholder rather than a verdict.
+   *
+   * This distinction is load-bearing. The failure placeholder is
+   * category:"low_value_noise", which is indistinguishable from a real "this is
+   * junk" result — so a provider outage silently marked every incoming email as
+   * noise, AND the caller recorded its content hash, so isHashUnchanged skipped
+   * it forever. Emails that arrived during an outage were permanently
+   * classified as junk and never reconsidered.
+   *
+   * Observed live 2026-08-02: the Anthropic key returned 401 and OpenAI had no
+   * credits, so every email in that window logged
+   * "→ low_value_noise (confidence=0)" and was written off.
+   *
+   * NOT part of the AI output schema — set only by the catch path. Callers MUST
+   * check it before recording an ingest hash.
+   */
+  classificationFailed?: boolean;
 }
 
 // ── Threshold constants ────────────────────────────────────────────────────────
@@ -357,7 +376,9 @@ Respond with ONLY valid JSON — no markdown fences, no explanation:
       "[email-classify] classification failed:",
       err instanceof Error ? err.message : err
     );
-    return emptyIntelligence();
+    // Flagged, so the caller does NOT record an ingest hash for it. Without
+    // this the email is written off as noise permanently — see the field docs.
+    return { ...emptyIntelligence(), classificationFailed: true };
   }
 }
 
