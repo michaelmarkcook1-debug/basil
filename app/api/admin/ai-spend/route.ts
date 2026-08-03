@@ -17,10 +17,20 @@ import { getSpendSummary } from "@/lib/ai/spend-guard";
  *   401 — unauthenticated
  *   403 — not an admin
  */
-export async function GET() {
-  const username = await getSessionUser();
-  if (!username) return NextResponse.json({ error: "Unauthorised" }, { status: 401 });
-  if (!isAdminUser(username)) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+export async function GET(req: Request) {
+  // CRON_SECRET bearer is accepted alongside the admin session so the ceiling
+  // can be verified from outside a browser. Vercel returns sensitive env vars
+  // as "[SENSITIVE]", so the ONLY way to confirm a cap is really set to the
+  // intended number is to ask the running deployment what it reads.
+  const authHeader = req.headers.get("authorization");
+  const cronSecret = process.env.CRON_SECRET;
+  const isCronCall = !!cronSecret && authHeader === `Bearer ${cronSecret}`;
+
+  if (!isCronCall) {
+    const username = await getSessionUser();
+    if (!username) return NextResponse.json({ error: "Unauthorised" }, { status: 401 });
+    if (!isAdminUser(username)) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  }
 
   const users = await getUsers();
   const summary = await getSpendSummary(users.map((u) => u.username));
