@@ -1195,7 +1195,13 @@ export async function POST(req: Request) {
 
   return NextResponse.json({
     ingested,
-    draftsGenerated: draftEvents.length,
+    // Renamed from "draftsGenerated", which was always draftEvents.length —
+    // i.e. how many events QUALIFIED for a draft, not how many were written.
+    // Now that drafts are lazy the old name reads as "6 drafts generated" for a
+    // run that generated none, which is precisely the kind of number that hides
+    // a cost (or hides its absence).
+    draftEligible: draftEvents.length,
+    draftsGenerated: process.env.BASIL_PREGENERATE_DRAFTS === "true" ? draftEvents.length : 0,
     scanned: payloads.length,
     sources: {
       email: emails.length - zoomEmailIds.size,
