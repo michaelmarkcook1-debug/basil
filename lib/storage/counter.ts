@@ -22,6 +22,7 @@
 
 import "server-only";
 import { Redis } from "@upstash/redis";
+import { resolveRedisRestConfig } from "@/lib/storage/redis-config";
 import { readStore, writeStore } from "@/lib/storage/persistent";
 
 // ── Redis singleton (lazy) ────────────────────────────────────────────────────
@@ -30,11 +31,20 @@ let redisClient: Redis | null | undefined;
 
 function getRedis(): Redis | null {
   if (redisClient !== undefined) return redisClient;
-  if (process.env.UPSTASH_REDIS_REST_URL && process.env.UPSTASH_REDIS_REST_TOKEN) {
+  // Resolve BOTH naming conventions. This was gated on the UPSTASH_* pair and
+  // used Redis.fromEnv(), which only recognises those names — but the Vercel
+  // Marketplace integration provisions KV_REST_API_*. So Upstash was live and
+  // working (lock.ts, already migrated, uses it) while the spend counter
+  // silently sat on the last-write-wins Blob fallback, reporting
+  // `durable: false` and making every spend cap SOFT: concurrent calls can lose
+  // an update, so a ceiling can be overshot. Exactly the same silent-no-op this
+  // resolver was written to kill, in the one place that most needs to be exact.
+  const cfg = resolveRedisRestConfig();
+  if (cfg) {
     try {
-      redisClient = Redis.fromEnv();
+      redisClient = new Redis(cfg);
     } catch (err) {
-      console.error("[counter] Redis.fromEnv() failed — falling back to Blob:", err instanceof Error ? err.message : err);
+      console.error("[counter] Redis init failed — falling back to Blob:", err instanceof Error ? err.message : err);
       redisClient = null;
     }
   } else {
