@@ -47,6 +47,26 @@ export function secondsUntilPeriodEnd(): number {
 }
 
 /**
+ * Current DAY as "YYYY-MM-DD" (UTC).
+ *
+ * A monthly cap alone cannot express "spend no more than $1/day" — a runaway
+ * can burn the entire month's allowance in one morning and the ceiling only
+ * notices once it is already gone. The daily window is what actually bounds
+ * blast radius, so it gets its own counter.
+ */
+export function currentDay(): string {
+  const d = new Date();
+  return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, "0")}-${String(d.getUTCDate()).padStart(2, "0")}`;
+}
+
+/** Seconds remaining until 00:00 UTC (for Retry-After on a daily rejection). */
+export function secondsUntilDayEnd(): number {
+  const d = new Date();
+  const tomorrow = Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate() + 1, 0, 0, 0);
+  return Math.max(60, Math.ceil((tomorrow - d.getTime()) / 1000));
+}
+
+/**
  * Append a spend event. Best-effort and non-throwing — a logging failure must
  * never break the AI call that already happened.
  */

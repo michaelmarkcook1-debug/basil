@@ -42,7 +42,7 @@ import {
   type TokenUsage,
 } from "./pricing";
 import { incrCounter, getCounter, isDurableCounter } from "@/lib/storage/counter";
-import { appendSpendEvent, currentPeriod, secondsUntilPeriodEnd } from "./spend-log";
+import { appendSpendEvent, currentPeriod, secondsUntilPeriodEnd, currentDay, secondsUntilDayEnd } from "./spend-log";
 
 // ── Configuration ──────────────────────────────────────────────────────────────
 
@@ -55,6 +55,17 @@ function numEnv(name: string): number | null {
 
 function globalCapUsd(): number | null { return numEnv("AI_GLOBAL_MONTHLY_USD"); }
 function userCapUsd(): number | null { return numEnv("AI_PER_USER_MONTHLY_USD"); }
+/**
+ * Hard ceiling on spend PER UTC DAY, across all users.
+ *
+ * A monthly cap cannot express this: $30/month permits burning the whole
+ * allowance before lunch and only notices once it is gone. The daily window is
+ * what actually bounds the blast radius of a regression — the failure mode this
+ * codebase has already produced twice (categorisation on a flagship model,
+ * speculative drafts) is "quietly expensive every single day", which a daily
+ * ceiling stops within hours instead of weeks.
+ */
+function dailyCapUsd(): number | null { return numEnv("AI_GLOBAL_DAILY_USD"); }
 function isHardStopped(): boolean { return process.env.AI_SPEND_HARD_STOP === "true"; }
 
 /** Counter TTL — ~70 days so the previous period's counter self-expires. */
@@ -63,13 +74,18 @@ const COUNTER_TTL_SECONDS = 70 * 24 * 60 * 60;
 // ── Keys ────────────────────────────────────────────────────────────────────────
 
 function globalKey(period: string): string { return `spend:global:${period}`; }
+/** Daily ceiling counter. Separate namespace so it can never collide with the
+ *  monthly key (a "YYYY-MM-DD" period would otherwise look like a month). */
+function dailyKey(day: string): string { return `spend:global:day:${day}`; }
+/** Daily counters only need to outlive their own day; 3 days absorbs clock skew. */
+const DAILY_TTL_SECONDS = 3 * 24 * 60 * 60;
 // Lowercase the username: usernames are case-insensitive, so per-user spend is
 // tracked under one key regardless of how the name was cased at the call site.
 function userKey(username: string, period: string): string { return `spend:user:${username.toLowerCase()}:${period}`; }
 
 // ── Types ────────────────────────────────────────────────────────────────────────
 
-export type SpendScope = "user" | "global" | "hard-stop";
+export type SpendScope = "user" | "global" | "daily" | "hard-stop";
 
 export class SpendCapError extends Error {
   readonly status = 429;
@@ -104,6 +120,13 @@ export interface SpendReservation {
   feature: string;
   family: PriceFamily;
   period: string;
+  /**
+   * The UTC day this reservation was taken against, carried explicitly so
+   * commit/release adjust the SAME counter even when a long call straddles
+   * midnight. Recomputing the day at commit time would credit the refund to
+   * tomorrow and leave yesterday permanently over-counted.
+   */
+  day: string;
   /** USD reserved up front (0 when no cap is configured → observe-only). */
   reservedUsd: number;
 }
@@ -121,14 +144,16 @@ export async function reserveSpend(meter: SpendMeter, kind: ModelKind): Promise<
 
   const family = meter.family ?? familyForTier(kind);
   const period = currentPeriod();
+  const day = currentDay();
   const gc = globalCapUsd();
+  const dc = dailyCapUsd();
   // Per-user cap: the plan entitlement (meter.userMonthlyUsd) takes precedence
   // over the global env default.
   const uc = meter.userMonthlyUsd ?? userCapUsd();
 
   // No caps → observe-only. Skip reservation; commit still meters usage.
-  if (gc === null && uc === null) {
-    return { username: meter.username, feature: meter.feature, family, period, reservedUsd: 0 };
+  if (gc === null && uc === null && dc === null) {
+    return { username: meter.username, feature: meter.feature, family, period, day, reservedUsd: 0 };
   }
 
   // Reserve for the whole call. Tool-loop paths (chat) run up to maxSteps model
@@ -143,14 +168,30 @@ export async function reserveSpend(meter: SpendMeter, kind: ModelKind): Promise<
   // global increment must not leak the global reservation forever).
   let globalApplied = false;
   let userApplied = false;
+  let dailyApplied = false;
 
   try {
+    // Daily ceiling is checked FIRST: it is the tightest bound, so rejecting
+    // here avoids touching the other counters at all.
+    if (dc !== null) {
+      const { value } = await incrCounter(dailyKey(day), worst, DAILY_TTL_SECONDS);
+      dailyApplied = true;
+      if (value > dc) {
+        await incrCounter(dailyKey(day), -worst, DAILY_TTL_SECONDS); // roll back
+        dailyApplied = false;
+        throw new SpendCapError("daily", secondsUntilDayEnd());
+      }
+    }
     if (gc !== null) {
       const { value } = await incrCounter(globalKey(period), worst, COUNTER_TTL_SECONDS);
       globalApplied = true;
       if (value > gc) {
         await incrCounter(globalKey(period), -worst, COUNTER_TTL_SECONDS); // roll back
         globalApplied = false;
+        if (dailyApplied) {
+          await incrCounter(dailyKey(day), -worst, DAILY_TTL_SECONDS); // and the daily hold
+          dailyApplied = false;
+        }
         throw new SpendCapError("global", secondsUntilPeriodEnd());
       }
     }
@@ -164,10 +205,14 @@ export async function reserveSpend(meter: SpendMeter, kind: ModelKind): Promise<
           await incrCounter(globalKey(period), -worst, COUNTER_TTL_SECONDS); // and global
           globalApplied = false;
         }
+        if (dailyApplied) {
+          await incrCounter(dailyKey(day), -worst, DAILY_TTL_SECONDS); // and the daily hold
+          dailyApplied = false;
+        }
         throw new SpendCapError("user", secondsUntilPeriodEnd());
       }
     }
-    return { username: meter.username, feature: meter.feature, family, period, reservedUsd: worst };
+    return { username: meter.username, feature: meter.feature, family, period, day, reservedUsd: worst };
   } catch (err) {
     if (err instanceof SpendCapError) throw err;
 
@@ -180,6 +225,9 @@ export async function reserveSpend(meter: SpendMeter, kind: ModelKind): Promise<
     if (userApplied) {
       try { await incrCounter(userKey(meter.username, period), -worst, COUNTER_TTL_SECONDS); } catch { /* best-effort */ }
     }
+    if (dailyApplied) {
+      try { await incrCounter(dailyKey(day), -worst, DAILY_TTL_SECONDS); } catch { /* best-effort */ }
+    }
 
     // Fail CLOSED on the expensive Opus family whenever a cap is configured —
     // better to 429 than risk runaway Opus spend during a store outage. (We are
@@ -190,7 +238,7 @@ export async function reserveSpend(meter: SpendMeter, kind: ModelKind): Promise<
       throw new SpendCapError("global", secondsUntilPeriodEnd());
     }
     console.warn("[spend-guard] counter store error — failing OPEN (cheap tier):", err instanceof Error ? err.message : err);
-    return { username: meter.username, feature: meter.feature, family, period, reservedUsd: 0 };
+    return { username: meter.username, feature: meter.feature, family, period, day, reservedUsd: 0 };
   }
 }
 
@@ -213,6 +261,10 @@ export async function commitSpend(
   try {
     await incrCounter(globalKey(reservation.period), delta, COUNTER_TTL_SECONDS);
     await incrCounter(userKey(reservation.username, reservation.period), delta, COUNTER_TTL_SECONDS);
+    // Reconcile the daily ceiling against the SAME day the reservation was
+    // taken on — never currentDay(), which would misfile a call that crossed
+    // midnight and leave yesterday permanently over-counted.
+    await incrCounter(dailyKey(reservation.day), delta, DAILY_TTL_SECONDS);
   } catch (err) {
     console.error("[spend-guard] commit counter update failed (event log still recorded):", err instanceof Error ? err.message : err);
   }
@@ -234,6 +286,8 @@ export async function releaseSpend(reservation: SpendReservation): Promise<void>
   try {
     await incrCounter(globalKey(reservation.period), -reservation.reservedUsd, COUNTER_TTL_SECONDS);
     await incrCounter(userKey(reservation.username, reservation.period), -reservation.reservedUsd, COUNTER_TTL_SECONDS);
+    // Release against the reservation's own day, for the same reason as commit.
+    await incrCounter(dailyKey(reservation.day), -reservation.reservedUsd, DAILY_TTL_SECONDS);
   } catch (err) {
     console.error("[spend-guard] releaseSpend failed:", err instanceof Error ? err.message : err);
   }
@@ -251,9 +305,14 @@ export async function checkSpendBudget(username: string): Promise<SpendStatus> {
   if (isHardStopped()) return { ok: false, scope: "hard-stop", retryAfterSec: secondsUntilPeriodEnd() };
   const gc = globalCapUsd();
   const uc = userCapUsd();
-  if (gc === null && uc === null) return { ok: true };
+  const dc = dailyCapUsd();
+  if (gc === null && uc === null && dc === null) return { ok: true };
   const period = currentPeriod();
   try {
+    if (dc !== null) {
+      const d = await getCounter(dailyKey(currentDay()));
+      if (d >= dc) return { ok: false, scope: "daily", retryAfterSec: secondsUntilDayEnd() };
+    }
     if (gc !== null) {
       const g = await getCounter(globalKey(period));
       if (g >= gc) return { ok: false, scope: "global", retryAfterSec: secondsUntilPeriodEnd() };
@@ -294,6 +353,12 @@ export interface SpendSummary {
   globalUsd: number;
   globalCapUsd: number | null;
   userCapUsd: number | null;
+  /** UTC day the daily figures below refer to ("YYYY-MM-DD"). */
+  day: string;
+  /** Spend so far TODAY, across all users. */
+  dailyUsd: number;
+  /** Today's ceiling, or null when no daily cap is configured. */
+  dailyCapUsd: number | null;
   hardStopped: boolean;
   perUser: { username: string; usd: number }[];
 }
@@ -308,12 +373,18 @@ export async function getSpendSummary(usernames: string[]): Promise<SpendSummary
     if (usd > 0) perUser.push({ username, usd });
   }
   perUser.sort((a, b) => b.usd - a.usd);
+  const day = currentDay();
   return {
     period,
     durable: isDurableCounter(),
     globalUsd,
     globalCapUsd: globalCapUsd(),
     userCapUsd: userCapUsd(),
+    // Today's spend against today's ceiling — the number that actually answers
+    // "is it running away right now", which a month-to-date figure cannot.
+    day,
+    dailyUsd: await getCounter(dailyKey(day)).catch(() => 0),
+    dailyCapUsd: dailyCapUsd(),
     hardStopped: isHardStopped(),
     perUser,
   };
