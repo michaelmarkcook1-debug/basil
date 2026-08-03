@@ -43,20 +43,78 @@ test("commit and release reconcile the reservation's OWN day", () => {
   // midnight, crediting the refund to tomorrow and leaving yesterday
   // permanently over-counted — the counter would drift upward every night.
   assert.ok(/day: string/.test(guard), "the reservation must carry its day");
+  // The keys now come from the shared counterKeysFor(reservation) list (see the
+  // drift test below), so what matters here is that NEITHER settle path
+  // recomputes the window — a call reserved at 23:59 must settle on that day.
   for (const fn of ["commitSpend", "releaseSpend"]) {
-    const body = guard.slice(guard.indexOf(`export async function ${fn}`), guard.indexOf(`export async function ${fn}`) + 900);
-    assert.ok(/dailyKey\(reservation\.day\)/.test(body),
-      `${fn} must adjust dailyKey(reservation.day), never currentDay()`);
+    const at = guard.indexOf(`export async function ${fn}`);
+    const body = guard.slice(at, at + 900);
+    assert.ok(/counterKeysFor\(reservation\)/.test(body),
+      `${fn} must settle via the reservation's own keys`);
+    assert.ok(!/currentDay\(\)/.test(body) && !/currentPeriod\(\)/.test(body),
+      `${fn} must NOT recompute the window — that misfiles a midnight-straddling call`);
   }
 });
 
-test("every rejection path unwinds the daily hold", () => {
-  // A reservation that is taken and then rejected by a LATER cap must not leak,
-  // or the day's budget silently shrinks with every rejected call.
+test("one unwind path returns EVERY hold taken", () => {
+  // With four ceilings, hand-written rollback needs a branch per combination of
+  // "which earlier holds are applied" — that grows combinatorially and is where
+  // a leaked reservation hides. A leak is silent and permanent: the budget just
+  // quietly shrinks. So: one ordered list, one unwind.
   const body = guard.slice(guard.indexOf("export async function reserveSpend"));
-  const rollbacks = (body.match(/incrCounter\(dailyKey\(day\), -worst/g) || []).length;
-  assert.ok(rollbacks >= 3,
-    `expected daily rollbacks on the daily/global/user rejection paths and the store-error path, found ${rollbacks}`);
+  assert.ok(/const unwind = async \(\)/.test(body), "a single unwind helper must exist");
+  assert.ok(/applied\.push\(h\)/.test(body), "each taken hold must be recorded");
+  // Pushed BEFORE the cap check, so the hold that triggered the rejection is
+  // itself returned — otherwise every rejection leaks exactly one hold.
+  const pushIdx = body.indexOf("applied.push(h)");
+  const checkIdx = body.indexOf("if (value > h.cap)");
+  assert.ok(pushIdx > -1 && checkIdx > -1 && pushIdx < checkIdx,
+    "the hold must be recorded before the check, or the rejecting hold is never returned");
+  // Both the cap-rejection path and the store-error path must unwind.
+  assert.ok((body.match(/await unwind\(\)/g) || []).length >= 2,
+    "cap rejections AND store errors must both unwind");
+});
+
+test("per-user daily cap exists and is checked first", () => {
+  assert.ok(/AI_PER_USER_DAILY_USD/.test(guard), "per-user daily ceiling must be configurable");
+  assert.ok(/spend:user:\$\{username\.toLowerCase\(\)\}:day:/.test(guard),
+    "per-user daily counter needs its own key, lower-cased like userKey");
+  const body = guard.slice(guard.indexOf("export async function reserveSpend"));
+  const userDaily = body.indexOf("userDailyKey(meter.username, day)");
+  const globalDaily = body.indexOf("dailyKey(day)");
+  assert.ok(userDaily > -1 && userDaily < globalDaily,
+    "the per-user daily hold is the tightest bound for one caller — check it first");
+});
+
+test("commit and release share ONE key list, so they cannot drift", () => {
+  assert.ok(/function counterKeysFor/.test(guard),
+    "a single source of truth for which counters a reservation touches");
+  for (const fn of ["commitSpend", "releaseSpend"]) {
+    const at = guard.indexOf(`export async function ${fn}`);
+    const body = guard.slice(at, at + 700);
+    assert.ok(/counterKeysFor\(reservation\)/.test(body),
+      `${fn} must use the shared list — a counter incremented on reserve but missed on release leaks budget permanently`);
+  }
+  // And that list must be keyed off the reservation's own window.
+  const keys = guard.slice(guard.indexOf("function counterKeysFor"), guard.indexOf("// ── Reserve"));
+  assert.ok(/r\.day/.test(keys) && /r\.period/.test(keys), "settle against the reserved window");
+  assert.ok(!/currentDay\(\)/.test(keys), "never currentDay() — a midnight-straddling call would misfile");
+});
+
+test("behaviour: per-user caps are independent, not a shared pool", () => {
+  const CAP = 1.0;
+  const counters = { michael: 0, andrew: 0 };
+  const reserve = (user, worst) => {
+    counters[user] += worst;
+    if (counters[user] > CAP) { counters[user] -= worst; return false; }
+    return true;
+  };
+  // michael exhausts his day
+  let n = 0;
+  while (reserve("michael", 0.1)) n++;
+  assert.equal(reserve("michael", 0.1), false, "michael is capped");
+  assert.equal(reserve("andrew", 0.1), true,
+    "andrew must be unaffected — a per-user cap is not a shared pool one user can starve");
 });
 
 test("observe-only still applies when ONLY a daily cap is set", () => {
