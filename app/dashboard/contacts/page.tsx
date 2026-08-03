@@ -23,7 +23,10 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { ContactAvatar } from "@/components/ui/contact-avatar";
 import { useContactPhotos } from "@/lib/hooks/use-contact-photos";
-import { Search, Mail, MapPin, Users, Brain, CheckSquare, AlertTriangle, Activity, Flame, RefreshCw, Loader2, Wifi, Sparkles, Plus, X, Phone, Briefcase, Home, ArrowRightLeft, MessageCircle, Wand2, Check, ChevronLeft, ChevronDown, ChevronUp, Pencil } from "lucide-react";
+import { Search, Mail, MapPin, Users, Brain, CheckSquare, AlertTriangle, Activity, Flame, RefreshCw, Loader2, Wifi, Sparkles, Plus, X, Phone, Briefcase, Home, ArrowRightLeft, MessageCircle, Wand2, Check, ChevronLeft, ChevronDown, ChevronUp, Pencil, ExternalLink } from "lucide-react";
+// lucide-react dropped brand icons, so LinkedIn is labelled in text with a
+// neutral external-link glyph rather than an inlined third-party logo.
+import { linkedInSearchUrl } from "@/lib/contacts/linkedin-from-signature";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { Textarea } from "@/components/ui/textarea";
 import {
@@ -469,6 +472,30 @@ function ContactDetail({
               <span className="flex items-center gap-1">
                 <MapPin className="h-3 w-3" /> {contact.location}
               </span>
+            )}
+            {/* LinkedIn: the stored profile when we have one (harvested from the
+                contact's own email signature), otherwise a prefilled people
+                search. Never a guessed vanity URL — that would fabricate a
+                record the user would have to notice to correct. */}
+            {contact.linkedin ? (
+              <a
+                href={contact.linkedin}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="flex items-center gap-1 text-gold hover:underline"
+              >
+                <ExternalLink className="h-3 w-3" /> LinkedIn
+              </a>
+            ) : (
+              <a
+                href={linkedInSearchUrl(contact.name, contact.company)}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="flex items-center gap-1 hover:underline opacity-70"
+                title="No profile on file — search LinkedIn for this person"
+              >
+                <ExternalLink className="h-3 w-3" /> Find on LinkedIn
+              </a>
             )}
           </div>
           <div className="flex flex-wrap gap-1.5 mt-3">

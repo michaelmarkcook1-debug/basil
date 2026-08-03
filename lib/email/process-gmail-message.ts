@@ -37,6 +37,7 @@ import {
 } from "@/lib/trust/policy";
 import { hashContent } from "@/lib/ingest/content-hash";
 import { isHashUnchanged, recordIngest } from "@/lib/ingest/index";
+import { enrichContactLinkedIn } from "@/lib/contacts/enrich-linkedin";
 import {
   appendAuditEntries,
   auditSkipped,
@@ -119,14 +120,24 @@ export async function processRegularEmail(opts: ProcessEmailOpts): Promise<void>
   try {
     let body = snippetFallback || "";
     let date = dateFallback || new Date().toISOString();
+    // The UNSTRIPPED body, kept for signature harvesting. stripHtml() removes
+    // whole tags, so an HTML signature's <a href="…linkedin.com/in/…"> loses
+    // its URL entirely — the link text survives, the address does not.
+    let rawBody = body;
+    let senderEmail: string | undefined;
 
     try {
       // Use the caller-supplied fetcher when available (e.g. Outlook Graph API),
       // otherwise fall back to the Gmail API.
       const fullEmail = bodyFetcher ? await bodyFetcher() : await getEmailBody(username, gmailId);
       if (fullEmail?.body) {
+        rawBody = fullEmail.body;
         body = fullEmail.body.includes("<") ? stripHtml(fullEmail.body) : fullEmail.body;
       }
+      // "Name <addr@host>" → addr@host. Matching contacts on the ADDRESS is what
+      // makes attribution safe; display names collide and are trivially spoofed.
+      const rawFrom = (fullEmail as { from?: string } | undefined)?.from ?? from ?? "";
+      senderEmail = rawFrom.match(/<([^>]+@[^>]+)>/)?.[1] ?? (rawFrom.includes("@") ? rawFrom.trim() : undefined);
       // Prefer the email's actual send date over the caller-provided date
       if (fullEmail?.date) {
         date = fullEmail.date;
@@ -147,6 +158,11 @@ export async function processRegularEmail(opts: ProcessEmailOpts): Promise<void>
       ]);
       return;
     }
+
+    // Harvest a LinkedIn profile from the sender's signature. Runs on new
+    // content only (past the hash gate above), costs no AI call, and never
+    // throws — see enrichContactLinkedIn for the attribution safeguards.
+    void enrichContactLinkedIn(username, senderEmail, rawBody);
 
     const intel = await classifyEmail({ username, subject, from, date, snippet: "", body });
 
