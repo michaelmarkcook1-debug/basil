@@ -84,7 +84,7 @@ function ContactList({
           onClick={() => onSelect(c.id)}
           className={`w-full flex items-center gap-3 rounded-lg px-3 py-2.5 text-left transition-colors ${
             selected === c.id
-              ? "bg-gold/10 border border-gold/30"
+              ? "bg-[var(--w-carbon-tint)] border border-[var(--w-rule)]"
               : "hover:bg-accent/50 border border-transparent"
           }`}
         >
@@ -394,7 +394,7 @@ function ContactDetail({
                     value={nameInput}
                     onChange={e => setNameInput(e.target.value)}
                     onKeyDown={e => { if (e.key === "Enter") saveName(); if (e.key === "Escape") setEditingName(false); }}
-                    className="text-xl font-semibold bg-transparent border-b-2 border-gold outline-none w-48"
+                    className="text-xl font-semibold bg-transparent border-b-2 border-[var(--w-carbon)] outline-none w-48"
                   />
                   <button onClick={saveName} disabled={nameSaving} className="text-signal-positive hover:text-signal-positive disabled:opacity-50" aria-label="Save name">
                     <Check className="h-4 w-4" />
@@ -422,7 +422,7 @@ function ContactDetail({
                   )}
                 </div>
               )}
-              <p className="text-sm text-gold">{contact.title}</p>
+              <p className="text-sm text-[var(--w-carbon)]">{contact.title}</p>
               <p className="text-sm text-muted-foreground">{contact.company}</p>
               {contact.phone && (
                 <p className="text-sm text-muted-foreground flex items-center gap-1 mt-0.5">
@@ -434,7 +434,7 @@ function ContactDetail({
             <div className="flex items-center gap-2 shrink-0">
               <Badge
                 variant="outline"
-                className="text-[12px] gap-1 border-gold/40 text-[oklch(0.58_0.15_85)]"
+                className="text-[12px] gap-1 border-[var(--w-rule)] text-[var(--w-carbon)]"
               >
                 {contact.directory === "work" ? (
                   <Briefcase className="h-3 w-3" />
@@ -482,7 +482,7 @@ function ContactDetail({
                 href={contact.linkedin}
                 target="_blank"
                 rel="noopener noreferrer"
-                className="flex items-center gap-1 text-gold hover:underline"
+                className="flex items-center gap-1 text-[var(--w-carbon)] hover:underline"
               >
                 <ExternalLink className="h-3 w-3" /> LinkedIn
               </a>
@@ -500,7 +500,7 @@ function ContactDetail({
           </div>
           <div className="flex flex-wrap gap-1.5 mt-3">
             {contact.tags.map((tag) => (
-              <Badge key={tag} variant="outline" className="text-[12px] border-gold/30 text-gold">
+              <Badge key={tag} variant="outline" className="text-[12px] border-[var(--w-rule)] text-[var(--w-carbon)]">
                 {tag}
               </Badge>
             ))}
@@ -509,11 +509,11 @@ function ContactDetail({
       </div>
 
       {/* Basil profile generator */}
-      <div className="rounded-xl ring-1 ring-gold/25 bg-gold/[0.04] p-4 space-y-3">
+      <div className="rounded-xl ring-1 ring-[var(--w-rule)] bg-[var(--w-flimsy)] p-4 space-y-3">
         <div className="flex items-start justify-between gap-3 flex-wrap">
           <div>
             <p className="text-sm font-semibold flex items-center gap-1.5">
-              <Wand2 className="h-3.5 w-3.5 text-[oklch(0.58_0.15_85)]" />
+              <Wand2 className="h-3.5 w-3.5 text-[var(--w-carbon)]" />
               Personality profile
             </p>
             <p className="text-[12px] text-muted-foreground leading-relaxed mt-0.5">
@@ -553,7 +553,7 @@ function ContactDetail({
               <Button
                 size="sm"
                 onClick={() => setGenOpen(true)}
-                className="gap-1.5 bg-gold text-[oklch(0.18_0.04_250)] hover:bg-[oklch(0.78_0.12_85)]"
+                className="gap-1.5 bg-[var(--w-carbon)] text-white hover:bg-[var(--w-ink)]"
               >
                 <Wand2 className="h-3.5 w-3.5" />
                 {override?.generatedAt ? "Regenerate" : "Generate profile"}
@@ -584,7 +584,7 @@ function ContactDetail({
                   genLoading ||
                   (contact.directory === "personal" && !genNotes.trim())
                 }
-                className="gap-1.5 bg-gold text-[oklch(0.18_0.04_250)] hover:bg-[oklch(0.78_0.12_85)]"
+                className="gap-1.5 bg-[var(--w-carbon)] text-white hover:bg-[var(--w-ink)]"
               >
                 {genLoading ? (
                   <>
@@ -660,7 +660,7 @@ function ContactDetail({
                 ] as const
               ).map(([label, value]) => (
                 <div key={label}>
-                  <p className="text-[12px] font-semibold tracking-widest uppercase text-[oklch(0.58_0.15_85)]">
+                  <p className="text-[12px] font-semibold tracking-widest uppercase text-[var(--w-carbon)]">
                     {label}
                   </p>
                   <p className="text-sm leading-relaxed text-foreground/90 mt-1 whitespace-pre-line">
@@ -680,7 +680,7 @@ function ContactDetail({
                   size="sm"
                   onClick={acceptPreview}
                   disabled={saveState === "saving"}
-                  className="gap-1.5 bg-gold text-[oklch(0.18_0.04_250)] hover:bg-[oklch(0.78_0.12_85)] disabled:opacity-70"
+                  className="gap-1.5 bg-[var(--w-carbon)] text-white hover:bg-[var(--w-ink)] disabled:opacity-70"
                 >
                   {saveState === "saving" ? (
                     <><Loader2 className="h-3.5 w-3.5 animate-spin" />Saving to Basil…</>
@@ -738,7 +738,7 @@ function ContactDetail({
         <TabsContent value="profile" className="space-y-4 mt-4">
           <Card>
             <CardHeader className="pb-2">
-              <CardTitle className="text-xs font-semibold tracking-widest uppercase text-gold">
+              <CardTitle className="text-xs font-semibold tracking-widest uppercase text-[var(--w-carbon)]">
                 Relationship
               </CardTitle>
             </CardHeader>
@@ -748,7 +748,7 @@ function ContactDetail({
           </Card>
           <Card>
             <CardHeader className="pb-2">
-              <CardTitle className="text-xs font-semibold tracking-widest uppercase text-gold">
+              <CardTitle className="text-xs font-semibold tracking-widest uppercase text-[var(--w-carbon)]">
                 Company Context
               </CardTitle>
             </CardHeader>
@@ -759,17 +759,17 @@ function ContactDetail({
         </TabsContent>
 
         <TabsContent value="personality" className="space-y-4 mt-4">
-          <Card className="border-l-4 border-l-gold">
+          <Card className="border-l border-l-[var(--w-carbon)]">
             <CardHeader className="pb-2">
               <CardTitle className="text-xs font-semibold tracking-widest uppercase flex items-center gap-1.5">
-                <Brain className="h-3.5 w-3.5 text-gold" /> Personality
+                <Brain className="h-3.5 w-3.5 text-[var(--w-carbon)]" /> Personality
               </CardTitle>
             </CardHeader>
             <CardContent>
               <p className="text-sm leading-relaxed">{contact.personality}</p>
             </CardContent>
           </Card>
-          <Card className="border-l-4 border-l-emerald-500">
+          <Card className="border-l border-l-[var(--w-filed)]">
             <CardHeader className="pb-2">
               <CardTitle className="text-xs font-semibold tracking-widest uppercase flex items-center gap-1.5">
                 <CheckSquare className="h-3.5 w-3.5 text-signal-positive" /> What Makes Them Tick
@@ -779,7 +779,7 @@ function ContactDetail({
               <p className="text-sm leading-relaxed">{contact.whatMakesThemTick}</p>
             </CardContent>
           </Card>
-          <Card className="border-l-4 border-l-amber-500">
+          <Card className="border-l border-l-[var(--w-manila)]">
             <CardHeader className="pb-2">
               <CardTitle className="text-xs font-semibold tracking-widest uppercase flex items-center gap-1.5">
                 <AlertTriangle className="h-3.5 w-3.5 text-signal-warning" /> Watch Out
@@ -794,7 +794,7 @@ function ContactDetail({
         <TabsContent value="activity" className="space-y-4 mt-4">
           {/* Live activity — pulled from Calendar, Gmail, Slack, Docs. */}
           {liveItems.length > 0 && (
-            <Card className="border-l-4 border-l-emerald-500">
+            <Card className="border-l border-l-[var(--w-filed)]">
               <CardHeader className="pb-2">
                 <CardTitle className="text-xs font-semibold tracking-widest uppercase text-signal-positive flex items-center gap-1.5">
                   <Wifi className="h-3.5 w-3.5" /> Live Activity
@@ -834,7 +834,7 @@ function ContactDetail({
 
           {/* Tone / attitude history — AI-detected shifts from email & Slack. */}
           {override?.toneHistory && override.toneHistory.length > 0 && (
-            <Card className="border-l-4 border-l-violet-400">
+            <Card className="border-l border-l-[var(--w-carbon)]">
               <CardHeader className="pb-2">
                 <CardTitle className="text-xs font-semibold tracking-widest uppercase text-signal-info flex items-center gap-1.5">
                   <MessageCircle className="h-3.5 w-3.5" /> Tone &amp; Attitude
@@ -877,7 +877,7 @@ function ContactDetail({
               persona was authored. Shown as a historical note alongside live data. */}
           <Card>
             <CardHeader className="pb-2">
-              <CardTitle className="text-xs font-semibold tracking-widest uppercase text-gold">
+              <CardTitle className="text-xs font-semibold tracking-widest uppercase text-[var(--w-carbon)]">
                 {liveItems.length > 0 ? "Background & recent history" : "Recent Activity"}
               </CardTitle>
             </CardHeader>
@@ -1224,7 +1224,9 @@ export default function ContactsPage() {
   }
 
   return (
-    <div className="flex h-full">
+    // The Wire Desk (seed basil01), scoped per surface so unconverted pages
+    // keep the incumbent world and nothing renders half-broken.
+    <div className="wire flex h-full">
       {/* Left panel — contact list.
           Mobile: full-width list view; hidden when showing detail.
           Desktop (lg+): fixed-width sidebar, always visible. */}
@@ -1249,7 +1251,7 @@ export default function ContactsPage() {
                 onClick={() => setActiveDirectory(dir)}
                 className={`flex items-center justify-center gap-1.5 py-2.5 text-[12px] font-semibold uppercase tracking-[0.18em] transition-colors ${
                   active
-                    ? "text-[oklch(0.58_0.15_85)] border-b-2 border-gold bg-gold/[0.06]"
+                    ? "text-[var(--w-carbon)] border-b-2 border-[var(--w-carbon)] bg-[var(--w-carbon-tint)]"
                     : "text-muted-foreground hover:text-foreground"
                 }`}
                 aria-pressed={active}
@@ -1280,7 +1282,7 @@ export default function ContactsPage() {
             <button
               onClick={refreshActivity}
               disabled={activityLoading}
-              className="flex items-center gap-1 text-xs text-muted-foreground hover:text-gold transition-colors disabled:opacity-50"
+              className="flex items-center gap-1 text-xs text-muted-foreground hover:text-[var(--w-carbon)] transition-colors disabled:opacity-50"
               title="Refresh from Calendar, Gmail & Slack"
             >
               {activityLoading ? (
@@ -1344,7 +1346,7 @@ export default function ContactsPage() {
               <button
                 onClick={refreshActivity}
                 disabled={activityLoading}
-                className="text-muted-foreground/50 hover:text-gold transition-colors"
+                className="text-muted-foreground/50 hover:text-[var(--w-carbon)] transition-colors"
                 title="Refresh from Calendar, Gmail & Slack"
                 aria-label="Refresh activity from Calendar, Gmail & Slack"
               >
@@ -1441,7 +1443,7 @@ export default function ContactsPage() {
             <button
               onClick={refreshSuggestions}
               disabled={suggestLoading}
-              className="text-muted-foreground/50 hover:text-gold transition-colors"
+              className="text-muted-foreground/50 hover:text-[var(--w-carbon)] transition-colors"
               title="Scan recent email & Slack for people not yet in contacts"
               aria-label="Scan for new contact suggestions"
             >
