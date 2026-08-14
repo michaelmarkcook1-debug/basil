@@ -1,9 +1,10 @@
 import type { Metadata, Viewport } from "next";
-import { Geist, Geist_Mono, Fraunces, Instrument_Serif } from "next/font/google";
+import { Geist, Geist_Mono, Fraunces, Instrument_Serif, Archivo_Narrow, Courier_Prime } from "next/font/google";
 import { ThemeProvider } from "next-themes";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { ServiceWorkerRegister } from "@/components/pwa/service-worker-register";
 import "./globals.css";
+import "./wire.css";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -26,6 +27,24 @@ const instrumentSerif = Instrument_Serif({
   subsets: ["latin"],
   weight: "400",
   style: ["normal", "italic"],
+});
+
+// ── The Wire Desk's own lettering ──────────────────────────────────────────
+// Archivo Narrow is the desk's condensed news gothic: slugs, prefixes, decks.
+// Courier Prime is the teleprinter, and carries DATA only — filed times, wire
+// ids, sequence numbers, confidence values. Monospace as a costume for
+// "technical" is a tell; monospace for measurement is what it is for.
+// Both self-host through next/font rather than shipping a webfont request.
+const archivoNarrow = Archivo_Narrow({
+  variable: "--font-archivo-narrow",
+  subsets: ["latin"],
+  weight: ["400", "600", "700"],
+});
+
+const courierPrime = Courier_Prime({
+  variable: "--font-courier-prime",
+  subsets: ["latin"],
+  weight: ["400", "700"],
 });
 
 const APP_URL = process.env.NEXT_PUBLIC_APP_URL ?? "https://ag-contracts.vercel.app";
@@ -109,9 +128,33 @@ export default function RootLayout({
     <html
       lang="en"
       suppressHydrationWarning
-      className={`${geistSans.variable} ${geistMono.variable} ${fraunces.variable} ${instrumentSerif.variable} h-full antialiased`}
+      className={`${geistSans.variable} ${geistMono.variable} ${fraunces.variable} ${instrumentSerif.variable} ${archivoNarrow.variable} ${courierPrime.variable} h-full antialiased`}
     >
       <body className="min-h-full flex flex-col basil-surface text-foreground">
+        {/* The direction contract must survive into EMITTED markup — a JSX
+            comment is stripped at compile and would leave nothing to audit. */}
+        <div
+          hidden
+          dangerouslySetInnerHTML={{
+            __html: `<!--
+THE WIRE DESK — direction contract (seed basil01, assigned index 3 of 7)
+
+THESIS: Basil is a desk editor handing over a queue with its sourcing intact.
+It refuses the AI-assistant dashboard: no greeting, no hero-metric row, no
+donut, no chat bubble in the corner.
+OWN-WORLD: Teleprinter paper ground; carbon-copy violet for structure and
+attribution; stamp red reserved for FLASH, corrections and kills; manila for
+spiked. Archivo Narrow slugs, Courier Prime for filed data. Rows share one
+rule — never a stack of cards.
+STORY: The reader sees what came in, from which wire, when, and how sure Basil
+is; then works it down and spikes the rest.
+FIRST VIEWPORT: A dateline with live wire lamps, then the dispatch queue —
+prefix, slug, wire, time filed, confidence stamp — with the spike at the foot.
+FORM: Wire-service dispatch desk; candidate 3 of 7; seed key basil01.
+FINISH: unreviewed and undocumented is unfinished; this build ends with the finish review, the verdict, and DESIGN.md
+-->`,
+          }}
+        />
         {/* Dark-only for v1: the light fork was a never-designed identity that
             rendered half-broken (light shell, hardcoded-dark cards). forcedTheme
             pins the .dark class and ignores any persisted preference until a
