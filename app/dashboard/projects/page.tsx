@@ -57,7 +57,7 @@ function StatCard({
           </p>
           <p className="text-2xl font-semibold mt-1">{value}</p>
         </div>
-        <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-gold/10 text-[oklch(0.58_0.15_85)]">
+        <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-[var(--w-carbon-tint)] text-[oklch(0.58_0.15_85)]">
           <Icon className="h-5 w-5" />
         </span>
       </CardContent>
@@ -267,7 +267,7 @@ export default function ProjectsPage() {
   }, [data]);
 
   return (
-    <div className="p-4 sm:p-6 lg:p-8 space-y-6 max-w-6xl mx-auto">
+    <div className="wire p-4 sm:p-6 lg:p-8 space-y-6 max-w-6xl mx-auto">
       <header className="flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
         <div className="space-y-2">
           <p className="basil-eyebrow flex items-center gap-2">
@@ -275,7 +275,7 @@ export default function ProjectsPage() {
             Project Truth Layer
           </p>
           <h1 className="basil-display text-3xl sm:text-5xl leading-[1.05] text-foreground">
-            What you are actually working on<span className="text-gold">.</span>
+            What you are actually working on<span className="text-[var(--w-carbon)]">.</span>
           </h1>
           <p className="text-sm text-muted-foreground max-w-2xl leading-relaxed">
             Basil clusters Slack, Linear, actions, decisions, memory, and AI work into one canonical project ledger. No more six assistants each inventing their own universe.
@@ -373,7 +373,7 @@ export default function ProjectsPage() {
               <select
                 value={createForm.priority}
                 onChange={(e) => setCreateForm((f) => ({ ...f, priority: e.target.value as CreateProjectForm["priority"] }))}
-                className="mt-1 block w-full rounded-md border border-input bg-background px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-gold"
+                className="mt-1 block w-full rounded-md border border-input bg-background px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-[var(--w-carbon)]"
               >
                 <option value="critical">Critical</option>
                 <option value="high">High</option>
@@ -435,7 +435,7 @@ export default function ProjectsPage() {
               <Button
                 size="sm"
                 onClick={() => setShowCreateForm(true)}
-                className="bg-gold text-[oklch(0.18_0.04_250)] hover:bg-[oklch(0.78_0.12_85)] gap-2"
+                className="bg-[var(--w-carbon)] text-[oklch(0.18_0.04_250)] hover:bg-[oklch(0.78_0.12_85)] gap-2"
               >
                 <Plus className="h-4 w-4" />
                 Create project manually

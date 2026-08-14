@@ -106,10 +106,10 @@ const sections: SectionDef[] = [
     key: "meetingsNeedingPrep",
     label: "Meetings Needing Prep",
     icon: Calendar,
-    bg: "bg-gold/[0.04]",
-    accent: "bg-gold",
+    bg: "bg-[var(--w-carbon-tint)]]",
+    accent: "bg-[var(--w-carbon)]",
     fg: "text-[oklch(0.58_0.15_85)]",
-    ring: "ring-gold/25",
+    ring: "ring-[var(--w-rule)]",
   },
   {
     key: "peopleAndAccounts",
@@ -470,7 +470,7 @@ export default function BriefingPage() {
   const loadingLabel = BRIEFING_TYPES.find(t => t.id === (loadingType ?? briefingType))?.label ?? "briefing";
 
   return (
-    <div className="p-4 sm:p-6 lg:p-8 space-y-8 max-w-5xl mx-auto">
+    <div className="wire p-4 sm:p-6 lg:p-8 space-y-8 max-w-5xl mx-auto">
 
       {/* ── Sticky generation banner ─────────────────────────────────────────── */}
       {loading && (
@@ -500,7 +500,7 @@ export default function BriefingPage() {
           </p>
           <h1 className="basil-display text-3xl sm:text-5xl lg:text-6xl leading-[1.05] text-foreground">
             {today.split(",")[0]}
-            <span className="text-gold">.</span>
+            <span className="text-[var(--w-carbon)]">.</span>
           </h1>
           <p className="text-base text-muted-foreground">
             {today.split(",").slice(1).join(",").trim()} · Prepared by Basil
@@ -510,7 +510,7 @@ export default function BriefingPage() {
           onClick={() => generate()}
           disabled={loading}
           size="lg"
-          className="bg-gold text-[oklch(0.18_0.04_250)] hover:bg-[oklch(0.78_0.12_85)] gap-2 shadow-md shadow-gold/20 h-11 px-5"
+          className="bg-[var(--w-carbon)] text-white hover:bg-[var(--w-ink)] gap-2 h-11 px-5"
         >
           {loading ? (
             <>
@@ -543,12 +543,12 @@ export default function BriefingPage() {
                 "inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[12px] font-medium",
                 "transition-all duration-150 border",
                 active
-                  ? "bg-gold/[0.12] text-gold border-gold/25"
+                  ? "bg-[var(--w-carbon-tint)]] text-[var(--w-carbon)] border-[var(--w-rule)]"
                   : "bg-transparent text-muted-foreground/60 border-border/30 hover:border-border/60 hover:text-muted-foreground"
               )}
             >
               {active && (
-                <span className="h-1.5 w-1.5 rounded-full bg-gold shrink-0" />
+                <span className="h-1.5 w-1.5 rounded-full bg-[var(--w-carbon)] shrink-0" />
               )}
               {t.label}
             </button>
@@ -647,19 +647,19 @@ export default function BriefingPage() {
            pulled from calendar, email, Slack, actions, decisions, and projects.
       ──────────────────────────────────────────────────────────────────────── */}
       {(stigLoading || stigRead) && (
-        <div className="rounded-2xl border border-gold/20 bg-gold/[0.03] overflow-hidden">
+        <div className="rounded-2xl border border-[var(--w-rule)] bg-[var(--w-carbon-tint)]] overflow-hidden">
           {/* Header row */}
           <button
             onClick={() => setStigExpanded((v) => !v)}
-            className="w-full flex items-center justify-between gap-3 px-5 py-3.5 hover:bg-gold/[0.04] transition-colors"
+            className="w-full flex items-center justify-between gap-3 px-5 py-3.5 hover:bg-[var(--w-carbon-tint)]] transition-colors"
           >
             <span className="flex items-center gap-2.5">
               {stigLoading ? (
-                <Radio className="h-3.5 w-3.5 animate-pulse text-gold" />
+                <Radio className="h-3.5 w-3.5 animate-pulse text-[var(--w-carbon)]" />
               ) : (
-                <Brain className="h-3.5 w-3.5 text-gold" />
+                <Brain className="h-3.5 w-3.5 text-[var(--w-carbon)]" />
               )}
-              <span className="text-[12px] font-semibold tracking-wide uppercase text-gold">
+              <span className="text-[12px] font-semibold tracking-wide uppercase text-[var(--w-carbon)]">
                 Basil&apos;s Operational Read
               </span>
               {stigLoading && (
@@ -690,13 +690,13 @@ export default function BriefingPage() {
                 </div>
               )}
               {stigRead && (
-                <div className="prose prose-sm max-w-none text-[13px] text-foreground/80 leading-relaxed [&_h2]:text-xs [&_h2]:font-semibold [&_h2]:uppercase [&_h2]:tracking-wider [&_h2]:text-gold [&_h2]:mt-4 [&_h2]:mb-1 [&_ul]:pl-4 [&_li]:my-0.5">
+                <div className="prose prose-sm max-w-none text-[13px] text-foreground/80 leading-relaxed [&_h2]:text-xs [&_h2]:font-semibold [&_h2]:uppercase [&_h2]:tracking-wider [&_h2]:text-[var(--w-carbon)] [&_h2]:mt-4 [&_h2]:mb-1 [&_ul]:pl-4 [&_li]:my-0.5">
                   {stigRead.briefing.split("\n").map((line, i) => {
                     const trimmed = line.trim();
                     if (!trimmed) return <br key={i} />;
                     if (trimmed.startsWith("## ")) {
                       return (
-                        <h2 key={i} className="text-xs font-semibold uppercase tracking-wider text-gold mt-4 mb-1 first:mt-0">
+                        <h2 key={i} className="text-xs font-semibold uppercase tracking-wider text-[var(--w-carbon)] mt-4 mb-1 first:mt-0">
                           {trimmed.replace(/^## /, "")}
                         </h2>
                       );
@@ -915,8 +915,8 @@ export default function BriefingPage() {
             }}
           />
           <div className="relative">
-            <div className="h-14 w-14 rounded-xl bg-gold/10 flex items-center justify-center mx-auto mb-5 ring-1 ring-gold/20">
-              <Newspaper className="h-6 w-6 text-gold/70" />
+            <div className="h-14 w-14 rounded-xl bg-[var(--w-carbon-tint)] flex items-center justify-center mx-auto mb-5 ring-1 ring-[var(--w-rule)]">
+              <Newspaper className="h-6 w-6 text-[var(--w-carbon)]/70" />
             </div>
             <h2 className="basil-display text-2xl mb-2">Ready for your briefing</h2>
             <p className="text-sm text-muted-foreground max-w-xs mx-auto leading-relaxed">

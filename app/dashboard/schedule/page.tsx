@@ -419,7 +419,7 @@ export default function SchedulePage() {
     : getTodayISO();
 
   return (
-    <div className="h-full flex flex-col overflow-hidden">
+    <div className="wire h-full flex flex-col overflow-hidden">
       <NewEventDialog
         open={newEventOpen}
         onOpenChange={setNewEventOpen}
@@ -442,7 +442,7 @@ export default function SchedulePage() {
       )}
       {/* ── Top bar ──────────────────────────────────────────────────────── */}
       <div className="flex flex-wrap items-center gap-x-3 gap-y-1 px-4 py-2 min-h-12 border-b border-border/40 shrink-0 bg-background/80 backdrop-blur-sm">
-        <CalendarPlus className="h-4 w-4 text-gold shrink-0" />
+        <CalendarPlus className="h-4 w-4 text-[var(--w-carbon)] shrink-0" />
         <span className="font-semibold text-sm">Schedule</span>
 
         <Button
@@ -537,9 +537,9 @@ export default function SchedulePage() {
                       onClick={() => setSelectedDay(day)}
                       className={`h-7 w-full rounded flex flex-col items-center justify-center text-xs font-medium relative transition-colors
                         ${isSelected
-                          ? "bg-gold text-[oklch(0.18_0.04_250)]"
+                          ? "bg-[var(--w-carbon)] text-[oklch(0.18_0.04_250)]"
                           : isToday
-                            ? "ring-1 ring-gold text-[oklch(0.55_0.15_85)] font-bold"
+                            ? "ring-1 ring-[var(--w-carbon)] text-[var(--w-carbon)] font-bold"
                             : "text-foreground hover:bg-accent/50"
                         }`}
                     >
@@ -547,7 +547,7 @@ export default function SchedulePage() {
                       {/* Event indicator dots */}
                       {(hasCal || hasProp) && !isSelected && (
                         <div className="flex gap-0.5 absolute bottom-0.5">
-                          {hasCal && <span className="w-1 h-1 rounded-full bg-gold/70" />}
+                          {hasCal && <span className="w-1 h-1 rounded-full bg-[var(--w-carbon-tint)]" />}
                           {hasProp && <span className="w-1 h-1 rounded-full bg-signal-warning" />}
                         </div>
                       )}
@@ -675,7 +675,7 @@ export default function SchedulePage() {
                         form?.requestSubmit();
                       });
                     }}
-                    className="text-xs px-2 py-1 rounded-md border border-gold/25 bg-gold/5 text-[oklch(0.55_0.12_85)] hover:bg-gold/15 transition-colors text-left leading-tight"
+                    className="text-xs px-2 py-1 rounded-md border border-[var(--w-rule)] bg-[var(--w-carbon-tint)] text-[oklch(0.55_0.12_85)] hover:bg-[var(--w-carbon-tint)] transition-colors text-left leading-tight"
                   >
                     {q}
                   </button>
@@ -697,7 +697,7 @@ export default function SchedulePage() {
                   type="submit"
                   size="sm"
                   disabled={basilLoading || !basilInput.trim()}
-                  className="h-6 text-xs shrink-0 bg-gold text-[oklch(0.18_0.04_250)] hover:bg-[oklch(0.78_0.12_85)] gap-1 px-2"
+                  className="h-6 text-xs shrink-0 bg-[var(--w-carbon)] text-[oklch(0.18_0.04_250)] hover:bg-[oklch(0.78_0.12_85)] gap-1 px-2"
                 >
                   {basilLoading ? <Loader2 className="h-3 w-3 animate-spin" /> : <Send className="h-3 w-3" />}
                   Send

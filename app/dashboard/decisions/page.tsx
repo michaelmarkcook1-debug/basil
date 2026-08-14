@@ -733,11 +733,11 @@ export default function DecisionsPage() {
   const superseded = filtered.filter((d) => d.status === "superseded");
 
   return (
-    <div className="p-4 sm:p-6 lg:p-8 space-y-6">
+    <div className="wire p-4 sm:p-6 lg:p-8 space-y-6">
       <header className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-semibold tracking-tight flex items-center gap-2">
-            <Scale className="h-6 w-6 text-gold" />
+            <Scale className="h-6 w-6 text-[var(--w-carbon)]" />
             Decision Log
           </h1>
           <p className="text-sm text-muted-foreground mt-1">
@@ -756,7 +756,7 @@ export default function DecisionsPage() {
       </header>
 
       {form.showForm && (
-        <Card className="border-gold/30">
+        <Card className="border-[var(--w-rule)]">
           <CardContent className="p-4 space-y-3">
             {/* Context banner when arriving from Actions page */}
             {sourceActionId && (
@@ -810,7 +810,7 @@ export default function DecisionsPage() {
               <Button
                 size="sm"
                 onClick={handleAdd}
-                className="bg-gold text-[oklch(0.18_0.04_250)] hover:bg-[oklch(0.78_0.12_85)]"
+                className="bg-[var(--w-carbon)] text-[oklch(0.18_0.04_250)] hover:bg-[oklch(0.78_0.12_85)]"
               >
                 Save
               </Button>

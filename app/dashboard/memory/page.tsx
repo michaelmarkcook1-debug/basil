@@ -55,8 +55,8 @@ const KIND_STYLE: Record<
   context: {
     Icon: Compass,
     text: "text-[oklch(0.58_0.15_85)]",
-    ring: "ring-gold/50",
-    bg: "bg-gold/[0.05]",
+    ring: "ring-[var(--w-rule)]",
+    bg: "bg-[var(--w-carbon-tint)]]",
     hint: "Active situation or ongoing thread",
   },
   fact: {
@@ -391,7 +391,7 @@ export default function MemoryPage() {
   }
 
   return (
-    <div className="p-4 sm:p-6 lg:p-8 space-y-6 max-w-[1100px] mx-auto">
+    <div className="wire p-4 sm:p-6 lg:p-8 space-y-6 max-w-[1100px] mx-auto">
       <header className="space-y-2">
         <p className="basil-eyebrow flex items-center gap-2">
           <Brain className="h-3 w-3" />
@@ -399,8 +399,8 @@ export default function MemoryPage() {
         </p>
         <h1 className="basil-display text-2xl sm:text-4xl lg:text-5xl leading-[1.05] text-foreground">
           What Basil{" "}
-          <span className="italic text-gold">remembers</span>
-          <span className="text-gold">.</span>
+          <span className="italic text-[var(--w-carbon)]">remembers</span>
+          <span className="text-[var(--w-carbon)]">.</span>
         </h1>
         <p className="text-sm text-muted-foreground max-w-2xl leading-relaxed">
           Everything Basil has learned about you, the people around you, and how
@@ -435,7 +435,7 @@ export default function MemoryPage() {
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             placeholder="Search memories…"
-            className="w-full h-10 rounded-lg border border-border bg-background pl-9 pr-3 text-[16px] sm:text-sm focus:outline-none focus:border-gold/40 focus:ring-4 focus:ring-gold/10"
+            className="w-full h-10 rounded-lg border border-border bg-background pl-9 pr-3 text-[16px] sm:text-sm focus:outline-none focus:border-[var(--w-rule)] focus:ring-4 focus:ring-[var(--w-rule)]"
           />
         </div>
         <button
@@ -464,7 +464,7 @@ export default function MemoryPage() {
         </button>
         <button
           onClick={() => setShowForm((v) => !v)}
-          className="inline-flex items-center gap-1.5 rounded-lg bg-gold text-[oklch(0.18_0.04_250)] text-sm font-semibold px-3.5 py-2 hover:brightness-105 transition"
+          className="inline-flex items-center gap-1.5 rounded-lg bg-[var(--w-carbon)] text-[oklch(0.18_0.04_250)] text-sm font-semibold px-3.5 py-2 hover:brightness-105 transition"
         >
           <Plus className="h-4 w-4" />
           {showForm ? "Cancel" : "Add memory"}
@@ -619,7 +619,7 @@ export default function MemoryPage() {
                 onChange={(e) => { setImportText(e.target.value); setLoadedFileNames([]); }}
                 placeholder={"Paste a conversation here…\n\nWorks with:\n• ChatGPT, Claude.ai, Gemini, Copilot, Perplexity\n• Any plain-text conversation or document\n• Or upload files / folders above"}
                 rows={10}
-                className="w-full rounded-lg border border-border bg-background px-3.5 py-2.5 text-sm resize-y focus:outline-none focus:border-gold/40 focus:ring-4 focus:ring-gold/10 placeholder:text-muted-foreground/50 font-mono text-xs leading-relaxed"
+                className="w-full rounded-lg border border-border bg-background px-3.5 py-2.5 text-sm resize-y focus:outline-none focus:border-[var(--w-rule)] focus:ring-4 focus:ring-[var(--w-rule)] placeholder:text-muted-foreground/50 font-mono text-xs leading-relaxed"
               />
               {importError && (
                 <p className="text-xs text-signal-critical flex items-center gap-1.5">
@@ -631,7 +631,7 @@ export default function MemoryPage() {
                   <button
                     type="submit"
                     disabled={importing || filesLoading || importText.trim().length < 10}
-                    className="inline-flex items-center gap-1.5 rounded-lg bg-gold text-[oklch(0.18_0.04_250)] text-sm font-semibold px-4 py-2 hover:brightness-105 transition disabled:opacity-40"
+                    className="inline-flex items-center gap-1.5 rounded-lg bg-[var(--w-carbon)] text-[oklch(0.18_0.04_250)] text-sm font-semibold px-4 py-2 hover:brightness-105 transition disabled:opacity-40"
                   >
                     {importing ? (
                       <><Loader2 className="h-4 w-4 animate-spin" /> Extracting…</>
@@ -695,7 +695,7 @@ export default function MemoryPage() {
       ) : filtered.length === 0 ? (
         search || filter !== "all" ? (
           <div className="text-center py-16">
-            <Sparkles className="h-8 w-8 text-gold/50 mx-auto mb-3" />
+            <Sparkles className="h-8 w-8 text-[var(--w-carbon)]/50 mx-auto mb-3" />
             <p className="text-sm text-muted-foreground">No memories match that filter.</p>
           </div>
         ) : (
@@ -709,7 +709,7 @@ export default function MemoryPage() {
             <div className="flex items-center justify-center gap-3 flex-wrap">
               <button
                 onClick={() => setShowForm(true)}
-                className="inline-flex items-center gap-1.5 rounded-lg bg-gold text-[oklch(0.18_0.04_250)] text-sm font-semibold px-4 py-2 hover:brightness-105 transition"
+                className="inline-flex items-center gap-1.5 rounded-lg bg-[var(--w-carbon)] text-[oklch(0.18_0.04_250)] text-sm font-semibold px-4 py-2 hover:brightness-105 transition"
               >
                 <Plus className="h-4 w-4" />
                 Add memory
@@ -767,14 +767,14 @@ function TabChip({
         className={cn(
           "ml-1.5 inline-flex items-center justify-center h-4 min-w-4 rounded-full px-1 text-[12px] font-mono tabular-nums",
           active
-            ? "bg-gold/15 text-gold"
+            ? "bg-[var(--w-carbon-tint)] text-[var(--w-carbon)]"
             : "bg-muted text-muted-foreground"
         )}
       >
         {count}
       </span>
       {active && (
-        <span className="absolute -bottom-[1px] left-2 right-2 h-[2px] bg-gold rounded-full" />
+        <span className="absolute -bottom-[1px] left-2 right-2 h-[2px] bg-[var(--w-carbon)] rounded-full" />
       )}
     </button>
   );
@@ -886,7 +886,7 @@ function MemoryRow({
           value={editContent}
           onChange={(e) => setEditContent(e.target.value)}
           rows={2}
-          className="w-full rounded-md border border-border bg-background px-2.5 py-1.5 text-sm resize-none focus:outline-none focus:border-gold/40 focus:ring-2 focus:ring-gold/10"
+          className="w-full rounded-md border border-border bg-background px-2.5 py-1.5 text-sm resize-none focus:outline-none focus:border-[var(--w-rule)] focus:ring-2 focus:ring-[var(--w-rule)]"
           onKeyDown={(e) => {
             if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) saveEdit();
             if (e.key === "Escape") cancelEdit();
@@ -899,7 +899,7 @@ function MemoryRow({
             value={editEntity}
             onChange={(e) => setEditEntity(e.target.value)}
             placeholder={editKind === "person" ? "Person's name" : "Project / topic"}
-            className="w-full h-8 rounded-md border border-border bg-background px-2.5 text-sm focus:outline-none focus:border-gold/40"
+            className="w-full h-8 rounded-md border border-border bg-background px-2.5 text-sm focus:outline-none focus:border-[var(--w-rule)]"
           />
         )}
 
@@ -907,7 +907,7 @@ function MemoryRow({
           <button
             onClick={saveEdit}
             disabled={saving || !editContent.trim()}
-            className="inline-flex items-center gap-1 rounded-md bg-gold text-[oklch(0.18_0.04_250)] text-xs font-semibold px-3 py-1.5 hover:brightness-105 transition disabled:opacity-50"
+            className="inline-flex items-center gap-1 rounded-md bg-[var(--w-carbon)] text-[oklch(0.18_0.04_250)] text-xs font-semibold px-3 py-1.5 hover:brightness-105 transition disabled:opacity-50"
           >
             {saving ? <Loader2 className="h-3 w-3 animate-spin" /> : <Check className="h-3 w-3" />}
             Save
@@ -1063,10 +1063,10 @@ function NewMemoryForm({
   };
 
   return (
-    <Card className="border-gold/30">
+    <Card className="border-[var(--w-rule)]">
       <CardHeader className="pb-2">
         <CardTitle className="text-sm font-medium flex items-center gap-2">
-          <Sparkles className="h-4 w-4 text-gold" />
+          <Sparkles className="h-4 w-4 text-[var(--w-carbon)]" />
           Tell Basil something new
         </CardTitle>
       </CardHeader>
@@ -1102,7 +1102,7 @@ function NewMemoryForm({
             onChange={(e) => setContent(e.target.value)}
             placeholder="e.g. Michael prefers Zoom over Google Meet for all video calls."
             rows={3}
-            className="w-full rounded-lg border border-border bg-background px-3 py-2 text-[16px] sm:text-sm resize-y focus:outline-none focus:border-gold/40 focus:ring-4 focus:ring-gold/10"
+            className="w-full rounded-lg border border-border bg-background px-3 py-2 text-[16px] sm:text-sm resize-y focus:outline-none focus:border-[var(--w-rule)] focus:ring-4 focus:ring-[var(--w-rule)]"
             autoFocus
           />
           {(kind === "person" || kind === "context") && (
@@ -1115,7 +1115,7 @@ function NewMemoryForm({
                   ? "Who is this about? (e.g. a teammate's name)"
                   : "What is this about? (e.g. a product launch)"
               }
-              className="w-full h-10 rounded-lg border border-border bg-background px-3 text-[16px] sm:text-sm focus:outline-none focus:border-gold/40 focus:ring-4 focus:ring-gold/10"
+              className="w-full h-10 rounded-lg border border-border bg-background px-3 text-[16px] sm:text-sm focus:outline-none focus:border-[var(--w-rule)] focus:ring-4 focus:ring-[var(--w-rule)]"
             />
           )}
           {saveError && (
@@ -1127,7 +1127,7 @@ function NewMemoryForm({
             <button
               type="submit"
               disabled={!content.trim() || saving}
-              className="inline-flex items-center gap-1.5 rounded-md bg-gold text-[oklch(0.18_0.04_250)] text-sm font-semibold px-3.5 py-2 hover:brightness-105 transition disabled:opacity-50"
+              className="inline-flex items-center gap-1.5 rounded-md bg-[var(--w-carbon)] text-[oklch(0.18_0.04_250)] text-sm font-semibold px-3.5 py-2 hover:brightness-105 transition disabled:opacity-50"
             >
               {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />}
               Remember
