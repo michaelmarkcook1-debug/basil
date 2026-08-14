@@ -157,8 +157,8 @@ function IssueCard({
       aria-label={`${issue.identifier} ${issue.title}`}
       className={cn(
         "rounded-lg border border-border/60 cursor-pointer transition-all hover:border-border group",
-        "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gold/60",
-        selected && "border-gold/40 bg-gold/[0.03]",
+        "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--w-rule)]",
+        selected && "border-[var(--w-rule)] bg-[var(--w-carbon-tint)]]",
         isDone && "opacity-55 hover:opacity-80"
       )}
       onClick={() => onSelect(issue)}
@@ -212,7 +212,7 @@ function IssueCard({
           {issue.assignee && (
             <span
               title={`Assigned to ${issue.assignee.name}`}
-              className="hidden sm:inline-flex h-5 w-5 items-center justify-center rounded-full bg-gold/15 text-[10px] font-semibold text-[oklch(0.55_0.12_85)]"
+              className="hidden sm:inline-flex h-5 w-5 items-center justify-center rounded-full bg-[var(--w-carbon-tint)] text-[10px] font-semibold text-[oklch(0.55_0.12_85)]"
             >
               {issue.assignee.name.split(" ").map((w) => w[0]).join("").slice(0, 2).toUpperCase()}
             </span>
@@ -305,7 +305,7 @@ function NotificationCard({
         "rounded-lg border transition-all",
         isRead
           ? "border-border/40 bg-background/50"
-          : "border-gold/25 bg-gold/[0.03]"
+          : "border-[var(--w-rule)] bg-[var(--w-carbon-tint)]]"
       )}
     >
       <CardContent className="p-3 space-y-2">
@@ -315,7 +315,7 @@ function NotificationCard({
           <span
             className={cn(
               "mt-1.5 h-1.5 w-1.5 rounded-full shrink-0",
-              isRead ? "bg-transparent" : "bg-gold"
+              isRead ? "bg-transparent" : "bg-[var(--w-carbon)]"
             )}
           />
           <div className="flex-1 min-w-0 space-y-0.5">
@@ -339,7 +339,7 @@ function NotificationCard({
                 href={notif.issue.url}
                 target="_blank"
                 rel="noopener noreferrer"
-                className="block text-sm font-medium text-foreground hover:text-gold transition-colors truncate"
+                className="block text-sm font-medium text-foreground hover:text-[var(--w-carbon)] transition-colors truncate"
               >
                 <span className="font-mono text-xs text-muted-foreground mr-1.5">
                   {notif.issue.identifier}
@@ -438,7 +438,7 @@ function InboxReplyPanel({
   }
 
   return (
-    <Card className="rounded-lg border border-gold/30 bg-gold/[0.02]">
+    <Card className="rounded-lg border border-[var(--w-rule)] bg-[var(--w-carbon-tint)]]">
       <CardContent className="p-3 space-y-2">
         <div className="flex items-center justify-between">
           <p className="text-xs font-medium text-muted-foreground">
@@ -450,7 +450,7 @@ function InboxReplyPanel({
           </button>
         </div>
         {notif.comment?.body && (
-          <blockquote className="border-l-2 border-gold/40 pl-2 text-xs text-muted-foreground/70 line-clamp-2">
+          <blockquote className="border-l-2 border-[var(--w-rule)] pl-2 text-xs text-muted-foreground/70 line-clamp-2">
             {notif.comment.body}
           </blockquote>
         )}
@@ -475,7 +475,7 @@ function InboxReplyPanel({
             className={cn(
               "h-9 w-9 rounded-md border flex items-center justify-center shrink-0 transition-colors",
               body.trim()
-                ? "border-gold/40 bg-gold/10 text-[oklch(0.55_0.15_85)] hover:bg-gold/20"
+                ? "border-[var(--w-rule)] bg-[var(--w-carbon-tint)] text-[oklch(0.55_0.15_85)] hover:bg-[var(--w-carbon-tint)]"
                 : "border-border text-muted-foreground/40"
             )}
             title="Send (⌘↵)"
@@ -884,7 +884,7 @@ export default function LinearPage() {
     return (
       <div className="p-4 sm:p-6 lg:p-8">
         <header className="flex items-center gap-3 mb-8">
-          <Triangle className="h-5 w-5 text-gold" />
+          <Triangle className="h-5 w-5 text-[var(--w-carbon)]" />
           <div>
             <h1 className="text-2xl font-semibold tracking-tight">Linear</h1>
             <p className="text-sm text-muted-foreground mt-0.5">Issues, projects and blockers</p>
@@ -896,7 +896,7 @@ export default function LinearPage() {
             <p className="text-sm font-medium">Linear not connected</p>
             <p className="text-sm text-muted-foreground">
               Add your Linear API key in{" "}
-              <a href="/dashboard/settings" className="text-gold hover:underline">
+              <a href="/dashboard/settings" className="text-[var(--w-carbon)] hover:underline">
                 Settings
               </a>{" "}
               to get started.
@@ -910,14 +910,14 @@ export default function LinearPage() {
   const unreadCount = notifications.filter((n) => !n.readAt).length;
 
   return (
-    <div className="p-4 sm:p-6 lg:p-8 space-y-5">
+    <div className="wire p-4 sm:p-6 lg:p-8 space-y-5">
       {/* Forward toast */}
       <ForwardToast visible={forwardToastVisible} />
 
       {/* Header */}
       <header className="flex items-start justify-between gap-4">
         <div className="flex items-center gap-3">
-          <Triangle className="h-5 w-5 text-gold shrink-0" />
+          <Triangle className="h-5 w-5 text-[var(--w-carbon)] shrink-0" />
           <div>
             <h1 className="text-2xl font-semibold tracking-tight">Linear</h1>
             <p className="text-sm text-muted-foreground mt-0.5">Issues, projects and blockers</p>
@@ -936,7 +936,7 @@ export default function LinearPage() {
           {activeTab === "issues" && (
             <Button
               size="sm"
-              className="bg-gold hover:bg-[oklch(0.78_0.12_85)] text-[oklch(0.18_0.04_250)] gap-1.5"
+              className="bg-[var(--w-carbon)] hover:bg-[var(--w-ink)] text-white gap-1.5"
               onClick={() => {
                 setShowNewForm((v) => !v);
                 if (teams.length > 0 && !newForm.teamId) {
@@ -958,7 +958,7 @@ export default function LinearPage() {
           className={cn(
             "flex items-center gap-1.5 px-3 py-2 text-sm font-medium border-b-2 transition-colors -mb-px",
             activeTab === "issues"
-              ? "border-gold text-foreground"
+              ? "border-[var(--w-carbon)] text-foreground"
               : "border-transparent text-muted-foreground hover:text-foreground"
           )}
         >
@@ -970,14 +970,14 @@ export default function LinearPage() {
           className={cn(
             "flex items-center gap-1.5 px-3 py-2 text-sm font-medium border-b-2 transition-colors -mb-px",
             activeTab === "inbox"
-              ? "border-gold text-foreground"
+              ? "border-[var(--w-carbon)] text-foreground"
               : "border-transparent text-muted-foreground hover:text-foreground"
           )}
         >
           <div className="relative">
             <Bell className="h-3.5 w-3.5" />
             {unreadCount > 0 && (
-              <span className="absolute -top-1 -right-1.5 h-3.5 w-3.5 rounded-full bg-gold text-[oklch(0.18_0.04_250)] text-[8px] font-bold flex items-center justify-center">
+              <span className="absolute -top-1 -right-1.5 h-3.5 w-3.5 rounded-full bg-[var(--w-carbon)] text-white text-[8px] font-bold flex items-center justify-center">
                 {unreadCount > 9 ? "9+" : unreadCount}
               </span>
             )}
@@ -1058,7 +1058,7 @@ export default function LinearPage() {
 
       {/* New issue form */}
       {showNewForm && (
-        <Card className="rounded-lg border border-gold/30">
+        <Card className="rounded-lg border border-[var(--w-rule)]">
           <CardContent className="p-4 space-y-3">
             <div className="flex items-center justify-between">
               <p className="text-sm font-medium">New Issue</p>
@@ -1172,7 +1172,7 @@ export default function LinearPage() {
                 size="sm"
                 disabled={creating || !newForm.title.trim() || !newForm.teamId}
                 onClick={() => void handleCreate()}
-                className="bg-gold text-[oklch(0.18_0.04_250)] hover:bg-[oklch(0.78_0.12_85)]"
+                className="bg-[var(--w-carbon)] text-white hover:bg-[var(--w-ink)]"
               >
                 {creating ? "Creating…" : "Create"}
               </Button>
@@ -1196,7 +1196,7 @@ export default function LinearPage() {
           value={search}
           onChange={(e) => setSearch(e.target.value)}
           placeholder="Search issues by title, identifier, team, or assignee…"
-          className="w-full h-10 rounded-md border border-border bg-background pl-10 pr-3 text-sm outline-none focus:ring-2 focus:ring-gold/40"
+          className="w-full h-10 rounded-md border border-border bg-background pl-10 pr-3 text-sm outline-none focus:ring-2 focus:ring-[var(--w-rule)]"
         />
         {search && (
           <button
@@ -1249,7 +1249,7 @@ export default function LinearPage() {
           className={cn(
             "h-9 rounded-md border px-3 text-sm font-medium transition-colors",
             assigneeIsMe
-              ? "border-gold/40 bg-gold/10 text-[oklch(0.55_0.15_85)]"
+              ? "border-[var(--w-rule)] bg-[var(--w-carbon-tint)] text-[oklch(0.55_0.15_85)]"
               : "border-border bg-background text-muted-foreground hover:text-foreground"
           )}
         >
@@ -1326,7 +1326,7 @@ export default function LinearPage() {
                     href={selectedIssue.url}
                     target="_blank"
                     rel="noopener noreferrer"
-                    className="text-muted-foreground/60 hover:text-gold transition-colors"
+                    className="text-muted-foreground/60 hover:text-[var(--w-carbon)] transition-colors"
                     title="Open in Linear"
                     aria-label="Open issue in Linear"
                   >
@@ -1360,7 +1360,7 @@ export default function LinearPage() {
                 />
               ) : (
                 <button
-                  className="w-full text-left text-sm font-medium leading-snug hover:text-gold transition-colors group flex items-start gap-1"
+                  className="w-full text-left text-sm font-medium leading-snug hover:text-[var(--w-carbon)] transition-colors group flex items-start gap-1"
                   onClick={() => setEditingTitle(true)}
                   title="Click to edit title"
                 >
@@ -1421,7 +1421,7 @@ export default function LinearPage() {
                         className={cn(
                           "flex items-center gap-1.5 rounded-md border px-2.5 py-1 text-xs font-medium transition-colors",
                           active
-                            ? "border-gold/40 bg-gold/10 text-foreground"
+                            ? "border-[var(--w-rule)] bg-[var(--w-carbon-tint)] text-foreground"
                             : "border-border text-muted-foreground hover:text-foreground hover:border-border/80"
                         )}
                       >
@@ -1518,7 +1518,7 @@ export default function LinearPage() {
                   size="sm"
                   disabled={saving}
                   onClick={() => void handleSave()}
-                  className="bg-gold text-[oklch(0.18_0.04_250)] hover:bg-[oklch(0.78_0.12_85)]"
+                  className="bg-[var(--w-carbon)] text-white hover:bg-[var(--w-ink)]"
                 >
                   {saving ? "Saving…" : "Save"}
                 </Button>
@@ -1590,7 +1590,7 @@ export default function LinearPage() {
                       <div key={c.id} className="space-y-1">
                         <div className="flex items-center gap-2">
                           {/* Avatar initial */}
-                          <span className="inline-flex h-5 w-5 items-center justify-center rounded-full bg-gold/15 text-xs font-semibold text-[oklch(0.55_0.15_85)] shrink-0">
+                          <span className="inline-flex h-5 w-5 items-center justify-center rounded-full bg-[var(--w-carbon-tint)] text-xs font-semibold text-[oklch(0.55_0.15_85)] shrink-0">
                             {c.user.name.charAt(0).toUpperCase()}
                           </span>
                           <span className="text-xs font-medium text-foreground">{c.user.name}</span>
@@ -1632,7 +1632,7 @@ export default function LinearPage() {
                     className={cn(
                       "h-9 w-9 rounded-md border flex items-center justify-center shrink-0 transition-colors",
                       replyBody.trim()
-                        ? "border-gold/40 bg-gold/10 text-[oklch(0.55_0.15_85)] hover:bg-gold/20"
+                        ? "border-[var(--w-rule)] bg-[var(--w-carbon-tint)] text-[oklch(0.55_0.15_85)] hover:bg-[var(--w-carbon-tint)]"
                         : "border-border text-muted-foreground/40"
                     )}
                     title="Send comment (⌘↵)"

@@ -158,7 +158,7 @@ function EventBlock({
   const top    = eventTop(displayStart);
   const height = eventHeight(displayStart, displayEnd);
 
-  let bg   = "bg-gold/20 border-gold/50";
+  let bg   = "bg-[var(--w-carbon-tint)] border-[var(--w-rule)]";
   let text = "text-[oklch(0.4_0.1_85)] dark:text-[oklch(0.8_0.12_85)]";
   const lower = event.summary.toLowerCase();
   if (lower.includes("focus") || lower.includes("deep work")) {
@@ -363,7 +363,7 @@ function EventDetailPopover({
       {/* Popover card */}
       <div className="relative w-full max-w-sm bg-card border border-border rounded-xl shadow-2xl overflow-hidden">
         {/* Colour accent bar */}
-        <div className="h-1 w-full bg-gold" />
+        <div className="h-1 w-full bg-[var(--w-carbon)]" />
 
         <div className="p-5 space-y-4">
           {/* Header */}
@@ -453,7 +453,7 @@ function EventDetailPopover({
 
           {/* Time */}
           <div className="flex items-center gap-2 text-sm text-muted-foreground">
-            <Clock className="h-4 w-4 shrink-0 text-gold" />
+            <Clock className="h-4 w-4 shrink-0 text-[var(--w-carbon)]" />
             <span>
               {minToTime(startMin)} – {minToTime(endMin)}
               <span className="ml-1.5 text-xs opacity-70">({durationLabel(dur)})</span>
@@ -463,7 +463,7 @@ function EventDetailPopover({
           {/* Location */}
           {event.location && !event.videoLink && (
             <div className="flex items-start gap-2 text-sm text-muted-foreground">
-              <MapPin className="h-4 w-4 shrink-0 mt-0.5 text-gold" />
+              <MapPin className="h-4 w-4 shrink-0 mt-0.5 text-[var(--w-carbon)]" />
               <span className="leading-snug">{event.location}</span>
             </div>
           )}
@@ -476,7 +476,7 @@ function EventDetailPopover({
                 target="_blank"
                 rel="noopener noreferrer"
                 className="flex-1 flex items-center justify-center gap-1.5 h-9 rounded-md text-sm font-medium
-                  bg-gold text-[oklch(0.18_0.04_250)] hover:bg-[oklch(0.78_0.12_85)] transition-colors"
+                  bg-[var(--w-carbon)] text-white hover:bg-[oklch(0.78_0.12_85)] transition-colors"
               >
                 <Video className="h-4 w-4" />
                 {videoLabel}
@@ -532,7 +532,7 @@ function EventDetailPopover({
               {hasMoreDesc && (
                 <button
                   onClick={() => setDescExpanded(!descExpanded)}
-                  className="flex items-center gap-0.5 text-xs text-[oklch(0.55_0.12_85)] hover:text-gold transition-colors"
+                  className="flex items-center gap-0.5 text-xs text-[oklch(0.55_0.12_85)] hover:text-[var(--w-carbon)] transition-colors"
                 >
                   {descExpanded ? <><ChevronUp className="h-3 w-3" /> Show less</> : <><ChevronDown className="h-3 w-3" /> Show more</>}
                 </button>
@@ -548,8 +548,8 @@ function EventDetailPopover({
               href={`/dashboard/meetings/${event.id}`}
               onClick={onClose}
               className="flex items-center justify-center gap-2 w-full h-9 rounded-md text-sm font-medium
-                bg-gold/10 text-[oklch(0.55_0.12_85)] border border-gold/25
-                hover:bg-gold/20 transition-colors"
+                bg-[var(--w-carbon-tint)] text-[oklch(0.55_0.12_85)] border border-[var(--w-rule)]
+                hover:bg-[var(--w-carbon-tint)] transition-colors"
             >
               <Sparkles className="h-3.5 w-3.5" />
               Create meeting brief
@@ -574,7 +574,7 @@ function EventDetailPopover({
                     rows={3}
                     placeholder="Type your message…"
                     className="w-full text-sm rounded-md border border-border bg-muted/30 px-3 py-2
-                      outline-none resize-none focus:ring-2 focus:ring-gold/40
+                      outline-none resize-none focus:ring-2 focus:ring-[var(--w-rule)]
                       placeholder:text-muted-foreground/40"
                   />
                   <div className="flex items-center justify-between gap-2">
@@ -591,7 +591,7 @@ function EventDetailPopover({
                       onClick={handleReply}
                       disabled={replySending || !replyMessage.trim()}
                       className="flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium
-                        bg-gold text-[oklch(0.18_0.04_250)]
+                        bg-[var(--w-carbon)] text-white
                         hover:bg-[oklch(0.78_0.12_85)] disabled:opacity-50 transition-colors"
                     >
                       {replySent ? <><Check className="h-3 w-3" /> Sent</> : replySending ? <Loader2 className="h-3 w-3 animate-spin" /> : <><Send className="h-3 w-3" /> Send</>}
@@ -620,7 +620,7 @@ function EventDetailPopover({
                     autoFocus
                     placeholder="email@example.com, another@example.com"
                     className="w-full text-sm rounded-md border border-border bg-muted/30 px-3 py-1.5
-                      outline-none focus:ring-2 focus:ring-gold/40
+                      outline-none focus:ring-2 focus:ring-[var(--w-rule)]
                       placeholder:text-muted-foreground/40"
                   />
                   <p className="text-xs text-muted-foreground">Separate multiple addresses with commas</p>
@@ -837,7 +837,7 @@ function SmartSlotPicker({
         type="button"
         onClick={findTimes}
         disabled={disabled}
-        className="flex items-center gap-1.5 text-xs font-medium text-[oklch(0.55_0.12_85)] hover:text-gold disabled:text-muted-foreground/40 disabled:cursor-not-allowed transition-colors"
+        className="flex items-center gap-1.5 text-xs font-medium text-[oklch(0.55_0.12_85)] hover:text-[var(--w-carbon)] disabled:text-muted-foreground/40 disabled:cursor-not-allowed transition-colors"
         title={emails.length === 0 ? "Add an attendee email first" : "Check everyone's calendars"}
       >
         {loading ? (
@@ -882,7 +882,7 @@ function SmartSlotPicker({
                       type="button"
                       onClick={() => onChoose(dateStr, startTime)}
                       title={tooltip}
-                      className="inline-flex items-center gap-1.5 rounded-md border border-gold/30 bg-gold/5 hover:bg-gold/15 px-2.5 py-1 text-xs font-medium text-[oklch(0.55_0.12_85)] transition-colors"
+                      className="inline-flex items-center gap-1.5 rounded-md border border-[var(--w-rule)] bg-[var(--w-carbon-tint)] hover:bg-[var(--w-carbon-tint)] px-2.5 py-1 text-xs font-medium text-[oklch(0.55_0.12_85)] transition-colors"
                     >
                       <Clock className="h-3 w-3" />
                       {slot.label}
@@ -1027,7 +1027,7 @@ function EditModal({
               onChange={(e) => onChange({ addVideoCall: e.target.checked })}
               className="h-4 w-4 rounded border-input accent-gold"
             />
-            <Video className="h-3.5 w-3.5 text-gold" />
+            <Video className="h-3.5 w-3.5 text-[var(--w-carbon)]" />
             <span className="text-xs font-medium">Add video call</span>
             {!state.videoLink.trim() && state.addVideoCall && (
               <span className="text-xs text-muted-foreground">
@@ -1059,7 +1059,7 @@ function EditModal({
           <Button
             onClick={onSave}
             disabled={saving || !state.title.trim()}
-            className="flex-1 h-9 bg-gold text-[oklch(0.18_0.04_250)] hover:bg-[oklch(0.78_0.12_85)] gap-1.5"
+            className="flex-1 h-9 bg-[var(--w-carbon)] text-white hover:bg-[oklch(0.78_0.12_85)] gap-1.5"
           >
             {saving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Save className="h-3.5 w-3.5" />}
             {isNew ? "Create" : "Save changes"}
@@ -1352,7 +1352,7 @@ export function DayView({
         </p>
         <button
           onClick={() => openNew()}
-          className="flex items-center gap-1.5 text-xs font-medium px-2.5 py-1 rounded-md border border-gold/30 text-[oklch(0.55_0.12_85)] hover:bg-gold/10 hover:text-gold transition-colors"
+          className="flex items-center gap-1.5 text-xs font-medium px-2.5 py-1 rounded-md border border-[var(--w-rule)] text-[oklch(0.55_0.12_85)] hover:bg-[var(--w-carbon-tint)] hover:text-[var(--w-carbon)] transition-colors"
         >
           <Plus className="h-3.5 w-3.5" /> Add event
         </button>

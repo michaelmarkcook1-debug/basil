@@ -464,12 +464,12 @@ function StigApiTab({
   return (
     <div className="space-y-4">
       {/* ── Brain status card ────────────────────────────────────────────── */}
-      <Card className="border-gold/30 bg-gold/[0.04] shadow-sm">
+      <Card className="border-[var(--w-rule)] bg-[var(--w-carbon-tint)]] shadow-sm">
         <CardHeader className="pb-3">
           <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
             <div>
               <CardTitle className="text-base font-semibold flex items-center gap-2">
-                <Bot className="h-4 w-4 text-[oklch(0.58_0.15_85)]" />
+                <Bot className="h-4 w-4 text-[var(--w-carbon)]" />
                 The Stig API
               </CardTitle>
               <p className="mt-1 text-xs text-muted-foreground">
@@ -885,7 +885,7 @@ function ConnectionCard({
   const connected = isConnected(app.status);
 
   return (
-    <Card className={`shadow-sm overflow-hidden ${app.priority === "primary" ? "border-l-4 border-l-emerald-500" : app.priority === "core" ? "border-l-4 border-l-blue-400" : "border-l-4 border-l-slate-200"}`}>
+    <Card className={`shadow-sm overflow-hidden ${app.priority === "primary" ? "border-l border-l-[var(--w-filed)]" : app.priority === "core" ? "border-l border-l-[var(--w-carbon)]" : "border-l border-l-[var(--w-carbon)]"}`}>
       <CardHeader className="pb-3">
         <div className="flex items-start justify-between gap-3">
           <div className="flex items-start gap-3">
@@ -1417,11 +1417,11 @@ export default function SettingsPage() {
   const needsAttention = apps.filter((a) => a.status?.state === "error" || a.status?.state === "permission_missing" || a.status?.state === "token_expired").length;
 
   return (
-    <div className="mx-auto max-w-6xl space-y-6 p-4 pb-10 sm:p-6 lg:p-8">
+    <div className="wire mx-auto max-w-6xl space-y-6 p-4 pb-10 sm:p-6 lg:p-8">
       <header className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
         <div>
           <div className="flex items-center gap-2">
-            <Settings className="h-6 w-6 text-gold" />
+            <Settings className="h-6 w-6 text-[var(--w-carbon)]" />
             <h1 className="text-2xl font-semibold tracking-tight">Settings & integrations</h1>
           </div>
           <p className="mt-1 max-w-2xl text-sm text-muted-foreground">

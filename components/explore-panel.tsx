@@ -67,11 +67,11 @@ export function ExplorePanel({ notes, onSave, className = "" }: ExplorePanelProp
       >
         <NotebookPen className="h-3 w-3" />
         {hasNotes && !open ? (
-          <span className="text-gold">Notes ·</span>
+          <span className="text-[var(--w-carbon)]">Notes ·</span>
         ) : null}
         <span>{open ? "Close" : "Explore further"}</span>
         {hasNotes && !open && (
-          <span className="inline-block h-1.5 w-1.5 rounded-full bg-gold" />
+          <span className="inline-block h-1.5 w-1.5 rounded-full bg-[var(--w-carbon)]" />
         )}
         {open ? (
           <ChevronUp className="h-3 w-3" />
@@ -92,7 +92,7 @@ export function ExplorePanel({ notes, onSave, className = "" }: ExplorePanelProp
             rows={3}
             placeholder="Add context, background, related links, or anything that helps you understand this item better…"
             className="w-full rounded-md border border-border bg-muted/40 px-3 py-2 text-sm leading-relaxed outline-none resize-none
-              focus:ring-2 focus:ring-gold/40 focus:border-gold/60
+              focus:ring-2 focus:ring-[var(--w-rule)] focus:border-[var(--w-rule)]
               placeholder:text-muted-foreground/50"
           />
           <p className="text-xs text-muted-foreground mt-1">

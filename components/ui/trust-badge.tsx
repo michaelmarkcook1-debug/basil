@@ -37,7 +37,7 @@ const SOURCE_STYLES: Record<KnownSource, string> = {
   WhatsApp:  "bg-signal-positive-subtle text-signal-positive border-signal-positive-border",
   Microsoft: "bg-signal-info-subtle text-signal-info border-signal-info-border",
   Manual:    "bg-slate-50  text-slate-600  border-slate-200  dark:bg-slate-900/40  dark:text-slate-400  dark:border-slate-700/50",
-  Chat:      "bg-[oklch(0.96_0.02_85)] text-[oklch(0.45_0.12_85)] border-[oklch(0.88_0.04_85)] dark:bg-[oklch(0.16_0.03_85)] dark:text-gold dark:border-[oklch(0.24_0.05_85)]",
+  Chat:      "bg-[oklch(0.96_0.02_85)] text-[oklch(0.45_0.12_85)] border-[oklch(0.88_0.04_85)] dark:bg-[oklch(0.16_0.03_85)] dark:text-[var(--w-carbon)] dark:border-[oklch(0.24_0.05_85)]",
 };
 
 /** Parse a sourceRef string like "gmail:1abc2def" → human-readable label. */

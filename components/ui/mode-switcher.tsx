@@ -664,7 +664,7 @@ export function ModeSwitcherTrigger({
       >
         {/* Gold accent bar (default only) */}
         {isDefault ? (
-          <span className="absolute left-0 top-1/2 h-5 w-[2px] -translate-y-1/2 rounded-r-full bg-gold opacity-0 group-hover:opacity-30 transition-all" />
+          <span className="absolute left-0 top-1/2 h-5 w-[2px] -translate-y-1/2 rounded-r-full bg-[var(--w-carbon)] opacity-0 group-hover:opacity-30 transition-all" />
         ) : null}
 
         {/* Progress bar overlay for timed modes */}

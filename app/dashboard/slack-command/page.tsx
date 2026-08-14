@@ -262,7 +262,7 @@ function SignalCard({ signal }: { signal: Signal }) {
               href={signal.threadUrl}
               target="_blank"
               rel="noopener noreferrer"
-              className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-medium border border-gold/30 bg-gold/[0.12] text-gold transition-colors hover:bg-gold/20"
+              className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-medium border border-[var(--w-rule)] bg-[var(--w-carbon-tint)]] text-[var(--w-carbon)] transition-colors hover:bg-[var(--w-carbon-tint)]"
             >
               <ExternalLink className="h-3 w-3" />
               Open in Slack
@@ -330,7 +330,7 @@ function MissingEnvPanel() {
       </p>
       <a
         href="/dashboard/settings"
-        className="inline-flex items-center gap-2 rounded-lg bg-gold px-4 py-2 text-sm font-medium text-white hover:opacity-90"
+        className="inline-flex items-center gap-2 rounded-lg bg-[var(--w-carbon)] px-4 py-2 text-sm font-medium text-white hover:opacity-90"
       >
         <Settings className="h-4 w-4" />
         Open Settings
@@ -349,7 +349,7 @@ function NotConnectedPanel() {
       </p>
       <a
         href="/dashboard/settings"
-        className="inline-flex items-center gap-2 rounded-lg bg-gold px-4 py-2 text-sm font-medium text-white hover:opacity-90"
+        className="inline-flex items-center gap-2 rounded-lg bg-[var(--w-carbon)] px-4 py-2 text-sm font-medium text-white hover:opacity-90"
       >
         Connect Slack <ArrowRight className="h-4 w-4" />
       </a>
@@ -438,7 +438,7 @@ export default function SlackCommandPage() {
   const status = response?.status ?? (loading ? "loading" : "error");
 
   return (
-    <div className="p-4 sm:p-6 lg:p-8 space-y-6 max-w-6xl mx-auto">
+    <div className="wire p-4 sm:p-6 lg:p-8 space-y-6 max-w-6xl mx-auto">
       {/* Header */}
       <header className="flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
         <div className="space-y-2">
@@ -447,7 +447,7 @@ export default function SlackCommandPage() {
             Slack Command Centre
           </p>
           <h1 className="basil-display text-3xl sm:text-5xl leading-[1.05] text-foreground">
-            Signal before noise<span className="text-gold">.</span>
+            Signal before noise<span className="text-[var(--w-carbon)]">.</span>
           </h1>
           <p className="text-sm text-muted-foreground max-w-2xl leading-relaxed">
             Basil reads Slack as your operating layer — replies, blockers, promises, stale threads, and channel heat. Not to read everything. To know what needs you.

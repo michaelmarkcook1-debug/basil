@@ -61,7 +61,7 @@ export function LearningPrompt() {
       className={cn(
         "inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-medium transition-colors disabled:opacity-50",
         primary
-          ? "bg-gold text-background hover:bg-gold/90"
+          ? "bg-[var(--w-carbon)] text-background hover:bg-[var(--w-carbon-tint)]"
           : "border border-border/60 text-muted-foreground hover:border-border hover:text-foreground"
       )}
     >
