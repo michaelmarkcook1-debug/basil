@@ -130,16 +130,27 @@ function ExpiryBadge({ expiresAt }: { expiresAt?: string }) {
   );
 }
 
-function ConfidenceDot({ confidence }: { confidence?: number }) {
+/**
+ * How sure Basil is that this commitment is real, stated in words.
+ *
+ * This was a 6px coloured dot with the number hidden in a `title`, which is
+ * uncertainty you can only find by hovering — and on a touch screen, not at
+ * all. The desk stamps its copy instead: an unconfirmed item says so on its
+ * face. Extraction confidence is a REAL stored field here (unlike the today
+ * feed, which carries none), so the number shown is the number recorded.
+ */
+function ConfidenceStamp({ confidence }: { confidence?: number }) {
   if (confidence === undefined) return null;
   const pct = Math.round(confidence * 100);
-  const color =
-    pct >= 80 ? "bg-signal-positive" : pct >= 60 ? "bg-signal-warning" : "bg-signal-critical";
+  const kind = pct >= 80 ? "confirmed" : pct >= 60 ? "developing" : "unconfirmed";
+  const label = pct >= 80 ? "confirmed" : pct >= 60 ? "developing" : "unconfirmed";
   return (
     <span
-      className={`inline-block h-1.5 w-1.5 rounded-full ${color} shrink-0`}
-      title={`${pct}% confidence`}
-    />
+      className={`wire-stamp wire-stamp-${kind}`}
+      title={`Basil extracted this with ${pct}% confidence`}
+    >
+      {label} {pct}%
+    </span>
   );
 }
 
@@ -258,8 +269,17 @@ function ActionCard({
   const stalled = isActionStalled(action);
 
   return (
-    <Card className={action.status === "done" ? "opacity-55" : ""}>
-      <CardContent className="p-4 flex items-start gap-3">
+    // A filed commitment, not a card. Rows share one rule so the queue stays
+    // dense enough to work down; a stack of cards spends most of its height on
+    // its own edges. Done items stay legible rather than dimmed to 55% — a
+    // completed commitment is evidence you acted, and this app has a standing
+    // problem with outbound work being invisible.
+    <article
+      className={`wire-dispatch !grid-cols-[auto_minmax(0,1fr)] ${
+        action.status === "done" ? "opacity-80" : ""
+      }`}
+    >
+      <div className="contents">
         {/* Checkbox */}
         <button
           onClick={() => onToggle(action.id)}
@@ -347,7 +367,7 @@ function ActionCard({
             <PriorityBadge priority={action.priority} />
             <SourceBadge source={action.source} />
             <CategoryChip category={action.category} />
-            <ConfidenceDot confidence={action.confidence} />
+            <ConfidenceStamp confidence={action.confidence} />
             {action.needsReview && <NeedsReviewBadge />}
 
             {/* Decision needed — click-through to Decisions */}
@@ -401,8 +421,8 @@ function ActionCard({
         >
           <Trash2 className="h-3.5 w-3.5" />
         </button>
-      </CardContent>
-    </Card>
+      </div>
+    </article>
   );
 }
 
@@ -1292,11 +1312,13 @@ export default function ActionsPage() {
   const decisionNeeded = openActions.filter((a) => a.decisionRequired && !a.linkedDecisionId).sort(sortByPriority);
 
   return (
-    <div className="p-4 sm:p-6 lg:p-8 space-y-6">
+    // The Wire Desk (seed basil01). `wire` scopes the world to this surface so
+    // pages not yet converted keep the incumbent one and never render half-broken.
+    <div className="wire p-4 sm:p-6 lg:p-8 space-y-6">
       <header className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-semibold tracking-tight flex items-center gap-2">
-            <ListChecks className="h-6 w-6 text-gold" />
+          <h1 className="wire-slug text-2xl tracking-tight flex items-center gap-2 text-[var(--w-ink)]">
+            <ListChecks className="h-6 w-6 text-[var(--w-carbon)]" />
             Commitments
           </h1>
           <p className="text-sm text-muted-foreground mt-1">
