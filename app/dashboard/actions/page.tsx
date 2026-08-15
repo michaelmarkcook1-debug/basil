@@ -130,16 +130,27 @@ function ExpiryBadge({ expiresAt }: { expiresAt?: string }) {
   );
 }
 
-function ConfidenceDot({ confidence }: { confidence?: number }) {
+/**
+ * How sure Basil is that this commitment is real, stated in words.
+ *
+ * This was a 6px coloured dot with the number hidden in a `title`, which is
+ * uncertainty you can only find by hovering — and on a touch screen, not at
+ * all. The desk stamps its copy instead: an unconfirmed item says so on its
+ * face. Extraction confidence is a REAL stored field here (unlike the today
+ * feed, which carries none), so the number shown is the number recorded.
+ */
+function ConfidenceStamp({ confidence }: { confidence?: number }) {
   if (confidence === undefined) return null;
   const pct = Math.round(confidence * 100);
-  const color =
-    pct >= 80 ? "bg-signal-positive" : pct >= 60 ? "bg-signal-warning" : "bg-signal-critical";
+  const kind = pct >= 80 ? "confirmed" : pct >= 60 ? "developing" : "unconfirmed";
+  const label = pct >= 80 ? "confirmed" : pct >= 60 ? "developing" : "unconfirmed";
   return (
     <span
-      className={`inline-block h-1.5 w-1.5 rounded-full ${color} shrink-0`}
-      title={`${pct}% confidence`}
-    />
+      className={`wire-stamp wire-stamp-${kind}`}
+      title={`Basil extracted this with ${pct}% confidence`}
+    >
+      {label} {pct}%
+    </span>
   );
 }
 
@@ -153,7 +164,7 @@ function SourceBadge({ source }: { source: ActionItem["source"] }) {
     // Was bg-indigo-100/text-indigo-700 — a light-theme leftover that read as an
     // unreadable pale chip on the dark theme. Ask-Basil-sourced items now use the
     // app's own assistant accent (gold), consistent with the sidebar/chat UI.
-    chat:    "bg-gold/10 text-gold",
+    chat:    "bg-[var(--w-carbon-tint)] text-[var(--w-carbon)]",
     linear:  "bg-signal-info-subtle text-signal-info",
   };
   return (
@@ -258,15 +269,24 @@ function ActionCard({
   const stalled = isActionStalled(action);
 
   return (
-    <Card className={action.status === "done" ? "opacity-55" : ""}>
-      <CardContent className="p-4 flex items-start gap-3">
+    // A filed commitment, not a card. Rows share one rule so the queue stays
+    // dense enough to work down; a stack of cards spends most of its height on
+    // its own edges. Done items stay legible rather than dimmed to 55% — a
+    // completed commitment is evidence you acted, and this app has a standing
+    // problem with outbound work being invisible.
+    <article
+      className={`wire-dispatch !grid-cols-[auto_minmax(0,1fr)] ${
+        action.status === "done" ? "opacity-80" : ""
+      }`}
+    >
+      <div className="contents">
         {/* Checkbox */}
         <button
           onClick={() => onToggle(action.id)}
           className={`mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded border transition-colors ${
             action.status === "done"
               ? "bg-signal-positive border-signal-positive text-white"
-              : "border-border hover:border-gold"
+              : "border-border hover:border-[var(--w-carbon)]"
           }`}
         >
           {action.status === "done" && <Check className="h-3 w-3" />}
@@ -347,7 +367,7 @@ function ActionCard({
             <PriorityBadge priority={action.priority} />
             <SourceBadge source={action.source} />
             <CategoryChip category={action.category} />
-            <ConfidenceDot confidence={action.confidence} />
+            <ConfidenceStamp confidence={action.confidence} />
             {action.needsReview && <NeedsReviewBadge />}
 
             {/* Decision needed — click-through to Decisions */}
@@ -401,8 +421,8 @@ function ActionCard({
         >
           <Trash2 className="h-3.5 w-3.5" />
         </button>
-      </CardContent>
-    </Card>
+      </div>
+    </article>
   );
 }
 
@@ -504,7 +524,7 @@ function ActionsSyncButton({ onSynced }: { onSynced?: () => void }) {
         setTimeout(() => { onSynced?.(); }, 12_000);
         setTimeout(() => setDone(false), 20_000);
       }}
-      className="inline-flex items-center gap-2 text-sm text-[oklch(0.58_0.15_85)] hover:underline disabled:opacity-50"
+      className="inline-flex items-center gap-2 text-sm text-[var(--w-carbon)] hover:underline disabled:opacity-50"
     >
       <RefreshCw className={`h-3.5 w-3.5 ${syncing ? "animate-spin" : ""}`} />
       {done ? "Syncing in background…" : syncing ? "Syncing…" : "Sync recent activity"}
@@ -755,7 +775,7 @@ function MatrixView({
         <button
           onClick={onClassify}
           disabled={classifying || open.length === 0}
-          className="inline-flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-lg bg-gold/[0.10] text-[oklch(0.58_0.15_85)] hover:bg-gold/[0.18] border border-gold/20 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+          className="inline-flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-lg bg-[var(--w-carbon-tint)] text-[var(--w-carbon)] hover:bg-[var(--w-carbon-tint)] border border-[var(--w-rule)] transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
         >
           {classifying ? (
             <><Loader2 className="h-3 w-3 animate-spin" />Classifying…</>
@@ -1292,11 +1312,13 @@ export default function ActionsPage() {
   const decisionNeeded = openActions.filter((a) => a.decisionRequired && !a.linkedDecisionId).sort(sortByPriority);
 
   return (
-    <div className="p-4 sm:p-6 lg:p-8 space-y-6">
+    // The Wire Desk (seed basil01). `wire` scopes the world to this surface so
+    // pages not yet converted keep the incumbent one and never render half-broken.
+    <div className="wire p-4 sm:p-6 lg:p-8 space-y-6">
       <header className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-semibold tracking-tight flex items-center gap-2">
-            <ListChecks className="h-6 w-6 text-gold" />
+          <h1 className="wire-slug text-2xl tracking-tight flex items-center gap-2 text-[var(--w-ink)]">
+            <ListChecks className="h-6 w-6 text-[var(--w-carbon)]" />
             Commitments
           </h1>
           <p className="text-sm text-muted-foreground mt-1">
@@ -1307,15 +1329,15 @@ export default function ActionsPage() {
           {/* View mode toggle */}
           <div className="hidden sm:flex rounded-lg border border-border overflow-hidden text-xs">
             <button
-              className={`px-3 py-1.5 font-medium transition-colors ${viewMode === "timeline" ? "bg-gold text-[oklch(0.18_0.04_250)]" : "bg-background text-muted-foreground hover:text-foreground"}`}
+              className={`px-3 py-1.5 font-medium transition-colors ${viewMode === "timeline" ? "bg-[var(--w-carbon)] text-white" : "bg-background text-muted-foreground hover:text-foreground"}`}
               onClick={() => setViewMode("timeline")}
             >Timeline</button>
             <button
-              className={`px-3 py-1.5 font-medium transition-colors ${viewMode === "category" ? "bg-gold text-[oklch(0.18_0.04_250)]" : "bg-background text-muted-foreground hover:text-foreground"}`}
+              className={`px-3 py-1.5 font-medium transition-colors ${viewMode === "category" ? "bg-[var(--w-carbon)] text-white" : "bg-background text-muted-foreground hover:text-foreground"}`}
               onClick={() => setViewMode("category")}
             >By Category</button>
             <button
-              className={`px-3 py-1.5 font-medium transition-colors flex items-center gap-1 ${viewMode === "matrix" ? "bg-gold text-[oklch(0.18_0.04_250)]" : "bg-background text-muted-foreground hover:text-foreground"}`}
+              className={`px-3 py-1.5 font-medium transition-colors flex items-center gap-1 ${viewMode === "matrix" ? "bg-[var(--w-carbon)] text-white" : "bg-background text-muted-foreground hover:text-foreground"}`}
               onClick={() => setViewMode("matrix")}
             >
               <LayoutGrid className="h-3 w-3" />
@@ -1324,7 +1346,7 @@ export default function ActionsPage() {
           </div>
           <Button
             size="sm"
-            className="bg-gold hover:bg-[oklch(0.78_0.12_85)] text-[oklch(0.18_0.04_250)] gap-1.5"
+            className="bg-[var(--w-carbon)] hover:bg-[var(--w-ink)] text-white gap-1.5"
             onClick={() => setForm(f => ({ ...f, showForm: !f.showForm }))}
           >
             <Plus className="h-3.5 w-3.5" />
@@ -1335,7 +1357,7 @@ export default function ActionsPage() {
 
       {/* Add form */}
       {form.showForm && (
-        <Card className="border-gold/30">
+        <Card className="border-[var(--w-rule)]">
           <CardContent className="p-4 space-y-3">
             <Textarea
               placeholder="What needs to be done?"
@@ -1381,7 +1403,7 @@ export default function ActionsPage() {
               <Button
                 size="sm"
                 onClick={handleAdd}
-                className="bg-gold text-[oklch(0.18_0.04_250)] hover:bg-[oklch(0.78_0.12_85)]"
+                className="bg-[var(--w-carbon)] text-white hover:bg-[var(--w-ink)]"
               >
                 Save
               </Button>
@@ -1452,7 +1474,7 @@ export default function ActionsPage() {
           <div className="flex items-center justify-center gap-3 flex-wrap">
             <button
               onClick={() => setForm(f => ({ ...f, showForm: true }))}
-              className="inline-flex items-center gap-1.5 rounded-lg bg-gold text-[oklch(0.18_0.04_250)] text-sm font-semibold px-4 py-2 hover:brightness-105 transition"
+              className="inline-flex items-center gap-1.5 rounded-lg bg-[var(--w-carbon)] text-white text-sm font-semibold px-4 py-2 hover:brightness-105 transition"
             >
               <Plus className="h-4 w-4" />
               Add action
@@ -1778,7 +1800,7 @@ export default function ActionsPage() {
           <span className="max-w-[260px] truncate opacity-80">{undoEntry.label}</span>
           <button
             onClick={handleUndo}
-            className="ml-1 text-gold hover:text-[oklch(0.80_0.15_85)] font-semibold transition-colors"
+            className="ml-1 text-[var(--w-carbon)] hover:text-[oklch(0.80_0.15_85)] font-semibold transition-colors"
           >
             Undo
           </button>

@@ -124,7 +124,7 @@ function PlatformStatusBar({ data }: { data: AIProjectsData }) {
               href={status.setupUrl}
               target="_blank"
               rel="noreferrer"
-              className="text-xs text-gold hover:underline"
+              className="text-xs text-[var(--w-carbon)] hover:underline"
             >
               Setup
             </a>
@@ -233,7 +233,7 @@ function ProjectRow({
               href={project.url}
               target="_blank"
               rel="noreferrer"
-              className="flex items-center gap-1.5 rounded-lg bg-gold px-3 py-1.5 text-xs font-medium text-[oklch(0.18_0.04_250)] hover:bg-[oklch(0.78_0.12_85)]"
+              className="flex items-center gap-1.5 rounded-lg bg-[var(--w-carbon)] px-3 py-1.5 text-xs font-medium text-[oklch(0.18_0.04_250)] hover:bg-[oklch(0.78_0.12_85)]"
             >
               <ExternalLink className="h-3 w-3" />
               Go
@@ -288,7 +288,7 @@ function ProjectColumn({
   const sorted = sortProjects(projects, sort);
 
   return (
-    <Card className={cn("shadow-sm border-l-4", borderColor)}>
+    <Card className={cn("shadow-sm border-l", borderColor)}>
       <CardHeader className="pb-2 flex flex-row items-center justify-between gap-2">
         <CardTitle className="text-sm font-medium flex items-center gap-2">
           {title}
@@ -299,7 +299,7 @@ function ProjectColumn({
           <select
             value={sort}
             onChange={(e) => setSort(e.target.value as SortOption)}
-            className="appearance-none rounded-md border border-border bg-background px-2 py-1 pr-6 text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-gold"
+            className="appearance-none rounded-md border border-border bg-background px-2 py-1 pr-6 text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-[var(--w-carbon)]"
           >
             <option value="recency">By recency</option>
             <option value="importance">By importance</option>
@@ -468,12 +468,12 @@ export default function AIProjectsPage() {
     : 0;
 
   return (
-    <div className="p-4 sm:p-6 lg:p-10 space-y-8 max-w-[1200px] mx-auto">
+    <div className="wire p-4 sm:p-6 lg:p-10 space-y-8 max-w-[1200px] mx-auto">
       {/* Header */}
       <div className="flex items-center justify-between gap-4 flex-wrap">
         <div>
           <h1 className="text-2xl font-semibold tracking-tight flex items-center gap-2">
-            <BrainCircuit className="h-6 w-6 text-gold" />
+            <BrainCircuit className="h-6 w-6 text-[var(--w-carbon)]" />
             AI Tools
           </h1>
           <p className="text-sm text-muted-foreground mt-1">
@@ -494,7 +494,7 @@ export default function AIProjectsPage() {
             onClick={handleSync}
             disabled={syncing}
             size="sm"
-            className="gap-1.5 bg-gold text-[oklch(0.18_0.04_250)] hover:bg-[oklch(0.78_0.12_85)]"
+            className="gap-1.5 bg-[var(--w-carbon)] text-white hover:bg-[var(--w-ink)]"
           >
             {syncing ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RefreshCw className="h-3.5 w-3.5" />}
             Sync all
@@ -524,7 +524,7 @@ export default function AIProjectsPage() {
               <select
                 value={logForm.platform}
                 onChange={(e) => setLogForm((f) => ({ ...f, platform: e.target.value }))}
-                className="mt-1 block w-full rounded-md border border-input bg-background px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-gold"
+                className="mt-1 block w-full rounded-md border border-input bg-background px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-[var(--w-carbon)]"
               >
                 <option value="claude-code">Claude Code</option>
                 <option value="claude-chat">Claude Chat</option>
@@ -562,7 +562,7 @@ export default function AIProjectsPage() {
               <select
                 value={logForm.importance}
                 onChange={(e) => setLogForm((f) => ({ ...f, importance: e.target.value }))}
-                className="mt-1 block w-full rounded-md border border-input bg-background px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-gold"
+                className="mt-1 block w-full rounded-md border border-input bg-background px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-[var(--w-carbon)]"
               >
                 <option value="critical">Critical</option>
                 <option value="high">High</option>
@@ -576,7 +576,7 @@ export default function AIProjectsPage() {
               <select
                 value={logForm.category}
                 onChange={(e) => setLogForm((f) => ({ ...f, category: e.target.value }))}
-                className="mt-1 block w-full rounded-md border border-input bg-background px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-gold"
+                className="mt-1 block w-full rounded-md border border-input bg-background px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-[var(--w-carbon)]"
               >
                 <option value="work">Work</option>
                 <option value="personal">Personal</option>
@@ -668,7 +668,7 @@ export default function AIProjectsPage() {
           {unknownProjects.length > 0 && (
             <section className="space-y-3">
               <p className="basil-eyebrow">Uncategorised — click to assign</p>
-              <Card className="shadow-sm border-l-4 border-l-amber-400">
+              <Card className="shadow-sm border-l border-l-[var(--w-manila)]">
                 <CardContent className="pt-4">
                   {unknownProjects.map((p) => (
                     <ProjectRow

@@ -696,7 +696,7 @@ function ChatPageInner() {
           autoComplete="off"
           autoCorrect="on"
           spellCheck
-          className="min-h-12 max-h-40 resize-none border-gold/20 focus-visible:ring-gold py-3 text-[16px] sm:text-sm"
+          className="min-h-12 max-h-40 resize-none border-[var(--w-rule)] focus-visible:ring-[var(--w-carbon)] py-3 text-[16px] sm:text-sm"
           rows={1}
         />
         {/* While a reply is in flight the primary control becomes Stop, so a
@@ -718,7 +718,7 @@ function ChatPageInner() {
             size="icon"
             disabled={!input.trim() && stagedFiles.length === 0}
             aria-label="Send message"
-            className="h-12 w-12 shrink-0 bg-gradient-to-r from-gold to-[oklch(0.78_0.12_85)] hover:from-[oklch(0.78_0.12_85)] hover:to-[oklch(0.82_0.10_85)] text-white"
+            className="h-12 w-12 shrink-0 bg-[var(--w-carbon)] hover:bg-[var(--w-ink)] text-white"
           >
             <Send className="h-4 w-4" />
           </Button>
@@ -737,7 +737,7 @@ function ChatPageInner() {
               {message.role === "user" ? (
                 <User className="h-3.5 w-3.5" />
               ) : (
-                <Bot className="h-3.5 w-3.5 text-gold" />
+                <Bot className="h-3.5 w-3.5 text-[var(--w-carbon)]" />
               )}
             </AvatarFallback>
           </Avatar>
@@ -892,11 +892,11 @@ function ChatPageInner() {
         <div className="flex gap-3">
           <Avatar className="h-7 w-7 shrink-0 mt-0.5">
             <AvatarFallback className="text-xs bg-secondary">
-              <Bot className="h-3.5 w-3.5 text-gold" />
+              <Bot className="h-3.5 w-3.5 text-[var(--w-carbon)]" />
             </AvatarFallback>
           </Avatar>
           <div className="flex items-center gap-2 text-sm text-muted-foreground">
-            <Loader2 className="h-3.5 w-3.5 animate-spin text-gold" />
+            <Loader2 className="h-3.5 w-3.5 animate-spin text-[var(--w-carbon)]" />
             Thinking...
           </div>
         </div>
@@ -905,7 +905,9 @@ function ChatPageInner() {
   );
 
   return (
-    <div className="flex h-full flex-col">
+    // Wire scope goes on the inner component: the page root is a Suspense
+    // boundary, which renders no element of its own to carry the world.
+    <div className="wire flex h-full flex-col">
       {/* ── Header ─────────────────────────────────────────────────────────── */}
       <header className="border-b border-border px-4 sm:px-6 py-3 sm:py-4 flex items-center justify-between gap-3">
         <div>
@@ -923,7 +925,7 @@ function ChatPageInner() {
             size="sm"
             onClick={clearChat}
             disabled={isActive || messages.length === 0}
-            className="gap-1.5 border-gold/30 text-[oklch(0.55_0.12_85)] hover:bg-gold/10 hover:text-gold hover:border-gold/50 disabled:opacity-40"
+            className="gap-1.5 border-[var(--w-rule)] text-[oklch(0.55_0.12_85)] hover:bg-[var(--w-carbon-tint)] hover:text-[var(--w-carbon)] hover:border-[var(--w-rule)] disabled:opacity-40"
             title="Start a fresh conversation and clear all visible history"
           >
             <MessageCirclePlus className="h-3.5 w-3.5" />
@@ -1030,7 +1032,7 @@ function ChatPageInner() {
                 {/* Welcome panel — shown when no messages yet */}
                 {messages.length === 0 && (
                   <div className="text-center">
-                    <div className="h-12 w-12 rounded-xl bg-gradient-to-br from-gold to-[oklch(0.78_0.12_85)] flex items-center justify-center mb-4 mx-auto">
+                    <div className="h-12 w-12 rounded-xl bg-[var(--w-carbon)] flex items-center justify-center mb-4 mx-auto">
                       <Bot className="h-6 w-6 text-white" />
                     </div>
                     <h2 className="text-lg font-medium">{firstName ? `Hey, ${firstName}` : "Hey"}</h2>
@@ -1053,7 +1055,7 @@ function ChatPageInner() {
                           key={suggestion}
                           variant="outline"
                           size="sm"
-                          className="border-gold/30 hover:bg-gold/10"
+                          className="border-[var(--w-rule)] hover:bg-[var(--w-carbon-tint)]"
                           onClick={() => {
                             hasSentMessage.current = true;
                             sendMessage({ text: suggestion });
@@ -1106,7 +1108,7 @@ function ChatPageInner() {
                         key={suggestion}
                         variant="outline"
                         size="sm"
-                        className="border-gold/25 hover:bg-gold/10"
+                        className="border-[var(--w-rule)] hover:bg-[var(--w-carbon-tint)]"
                         onClick={() => {
                           hasSentMessage.current = true;
                           sendMessage({ text: suggestion });
@@ -1119,7 +1121,7 @@ function ChatPageInner() {
                 )}
 
                 {/* Centered input box with subtle tinted background */}
-                <div className="w-full rounded-2xl border border-gold/20 bg-[oklch(0.97_0.008_85)] dark:bg-card/80 shadow-sm px-3 py-3">
+                <div className="w-full rounded-2xl border border-[var(--w-rule)] bg-[oklch(0.97_0.008_85)] dark:bg-card/80 shadow-sm px-3 py-3">
                   {inputForm}
                 </div>
               </div>

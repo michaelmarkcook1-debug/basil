@@ -21,7 +21,7 @@ import React from "react";
 // then bold, then italic.
 const INLINE = [
   { re: /`([^`]+)`/, render: (m: string, key: number) => <code key={key} className="rounded bg-white/10 px-1 py-0.5 text-[0.85em] font-mono">{m}</code> },
-  { re: /\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/, render: (m: string, key: number, g2?: string) => <a key={key} href={g2} target="_blank" rel="noopener noreferrer" className="text-gold underline underline-offset-2 hover:opacity-80">{m}</a> },
+  { re: /\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/, render: (m: string, key: number, g2?: string) => <a key={key} href={g2} target="_blank" rel="noopener noreferrer" className="text-[var(--w-carbon)] underline underline-offset-2 hover:opacity-80">{m}</a> },
   { re: /\*\*([^*]+)\*\*/, render: (m: string, key: number) => <strong key={key} className="font-semibold">{m}</strong> },
   { re: /(?<![\w*])\*([^*\n]+)\*(?![\w*])/, render: (m: string, key: number) => <em key={key}>{m}</em> },
   { re: /(?<![\w_])_([^_\n]+)_(?![\w_])/, render: (m: string, key: number) => <em key={key}>{m}</em> },

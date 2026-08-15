@@ -100,7 +100,7 @@ function priorityStyle(priority: string): { border: string; badge: string } {
   if (/park|low|fyi|note|backlog|defer/.test(p)) {
     return { border: "border-l-slate-400", badge: "border-border text-muted-foreground bg-muted/30" };
   }
-  return { border: "border-l-gold", badge: "border-gold/50 text-[oklch(0.58_0.15_85)] bg-gold/10" };
+  return { border: "border-l-gold", badge: "border-[var(--w-rule)] text-[var(--w-carbon)] bg-[var(--w-carbon-tint)]" };
 }
 
 function SectionHeader({ icon: Icon, label, color }: { icon: typeof Phone; label: string; color: string }) {
@@ -273,11 +273,11 @@ export default function MeetingPrepPage() {
       {/* Header — matches Mike's format */}
       <header className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3">
         <div className="space-y-1 min-w-0">
-          <p className="text-xs font-semibold tracking-widest uppercase text-gold">
+          <p className="text-xs font-semibold tracking-widest uppercase text-[var(--w-carbon)]">
             Example Holdings · Meeting Prep
           </p>
           <h1 className="text-xl font-semibold break-words">{meta?.title}</h1>
-          <div className="flex items-center gap-2 text-sm text-gold flex-wrap">
+          <div className="flex items-center gap-2 text-sm text-[var(--w-carbon)] flex-wrap">
             {meta?.dateLabel && <span>{meta.dateLabel}</span>}
             {meta?.dateLabel && meta?.time && <span>·</span>}
             {meta?.time && <><Clock className="h-3.5 w-3.5" />{meta.time} UK</>}
@@ -293,7 +293,7 @@ export default function MeetingPrepPage() {
         <Button
           onClick={generate}
           disabled={loading}
-          className="bg-gold text-[oklch(0.18_0.04_250)] hover:bg-[oklch(0.78_0.12_85)] gap-1.5 shrink-0 self-start"
+          className="bg-[var(--w-carbon)] text-white hover:bg-[oklch(0.78_0.12_85)] gap-1.5 shrink-0 self-start"
         >
           {loading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Zap className="h-3.5 w-3.5" />}
           {loading ? "Generating..." : prep ? "Regenerate" : "Generate Prep"}
@@ -340,7 +340,7 @@ export default function MeetingPrepPage() {
                 label={`From Today's Calls — ${prep.fromTodaysCalls.map(c => c.title.split(" — ")[0]).join(" & ")}`}
                 color="text-signal-warning"
               />
-              <Card className="border-l-4 border-l-amber-500 border-t-0 border-r-0 border-b-0 bg-signal-warning-subtle/60">
+              <Card className="border-l border-l-[var(--w-manila)] border-t-0 border-r-0 border-b-0 bg-signal-warning-subtle/60">
                 <CardContent className="p-4 space-y-3">
                   {prep.fromTodaysCalls.map((c, i) => (
                     <div key={i}>
@@ -356,7 +356,7 @@ export default function MeetingPrepPage() {
           {/* Context — navy-tinted card (kept for backward-compat with any existing data) */}
           {prep.contextNote && (
             <div>
-              <SectionHeader icon={Phone} label="Context" color="text-gold" />
+              <SectionHeader icon={Phone} label="Context" color="text-[var(--w-carbon)]" />
               <Card className="bg-[oklch(0.28_0.06_250)]/5 border-[oklch(0.28_0.06_250)]/20">
                 <CardContent className="p-4">
                   <p className="text-sm leading-relaxed">{prep.contextNote}</p>
@@ -368,7 +368,7 @@ export default function MeetingPrepPage() {
           {/* Attendee Insights — navy-tinted */}
           {prep.attendeeInsights && prep.attendeeInsights.length > 0 && (
             <div>
-              <SectionHeader icon={UserCircle} label="Quick Profile" color="text-gold" />
+              <SectionHeader icon={UserCircle} label="Quick Profile" color="text-[var(--w-carbon)]" />
               <div className="space-y-2">
                 {prep.attendeeInsights.map((a, i) => (
                   <Card key={i} className="bg-[oklch(0.28_0.06_250)]/5 border-[oklch(0.28_0.06_250)]/20">
@@ -390,7 +390,7 @@ export default function MeetingPrepPage() {
                 {prep.topicsToRaise.map((topic, i) => {
                   const style = priorityStyle(topic.priority);
                   return (
-                    <Card key={i} className={`border-l-4 ${style.border} border-t-0 border-r-0 border-b-0`}>
+                    <Card key={i} className={`border-l ${style.border} border-t-0 border-r-0 border-b-0`}>
                       <CardContent className="p-4">
                         <div className="flex items-start justify-between gap-3 mb-1.5">
                           <h3 className="font-semibold text-sm">{topic.title}</h3>
@@ -413,7 +413,7 @@ export default function MeetingPrepPage() {
           {prep.suggestedQuestions && prep.suggestedQuestions.length > 0 && (
             <div>
               <SectionHeader icon={HelpCircle} label="Questions to Ask" color="text-signal-info" />
-              <Card className="border-l-4 border-l-sky-400 border-t-0 border-r-0 border-b-0 bg-signal-info-subtle/60">
+              <Card className="border-l border-l-[var(--w-carbon)] border-t-0 border-r-0 border-b-0 bg-signal-info-subtle/60">
                 <CardContent className="p-4">
                   <ul className="space-y-1.5 text-sm">
                     {prep.suggestedQuestions.map((q, i) => (
@@ -432,7 +432,7 @@ export default function MeetingPrepPage() {
           {prep.thingsToLand && prep.thingsToLand.length > 0 && (
             <div>
               <SectionHeader icon={CheckSquare} label="Things to Land" color="text-signal-positive" />
-              <Card className="border-l-4 border-l-emerald-500 border-t-0 border-r-0 border-b-0 bg-signal-positive-subtle">
+              <Card className="border-l border-l-[var(--w-filed)] border-t-0 border-r-0 border-b-0 bg-signal-positive-subtle">
                 <CardContent className="p-4">
                   <ul className="space-y-1.5 text-sm">
                     {prep.thingsToLand.map((item, i) => (
@@ -448,7 +448,7 @@ export default function MeetingPrepPage() {
           {prep.watchOuts && prep.watchOuts.length > 0 && (
             <div>
               <SectionHeader icon={AlertTriangle} label="Watch Outs" color="text-signal-warning" />
-              <Card className="border-l-4 border-l-amber-500 border-t-0 border-r-0 border-b-0 bg-signal-warning-subtle">
+              <Card className="border-l border-l-[var(--w-manila)] border-t-0 border-r-0 border-b-0 bg-signal-warning-subtle">
                 <CardContent className="p-4">
                   <ul className="space-y-1.5 text-sm">
                     {prep.watchOuts.map((item, i) => (
@@ -464,7 +464,7 @@ export default function MeetingPrepPage() {
           {prep.unresolvedRisks && prep.unresolvedRisks.length > 0 && (
             <div>
               <SectionHeader icon={ShieldAlert} label="Unresolved Risks" color="text-signal-critical" />
-              <Card className="border-l-4 border-l-red-500 border-t-0 border-r-0 border-b-0 bg-signal-critical-subtle">
+              <Card className="border-l border-l-[var(--w-stamp)] border-t-0 border-r-0 border-b-0 bg-signal-critical-subtle">
                 <CardContent className="p-4">
                   <ul className="space-y-2.5 text-sm">
                     {prep.unresolvedRisks.map((r, i) => (
@@ -503,7 +503,7 @@ export default function MeetingPrepPage() {
                     a.status === "overdue" ||
                     (a.status === "open" && !!a.dueDate && a.dueDate < todayLocal);
                   return (
-                    <Card key={a.id} className={`border-l-4 border-t-0 border-r-0 border-b-0 ${isOverdue ? "border-l-red-400 bg-signal-critical-subtle" : a.priority === "high" ? "border-l-amber-400 bg-signal-warning-subtle" : "border-l-slate-300 bg-muted/20"}`}>
+                    <Card key={a.id} className={`border-l border-t-0 border-r-0 border-b-0 ${isOverdue ? "border-l-[var(--w-stamp)] bg-signal-critical-subtle" : a.priority === "high" ? "border-l-[var(--w-manila)] bg-signal-warning-subtle" : "border-l-[var(--w-rule)] bg-muted/20"}`}>
                       <CardContent className="py-2.5 px-4 flex items-start gap-2">
                         <div className="flex-1 min-w-0">
                           <p className="text-sm text-foreground/90">{a.text}</p>
@@ -528,7 +528,7 @@ export default function MeetingPrepPage() {
               <SectionHeader icon={BookOpen} label="Prior Decisions" color="text-indigo-500" />
               <div className="space-y-2">
                 {prep.priorDecisions.map((d) => (
-                  <Card key={d.id} className="border-l-4 border-l-indigo-300 border-t-0 border-r-0 border-b-0 bg-indigo-50/20 dark:bg-indigo-500/5">
+                  <Card key={d.id} className="border-l border-l-[var(--w-carbon)] border-t-0 border-r-0 border-b-0 bg-indigo-50/20 dark:bg-indigo-500/5">
                     <CardContent className="py-3 px-4">
                       <p className="text-sm font-medium text-foreground/90">
                         {d.title || d.text}
@@ -570,7 +570,7 @@ export default function MeetingPrepPage() {
       )}
 
       {!loading && !prep && !error && (
-        <Card className="border-gold/30">
+        <Card className="border-[var(--w-rule)]">
           <CardContent className="py-12 text-center">
             <p className="font-medium">Click &quot;Generate Prep&quot; to get your cheatsheet</p>
             <p className="text-sm text-muted-foreground mt-1">Basil will pull context from contact profiles and generate strategic talking points.</p>

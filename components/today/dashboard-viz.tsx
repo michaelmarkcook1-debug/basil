@@ -84,7 +84,7 @@ export function StatCard({
   summary?: string;
 }) {
   const cardClass = cn(
-    "group relative block overflow-hidden rounded-2xl border border-border/60 bg-card/70 p-4 transition-colors hover:border-gold/30",
+    "group relative block overflow-hidden rounded-2xl border border-border/60 bg-card/70 p-4 transition-colors hover:border-[var(--w-rule)]",
     href && "cursor-pointer"
   );
   const inner = (
@@ -100,7 +100,7 @@ export function StatCard({
             {ring.center}
           </Ring>
         ) : href ? (
-          <ArrowUpRight className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground/30 transition-colors group-hover:text-gold" strokeWidth={1.8} />
+          <ArrowUpRight className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground/30 transition-colors group-hover:text-[var(--w-carbon)]" strokeWidth={1.8} />
         ) : null}
       </div>
       {bar && bar.length > 0 && (
@@ -353,17 +353,17 @@ export function DayTimeline({
         <div>
           <Link
             href="/dashboard/schedule"
-            className="group/hd inline-flex items-center gap-1 text-sm font-semibold tracking-tight text-foreground outline-none transition-colors hover:text-gold focus-visible:text-gold"
+            className="group/hd inline-flex items-center gap-1 text-sm font-semibold tracking-tight text-foreground outline-none transition-colors hover:text-[var(--w-carbon)] focus-visible:text-[var(--w-carbon)]"
           >
             Your day
-            <ArrowUpRight className="h-3.5 w-3.5 text-muted-foreground/40 transition-colors group-hover/hd:text-gold" strokeWidth={1.8} />
+            <ArrowUpRight className="h-3.5 w-3.5 text-muted-foreground/40 transition-colors group-hover/hd:text-[var(--w-carbon)]" strokeWidth={1.8} />
           </Link>
           <p className="mt-0.5 text-xs text-muted-foreground">
             {meetings.length} {meetings.length === 1 ? "meeting" : "meetings"}
             {focusMins > 0 && <> · {Math.round((focusMins / 60) * 10) / 10}h focus protected</>}
           </p>
         </div>
-        <span className="rounded-full bg-gold/10 px-2.5 py-1 text-[11px] font-medium text-gold">Suggested plan</span>
+        <span className="rounded-full bg-[var(--w-carbon-tint)] px-2.5 py-1 text-[11px] font-medium text-[var(--w-carbon)]">Suggested plan</span>
       </div>
 
       {blocks.length === 0 ? (
@@ -403,8 +403,8 @@ export function DayTimeline({
                     aria-label={blockSummary}
                     className={cn(
                       "group/blk absolute left-12 right-0 flex items-center gap-2 overflow-hidden rounded-lg px-2.5 outline-none",
-                      "cursor-pointer transition-[box-shadow,background-color] hover:ring-1 hover:ring-gold/40",
-                      "focus-visible:ring-2 focus-visible:ring-gold/60",
+                      "cursor-pointer transition-[box-shadow,background-color] hover:ring-1 hover:ring-[var(--w-rule)]",
+                      "focus-visible:ring-2 focus-visible:ring-[var(--w-rule)]",
                       isMeeting ? "border-l-2" : "border border-dashed hover:bg-white/[0.03]"
                     )}
                     style={{
@@ -423,7 +423,7 @@ export function DayTimeline({
                     )}
                     {/* Hover affordance — appears in the slot the time label vacates */}
                     <ArrowUpRight
-                      className="hidden h-3.5 w-3.5 shrink-0 text-gold group-hover/blk:block"
+                      className="hidden h-3.5 w-3.5 shrink-0 text-[var(--w-carbon)] group-hover/blk:block"
                       strokeWidth={2}
                     />
                   </Link>

@@ -1,0 +1,182 @@
+/* ─── The Wire Desk ───────────────────────────────────────────────────────────
+   Basil's visual world. Direction locked 2026-08-03, seed key `basil01`,
+   assigned index 3 of the grounded shortlist.
+
+   Your channels are wires; Basil is the desk editor handing you the queue with
+   its sourcing intact. Every mark here is a STATE, never texture: a priority
+   prefix, a wire of origin, a time filed, a confidence stamp, a spike.
+
+   Scoped under `.wire` rather than :root so the incumbent world keeps working
+   on surfaces not yet converted. Delete that scope when the last one lands.
+
+   LIGHT GROUND is chosen from the use scene, not from category: the desk is
+   read at 06:40 in a lit kitchen and between meetings in daylight. The morning
+   briefing already reached the user by email at 06:15; this surface is where
+   they come to work the queue down.
+   ─────────────────────────────────────────────────────────────────────────── */
+
+.wire {
+  /* Stock. Teleprinter paper is cool and slightly green, not warm cream —
+     cream + serif + terracotta is the look every model ships. */
+  --w-paper:        #E9EAE4;
+  --w-flimsy:       #F4F4EF;  /* a fresh sheet, raised */
+  --w-tray:         #DCDDD4;  /* the spike and deferred trays, sunk */
+  --w-rule:         #C4C5BB;
+  --w-rule-strong:  #A8A99D;
+
+  /* Ink */
+  --w-ink:          #17170F;  /* typebar strike */
+  --w-ink-soft:     #55564A;  /* secondary, still ≥4.5:1 on paper */
+
+  /* The three marks. Each is a state with one meaning and no decorative use. */
+  --w-carbon:       #35346B;  /* carbon copy — structure, attribution, wires */
+  --w-stamp:        #A82D1A;  /* FLASH, corrections, kills. Reserved. */
+  --w-manila:       #6E4C15;  /* spiked / deferred / awaiting */
+  --w-filed:        #2A5233;  /* confirmed, settled, filed */
+
+  /* Tints for fills — the ink versions above stay for text so contrast holds. */
+  --w-carbon-tint:  #35346B14;
+  --w-stamp-tint:   #A82D1A14;
+  --w-manila-tint:  #6E4C1514;
+  --w-filed-tint:   #2A523314;
+
+  --w-radius:       3px;   /* paper is cut, not rounded */
+  --w-rule-w:       1px;
+
+  color-scheme: light;
+  background: var(--w-paper);
+  color: var(--w-ink);
+  font-family: var(--font-geist-sans), ui-sans-serif, system-ui, sans-serif;
+}
+
+/* ── Registers ──────────────────────────────────────────────────────────────
+   Three, each with a job. The condensed gothic is the desk's own lettering;
+   Courier carries DATA (filed times, wire ids, sequence, confidence) — it is
+   measurement here, never a costume for "technical". */
+.wire-slug {
+  font-family: var(--font-archivo-narrow), "Arial Narrow", sans-serif;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+.wire-data {
+  font-family: var(--font-courier-prime), ui-monospace, monospace;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0;
+}
+
+/* ── The sheet ─────────────────────────────────────────────────────────────── */
+.wire-sheet {
+  background: var(--w-flimsy);
+  border: var(--w-rule-w) solid var(--w-rule);
+  border-radius: var(--w-radius);
+}
+
+/* ── Dispatch row ───────────────────────────────────────────────────────────
+   A filed item. Rows share one horizontal rule rather than each becoming a
+   card; a stack of cards is the lazy container and would cost density, which
+   is the whole point of a queue you work down. */
+.wire-dispatch {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  gap: 0 0.875rem;
+  padding: 0.75rem 1rem;
+  border-bottom: var(--w-rule-w) solid var(--w-rule);
+  background: transparent;
+  transition: background 120ms ease-out;
+}
+.wire-dispatch:last-child { border-bottom: 0; }
+.wire-dispatch:hover      { background: #FFFFFF7A; }
+.wire-dispatch:focus-within {
+  background: #FFFFFFA8;
+  outline: 2px solid var(--w-carbon);
+  outline-offset: -2px;
+}
+
+/* ── Priority prefix ────────────────────────────────────────────────────────
+   The wire desk's own ranking, printed at the head of every dispatch. A
+   left-hand rule is deliberately NOT used: a coloured border-left on a list
+   item is the category's default for urgency and says nothing a reader can
+   name. The prefix is a word. */
+.wire-prefix {
+  font-family: var(--font-archivo-narrow), "Arial Narrow", sans-serif;
+  font-weight: 700;
+  font-size: 0.6875rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  padding: 0.125rem 0.375rem;
+  border-radius: 2px;
+  white-space: nowrap;
+}
+.wire-prefix-flash   { color: #FFFFFF; background: var(--w-stamp); }
+.wire-prefix-urgent  { color: var(--w-stamp);  background: var(--w-stamp-tint);  box-shadow: inset 0 0 0 1px var(--w-stamp); }
+.wire-prefix-routine { color: var(--w-carbon); background: var(--w-carbon-tint); box-shadow: inset 0 0 0 1px #35346B4D; }
+
+/* ── Confidence stamp ───────────────────────────────────────────────────────
+   The reason this world was chosen. "Unconfirmed / developing / confirmed"
+   is native wire vocabulary, so Basil admitting doubt is structural rather
+   than an afterthought. A dispatch with no stamp is a bug, not a clean row. */
+.wire-stamp {
+  font-family: var(--font-courier-prime), ui-monospace, monospace;
+  font-size: 0.6875rem;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  padding: 0.0625rem 0.3125rem;
+  border-radius: 2px;
+  border: 1px solid currentColor;
+  white-space: nowrap;
+}
+.wire-stamp-confirmed   { color: var(--w-filed);  background: var(--w-filed-tint); }
+.wire-stamp-developing  { color: var(--w-manila); background: var(--w-manila-tint); }
+.wire-stamp-unconfirmed { color: var(--w-stamp);  background: var(--w-stamp-tint); }
+
+/* ── Dateline ───────────────────────────────────────────────────────────────
+   Replaces the greeting. A desk does not say good morning; it states where and
+   when the copy was filed, and which wires are up. */
+.wire-dateline {
+  font-family: var(--font-courier-prime), ui-monospace, monospace;
+  font-size: 0.75rem;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--w-ink-soft);
+}
+
+/* ── Wire status lamp ───────────────────────────────────────────────────────
+   A source that is down must not look like a source that is quiet — those are
+   different states and the product principle says so. */
+.wire-lamp {
+  width: 6px; height: 6px; border-radius: 50%;
+  display: inline-block; flex: none;
+}
+.wire-lamp-up      { background: var(--w-filed); }
+.wire-lamp-quiet   { background: var(--w-rule-strong); }
+.wire-lamp-down    { background: var(--w-stamp); }
+
+/* ── The spike ──────────────────────────────────────────────────────────────
+   Dismissals are impaled, not deleted. Recoverable by design: the desk keeps
+   what it spiked. */
+.wire-spike {
+  background: var(--w-tray);
+  border: var(--w-rule-w) dashed var(--w-rule-strong);
+  border-radius: var(--w-radius);
+}
+
+/* ── Rules ──────────────────────────────────────────────────────────────────
+   The desk's structural line. Not decoration: it separates filed from unfiled. */
+.wire-rule {
+  border: 0;
+  border-top: var(--w-rule-w) solid var(--w-rule-strong);
+}
+
+/* ── Motion ─────────────────────────────────────────────────────────────────
+   One authored moment: a dispatch arrives by striking onto the page, the way
+   a typebar hits paper — fast in, settling. Nothing else animates. */
+@keyframes wire-strike {
+  from { opacity: 0; transform: translateY(-2px); }
+  to   { opacity: 1; transform: none; }
+}
+.wire-arrives {
+  animation: wire-strike 180ms cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+@media (prefers-reduced-motion: reduce) {
+  .wire-arrives { animation: none; }
+}

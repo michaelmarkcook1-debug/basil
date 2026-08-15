@@ -1,68 +1,48 @@
 "use client";
 
 /**
- * Dashboard home — the "Today" command center.
+ * The desk — Basil's home surface.
  *
- * A full-width, data-visualized cockpit (not a narrow text feed):
- *   • A KPI stat row (needs-you / focus / awaiting-reply / commitments) with
- *     ring + bar micro-viz, so the state of the day reads in one glance.
- *   • A proportional day TIMELINE (block height = real duration, live "now" line).
- *   • An attention DONUT — where today's signals are actually coming from.
- *   • A ranked priority feed (critical + needs-you) with inline actions.
+ * THE WIRE DESK (seed basil01, assigned index 3). Your channels are wires;
+ * Basil is the desk editor handing you the queue with its sourcing intact.
  *
- * Data: GET /api/today (ranked change/followup/linear feed) + /api/calendar +
- * /api/actions + /api/generate/briefing.
+ * What this REPLACES and why, so it does not creep back:
+ *   • the "Good morning, <name>" greeting — a desk states a dateline, not a
+ *     salutation, and the briefing already reached the reader by email at 06:15
+ *   • the KPI stat row — the hero-metric template (big number, small label,
+ *     supporting stats) is the category default and told the reader nothing
+ *     they could act on
+ *   • the attention donut and focus ring — progress rings standing in for
+ *     content; the queue itself is the content
+ *   • the proportional day timeline — replaced by the schedule as filed copy
+ *
+ * What it KEEPS, because it is the actual work: the ranked queue, the day's
+ * meetings, and the briefing.
+ *
+ * Data: GET /api/today, /api/calendar, /api/generate/briefing.
  */
 
 import { useState, useEffect } from "react";
-import useSWR, { mutate } from "swr";
+import useSWR from "swr";
 import Link from "next/link";
-import { Newspaper, ChevronDown, ArrowUpRight, Sparkles, Inbox, Activity, AlertTriangle } from "lucide-react";
-import { cn } from "@/lib/utils";
-import { TodayCard } from "@/components/today/today-card";
-import { LearningPrompt } from "@/components/today/learning-prompt";
-import { WeeklyBriefCard } from "@/components/today/weekly-brief-card";
-import { StatCard, AttentionDonut, DayTimeline, buildDayBlocks } from "@/components/today/dashboard-viz";
-import type { TodayFeedResponse, TodayFollowupItem } from "@/lib/today/types";
-
-// ── Helpers ───────────────────────────────────────────────────────────────────
-
-function getGreeting(hour: number): string {
-  if (hour < 5) return "Good night";
-  if (hour < 12) return "Good morning";
-  if (hour < 17) return "Good afternoon";
-  if (hour < 21) return "Good evening";
-  return "Good night";
-}
-
-function isToday(dateStr: string): boolean {
-  const d = new Date(dateStr);
-  const now = new Date();
-  return d.getFullYear() === now.getFullYear() && d.getMonth() === now.getMonth() && d.getDate() === now.getDate();
-}
+import { Dispatch } from "@/components/wire/dispatch";
+import type { TodayFeedResponse, TodayFeedItem } from "@/lib/today/types";
 
 interface CalendarEvent {
-  id: string; summary: string; start: string; end: string;
-  isAllDay?: boolean; hasVideo?: boolean; attendeeCount?: number;
-}
-interface BriefingData {
-  generatedAt?: string;
-  criticalToday?: string | null; projectRadar?: string | null; followUps?: string | null;
-  decisionsToWatch?: string | null; meetingsNeedingPrep?: string | null;
-  peopleAndAccounts?: string | null; inboxSlack?: string | null;
-}
-interface ActionRecord {
-  status?: string;
-  archivedReason?: string;
-  /** ISO yyyy-mm-dd. Drives the overdue / due-soon split in the Commitments KPI. */
-  dueDate?: string;
+  id: string;
+  summary: string;
+  start: string;
+  end: string;
+  isAllDay?: boolean;
+  hasVideo?: boolean;
+  attendeeCount?: number;
 }
 
-// THROW on a bad response — do not resolve to null. Swallowing the status here
-// meant SWR never saw an error, so `isLoading` went false with `items` empty and
-// the page announced "All clear — nothing needs you right now." during an
-// outage. For an assistant whose whole job is "I'll tell you what needs you",
-// a failure that reassures you is the one failure you'd never think to retry.
+// THROW on a bad response — do not resolve to null. Swallowing the status meant
+// SWR never saw an error, so `isLoading` went false with `items` empty and the
+// page announced "nothing needs you" during an outage. For an assistant whose
+// job is "I'll tell you what needs you", a failure that reassures you is the
+// one failure you would never think to retry.
 const swrFetch = async (url: string) => {
   const r = await fetch(url, { cache: "no-store" });
   if (!r.ok) throw new Error(`${url} failed (${r.status})`);
@@ -70,389 +50,210 @@ const swrFetch = async (url: string) => {
 };
 const SWR_OPTS = { revalidateOnFocus: false, dedupingInterval: 30_000 };
 
-const BRIEFING_SECTIONS: Array<{ key: keyof BriefingData; label: string }> = [
-  { key: "criticalToday", label: "Critical today" },
-  { key: "followUps", label: "Follow-ups" },
-  { key: "meetingsNeedingPrep", label: "Meetings needing prep" },
-  { key: "decisionsToWatch", label: "Decisions to watch" },
-  { key: "projectRadar", label: "Project radar" },
-  { key: "peopleAndAccounts", label: "People & accounts" },
-  { key: "inboxSlack", label: "Inbox & Slack" },
-];
+function timeOf(iso: string): string {
+  const d = new Date(iso);
+  return Number.isNaN(d.getTime())
+    ? "--:--"
+    : d.toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" });
+}
 
-const WORKDAY_MINS = 11 * 60; // 8am–7pm reference window for the focus ring
+/** A wire's lamp. Down and quiet are DIFFERENT states and must never look alike. */
+function Lamp({ state, label }: { state: "up" | "quiet" | "down"; label: string }) {
+  const title =
+    state === "down"
+      ? `${label}: not reachable — this wire is failing, not quiet`
+      : state === "quiet"
+        ? `${label}: connected, nothing filed`
+        : `${label}: filing`;
+  return (
+    <span className="inline-flex items-center gap-1.5" title={title}>
+      <span className={`wire-lamp wire-lamp-${state}`} aria-hidden="true" />
+      <span className="wire-data text-[0.6875rem] text-[var(--w-ink-soft)]">{label}</span>
+      <span className="sr-only">{title}</span>
+    </span>
+  );
+}
 
-// ── Page ────────────────────────────────────────────────────────────────────────
-
-export default function DashboardHome() {
-  const [hour, setHour] = useState(9);
-  const [nowMin, setNowMin] = useState(9 * 60);
-  const [dateLabel, setDateLabel] = useState("");
-  const [briefingOpen, setBriefingOpen] = useState(false);
-  const [showAllNeeds, setShowAllNeeds] = useState(false);
-  const [showLater, setShowLater] = useState(false);
-
-  const NEEDS_VISIBLE = 6;
+export default function DeskHome() {
+  const [dateline, setDateline] = useState("");
+  const [showSpiked, setShowSpiked] = useState(false);
 
   useEffect(() => {
     const now = new Date();
-    setHour(now.getHours());
-    setNowMin(now.getHours() * 60 + now.getMinutes());
     const tz = typeof Intl !== "undefined" ? Intl.DateTimeFormat().resolvedOptions().timeZone : undefined;
-    setDateLabel(now.toLocaleDateString("en-GB", { timeZone: tz, weekday: "long", day: "numeric", month: "long" }));
+    setDateline(
+      now
+        .toLocaleDateString("en-GB", { timeZone: tz, weekday: "short", day: "2-digit", month: "short" })
+        .toUpperCase(),
+    );
   }, []);
 
-  const { data: settings } = useSWR("/api/settings", swrFetch, SWR_OPTS);
   const { data: feed, isLoading, error: feedError } = useSWR<TodayFeedResponse>("/api/today", swrFetch, SWR_OPTS);
-  const { data: calendarData } = useSWR("/api/calendar", swrFetch, SWR_OPTS);
-  const { data: actionsData } = useSWR("/api/actions", swrFetch, SWR_OPTS);
-  const { data: briefingData } = useSWR("/api/generate/briefing", swrFetch, { ...SWR_OPTS, dedupingInterval: 5 * 60_000 });
+  const { data: calendarData, error: calError } = useSWR("/api/calendar", swrFetch, SWR_OPTS);
 
-  const firstName = settings?.name?.split(" ")[0] ?? "";
+  const items: TodayFeedItem[] = feed?.items ?? [];
   const events: CalendarEvent[] = calendarData?.events ?? [];
-  const briefing: BriefingData | null = briefingData ?? null;
 
-  const items = feed?.items ?? [];
-  const critical = items.filter((i) => i.lane === "critical");
-  const needsYou = items.filter((i) => i.lane === "needs-you");
-  const linear = items.filter((i) => i.lane === "linear");
-  const later = items.filter((i) => i.lane === "later");
-  const linearConnected = feed?.sources.linear ?? false;
+  const running = items.filter((i) => i.lane === "critical" || i.lane === "needs-you");
+  const later = items.filter((i) => i.lane === "later" || i.lane === "linear");
 
-  const todaysEvents = events
-    .filter((e) => !e.isAllDay && isToday(e.start))
-    .sort((a, b) => new Date(a.start).getTime() - new Date(b.start).getTime());
-
-  const criticalCount = critical.length;
-  const totalNeeds = critical.length + needsYou.length;
-  const focusTask = critical[0]?.subtitle ?? needsYou.find((i) => i.kind === "change")?.subtitle;
-
-  // ── KPI derivations ──────────────────────────────────────────────────────────
-  const followups = items.filter((i): i is TodayFollowupItem => i.kind === "followup");
-  const oldestWait = followups.reduce((m, f) => Math.max(m, f.followup.hoursWaiting ?? 0), 0);
-
-  const dayBlocks = buildDayBlocks(todaysEvents, focusTask);
-  const meetingMins = dayBlocks.filter((b) => b.type === "meeting").reduce((n, b) => n + (b.endMin - b.startMin), 0);
-  // "Focus today" = actual UNBOOKED time in the workday (workday − meetings), not
-  // the sum of a hardcoded suggested focus block (which only ever read 1.5h or 0h
-  // regardless of the real calendar). This is an honest, calendar-derived number.
-  const focusMins = Math.max(0, WORKDAY_MINS - meetingMins);
-  const focusHrs = Math.round((focusMins / 60) * 10) / 10;
-
-  const actionList: ActionRecord[] = Array.isArray(actionsData)
-    ? actionsData
-    : Array.isArray(actionsData?.actions)
-      ? actionsData.actions
-      : [];
-  const openList = actionList.filter((a) => a.status !== "done" && a.status !== "deleted" && a.status !== "dismissed");
-  const openActions = openList.length;
-  // Genuine completions only — items auto-retired by a lifecycle sweep carry an
-  // archivedReason and must NOT inflate the completion rate as if you finished them.
-  const doneActions = actionList.filter((a) => a.status === "done" && !a.archivedReason).length;
-
-  // ── What this KPI measures, and why it changed ──────────────────────────────
-  // It used to headline the OPEN COUNT (429) with a lifetime completion ring
-  // (8%). Both were technically true and practically useless: Basil manufactures
-  // commitments from every email and meeting, so the denominator is the machine's
-  // output, not Michael's workload. "8% complete" reads as personal failure for
-  // keeping up with an inbox, and 429 is a number nobody can act on.
-  // Headline the only figure that asks for a decision — what is overdue or due
-  // soon — and keep the backlog as context, mirroring how /dashboard/actions
-  // already buckets OVERDUE / UPCOMING.
-  const todayStr = new Date().toISOString().slice(0, 10);
-  const soonStr = new Date(Date.now() + 7 * 86_400_000).toISOString().slice(0, 10);
-  const overdueActions = openList.filter(
-    (a) => a.status === "overdue" || (!!a.dueDate && a.dueDate < todayStr)
-  ).length;
-  const dueSoonActions = openList.filter(
-    (a) => !!a.dueDate && a.dueDate >= todayStr && a.dueDate <= soonStr
-  ).length;
-  const needsAction = overdueActions + dueSoonActions;
-
-  // Attention donut — where today's signals come from.
-  const nChange = items.filter((i) => i.kind === "change").length;
-  const nFollow = followups.length;
-  const nLinear = items.filter((i) => i.kind === "linear").length;
-  const donutSegments = [
-    {
-      label: "Signals",
-      value: nChange,
-      color: "var(--gold)",
-      href: "#radar",
-      hint: `${nChange} change${nChange === 1 ? "" : "s"} across your actions, decisions & projects. Click to jump to the feed.`,
-    },
-    {
-      label: "Awaiting reply",
-      value: nFollow,
-      color: "var(--signal-info)",
-      // Point to the feed where the ACTUAL follow-up cards (email + Slack) live —
-      // not the Slack-only command centre, which computes a different count and
-      // would visibly disagree with this number for Gmail follow-ups.
-      href: "#radar",
-      hint: `${nFollow} message${nFollow === 1 ? "" : "s"} (email + Slack) waiting on your reply. Click to jump to the feed.`,
-    },
-    {
-      label: "Linear",
-      value: nLinear,
-      color: "var(--signal-positive)",
-      href: "/dashboard/linear",
-      hint: `${nLinear} hot Linear issue${nLinear === 1 ? "" : "s"} (urgent or due soon). Click to open Linear.`,
-    },
-  ];
-  const signalTotal = nChange + nFollow + nLinear;
+  const sources = feed?.sources as Record<string, boolean> | undefined;
+  const wireStates: Array<{ label: string; state: "up" | "quiet" | "down" }> = sources
+    ? Object.entries(sources).map(([name, connected]) => ({
+        label: name.toUpperCase(),
+        state: connected ? (items.some((i) => wireName(i) === name.toLowerCase()) ? "up" : "quiet") : "down",
+      }))
+    : [];
 
   return (
-    <div className="relative min-h-full">
-      <div
-        aria-hidden
-        className="pointer-events-none absolute inset-x-0 top-0 h-56 opacity-50"
-        style={{ background: "radial-gradient(720px 220px at 70% 0%, rgba(200,169,107,0.16), transparent 70%)" }}
-      />
-
-      <div className="relative mx-auto max-w-6xl px-5 py-6 lg:px-8 space-y-5">
-        {/* ── Header ──────────────────────────────────────────────────────────── */}
-        <header className="flex flex-wrap items-end justify-between gap-3">
-          <div>
-            <p className="text-xs uppercase tracking-[0.18em] text-muted-foreground/70">{dateLabel}</p>
-            <h1 className="mt-1 text-[28px] font-semibold tracking-tight text-foreground">
-              {getGreeting(hour)}{firstName ? `, ${firstName}` : ""}.
+    <div className="wire min-h-full">
+      <div className="mx-auto w-full max-w-[68rem] px-4 sm:px-6 py-5 sm:py-7">
+        {/* ── Dateline ──────────────────────────────────────────────────────
+            Not a greeting. Where and when copy was filed, and which wires are
+            up — the first thing a desk editor checks. */}
+        <header className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-2">
+          <div className="flex items-baseline gap-3 min-w-0">
+            <h1 className="wire-slug text-[1.375rem] leading-none tracking-tight text-[var(--w-ink)]">
+              The Desk
             </h1>
-            <p className="mt-1 text-sm text-muted-foreground">
-              {isLoading ? "Scanning your day…"
-                : feedError ? "Couldn't reach your sources — this is not an all-clear."
-                : totalNeeds === 0 ? "All clear — nothing needs you right now."
-                : <>
-                    <span className="font-medium text-foreground">{totalNeeds}</span> {totalNeeds === 1 ? "thing needs" : "things need"} you
-                    {criticalCount > 0 && <> · <span className="font-medium text-signal-critical">{criticalCount} critical</span></>}
-                    {meetingMins > 0 && <> · <span className="text-muted-foreground">{Math.round((meetingMins / 60) * 10) / 10}h in meetings</span></>}
-                  </>}
-            </p>
+            <span className="wire-dateline">{dateline || " "}</span>
           </div>
-          <Link
-            href="/dashboard/chat"
-            className="inline-flex items-center gap-2 rounded-xl border border-gold/30 bg-gold/[0.08] px-3.5 py-2 text-sm font-medium text-gold transition-colors hover:bg-gold/[0.14]"
-          >
-            <Sparkles className="h-4 w-4" /> Ask Basil
-          </Link>
-        </header>
-
-        {/* ── KPI stat row ────────────────────────────────────────────────────── */}
-        <section className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-          <StatCard
-            label="Needs you"
-            value={totalNeeds}
-            accent="var(--signal-critical)"
-            href="#radar"
-            summary={`${totalNeeds} item${totalNeeds === 1 ? "" : "s"} need your attention${criticalCount > 0 ? `, ${criticalCount} critical` : ""}. ${later.length} can wait. Click to jump to the feed.`}
-            sub={criticalCount > 0 ? <span className="text-signal-critical">{criticalCount} critical</span> : `${later.length} can wait`}
-            bar={[
-              { value: totalNeeds ? critical.length / Math.max(totalNeeds + later.length, 1) : 0, color: "var(--signal-critical)" },
-              { value: needsYou.length / Math.max(totalNeeds + later.length, 1), color: "var(--gold)" },
-              { value: later.length / Math.max(totalNeeds + later.length, 1), color: "var(--border)" },
-            ]}
-          />
-          <StatCard
-            label="Focus today"
-            value={`${focusHrs}h`}
-            accent="var(--signal-positive)"
-            href="/dashboard/schedule"
-            summary={`${focusHrs}h of focus time available today · ${Math.round((meetingMins / 60) * 10) / 10}h booked in meetings. Click to open your schedule.`}
-            sub={`${Math.round((meetingMins / 60) * 10) / 10}h booked`}
-            ring={{ value: focusMins / WORKDAY_MINS, center: <Activity className="h-4 w-4 text-signal-positive" /> }}
-          />
-          <StatCard
-            label="Awaiting reply"
-            value={nFollow}
-            accent="var(--signal-info)"
-            href="#radar"
-            summary={`${nFollow} message${nFollow === 1 ? "" : "s"} (email + Slack) awaiting your reply${oldestWait > 0 ? `, oldest waiting ${Math.round(oldestWait)}h` : ""}. Click to jump to the feed.`}
-            sub={oldestWait > 0 ? `oldest ${Math.round(oldestWait)}h` : "inbox calm"}
-          />
-          <StatCard
-            label="Commitments"
-            value={needsAction}
-            accent="var(--gold)"
-            href="/dashboard/actions"
-            summary={
-              needsAction === 0
-                ? `Nothing due in the next 7 days. ${openActions} tracked in the background, ${doneActions} done. Click to open Commitments.`
-                : `${overdueActions} overdue · ${dueSoonActions} due in the next 7 days. ${openActions} tracked in total (Basil creates these from your email and meetings, so the backlog is not a to-do list). Click to open Commitments.`
-            }
-            sub={
-              overdueActions > 0
-                ? <span className="text-signal-critical">{overdueActions} overdue</span>
-                : needsAction > 0 ? "due in 7 days" : `${openActions} tracked`
-            }
-          />
-        </section>
-
-        {/* ── Main grid: day timeline + attention ─────────────────────────────── */}
-        <section className="grid gap-4 lg:grid-cols-3">
-          <div className="lg:col-span-2">
-            {calendarData ? (
-              <DayTimeline events={todaysEvents} focusTask={focusTask} nowMin={nowMin} />
-            ) : (
-              <div className="h-full min-h-[200px] animate-pulse rounded-2xl border border-border/40 bg-card/30" />
-            )}
-          </div>
-          <div className="space-y-4">
-            <div className="rounded-2xl border border-border/60 bg-card/60 p-5">
-              <h2 className="mb-4 text-sm font-semibold tracking-tight text-foreground">Where your attention is</h2>
-              <AttentionDonut segments={donutSegments} total={signalTotal} />
-            </div>
-            <LearningPrompt />
-          </div>
-        </section>
-
-        {/* ── Priority feed ───────────────────────────────────────────────────── */}
-        {/* Scroll target for the "Needs you" KPI click-through. */}
-        <div id="radar" className="scroll-mt-20" aria-hidden />
-        {isLoading && (
-          <div className="grid gap-2 sm:grid-cols-2">
-            {[0, 1, 2, 3].map((i) => (
-              <div key={i} className="h-16 animate-pulse rounded-xl border border-border/40 bg-card/30" />
+          <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+            {wireStates.map((w) => (
+              <Lamp key={w.label} state={w.state} label={w.label} />
             ))}
           </div>
-        )}
+        </header>
 
-        {!isLoading && critical.length > 0 && (
-          <section className="space-y-2">
-            <SectionLabel tone="critical">Critical · act now</SectionLabel>
-            {critical.map((item) => <TodayCard key={item.id} item={item} />)}
-          </section>
-        )}
+        <hr className="wire-rule mt-3" />
 
-        {!isLoading && needsYou.length > 0 && (
-          <section className="space-y-2">
-            <SectionLabel>Needs you now</SectionLabel>
-            <div className="grid gap-2 lg:grid-cols-2">
-              {(showAllNeeds ? needsYou : needsYou.slice(0, NEEDS_VISIBLE)).map((item) => (
-                <TodayCard key={item.id} item={item} />
-              ))}
-            </div>
-            {needsYou.length > NEEDS_VISIBLE && (
-              <button
-                onClick={() => setShowAllNeeds((v) => !v)}
-                className="mt-1 w-full rounded-lg border border-border/40 py-2 text-xs font-medium text-muted-foreground transition-colors hover:border-border hover:text-gold"
-              >
-                {showAllNeeds ? "Show less" : `Show ${needsYou.length - NEEDS_VISIBLE} more`}
-              </button>
-            )}
-          </section>
-        )}
-
-        {/* A failed feed must never render as an empty one. */}
-        {!isLoading && feedError && (
-          <div className="flex flex-col items-center justify-center rounded-2xl border border-signal-critical-border bg-signal-critical-subtle py-12 text-center">
-            <span className="flex h-11 w-11 items-center justify-center rounded-full bg-signal-critical/10 text-signal-critical"><AlertTriangle className="h-5 w-5" /></span>
-            <p className="mt-3 text-sm font-medium text-foreground">Couldn&apos;t load your day</p>
-            <p className="mt-1 max-w-sm text-xs text-muted-foreground">
-              Basil couldn&apos;t reach your sources, so this screen is empty because of an error — not because nothing needs you.
-            </p>
-            <button
-              onClick={() => mutate("/api/today")}
-              className="mt-4 rounded-lg border border-border/60 px-3 py-1.5 text-xs font-medium text-foreground hover:bg-card/60"
-            >
-              Try again
-            </button>
+        {/* ── Running copy ─────────────────────────────────────────────────── */}
+        <section aria-labelledby="running-h" className="mt-5">
+          <div className="flex items-baseline justify-between gap-3">
+            <h2 id="running-h" className="wire-slug text-[0.8125rem] uppercase tracking-[0.1em] text-[var(--w-ink-soft)]">
+              Running copy
+            </h2>
+            <span className="wire-data text-[0.6875rem] text-[var(--w-ink-soft)]">
+              {running.length} outstanding
+            </span>
           </div>
-        )}
 
-        {!isLoading && !feedError && totalNeeds === 0 && (
-          <div className="flex flex-col items-center justify-center rounded-2xl border border-border/50 bg-card/30 py-12 text-center">
-            <span className="flex h-11 w-11 items-center justify-center rounded-full bg-gold/10 text-gold"><Sparkles className="h-5 w-5" /></span>
-            <p className="mt-3 text-sm font-medium text-foreground">Nothing needs you right now</p>
-            <p className="mt-1 text-xs text-muted-foreground">Basil is watching your sources and will surface anything that matters.</p>
-          </div>
-        )}
-
-        {!isLoading && later.length > 0 && (
-          <section className="space-y-2">
-            <button
-              onClick={() => setShowLater((v) => !v)}
-              className="flex w-full items-center justify-between rounded-lg border border-border/40 px-3 py-2 text-left text-xs font-medium text-muted-foreground transition-colors hover:border-border hover:text-foreground"
-            >
-              <span className="flex items-center gap-2">
-                <ChevronDown className={cn("h-3.5 w-3.5 transition-transform", showLater && "rotate-180")} />
-                Can wait <span className="text-muted-foreground/60">· {later.length}</span>
-              </span>
-              <span className="text-[10px] uppercase tracking-wide text-muted-foreground/50">learned</span>
-            </button>
-            {showLater && <div className="grid gap-2 lg:grid-cols-2">{later.map((item) => <TodayCard key={item.id} item={item} />)}</div>}
-          </section>
-        )}
-
-        {!isLoading && (linear.length > 0 || !linearConnected) && (
-          <section className="space-y-2">
-            <div className="flex items-center justify-between">
-              <SectionLabel>Linear</SectionLabel>
-              <Link href="/dashboard/linear" className="inline-flex items-center gap-1 text-xs text-muted-foreground transition-colors hover:text-gold">
-                Open Linear <ArrowUpRight className="h-3 w-3" />
-              </Link>
-            </div>
-            {linearConnected ? (
-              linear.length > 0 ? (
-                <div className="grid gap-2 lg:grid-cols-2">{linear.map((item) => <TodayCard key={item.id} item={item} />)}</div>
-              ) : (
-                <p className="rounded-xl border border-border/40 bg-card/30 px-4 py-3 text-xs text-muted-foreground">No hot issues — nothing urgent or due soon.</p>
-              )
+          <div className="wire-sheet mt-2 overflow-hidden">
+            {feedError ? (
+              // An outage is NOT an empty desk. Say which it is.
+              <p className="px-4 py-6 text-[0.875rem] text-[var(--w-stamp)]">
+                The wire is down — Basil could not read the queue, so this is not
+                a quiet desk, it is an unknown one.{" "}
+                <button
+                  type="button"
+                  onClick={() => location.reload()}
+                  className="underline underline-offset-2 font-semibold"
+                >
+                  Retry
+                </button>
+              </p>
+            ) : isLoading ? (
+              <p className="px-4 py-6 wire-data text-[0.75rem] text-[var(--w-ink-soft)]">
+                Reading the wires…
+              </p>
+            ) : running.length === 0 ? (
+              <p className="px-4 py-6 text-[0.875rem] text-[var(--w-ink-soft)]">
+                Nothing outstanding. Every wire above is reporting, so this is a
+                quiet desk rather than a silent one.
+              </p>
             ) : (
-              <Link href="/dashboard/settings" className="block rounded-xl border border-border/40 bg-card/30 px-4 py-3 text-xs text-muted-foreground transition-colors hover:text-gold">
-                Connect Linear to surface hot issues here →
-              </Link>
+              running.map((item, i) => <Dispatch key={item.id} item={item} seq={i + 1} />)
             )}
-          </section>
-        )}
+          </div>
+        </section>
 
-        {briefing && (
-          <section>
-            <button
-              onClick={() => setBriefingOpen((v) => !v)}
-              className="flex w-full items-center gap-2.5 rounded-xl border border-border/60 bg-card/40 px-4 py-3 text-left transition-all hover:bg-card/70"
-            >
-              <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-gold/10 text-gold"><Newspaper className="h-3.5 w-3.5" /></span>
-              <div className="flex-1">
-                <p className="text-sm font-medium text-foreground">Full briefing</p>
-                <p className="text-xs text-muted-foreground">Your complete chief-of-staff read</p>
-              </div>
-              <ChevronDown className={cn("h-4 w-4 text-muted-foreground transition-transform", briefingOpen && "rotate-180")} />
-            </button>
-            {briefingOpen && (
-              <div className="mt-2 grid gap-4 rounded-xl border border-border/40 bg-card/20 px-4 py-4 md:grid-cols-2">
-                {BRIEFING_SECTIONS.filter((s) => briefing[s.key]).map((s) => (
-                  <div key={s.key}>
-                    <p className="mb-1 text-xs font-semibold uppercase tracking-wide text-gold/80">{s.label}</p>
-                    <p className="whitespace-pre-wrap text-sm leading-relaxed text-foreground/85">{briefing[s.key]}</p>
+        {/* ── The day ───────────────────────────────────────────────────────
+            The schedule as filed copy, not a proportional-block timeline: block
+            height encoded duration, which is not what the reader needs to know. */}
+        <section aria-labelledby="day-h" className="mt-7">
+          <h2 id="day-h" className="wire-slug text-[0.8125rem] uppercase tracking-[0.1em] text-[var(--w-ink-soft)]">
+            Scheduled today
+          </h2>
+          <div className="wire-sheet mt-2 overflow-hidden">
+            {calError ? (
+              <p className="px-4 py-4 text-[0.875rem] text-[var(--w-stamp)]">
+                Calendar unreachable — the day below is unknown, not empty.
+              </p>
+            ) : events.length === 0 ? (
+              <p className="px-4 py-4 text-[0.875rem] text-[var(--w-ink-soft)]">Nothing scheduled.</p>
+            ) : (
+              events.map((e) => (
+                <div key={e.id} className="wire-dispatch">
+                  <span className="wire-data text-[0.75rem] text-[var(--w-carbon)] font-bold self-start mt-0.5">
+                    {e.isAllDay ? "ALL DAY" : timeOf(e.start)}
+                  </span>
+                  <div className="min-w-0">
+                    <p className="wire-slug text-[0.9375rem] text-[var(--w-ink)] truncate">{e.summary}</p>
+                    {e.attendeeCount ? (
+                      <p className="wire-data text-[0.6875rem] text-[var(--w-ink-soft)] mt-0.5">
+                        {e.attendeeCount} attending
+                      </p>
+                    ) : null}
                   </div>
+                  <span className="wire-data text-[0.6875rem] text-[var(--w-ink-soft)] self-start mt-1">
+                    {e.hasVideo ? "VIDEO" : ""}
+                  </span>
+                </div>
+              ))
+            )}
+          </div>
+        </section>
+
+        {/* ── The spike ─────────────────────────────────────────────────────
+            Lower-priority copy is set aside, not deleted. The desk keeps what it
+            spiked, and the reader can always pull it back. */}
+        {later.length > 0 && (
+          <section aria-labelledby="spike-h" className="mt-7">
+            <button
+              type="button"
+              onClick={() => setShowSpiked((v) => !v)}
+              aria-expanded={showSpiked}
+              className="flex items-baseline gap-2 group"
+            >
+              <h2
+                id="spike-h"
+                className="wire-slug text-[0.8125rem] uppercase tracking-[0.1em] text-[var(--w-ink-soft)] group-hover:text-[var(--w-ink)]"
+              >
+                Spiked
+              </h2>
+              <span className="wire-data text-[0.6875rem] text-[var(--w-ink-soft)]">
+                {later.length} held · {showSpiked ? "hide" : "show"}
+              </span>
+            </button>
+            {showSpiked && (
+              <div className="wire-spike mt-2 overflow-hidden">
+                {later.map((item, i) => (
+                  <Dispatch key={item.id} item={item} seq={running.length + i + 1} />
                 ))}
-                {BRIEFING_SECTIONS.every((s) => !briefing[s.key]) && <p className="text-sm text-muted-foreground">No briefing generated yet today.</p>}
               </div>
             )}
           </section>
         )}
 
-        {/* Weekly brief — the week-scale companion to the daily briefing above.
-            Renders unconditionally (unlike the briefing, which needs data to
-            exist first) because it owns its own empty + generate states. */}
-        <WeeklyBriefCard />
-
-        {!isLoading && feed && !feed.sources.followups.gmail && !feed.sources.followups.slack && !feed.sources.linear && items.length === 0 && (
-          <p className="flex items-center gap-2 text-xs text-muted-foreground/70">
-            <Inbox className="h-3.5 w-3.5" /> Connect Gmail, Slack, or Linear in Settings to start surfacing signals.
-          </p>
-        )}
+        <footer className="mt-8 flex flex-wrap items-center gap-x-4 gap-y-2">
+          <Link
+            href="/dashboard/briefing"
+            className="wire-slug text-[0.8125rem] uppercase tracking-[0.08em] text-[var(--w-carbon)] underline underline-offset-4"
+          >
+            Full briefing
+          </Link>
+          <span className="wire-data text-[0.6875rem] text-[var(--w-ink-soft)]">
+            filed 06:15 · delivered by email
+          </span>
+        </footer>
       </div>
     </div>
   );
 }
 
-function SectionLabel({ children, tone }: { children: React.ReactNode; tone?: "critical" }) {
-  return (
-    <h2 className={cn(
-      "text-[11px] font-semibold uppercase tracking-[0.14em]",
-      tone === "critical" ? "text-signal-critical" : "text-muted-foreground/70"
-    )}>
-      {children}
-    </h2>
-  );
+/** Which wire an item arrived on, lower-cased to match the sources map keys. */
+function wireName(item: TodayFeedItem): string {
+  if (item.kind === "followup") return item.followup.source;
+  if (item.kind === "linear") return "linear";
+  return item.change.source;
 }

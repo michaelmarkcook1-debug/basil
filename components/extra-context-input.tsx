@@ -324,8 +324,8 @@ export function ExtraContextInput({
         onClick={() => setOpen(true)}
         disabled={disabled}
         className={cn(
-          "inline-flex items-center gap-1.5 rounded-full border border-dashed border-border bg-transparent px-3 py-1.5 text-[12px] font-medium text-muted-foreground hover:border-gold/60 hover:text-foreground transition",
-          hasContent && "border-gold/60 text-foreground"
+          "inline-flex items-center gap-1.5 rounded-full border border-dashed border-border bg-transparent px-3 py-1.5 text-[12px] font-medium text-muted-foreground hover:border-[var(--w-rule)] hover:text-foreground transition",
+          hasContent && "border-[var(--w-rule)] text-foreground"
         )}
       >
         <Paperclip className="h-3.5 w-3.5" />
@@ -342,13 +342,13 @@ export function ExtraContextInput({
       className={cn(
         "relative rounded-xl ring-1 bg-background/50 p-4 space-y-3 transition",
         dragActive
-          ? "ring-2 ring-gold bg-gold/5"
+          ? "ring-2 ring-gold bg-[var(--w-carbon-tint)]"
           : "ring-border"
       )}
     >
       {dragActive && (
-        <div className="pointer-events-none absolute inset-0 z-10 flex items-center justify-center rounded-xl bg-gold/10 backdrop-blur-[1px]">
-          <div className="flex items-center gap-2 rounded-full bg-gold px-4 py-2 text-[oklch(0.18_0.04_250)] text-sm font-semibold">
+        <div className="pointer-events-none absolute inset-0 z-10 flex items-center justify-center rounded-xl bg-[var(--w-carbon-tint)] backdrop-blur-[1px]">
+          <div className="flex items-center gap-2 rounded-full bg-[var(--w-carbon)] px-4 py-2 text-[oklch(0.18_0.04_250)] text-sm font-semibold">
             <UploadCloud className="h-4 w-4" />
             Drop to attach
           </div>
@@ -428,7 +428,7 @@ export function ExtraContextInput({
                   key={`${u}-${i}`}
                   className="flex items-center gap-2 rounded-md bg-muted/50 px-2.5 py-1.5 text-[12px] text-foreground/80"
                 >
-                  <LinkIcon className="h-3.5 w-3.5 shrink-0 text-[oklch(0.58_0.15_85)]" />
+                  <LinkIcon className="h-3.5 w-3.5 shrink-0 text-[var(--w-carbon)]" />
                   <span className="truncate flex-1" title={u}>
                     {u}
                   </span>

@@ -124,9 +124,9 @@ export function ActionControls({
         // destructive control is adjacent to the common one; px-2 py-1 gave a
         // ~22px target. Desktop keeps the original compact density.
         "flex items-center gap-1 rounded-md px-2.5 py-1 min-h-11 sm:min-h-0 text-[11px] font-medium transition-colors disabled:opacity-50",
-        suggested && "ring-1 ring-gold/50",
+        suggested && "ring-1 ring-[var(--w-rule)]",
         active
-          ? "bg-gold/15 text-gold"
+          ? "bg-[var(--w-carbon-tint)] text-[var(--w-carbon)]"
           : tone === "positive"
           ? "text-muted-foreground hover:bg-signal-positive-subtle hover:text-signal-positive"
           : tone === "danger"
@@ -183,7 +183,7 @@ export function ActionControls({
             value={owner}
             onChange={(e) => setOwner(e.target.value)}
             placeholder="Delegate to…"
-            className="h-6 w-28 rounded-md border border-border bg-input px-2 text-[11px] text-foreground outline-none focus:border-gold/50"
+            className="h-6 w-28 rounded-md border border-border bg-input px-2 text-[11px] text-foreground outline-none focus:border-[var(--w-rule)]"
           />
           <button type="submit" className="rounded-md p-1 text-signal-positive hover:bg-signal-positive-subtle" aria-label="Confirm delegate">
             <Check className="h-3.5 w-3.5" />
