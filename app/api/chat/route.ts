@@ -95,8 +95,24 @@ export async function POST(req: Request) {
     );
   } catch (err) {
     if (err instanceof SpendCapError) {
+      // Say WHEN it resets, derived from the scope that actually fired.
+      // This read "Try again next month" for every scope including the DAILY
+      // ones, which sent the owner hunting through their Anthropic billing for
+      // a limit that was Basil's own and reset at midnight. A wrong recovery
+      // instruction costs more than a vague one: it points you at the wrong
+      // system entirely.
+      const resetsIn =
+        err.scope === "user-daily" || err.scope === "daily"
+          ? `resets at midnight UTC (about ${Math.max(1, Math.round(err.retryAfterSec / 3600))}h)`
+          : err.scope === "hard-stop"
+            ? "AI is switched off by the AI_SPEND_HARD_STOP kill switch"
+            : "resets at the start of next month";
       return Response.json(
-        { error: `AI budget reached (${err.scope}). Try again next month or contact support.` },
+        {
+          error:
+            `Basil's own AI budget is spent (${err.scope}) — this is Basil's cap, ` +
+            `not your provider's credit. It ${resetsIn}.`,
+        },
         { status: 429, headers: { "Retry-After": String(err.retryAfterSec) } }
       );
     }

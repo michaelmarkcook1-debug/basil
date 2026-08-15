@@ -144,6 +144,13 @@ export interface SpendReservation {
   day: string;
   /** USD reserved up front (0 when no cap is configured → observe-only). */
   reservedUsd: number;
+  /**
+   * The counters that actually received the up-front hold — only those with a
+   * cap configured. Commit and release must distinguish these from the merely
+   * observed counters, or the unheld ones get debited a reservation they were
+   * never credited and drift negative. See commitDeltaFor.
+   */
+  heldKeys: string[];
 }
 
 /**
@@ -166,6 +173,28 @@ function counterKeysFor(r: SpendReservation): [string, number][] {
     [dailyKey(r.day), DAILY_TTL_SECONDS],
     [userDailyKey(r.username, r.day), DAILY_TTL_SECONDS],
   ];
+}
+
+/**
+ * The adjustment a given counter needs at commit time.
+ *
+ * Reserve only credits counters that HAVE a cap configured — an uncapped
+ * counter never receives the up-front `+worst`. Commit, though, must update
+ * every counter, because they exist for observability whether or not they gate
+ * anything. Applying the same `actual - reserved` delta to both kinds is what
+ * drove the uncapped ones negative: they were debited the reservation they were
+ * never credited.
+ *
+ * Observed live 2026-08-15 with only a per-user DAILY cap configured:
+ * globalUsd -8.89 and every monthly per-user total negative, while the one
+ * counter that was actually reserved (user-daily) stayed correct and positive.
+ * Spend cannot be negative; those figures were meaningless.
+ *
+ * So: a counter that was held settles by the delta; one that was not simply
+ * records what was spent.
+ */
+function commitDeltaFor(key: string, r: SpendReservation, actualUsd: number): number {
+  return r.heldKeys.includes(key) ? actualUsd - r.reservedUsd : actualUsd;
 }
 
 // ── Reserve ──────────────────────────────────────────────────────────────────────
@@ -191,14 +220,30 @@ export async function reserveSpend(meter: SpendMeter, kind: ModelKind): Promise<
 
   // No caps → observe-only. Skip reservation; commit still meters usage.
   if (gc === null && uc === null && dc === null && udc === null) {
-    return { username: meter.username, feature: meter.feature, family, period, day, reservedUsd: 0 };
+    return { username: meter.username, feature: meter.feature, family, period, day, reservedUsd: 0, heldKeys: [] };
   }
 
-  // Reserve for the whole call. Tool-loop paths (chat) run up to maxSteps model
-  // calls before onFinish, so we scale the worst case by the step budget — the
-  // reservation must bound the ENTIRE in-flight cost, not one step, or many
-  // concurrent loops could collectively exceed the cap before commit reconciles.
-  const steps = Math.max(1, meter.maxSteps ?? 1);
+  // Reserve for the call. Tool-loop paths (chat) may run up to maxSteps model
+  // calls before onFinish, so the reservation scales with the step budget —
+  // it has to bound in-flight cost, not one step, or concurrent loops could
+  // collectively pass the cap before commit reconciles.
+  //
+  // But it is scaled by RESERVE_STEP_CAP, not the full budget, and that matters:
+  // at maxSteps 8 on Opus 5 the worst case is 24k in + 6k out per step ≈ $0.27,
+  // so a single chat message held $2.16. Against the owner's $1/day per-user
+  // ceiling that is rejected BEFORE any token is sent — Ask Basil could never
+  // run at all, at any level of actual spend. Found live 2026-08-15 with the
+  // user at $0.34 of $1.00 used and chat reporting "budget reached".
+  //
+  // Two facts make a smaller hold safe. Real messages cost $0.05–0.15, an order
+  // of magnitude under the worst case; and commitSpend() reconciles to ACTUAL
+  // usage the moment the call ends, so an under-reservation is corrected in
+  // seconds rather than persisting. What a smaller hold gives up is protection
+  // against many SIMULTANEOUS loops overshooting between reserve and commit —
+  // real at scale, irrelevant for a handful of users, and never worth making
+  // the product's main surface permanently unusable.
+  const RESERVE_STEP_CAP = 2;
+  const steps = Math.min(Math.max(1, meter.maxSteps ?? 1), RESERVE_STEP_CAP);
   const worst = worstCaseCostUsd(kind, family) * steps;
 
   // Every ceiling this call must satisfy, ordered TIGHTEST FIRST so a rejection
@@ -235,7 +280,7 @@ export async function reserveSpend(meter: SpendMeter, kind: ModelKind): Promise<
         throw new SpendCapError(h.scope, h.retryAfter);
       }
     }
-    return { username: meter.username, feature: meter.feature, family, period, day, reservedUsd: worst };
+    return { username: meter.username, feature: meter.feature, family, period, day, reservedUsd: worst, heldKeys: applied.map((h) => h.key) };
   } catch (err) {
     if (err instanceof SpendCapError) throw err;
 
@@ -253,7 +298,7 @@ export async function reserveSpend(meter: SpendMeter, kind: ModelKind): Promise<
       throw new SpendCapError("global", secondsUntilPeriodEnd());
     }
     console.warn("[spend-guard] counter store error — failing OPEN (cheap tier):", err instanceof Error ? err.message : err);
-    return { username: meter.username, feature: meter.feature, family, period, day, reservedUsd: 0 };
+    return { username: meter.username, feature: meter.feature, family, period, day, reservedUsd: 0, heldKeys: [] };
   }
 }
 
@@ -271,11 +316,14 @@ export async function commitSpend(
 ): Promise<void> {
   const family = familyOverride ?? reservation.family;
   const actualUsd = costUsd(family, usage);
-  const delta = actualUsd - reservation.reservedUsd;
 
   try {
+    // Per-counter delta, NOT one shared value: a counter that took the up-front
+    // hold settles by (actual − reserved); one that was only ever observed
+    // records the actual spend. Using the same delta for both is what drove the
+    // uncapped counters negative. See commitDeltaFor.
     for (const [key, ttl] of counterKeysFor(reservation)) {
-      await incrCounter(key, delta, ttl);
+      await incrCounter(key, commitDeltaFor(key, reservation, actualUsd), ttl);
     }
   } catch (err) {
     console.error("[spend-guard] commit counter update failed (event log still recorded):", err instanceof Error ? err.message : err);
@@ -296,7 +344,11 @@ export async function commitSpend(
 export async function releaseSpend(reservation: SpendReservation): Promise<void> {
   if (reservation.reservedUsd <= 0) return;
   try {
+    // Only the counters that TOOK the hold get it back. Refunding a counter
+    // that was never credited would push it negative — the same asymmetry that
+    // corrupted the monthly totals.
     for (const [key, ttl] of counterKeysFor(reservation)) {
+      if (!reservation.heldKeys.includes(key)) continue;
       await incrCounter(key, -reservation.reservedUsd, ttl);
     }
   } catch (err) {
