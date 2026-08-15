@@ -145,8 +145,23 @@ test("the home feed fetcher throws, and a failed feed is not an all-clear", () =
     "swrFetch must not swallow the status — SWR then never errors and the page claims 'All clear'");
   assert.ok(/if \(!r\.ok\) throw/.test(page), "swrFetch must throw on a bad response");
   assert.ok(/error: feedError/.test(page), "the page must read SWR's error for the feed");
-  assert.ok(/!isLoading && !feedError && totalNeeds === 0/.test(page),
-    "the 'Nothing needs you' empty state must be gated on there being no error");
+
+  // The gate was once a single conjunction (`!isLoading && !feedError && totalNeeds === 0`).
+  // The Wire Desk rebuild expressed the same rule as a branch chain instead, so pin the
+  // INVARIANT rather than one spelling of it: the error and loading arms must both be
+  // reached BEFORE any zero-count arm. Either form is fine. An empty state that is
+  // reachable while the feed is failing or still in flight is not — that is the exact
+  // silent-failure this test exists to stop.
+  const errorArm   = page.indexOf("feedError ?");
+  const loadingArm = page.indexOf("isLoading ?");
+  const emptyArm   = page.search(/\.length === 0 \?/);
+  assert.ok(errorArm   !== -1, "the feed sheet must render a distinct error arm");
+  assert.ok(loadingArm !== -1, "the feed sheet must render a distinct loading arm");
+  assert.ok(emptyArm   !== -1, "the feed sheet must render an empty arm");
+  assert.ok(errorArm < emptyArm,
+    "an outage must not render as an empty desk — branch on feedError before the zero-count arm");
+  assert.ok(loadingArm < emptyArm,
+    "an in-flight feed must not render as an empty desk — branch on isLoading before the zero-count arm");
 });
 
 test("every [id] write route validates its body instead of casting", () => {
