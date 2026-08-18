@@ -142,7 +142,18 @@ export interface SpendReservation {
    * tomorrow and leave yesterday permanently over-counted.
    */
   day: string;
-  /** USD reserved up front (0 when no cap is configured → observe-only). */
+  /**
+   * USD reserved up front (0 when no cap is configured → observe-only, meaning
+   * NO ceiling applies).
+   *
+   * CONTRACT: for multi-step callers this is not merely an accounting hold, it
+   * is the budget the call is permitted to spend. A tool loop must stop once its
+   * accumulated cost reaches this figure. Honour it and in-flight spend is
+   * bounded by this reservation plus at most one further step (the check can
+   * only run between steps); ignore it and the loop can outspend its hold by its
+   * FULL step budget before commitSpend() reconciles, which turns every
+   * configured cap into a suggestion.
+   */
   reservedUsd: number;
   /**
    * The counters that actually received the up-front hold — only those with a
@@ -235,14 +246,31 @@ export async function reserveSpend(meter: SpendMeter, kind: ModelKind): Promise<
   // run at all, at any level of actual spend. Found live 2026-08-15 with the
   // user at $0.34 of $1.00 used and chat reporting "budget reached".
   //
-  // Two facts make a smaller hold safe. Real messages cost $0.05–0.15, an order
-  // of magnitude under the worst case; and commitSpend() reconciles to ACTUAL
-  // usage the moment the call ends, so an under-reservation is corrected in
-  // seconds rather than persisting. What a smaller hold gives up is protection
-  // against many SIMULTANEOUS loops overshooting between reserve and commit —
-  // real at scale, irrelevant for a handful of users, and never worth making
-  // the product's main surface permanently unusable.
-  const RESERVE_STEP_CAP = 2;
+  // A worst-case hold is a GUESS in both directions, and both are bad. Hold 8
+  // steps and a $1/day user is locked out permanently. Hold 1 step and a
+  // runaway loop can spend 8× what we reserved before commit reconciles — the
+  // cap becomes advisory. Neither is fixed by picking a cleverer multiplier.
+  //
+  // So the reservation stopped being a guess and became a CONTRACT the caller
+  // must enforce as its own spend ceiling (see the reservedUsd field docs and
+  // the stopWhen array in app/api/chat/route.ts): the loop halts as soon as its
+  // accumulated cost reaches what we held.
+  //
+  // Be precise about what that buys, because it is bounded, not exact. The
+  // condition is evaluated BETWEEN steps, so the loop can only discover it has
+  // reached the ceiling after a step has already been paid for. Worst case in
+  // flight is therefore reserved + one step, i.e. 2 × $0.27 = $0.54 — not $0.27.
+  // Making it exact would mean stopping when spent + nextWorstStep exceeds the
+  // ceiling, which at a one-step hold refuses to run any step at all. Bounded
+  // overshoot is the price of the loop running.
+  //
+  // That still makes ONE step the right hold: worst case drops from 8 steps
+  // ($2.16) to 2 ($0.54), the usable share of a $1 cap rises from $0.46 to
+  // $0.73, and a cap can be exceeded by at most one step's cost per in-flight
+  // message before commitSpend() reconciles. A caller that does NOT enforce the
+  // ceiling is back to an unbounded 1-step guess — which is exactly why the
+  // contract is stated on the field rather than left implicit here.
+  const RESERVE_STEP_CAP = 1;
   const steps = Math.min(Math.max(1, meter.maxSteps ?? 1), RESERVE_STEP_CAP);
   const worst = worstCaseCostUsd(kind, family) * steps;
 

@@ -30,7 +30,7 @@ import { repairOrphanedToolCalls } from "@/lib/ai/repair-history";
 import { reserveSpend, commitSpend, releaseSpend, SpendCapError } from "@/lib/ai/spend-guard";
 import { getEntitlement } from "@/lib/billing/entitlement-store";
 import { effectiveKind } from "@/lib/ai/tiering";
-import { CHAT_PRICE_FAMILY } from "@/lib/ai/pricing";
+import { CHAT_PRICE_FAMILY, costUsd } from "@/lib/ai/pricing";
 
 /**
  * Body ceiling. Was 200 KB, sized for text-only histories — far too small the
@@ -167,13 +167,50 @@ export async function POST(req: Request) {
     `provider=${PROVIDER_MODE} tier=${chatKind}`
   );
 
+  // ── The reservation is a ceiling, not a guess ────────────────────────────
+  // reserveSpend() holds ONE step's worst case. That is only safe because the
+  // loop is not allowed to outspend the hold: this condition halts it as soon as
+  // its accumulated cost reaches what was reserved. Without it the loop could run
+  // all 8 steps against a 1-step hold and sail past the daily cap before
+  // commitSpend() ever reconciles.
+  //
+  // The bound is reserved + ONE step, not reserved exactly — a step's cost is
+  // only known once it has been paid for, so the stop always trails by one.
+  // Worst case is 2 × $0.27 rather than 8 × $0.27, which is the point.
+  //
+  // reservedUsd === 0 means observe-only (no cap configured) — never stop then,
+  // or an unconfigured install would truncate every reply after one step.
+  const ceilingUsd = reservation.reservedUsd;
+  let ceilingStopped = false;
+  const spentAcross = (
+    steps: readonly { usage?: { inputTokens?: number; outputTokens?: number } }[],
+  ) =>
+    steps.reduce(
+      (sum, st) => sum + costUsd(CHAT_PRICE_FAMILY, {
+        inputTokens:  st.usage?.inputTokens,
+        outputTokens: st.usage?.outputTokens,
+      }),
+      0,
+    );
+
   const result = streamText({
     model: chatModel,
     maxOutputTokens: MAX_TOKENS[chatKind],
     system,
     messages: modelMessages,
     tools: buildAssistantTools(username, firstName, timezone),
-    stopWhen: stepCountIs(8),
+    stopWhen: [
+      stepCountIs(8),
+      // Declared inline so TypeScript contextually types `steps` from the real
+      // tool set — an explicit StopCondition<ToolSet> annotation widens the
+      // generic and stops assigning.
+      ({ steps }) => {
+        if (ceilingUsd <= 0) return false;             // observe-only: no ceiling
+        if (spentAcross(steps) < ceilingUsd) return false;
+        ceilingStopped = true;
+        return true;
+      },
+    ],
     // Reconcile the reservation to ACTUAL token usage once the stream finishes.
     // totalUsage aggregates across all tool-loop steps.
     onFinish: ({ totalUsage, finishReason }) => {
@@ -183,12 +220,17 @@ export async function POST(req: Request) {
       // silently chopped Ask Basil mid-sentence: the GPT-5.6 reasoning tokens
       // consumed the whole maxOutputTokens budget before it could answer.)
       const reasoning = (totalUsage as { reasoningTokens?: number } | undefined)?.reasoningTokens;
-      const log = finishReason === "length" ? console.warn : console.info;
+      const log = finishReason === "length" || ceilingStopped ? console.warn : console.info;
       log(
         `[api/chat] finish=${finishReason} tier=${chatKind} ` +
         `in=${totalUsage?.inputTokens} out=${totalUsage?.outputTokens}` +
         (reasoning !== undefined ? ` reasoning=${reasoning}` : "") +
-        (finishReason === "length" ? " ⚠️ TRUNCATED — raise MAX_TOKENS" : "")
+        (finishReason === "length" ? " ⚠️ TRUNCATED — raise MAX_TOKENS" : "") +
+        // Distinct from the maxOutputTokens truncation above: the answer was cut
+        // short because the tool loop exhausted its RESERVED BUDGET, not its token
+        // ceiling. Same symptom for the reader, completely different fix — one
+        // wants MAX_TOKENS raised, this one wants the daily cap raised.
+        (ceilingStopped ? ` ⚠️ BUDGET-STOPPED — loop hit its $${reservation.reservedUsd.toFixed(2)} reservation; raise AI_PER_USER_DAILY_USD` : "")
       );
       if (spendSettled) return;
       spendSettled = true;
