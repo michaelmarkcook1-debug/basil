@@ -158,7 +158,7 @@ function IssueCard({
       className={cn(
         "rounded-lg border border-border/60 cursor-pointer transition-all hover:border-border group",
         "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--w-rule)]",
-        selected && "border-[var(--w-rule)] bg-[var(--w-carbon-tint)]]",
+        selected && "border-[var(--w-rule)] bg-[var(--w-carbon-tint)]",
         isDone && "opacity-55 hover:opacity-80"
       )}
       onClick={() => onSelect(issue)}
@@ -305,7 +305,7 @@ function NotificationCard({
         "rounded-lg border transition-all",
         isRead
           ? "border-border/40 bg-background/50"
-          : "border-[var(--w-rule)] bg-[var(--w-carbon-tint)]]"
+          : "border-[var(--w-rule)] bg-[var(--w-carbon-tint)]"
       )}
     >
       <CardContent className="p-3 space-y-2">
@@ -438,7 +438,7 @@ function InboxReplyPanel({
   }
 
   return (
-    <Card className="rounded-lg border border-[var(--w-rule)] bg-[var(--w-carbon-tint)]]">
+    <Card className="rounded-lg border border-[var(--w-rule)] bg-[var(--w-carbon-tint)]">
       <CardContent className="p-3 space-y-2">
         <div className="flex items-center justify-between">
           <p className="text-xs font-medium text-muted-foreground">

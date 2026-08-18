@@ -56,7 +56,7 @@ const KIND_STYLE: Record<
     Icon: Compass,
     text: "text-[oklch(0.58_0.15_85)]",
     ring: "ring-[var(--w-rule)]",
-    bg: "bg-[var(--w-carbon-tint)]]",
+    bg: "bg-[var(--w-carbon-tint)]",
     hint: "Active situation or ongoing thread",
   },
   fact: {

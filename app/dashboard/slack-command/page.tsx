@@ -262,7 +262,7 @@ function SignalCard({ signal }: { signal: Signal }) {
               href={signal.threadUrl}
               target="_blank"
               rel="noopener noreferrer"
-              className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-medium border border-[var(--w-rule)] bg-[var(--w-carbon-tint)]] text-[var(--w-carbon)] transition-colors hover:bg-[var(--w-carbon-tint)]"
+              className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-medium border border-[var(--w-rule)] bg-[var(--w-carbon-tint)] text-[var(--w-carbon)] transition-colors hover:bg-[var(--w-carbon-tint)]"
             >
               <ExternalLink className="h-3 w-3" />
               Open in Slack

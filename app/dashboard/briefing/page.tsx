@@ -106,7 +106,7 @@ const sections: SectionDef[] = [
     key: "meetingsNeedingPrep",
     label: "Meetings Needing Prep",
     icon: Calendar,
-    bg: "bg-[var(--w-carbon-tint)]]",
+    bg: "bg-[var(--w-carbon-tint)]",
     accent: "bg-[var(--w-carbon)]",
     fg: "text-[oklch(0.58_0.15_85)]",
     ring: "ring-[var(--w-rule)]",
@@ -543,7 +543,7 @@ export default function BriefingPage() {
                 "inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[12px] font-medium",
                 "transition-all duration-150 border",
                 active
-                  ? "bg-[var(--w-carbon-tint)]] text-[var(--w-carbon)] border-[var(--w-rule)]"
+                  ? "bg-[var(--w-carbon-tint)] text-[var(--w-carbon)] border-[var(--w-rule)]"
                   : "bg-transparent text-muted-foreground/60 border-border/30 hover:border-border/60 hover:text-muted-foreground"
               )}
             >
@@ -647,11 +647,11 @@ export default function BriefingPage() {
            pulled from calendar, email, Slack, actions, decisions, and projects.
       ──────────────────────────────────────────────────────────────────────── */}
       {(stigLoading || stigRead) && (
-        <div className="rounded-2xl border border-[var(--w-rule)] bg-[var(--w-carbon-tint)]] overflow-hidden">
+        <div className="rounded-2xl border border-[var(--w-rule)] bg-[var(--w-carbon-tint)] overflow-hidden">
           {/* Header row */}
           <button
             onClick={() => setStigExpanded((v) => !v)}
-            className="w-full flex items-center justify-between gap-3 px-5 py-3.5 hover:bg-[var(--w-carbon-tint)]] transition-colors"
+            className="w-full flex items-center justify-between gap-3 px-5 py-3.5 hover:bg-[var(--w-carbon-tint)] transition-colors"
           >
             <span className="flex items-center gap-2.5">
               {stigLoading ? (

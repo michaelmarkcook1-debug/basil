@@ -157,7 +157,7 @@ export function WeeklyBriefCard() {
                 type="button"
                 onClick={() => void generate()}
                 disabled={generating}
-                className="inline-flex items-center gap-1.5 rounded-lg border border-[var(--w-rule)] bg-[var(--w-carbon-tint)]] px-3 py-2 text-sm font-medium text-[var(--w-carbon)] transition-colors hover:bg-[var(--w-carbon-tint)]] disabled:opacity-60"
+                className="inline-flex items-center gap-1.5 rounded-lg border border-[var(--w-rule)] bg-[var(--w-carbon-tint)] px-3 py-2 text-sm font-medium text-[var(--w-carbon)] transition-colors hover:bg-[var(--w-carbon-tint)] disabled:opacity-60"
               >
                 {generating
                   ? <><Loader2 className="h-3.5 w-3.5 animate-spin" /> Building your week…</>

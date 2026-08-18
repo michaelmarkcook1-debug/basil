@@ -98,14 +98,14 @@ export default function DashboardLayout({
           <header className="flex items-center h-14 px-4 bg-sidebar border-b border-sidebar-border shrink-0 pt-[env(safe-area-inset-top)]">
             <button
               onClick={() => setMobileOpen(true)}
-              className="rounded-md p-2 -ml-2 text-sidebar-foreground/60 hover:text-sidebar-foreground hover:bg-[var(--w-carbon-tint)]] transition-colors"
+              className="rounded-md p-2 -ml-2 text-sidebar-foreground/60 hover:text-sidebar-foreground hover:bg-sidebar-accent transition-colors"
               aria-label="Open navigation"
             >
               <Menu className="h-5 w-5" />
             </button>
             <div className="flex items-center gap-2 ml-2">
               <img src="/brand/basil-mark.png" alt="Basil" className="h-7 w-7 rounded-lg" />
-              <p className="basil-display text-base text-[var(--w-carbon)]">Basil</p>
+              <p className="basil-display text-base text-sidebar-foreground">Basil</p>
             </div>
           </header>
         )}

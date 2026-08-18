@@ -464,7 +464,7 @@ function StigApiTab({
   return (
     <div className="space-y-4">
       {/* ── Brain status card ────────────────────────────────────────────── */}
-      <Card className="border-[var(--w-rule)] bg-[var(--w-carbon-tint)]] shadow-sm">
+      <Card className="border-[var(--w-rule)] bg-[var(--w-carbon-tint)] shadow-sm">
         <CardHeader className="pb-3">
           <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
             <div>
