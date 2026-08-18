@@ -18,6 +18,7 @@
  */
 
 import { NextResponse } from "next/server";
+import { sendEmail, isEmailConfigured, resendKeyProblem } from "@/lib/email/send";
 import { findByEmail, findByUsername } from "@/lib/users";
 import { createResetToken } from "@/lib/auth/reset-tokens";
 import { checkRateLimitDurable, getClientIp } from "@/lib/rate-limit";
@@ -26,56 +27,29 @@ import { forceFlushSnapshot } from "@/lib/storage/persistent";
 // ── Email sending via Resend ──────────────────────────────────────────────────
 
 async function sendResetEmail(to: string, name: string, resetUrl: string): Promise<boolean> {
-  const apiKey = process.env.RESEND_API_KEY;
-  if (!apiKey) return false;
-
-  const fromAddress = process.env.RESEND_FROM_EMAIL || "Basil <noreply@basil-app.vercel.app>";
-
-  try {
-    const res = await fetch("https://api.resend.com/emails", {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${apiKey}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        from: fromAddress,
-        to: [to],
-        subject: "Reset your Basil password",
-        html: `
+  // Delegates to the single Resend client. This route used to hand-roll its own
+  // fetch, so the key handling here and in lib/email/send.ts drifted apart —
+  // trimming and shape validation landed in one and not the other.
+  const { ok, error } = await sendEmail({
+    to,
+    subject: "Reset your Basil password",
+    html: `
           <div style="font-family:sans-serif;max-width:480px;margin:0 auto;padding:32px;">
             <h2 style="font-size:20px;margin-bottom:8px;">Reset your password</h2>
             <p style="color:#555;margin-bottom:24px;">
               Hi ${name || "there"},<br><br>
               Click the button below to set a new password.
-              This link expires in <strong>1 hour</strong> and can only be used once.
             </p>
-            <a href="${resetUrl}"
-               style="display:inline-block;background:#b8860b;color:#fff;
-                      text-decoration:none;padding:12px 24px;border-radius:6px;
-                      font-weight:600;font-size:15px;">
-              Reset password →
-            </a>
-            <p style="color:#999;font-size:13px;margin-top:24px;">
-              If you didn't request this, ignore this email — your password won't change.<br>
-              Link: <a href="${resetUrl}" style="color:#999;">${resetUrl}</a>
+            <a href="${resetUrl}" style="display:inline-block;background:#35346B;color:#fff;padding:12px 20px;border-radius:6px;text-decoration:none;">Set a new password</a>
+            <p style="color:#888;font-size:13px;margin-top:24px;">
+              This link expires in 1 hour. If you didn't request it, ignore this email.
             </p>
           </div>
         `,
-        text: `Reset your Basil password\n\nClick this link (expires in 1 hour):\n${resetUrl}\n\nIf you didn't request this, ignore this email.`,
-      }),
-    });
-
-    if (!res.ok) {
-      const body = await res.text();
-      console.error("[forgot-password] Resend error:", res.status, body.slice(0, 200));
-      return false;
-    }
-    return true;
-  } catch (err) {
-    console.error("[forgot-password] Resend fetch failed:", err instanceof Error ? err.message : err);
-    return false;
-  }
+    text: `Reset your Basil password\n\nClick this link (expires in 1 hour):\n${resetUrl}\n\nIf you didn't request this, ignore this email.`,
+  });
+  if (!ok) console.error("[forgot-password] reset email not sent:", error);
+  return ok;
 }
 
 // ── Route handler ─────────────────────────────────────────────────────────────
@@ -137,7 +111,16 @@ export async function POST(req: Request) {
     if (process.env.NODE_ENV !== "production") {
       console.info(`[forgot-password] reset link (dev only, email not sent): ${resetUrl}`);
     } else {
-      console.warn("[forgot-password] reset email could not be delivered — set RESEND_API_KEY to enable email delivery.");
+      // Distinguish "not configured" from "configured but rejected". The old copy
+      // said "set RESEND_API_KEY" in BOTH cases, which sent the operator to
+      // re-enter a key that was already there — the actual failure was a 401
+      // logged one line above and contradicted by this one.
+      console.warn(
+        isEmailConfigured()
+          ? "[forgot-password] RESEND_API_KEY is configured but the send FAILED — see the error above. " +
+            "GET /api/admin/email-probe for the verdict; do not just re-enter the key."
+          : `[forgot-password] email not configured: ${resendKeyProblem()}`
+      );
     }
   }
 
