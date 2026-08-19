@@ -104,6 +104,14 @@ export async function sendEmail(opts: {
 
 export interface EmailProbe {
   configured: boolean;
+  /**
+   * Length and prefix only — never the value. This is the field that
+   * distinguishes a key mangled on entry from a complete key Resend has
+   * revoked. A real Resend key is `re_` plus ~32 chars; markedly shorter means
+   * the value was truncated on the way in, and re-pasting the same key through
+   * the same route will truncate it again.
+   */
+  keyShape: { length: number; prefix: string; plausibleLength: boolean } | null;
   /** Why it cannot work, or null. Safe to show an operator — never the key. */
   problem: string | null;
   /** What Resend itself said when asked. */
@@ -129,11 +137,25 @@ export interface EmailProbe {
  * a placeholder and the real value is only visible to the running app — which
  * means the app has to be the one to answer.
  */
+/**
+ * Resend reports a bad credential as 400 validation_error, not only 401.
+ * Matching 401 alone made the most common failure fall through to a generic
+ * "Resend returned 400" with no guidance.
+ */
+function rejectedCredential(status: number | null, body: string): boolean {
+  if (status === 401) return true;
+  return status === 400 && /api key is invalid/i.test(body);
+}
+
 export async function probeEmailConfig(): Promise<EmailProbe> {
   const problem = resendKeyProblem();
   const from = emailFromAddress();
+  const rawKey = (process.env.RESEND_API_KEY ?? "").trim();
   const base: EmailProbe = {
     configured: problem === null,
+    keyShape: rawKey
+      ? { length: rawKey.length, prefix: rawKey.slice(0, 3), plausibleLength: rawKey.length >= 30 }
+      : null,
     problem,
     resend: { status: null, ok: false },
     from,
@@ -157,11 +179,16 @@ export async function probeEmailConfig(): Promise<EmailProbe> {
       return {
         ...base,
         resend: { status, ok: false, detail: text.slice(0, 200) },
-        verdict:
-          status === 401
-            ? "Resend rejected the key (401). It is well-formed but not a live key for this account — " +
-              "regenerate it in the Resend dashboard and store the new value."
-            : `Resend returned ${status}. ${text.slice(0, 120)}`,
+        verdict: rejectedCredential(status, text)
+          ? `Resend rejected the key (${status}: "API key is invalid"). It is well-formed, so this is ` +
+            `not a formatting problem. Stored length is ${rawKey.length} characters; a real Resend key ` +
+            `is about 35. ` +
+            (rawKey.length < 30
+              ? "That is SHORT — the value was truncated on the way in, so re-pasting the same key by " +
+                "the same route will truncate it again. Paste it in the Vercel dashboard instead."
+              : "The length looks right, so the key itself is dead — it was revoked, regenerated, or " +
+                "belongs to a different Resend account. Create a fresh key in the Resend dashboard.")
+          : `Resend returned ${status}. ${text.slice(0, 120)}`,
       };
     }
     try { payload = JSON.parse(text); } catch { payload = null; }
@@ -183,6 +210,7 @@ export async function probeEmailConfig(): Promise<EmailProbe> {
 
   return {
     configured: true,
+    keyShape: base.keyShape,
     problem: null,
     resend: { status, ok: true },
     from,
