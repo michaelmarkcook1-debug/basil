@@ -78,6 +78,38 @@ under the forced dark theme; `--w-carbon` on `--sidebar` is 1.65:1. That shipped
 once. `tests/wire-class-hygiene.test.mjs` now fails the build if the shell
 paints itself with paper tokens again.
 
+### `.wire` owns the whole semantic layer
+
+`.wire` nests **inside** `.dark`. A scope that paints a light ground while
+leaving the inherited semantic tokens on their dark values is not a theme — it
+is two themes overlapping, and it shipped that way: 707 uses of
+`text-muted-foreground` at **1.18:1** and 197 of `text-foreground` at **1.07:1**
+on paper. Roughly 900 elements of near-white text on near-white paper. Every
+token was correct in isolation; only the composition was wrong.
+
+So `.wire` restates all 45 tokens the dark theme overrides — core semantics onto
+paper stock and ink, signals onto the four marks, the remainder restored to
+their light-theme values. **Anything that theme-scopes must restate its whole
+inherited surface, not just add to it.** Sidebar tokens are the deliberate
+exception: that chrome is dark and self-consistent.
+
+Signals map onto the marks rather than forming a second colour vocabulary, so a
+critical row and a FLASH prefix are the same red instead of two competing reds:
+
+| Signal | Mark |
+| --- | --- |
+| critical | `--w-stamp` |
+| warning | `--w-manila` |
+| positive | `--w-filed` |
+| info | `--w-carbon` |
+| neutral | `--w-ink-soft` |
+
+`tests/contrast-aa.test.mjs` computes real WCAG ratios for every
+foreground/background pair in both scopes and fails below 4.5:1 — including body
+and muted text against every surface a component can sit on, which is the check
+that catches this class. Contrast is arithmetic; it belongs in the suite, not in
+a review someone has to remember to run.
+
 ## Type
 
 - **Archivo Narrow** — condensed news gothic. Slugs, prefixes, decks.
@@ -115,4 +147,6 @@ rather than any one spelling of it, so the guard survives a refactor.
    not invent a number the feed does not carry; it shows sourcing (observed vs
    inferred) instead. When the feed carries confidence, the stamp is ready.
 4. The finish-review pass was run against source and emitted CSS, not against
-   screenshots of the authenticated app.
+   screenshots of the authenticated app. Contrast is now verified numerically,
+   which is stronger than a screenshot for this class — but composition, rhythm
+   and hierarchy still have not been seen.
