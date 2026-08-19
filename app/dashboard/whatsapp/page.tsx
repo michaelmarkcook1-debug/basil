@@ -872,8 +872,8 @@ export default function WhatsAppPage() {
                           <div
                             className={`max-w-[80%] rounded-lg px-3 py-2 text-sm leading-relaxed ${
                               m.fromMe
-                                ? "bg-[var(--w-carbon-tint)] text-foreground"
-                                : "bg-muted/60 text-foreground/90"
+                                ? "bg-[var(--w-carbon-tint)] text-[var(--w-ink)]"
+                                : "bg-[var(--w-tray)] text-[var(--w-ink)]"
                             }`}
                           >
                             {!m.fromMe && (

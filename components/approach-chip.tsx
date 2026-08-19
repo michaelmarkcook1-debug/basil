@@ -48,7 +48,7 @@ export function ApproachChip({ hint, className }: { hint: ApproachHint; classNam
       title={`Open ${hint.name} in People`}
       className={cn(
         "group relative inline-flex max-w-full items-start gap-1.5 rounded-lg border border-[var(--w-rule)] bg-[var(--w-carbon-tint)] px-2.5 py-1.5",
-        "text-xs leading-snug text-foreground/80 transition-colors hover:border-[var(--w-rule)] hover:bg-[var(--w-carbon-tint)]",
+        "text-xs leading-snug text-[var(--w-ink-soft)] transition-colors hover:border-[var(--w-rule)] hover:bg-[var(--w-carbon-tint)]",
         className
       )}
     >

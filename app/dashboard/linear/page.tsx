@@ -1421,7 +1421,7 @@ export default function LinearPage() {
                         className={cn(
                           "flex items-center gap-1.5 rounded-md border px-2.5 py-1 text-xs font-medium transition-colors",
                           active
-                            ? "border-[var(--w-rule)] bg-[var(--w-carbon-tint)] text-foreground"
+                            ? "border-[var(--w-rule)] bg-[var(--w-carbon-tint)] text-[var(--w-ink)]"
                             : "border-border text-muted-foreground hover:text-foreground hover:border-border/80"
                         )}
                       >

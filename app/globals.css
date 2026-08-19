@@ -408,9 +408,9 @@ html:has(.auth-shell) {
   --signal-warning:          #D9A441;
   --signal-warning-subtle:   rgba(217, 164, 65, 0.10);
   --signal-warning-border:   rgba(217, 164, 65, 0.30);
-  --signal-positive:         #1F8A70;
-  --signal-positive-subtle:  rgba(31, 138, 112, 0.10);
-  --signal-positive-border:  rgba(31, 138, 112, 0.30);
+  --signal-positive:         #25A787;
+  --signal-positive-subtle:  rgba(37, 167, 135, 0.10);
+  --signal-positive-border:  rgba(37, 167, 135, 0.30);
   --signal-info:             #5CB8FF;
   --signal-info-subtle:      rgba(92, 184, 255, 0.10);
   --signal-info-border:      rgba(92, 184, 255, 0.30);

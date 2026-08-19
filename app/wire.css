@@ -43,6 +43,80 @@
   --w-radius:       3px;   /* paper is cut, not rounded */
   --w-rule-w:       1px;
 
+  /* ── The inherited semantic layer, restated in paper ──────────────────────
+     `.wire` nests INSIDE `.dark` (the app pins the dark theme), and a scope
+     that paints a light ground while leaving the semantic tokens on their dark
+     values is not a theme — it is two themes overlapping.
+
+     That is not theoretical. Before this block existed, 707 uses of
+     `text-muted-foreground` resolved to #D2D8E2 and 197 uses of
+     `text-foreground` to #F4F1EA, both sitting on #E9EAE4 paper: 1.18:1 and
+     1.07:1. Roughly 900 elements of near-white text on near-white paper,
+     spread across every dashboard surface. The tokens each looked correct in
+     isolation; only the composition was wrong.
+
+     Rewriting ~1900 call sites would have been the wrong fix. A theme scope
+     owns the semantic surface it inherits, exactly as `.dark` does, so the
+     remap belongs here — one place, and every call site becomes correct.
+
+     Sidebar tokens are deliberately ABSENT: the nav and mobile bar are dark
+     chrome, and their own foreground/background pair is internally consistent.
+     Remapping them would break the one part of the shell that was already
+     right. See DESIGN.md — that the chrome is dark at all remains undecided. */
+
+  --background:            var(--w-paper);
+  --foreground:            var(--w-ink);
+  --card:                  var(--w-flimsy);
+  --card-foreground:       var(--w-ink);
+  --popover:               var(--w-flimsy);
+  --popover-foreground:    var(--w-ink);
+  --muted:                 var(--w-tray);
+  --muted-foreground:      var(--w-ink-soft);
+  --border:                var(--w-rule);
+  --input:                 var(--w-rule);
+  --ring:                  var(--w-carbon);
+  --accent:                var(--w-carbon-tint);
+  --accent-foreground:     var(--w-ink);
+  --secondary:             var(--w-tray);
+  --secondary-foreground:  var(--w-ink);
+  --primary:               var(--w-carbon);
+  --primary-foreground:    var(--w-paper);
+  --destructive:           var(--w-stamp);
+
+  /* Signals map onto the four marks rather than a second colour vocabulary.
+     Same meanings the desk already uses, so a critical row and a FLASH prefix
+     are the same red rather than two competing reds. */
+  --signal-critical:         var(--w-stamp);
+  --signal-critical-border:  var(--w-stamp);
+  --signal-critical-subtle:  var(--w-stamp-tint);
+  --signal-warning:          var(--w-manila);
+  --signal-warning-border:   var(--w-manila);
+  --signal-warning-subtle:   var(--w-manila-tint);
+  --signal-positive:         var(--w-filed);
+  --signal-positive-border:  var(--w-filed);
+  --signal-positive-subtle:  var(--w-filed-tint);
+  --signal-info:             var(--w-carbon);
+  --signal-info-border:      var(--w-carbon);
+  --signal-info-subtle:      var(--w-carbon-tint);
+  --signal-neutral:          var(--w-ink-soft);
+  --signal-neutral-subtle:   var(--w-tray);
+
+  /* Restored to their light-theme values — the dark overrides do not belong
+     on paper, and these have no paper-world equivalent to map onto. */
+  --chart-1: #1a5c5f;
+  --chart-2: #c17d2a;
+  --chart-3: #4c9297;
+  --chart-4: #d49347;
+  --chart-5: #706e69;
+  --gold: #c17d2a;
+  --gold-muted: #d49347;
+  --gold-subtle: #f5ede0;
+  --surface-0: #f5f4f0;
+  --surface-1: #fafaf8;
+  --surface-2: #f0ede8;
+  --surface-3: #eceae4;
+  --surface-border: rgba(30, 28, 24, 0.1);
+
   color-scheme: light;
   background: var(--w-paper);
   color: var(--w-ink);
