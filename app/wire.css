@@ -18,27 +18,37 @@
 .wire {
   /* Stock. Teleprinter paper is cool and slightly green, not warm cream —
      cream + serif + terracotta is the look every model ships. */
-  --w-paper:        #E9EAE4;
-  --w-flimsy:       #F4F4EF;  /* a fresh sheet, raised */
-  --w-tray:         #DCDDD4;  /* the spike and deferred trays, sunk */
-  --w-rule:         #C4C5BB;
-  --w-rule-strong:  #A8A99D;
+  --w-paper:        #F4F2EC;
+  --w-flimsy:       #FFFFFF;  /* a fresh sheet, raised */
+  --w-tray:         #FAF9F5;  /* quiet surface — deferred and archived */
+  --w-rule:         #E3E0D7;
+  --w-rule-strong:  #C2BEB2;
 
   /* Ink */
-  --w-ink:          #17170F;  /* typebar strike */
-  --w-ink-soft:     #55564A;  /* secondary, still ≥4.5:1 on paper */
+  --w-ink:          #172033;  /* primary ink */
+  --w-ink-soft:     #566070;  /* secondary, still ≥4.5:1 on canvas */
 
   /* The three marks. Each is a state with one meaning and no decorative use. */
-  --w-carbon:       #35346B;  /* carbon copy — structure, attribution, wires */
-  --w-stamp:        #A82D1A;  /* FLASH, corrections, kills. Reserved. */
-  --w-manila:       #6E4C15;  /* spiked / deferred / awaiting */
-  --w-filed:        #2A5233;  /* confirmed, settled, filed */
+  --w-carbon:       #4A3FA3;  /* accent — structure, attribution, sourcing */
+  --w-stamp:        #B42318;  /* danger — Act now, corrections, kills. Reserved. */
+  --w-manila:       #B54708;  /* warning — deferred / awaiting / at risk */
+  --w-filed:        #027A48;  /* success — confirmed, settled, filed */
 
   /* Tints for fills — the ink versions above stay for text so contrast holds. */
-  --w-carbon-tint:  #35346B14;
-  --w-stamp-tint:   #A82D1A14;
-  --w-manila-tint:  #6E4C1514;
-  --w-filed-tint:   #2A523314;
+  --w-carbon-tint:  #EFF8FF;  /* information surface */
+  --w-stamp-tint:   #FEE4E2;  /* danger surface */
+  --w-manila-tint:  #FEF0C7;  /* warning surface */
+  --w-filed-tint:   #ECFDF3;  /* success surface */
+
+  /* Information is a fifth state, distinct from the accent. Previously any
+     "informational" fill borrowed the accent tint, which made sourcing marks
+     and info states indistinguishable. */
+  --w-info:         #175CD3;
+  --w-info-tint:    #EFF8FF;
+
+  /* Navigation chrome. Named here so the shell stops reaching into the
+     incumbent dark theme for it — see the sidebar note below. */
+  --w-nav:          #0D1726;
 
   --w-radius:       3px;   /* paper is cut, not rounded */
   --w-rule-w:       1px;

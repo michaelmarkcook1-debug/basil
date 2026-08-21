@@ -1,259 +1,186 @@
 "use client";
 
 /**
- * The desk — Basil's home surface.
+ * Today — the executive operational read.
  *
- * THE WIRE DESK (seed basil01, assigned index 3). Your channels are wires;
- * Basil is the desk editor handing you the queue with its sourcing intact.
+ * WHAT THIS REPLACED: a single "Running copy" column that listed the ranked
+ * feed and stopped there. Eight similarly-weighted alerts, three of which were
+ * the same stakeholder-silence signal wearing different names, and the day's
+ * schedule below all of it. It was a faithful view of the databases and no help
+ * at all in deciding what to do.
  *
- * What this REPLACES and why, so it does not creep back:
- *   • the "Good morning, <name>" greeting — a desk states a dateline, not a
- *     salutation, and the briefing already reached the reader by email at 06:15
- *   • the KPI stat row — the hero-metric template (big number, small label,
- *     supporting stats) is the category default and told the reader nothing
- *     they could act on
- *   • the attention donut and focus ring — progress rings standing in for
- *     content; the queue itself is the content
- *   • the proportional day timeline — replaced by the schedule as filed copy
+ * The order here answers, top to bottom: what changed, what matters most, what
+ * to do now, which meetings need preparation, where the day is overloaded, and
+ * what can wait.
  *
- * What it KEEPS, because it is the actual work: the ranked queue, the day's
- * meetings, and the briefing.
+ * MOBILE ORDER is deliberately different from desktop and is enforced with
+ * `order-*` utilities rather than duplicated markup: read, then the single most
+ * important action, then the timeline, then the other two priorities. Nobody
+ * should have to scroll an alert queue to find out when their first meeting is.
  *
- * Data: GET /api/today, /api/calendar, /api/generate/briefing.
+ * DATA HONESTY: every number is counted from a store. Where a question has no
+ * backing field — how important a person is to you — the surface shows the real
+ * observed quantity under its real name, or says it cannot answer.
  */
 
-import { useState, useEffect } from "react";
 import useSWR from "swr";
+import { useMemo } from "react";
 import Link from "next/link";
-import { Dispatch } from "@/components/wire/dispatch";
-import type { TodayFeedResponse, TodayFeedItem } from "@/lib/today/types";
+import type { TodayFeedResponse } from "@/lib/today/types";
+import type { CalendarEvent } from "@/lib/google/calendar";
+import type { ActionItem } from "@/lib/types/action";
+import {
+  buildPriorityBoard, buildDayShape, bucketCommitments,
+  sourceStates, disconnected, operationalRead, listOf,
+} from "@/lib/today/executive";
+import { OperationalRead } from "@/components/today/operational-read";
+import { PriorityActionCard } from "@/components/today/priority-action-card";
+import { DayTimeline } from "@/components/today/day-timeline";
+import { PressureSection } from "@/components/today/pressure";
+import { Watchlist } from "@/components/today/watchlist";
+import { Panel, Loading, Failed, Empty } from "@/components/today/primitives";
 
-interface CalendarEvent {
-  id: string;
-  summary: string;
-  start: string;
-  end: string;
-  isAllDay?: boolean;
-  hasVideo?: boolean;
-  attendeeCount?: number;
+/**
+ * Throws on a bad status. Without this SWR never errors, `isLoading` goes false
+ * with an empty list, and the page reports a calm day during an outage — the
+ * single worst thing this surface can do.
+ */
+async function swrFetch(url: string) {
+  const r = await fetch(url, { cache: "no-store" });
+  if (!r.ok) throw new Error(`${url} → ${r.status}`);
+  return r.json();
 }
 
-// THROW on a bad response — do not resolve to null. Swallowing the status meant
-// SWR never saw an error, so `isLoading` went false with `items` empty and the
-// page announced "nothing needs you" during an outage. For an assistant whose
-// job is "I'll tell you what needs you", a failure that reassures you is the
-// one failure you would never think to retry.
-const swrFetch = async (url: string) => {
-  const r = await fetch(url, { cache: "no-store" });
-  if (!r.ok) throw new Error(`${url} failed (${r.status})`);
-  return r.json();
-};
 const SWR_OPTS = { revalidateOnFocus: false, dedupingInterval: 30_000 };
 
-function timeOf(iso: string): string {
-  const d = new Date(iso);
-  return Number.isNaN(d.getTime())
-    ? "--:--"
-    : d.toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" });
-}
+export default function Today() {
+  const { data: feed, isLoading: feedLoading, error: feedError } =
+    useSWR<TodayFeedResponse>("/api/today", swrFetch, SWR_OPTS);
+  const { data: cal, error: calError } =
+    useSWR<{ connected: boolean; events?: CalendarEvent[] }>("/api/calendar/upcoming", swrFetch, SWR_OPTS);
+  const { data: actions, isLoading: actionsLoading, error: actionsError } =
+    useSWR<{ actions?: ActionItem[] }>("/api/actions", swrFetch, SWR_OPTS);
 
-/** A wire's lamp. Down and quiet are DIFFERENT states and must never look alike. */
-function Lamp({ state, label }: { state: "up" | "quiet" | "down"; label: string }) {
-  const title =
-    state === "down"
-      ? `${label}: not reachable — this wire is failing, not quiet`
-      : state === "quiet"
-        ? `${label}: connected, nothing filed`
-        : `${label}: filing`;
-  return (
-    <span className="inline-flex items-center gap-1.5" title={title}>
-      <span className={`wire-lamp wire-lamp-${state}`} aria-hidden="true" />
-      <span className="wire-data text-[0.6875rem] text-[var(--w-ink-soft)]">{label}</span>
-      <span className="sr-only">{title}</span>
-    </span>
+  // `now` is computed once per render pass rather than per component, so the
+  // timeline's "now" marker and the header clock cannot disagree.
+  const now = useMemo(() => new Date(), []);
+
+  const board = useMemo(() => buildPriorityBoard(feed?.items ?? []), [feed]);
+  const day = useMemo(() => buildDayShape(cal?.events ?? [], now), [cal, now]);
+  const buckets = useMemo(
+    () => (actions?.actions ? bucketCommitments(actions.actions, now) : null),
+    [actions, now],
   );
-}
 
-export default function DeskHome() {
-  const [dateline, setDateline] = useState("");
-  const [showSpiked, setShowSpiked] = useState(false);
+  const sources = useMemo(() => sourceStates(feed?.sources ?? {
+    changes: false, followups: { gmail: false, slack: false }, linear: false,
+  }), [feed]);
+  const missing = useMemo(() => (feed ? disconnected(feed.sources) : []), [feed]);
+  const calConnected = !!cal?.connected && !calError;
+  const read = useMemo(
+    () => operationalRead(board, day, missing, calConnected),
+    [board, day, missing, calConnected],
+  );
 
-  useEffect(() => {
-    const now = new Date();
-    const tz = typeof Intl !== "undefined" ? Intl.DateTimeFormat().resolvedOptions().timeZone : undefined;
-    setDateline(
-      now
-        .toLocaleDateString("en-GB", { timeZone: tz, weekday: "short", day: "2-digit", month: "short" })
-        .toUpperCase(),
-    );
-  }, []);
-
-  const { data: feed, isLoading, error: feedError } = useSWR<TodayFeedResponse>("/api/today", swrFetch, SWR_OPTS);
-  const { data: calendarData, error: calError } = useSWR("/api/calendar", swrFetch, SWR_OPTS);
-
-  const items: TodayFeedItem[] = feed?.items ?? [];
-  const events: CalendarEvent[] = calendarData?.events ?? [];
-
-  const running = items.filter((i) => i.lane === "critical" || i.lane === "needs-you");
-  const later = items.filter((i) => i.lane === "later" || i.lane === "linear");
-
-  const sources = feed?.sources as Record<string, boolean> | undefined;
-  const wireStates: Array<{ label: string; state: "up" | "quiet" | "down" }> = sources
-    ? Object.entries(sources).map(([name, connected]) => ({
-        label: name.toUpperCase(),
-        state: connected ? (items.some((i) => wireName(i) === name.toLowerCase()) ? "up" : "quiet") : "down",
-      }))
-    : [];
+  const [first, ...rest] = board.top;
 
   return (
-    <div className="wire min-h-full">
-      <div className="mx-auto w-full max-w-[68rem] px-4 sm:px-6 py-5 sm:py-7">
-        {/* ── Dateline ──────────────────────────────────────────────────────
-            Not a greeting. Where and when copy was filed, and which wires are
-            up — the first thing a desk editor checks. */}
-        <header className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-2">
-          <div className="flex items-baseline gap-3 min-w-0">
-            <h1 className="wire-slug text-[1.375rem] leading-none tracking-tight text-[var(--w-ink)]">
-              The Desk
-            </h1>
-            <span className="wire-dateline">{dateline || " "}</span>
-          </div>
-          <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
-            {wireStates.map((w) => (
-              <Lamp key={w.label} state={w.state} label={w.label} />
-            ))}
-          </div>
-        </header>
+    <main className="wire min-h-full">
+      <div className="mx-auto w-full max-w-[80rem] px-4 sm:px-6 py-4 sm:py-6">
 
-        <hr className="wire-rule mt-3" />
+        {/* 1 — Executive operational read, full width */}
+        <OperationalRead
+          shape={read.shape}
+          risk={read.risk}
+          sources={sources}
+          now={now}
+          generatedAt={feed?.generatedAt}
+        />
 
-        {/* ── Running copy ─────────────────────────────────────────────────── */}
-        <section aria-labelledby="running-h" className="mt-5">
-          <div className="flex items-baseline justify-between gap-3">
-            <h2 id="running-h" className="wire-slug text-[0.8125rem] uppercase tracking-[0.1em] text-[var(--w-ink-soft)]">
-              Running copy
-            </h2>
-            <span className="wire-data text-[0.6875rem] text-[var(--w-ink-soft)]">
-              {running.length} outstanding
-            </span>
-          </div>
+        {/* 2 + 3 — Priorities (8 cols) beside the day (4 cols).
+            On mobile these become one column and `order` reshuffles them so the
+            first action and then the schedule come before the rest. */}
+        <div className="mt-5 grid grid-cols-1 gap-5 lg:grid-cols-12">
 
-          <div className="wire-sheet mt-2 overflow-hidden">
-            {feedError ? (
-              // An outage is NOT an empty desk. Say which it is.
-              <p className="px-4 py-6 text-[0.875rem] text-[var(--w-stamp)]">
-                The wire is down — Basil could not read the queue, so this is not
-                a quiet desk, it is an unknown one.{" "}
-                <button
-                  type="button"
-                  onClick={() => location.reload()}
-                  className="underline underline-offset-2 font-semibold"
-                >
-                  Retry
-                </button>
-              </p>
-            ) : isLoading ? (
-              <p className="px-4 py-6 wire-data text-[0.75rem] text-[var(--w-ink-soft)]">
-                Reading the wires…
-              </p>
-            ) : running.length === 0 ? (
-              <p className="px-4 py-6 text-[0.875rem] text-[var(--w-ink-soft)]">
-                Nothing outstanding. Every wire above is reporting, so this is a
-                quiet desk rather than a silent one.
-              </p>
-            ) : (
-              running.map((item, i) => <Dispatch key={item.id} item={item} seq={i + 1} />)
-            )}
-          </div>
-        </section>
-
-        {/* ── The day ───────────────────────────────────────────────────────
-            The schedule as filed copy, not a proportional-block timeline: block
-            height encoded duration, which is not what the reader needs to know. */}
-        <section aria-labelledby="day-h" className="mt-7">
-          <h2 id="day-h" className="wire-slug text-[0.8125rem] uppercase tracking-[0.1em] text-[var(--w-ink-soft)]">
-            Scheduled today
-          </h2>
-          <div className="wire-sheet mt-2 overflow-hidden">
-            {calError ? (
-              <p className="px-4 py-4 text-[0.875rem] text-[var(--w-stamp)]">
-                Calendar unreachable — the day below is unknown, not empty.
-              </p>
-            ) : events.length === 0 ? (
-              <p className="px-4 py-4 text-[0.875rem] text-[var(--w-ink-soft)]">Nothing scheduled.</p>
-            ) : (
-              events.map((e) => (
-                <div key={e.id} className="wire-dispatch">
-                  <span className="wire-data text-[0.75rem] text-[var(--w-carbon)] font-bold self-start mt-0.5">
-                    {e.isAllDay ? "ALL DAY" : timeOf(e.start)}
-                  </span>
-                  <div className="min-w-0">
-                    <p className="wire-slug text-[0.9375rem] text-[var(--w-ink)] truncate">{e.summary}</p>
-                    {e.attendeeCount ? (
-                      <p className="wire-data text-[0.6875rem] text-[var(--w-ink-soft)] mt-0.5">
-                        {e.attendeeCount} attending
-                      </p>
-                    ) : null}
+          <div className="contents lg:col-span-8 lg:block">
+            {/* -- most important action: first on every viewport -- */}
+            <div className="order-1 lg:order-none">
+              <Panel title="Top priorities" id="prio-h">
+                {feedError ? (
+                  <Failed what="Your priorities" onRetry={() => location.reload()} />
+                ) : feedLoading ? (
+                  <Loading label="Reading your priorities…" rows={3} />
+                ) : board.top.length === 0 ? (
+                  missing.length === sources.length ? (
+                    <Failed what="Every source" />
+                  ) : (
+                    <Empty>
+                      Nothing needs a decision right now.{" "}
+                      {missing.length > 0
+                        ? `${listOf(missing)} ${missing.length === 1 ? "is" : "are"} not connected, so this is a partial read.`
+                        : "Every connected source is reporting."}
+                    </Empty>
+                  )
+                ) : (
+                  <div className="space-y-3">
+                    {first && <PriorityActionCard priority={first} />}
                   </div>
-                  <span className="wire-data text-[0.6875rem] text-[var(--w-ink-soft)] self-start mt-1">
-                    {e.hasVideo ? "VIDEO" : ""}
-                  </span>
-                </div>
-              ))
-            )}
-          </div>
-        </section>
+                )}
+              </Panel>
+            </div>
 
-        {/* ── The spike ─────────────────────────────────────────────────────
-            Lower-priority copy is set aside, not deleted. The desk keeps what it
-            spiked, and the reader can always pull it back. */}
-        {later.length > 0 && (
-          <section aria-labelledby="spike-h" className="mt-7">
-            <button
-              type="button"
-              onClick={() => setShowSpiked((v) => !v)}
-              aria-expanded={showSpiked}
-              className="flex items-baseline gap-2 group"
-            >
-              <h2
-                id="spike-h"
-                className="wire-slug text-[0.8125rem] uppercase tracking-[0.1em] text-[var(--w-ink-soft)] group-hover:text-[var(--w-ink)]"
-              >
-                Spiked
-              </h2>
-              <span className="wire-data text-[0.6875rem] text-[var(--w-ink-soft)]">
-                {later.length} held · {showSpiked ? "hide" : "show"}
-              </span>
-            </button>
-            {showSpiked && (
-              <div className="wire-spike mt-2 overflow-hidden">
-                {later.map((item, i) => (
-                  <Dispatch key={item.id} item={item} seq={running.length + i + 1} />
-                ))}
+            {/* -- remaining two priorities: after the timeline on mobile -- */}
+            {rest.length > 0 && (
+              <div className="order-3 lg:order-none space-y-3 lg:mt-3">
+                {rest.map((p) => <PriorityActionCard key={p.id} priority={p} />)}
               </div>
             )}
-          </section>
-        )}
+          </div>
 
-        <footer className="mt-8 flex flex-wrap items-center gap-x-4 gap-y-2">
-          <Link
-            href="/dashboard/briefing"
-            className="wire-slug text-[0.8125rem] uppercase tracking-[0.08em] text-[var(--w-carbon)] underline underline-offset-4"
-          >
+          {/* -- the day: second on mobile, right rail on desktop -- */}
+          <aside className="order-2 lg:order-none lg:col-span-4" aria-labelledby="shape-h">
+            <div className="lg:sticky lg:top-4">
+              <Panel
+                title="Today's shape"
+                id="shape-h"
+                as="aside"
+                action={
+                  day.meetingCount > 0 ? (
+                    <span className="wire-data text-[0.75rem] text-[var(--w-ink-soft)]">
+                      {day.meetingCount} meeting{day.meetingCount === 1 ? "" : "s"}
+                    </span>
+                  ) : undefined
+                }
+              >
+                {calError
+                  ? <Failed what="Your calendar" onRetry={() => location.reload()} />
+                  : <DayTimeline day={day} connected={calConnected} now={now} />}
+              </Panel>
+            </div>
+          </aside>
+        </div>
+
+        {/* 4 — Pressure and momentum, full width */}
+        <div className="mt-6">
+          <PressureSection
+            day={day}
+            calendarConnected={calConnected}
+            buckets={buckets}
+            commitmentsLoading={actionsLoading}
+            commitmentsFailed={!!actionsError}
+          />
+        </div>
+
+        {/* 5 — Watchlist */}
+        <Watchlist items={board.watchlist} />
+
+        <p className="mt-8 text-[0.8125rem] text-[var(--w-ink-soft)]">
+          <Link href="/dashboard/briefing" className="font-semibold underline underline-offset-2" style={{ color: "var(--w-carbon)" }}>
             Full briefing
-          </Link>
-          <span className="wire-data text-[0.6875rem] text-[var(--w-ink-soft)]">
-            filed 06:15 · delivered by email
-          </span>
-        </footer>
+          </Link>{" "}
+          — the long-form explanation behind this read.
+        </p>
       </div>
-    </div>
+    </main>
   );
-}
-
-/** Which wire an item arrived on, lower-cased to match the sources map keys. */
-function wireName(item: TodayFeedItem): string {
-  if (item.kind === "followup") return item.followup.source;
-  if (item.kind === "linear") return "linear";
-  return item.change.source;
 }

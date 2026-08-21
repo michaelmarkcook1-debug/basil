@@ -152,8 +152,10 @@ test("the home feed fetcher throws, and a failed feed is not an all-clear", () =
   // reached BEFORE any zero-count arm. Either form is fine. An empty state that is
   // reachable while the feed is failing or still in flight is not — that is the exact
   // silent-failure this test exists to stop.
-  const errorArm   = page.indexOf("feedError ?");
-  const loadingArm = page.indexOf("isLoading ?");
+  const errorArm   = page.search(/\bfeedError \?/);
+  // The loading flag has been named both `isLoading` and `feedLoading` across
+  // rebuilds; the invariant is the ORDER of the arms, not the identifier.
+  const loadingArm = page.search(/\b(feedLoading|isLoading) \?/);
   const emptyArm   = page.search(/\.length === 0 \?/);
   assert.ok(errorArm   !== -1, "the feed sheet must render a distinct error arm");
   assert.ok(loadingArm !== -1, "the feed sheet must render a distinct loading arm");
