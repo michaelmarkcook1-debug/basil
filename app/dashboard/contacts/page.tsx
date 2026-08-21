@@ -21,6 +21,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
+import { RelationshipOverview } from "@/components/shared/relationship-overview";
 import { ContactAvatar } from "@/components/ui/contact-avatar";
 import { useContactPhotos } from "@/lib/hooks/use-contact-photos";
 import { Search, Mail, MapPin, Users, Brain, CheckSquare, AlertTriangle, Activity, Flame, RefreshCw, Loader2, Wifi, Sparkles, Plus, X, Phone, Briefcase, Home, ArrowRightLeft, MessageCircle, Wand2, Check, ChevronLeft, ChevronDown, ChevronUp, Pencil, ExternalLink } from "lucide-react";
@@ -1579,13 +1580,23 @@ export default function ContactsPage() {
             }}
           />
         ) : (
-          <div className="flex flex-col items-center justify-center h-full text-center">
-            <Users className="h-12 w-12 text-muted-foreground/30 mb-4" />
-            <h2 className="text-lg font-medium">Select a contact</h2>
-            <p className="text-sm text-muted-foreground mt-1 max-w-sm">
-              Click anyone on the left to see their profile, personality insights, and activity history.
-            </p>
-          </div>
+          /* Not "Select a contact". A panel that explains the interaction model
+             to someone who has already understood it spends the whole surface
+             saying nothing. This answers the question the page exists for:
+             which relationships have gone quiet. */
+          <RelationshipOverview
+            contacts={filtered.map((c) => ({
+              id: c.id,
+              name: c.name,
+              title: c.title,
+              initials: c.initials,
+              color: c.color,
+              email: c.email,
+              lastInteraction: getLastInteraction(c.id, c.lastInteraction) ?? null,
+            }))}
+            onSelect={(id) => setSelectedId(id)}
+            photos={photos}
+          />
         )}
       </div>
     </div>

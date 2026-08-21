@@ -6,6 +6,7 @@ import { useDomainSync } from "@/lib/sync/use-domain-sync";
 import { Card, CardContent } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Button } from "@/components/ui/button";
+import { NeedsAttention } from "@/components/shared/needs-attention";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 
@@ -432,6 +433,8 @@ function CollapsibleSection({
   label,
   accent,
   items,
+  note,
+  archive = false,
   defaultOpen = true,
   onToggle,
   onDelete,
@@ -444,6 +447,15 @@ function CollapsibleSection({
   label: string;
   accent?: string;
   items: ActionItem[];
+  /** One line explaining what this group IS, shown when opened. */
+  note?: string;
+  /**
+   * Archive treatment: sunk ground, quieter rule, smaller heading. Used for
+   * material that is filed rather than pending. Without it, 348 stalled rows
+   * and 200 completed ones carry the same visual weight as the four things
+   * actually due today, which is the whole reason the page felt like a database.
+   */
+  archive?: boolean;
   defaultOpen?: boolean;
   onToggle: (id: string) => void;
   onDelete: (id: string) => void;
@@ -457,24 +469,31 @@ function CollapsibleSection({
   if (items.length === 0) return null;
 
   return (
-    <div>
+    <div className={archive ? "mt-6 rounded-lg border border-[var(--w-rule)] bg-[var(--w-tray)] p-3" : ""}>
+      {archive && (
+        <p className="mb-1.5 text-[0.6875rem] font-semibold uppercase tracking-[0.08em] text-[var(--w-ink-soft)]">
+          Archive
+        </p>
+      )}
       <button
-        className="flex items-center gap-2 w-full mb-2 group"
+        className="flex items-center gap-2 w-full mb-2 group min-h-[44px] sm:min-h-0 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2"
         onClick={() => setOpen((o) => !o)}
+        aria-expanded={open}
       >
         {open ? (
-          <ChevronDown className="h-3.5 w-3.5 text-muted-foreground" />
+          <ChevronDown className="h-3.5 w-3.5 text-muted-foreground" aria-hidden />
         ) : (
-          <ChevronRight className="h-3.5 w-3.5 text-muted-foreground" />
+          <ChevronRight className="h-3.5 w-3.5 text-muted-foreground" aria-hidden />
         )}
-        <span
-          className={`text-xs font-semibold uppercase tracking-wider ${accent ?? "text-muted-foreground"}`}
-        >
+        <span className={`text-[0.8125rem] font-semibold ${accent ?? "text-[var(--w-ink)]"}`}>
           {label}
         </span>
-        <span className="text-xs text-muted-foreground">({items.length})</span>
+        <span className="wire-data text-xs text-muted-foreground">({items.length})</span>
         <div className="flex-1 border-t border-border/50" />
       </button>
+      {open && note && (
+        <p className="mb-2 text-[0.8125rem] text-[var(--w-ink-soft)]">{note}</p>
+      )}
       {open && (
         <div className="space-y-2">
           {items.map((a) => (
@@ -1416,6 +1435,28 @@ export default function ActionsPage() {
         </Card>
       )}
 
+      {/* What actually wants you, before the list of everything.
+          The page used to open on all commitments with the pressing ones
+          somewhere inside; these are the same counts the sections below use,
+          so the lead can never disagree with the list. */}
+      {!loading && (
+        <NeedsAttention
+          buckets={[
+            { label: "Overdue", count: overdue.length, urgent: true, onClick: () => setStatusFilter("overdue") },
+            { label: "Due today", count: dueToday.length, onClick: () => setStatusFilter("open") },
+            ...(reviewItems.length > 0
+              ? [{ label: "Needs review", count: reviewItems.length, onClick: () => setStatusFilter("review") }]
+              : []),
+          ]}
+          allClear={
+            openCount > 0
+              ? `Nothing overdue or due today. ${openCount} commitment${openCount === 1 ? "" : "s"} open further out.`
+              : "No open commitments."
+          }
+          unavailable={fetchError ? "Commitments could not be read, so a zero count here would be a guess." : undefined}
+        />
+      )}
+
       {/* Filters */}
       <div className="flex gap-3">
         <div className="relative flex-1">
@@ -1745,6 +1786,8 @@ export default function ActionsPage() {
                 label="Stalled"
                 accent="text-signal-warning"
                 items={stalled}
+                archive
+                note="No due date and no movement for weeks. These are not overdue — they are forgotten. Give one a date or delete it."
                 defaultOpen={false}
                 onToggle={toggleDone}
                 onDelete={handleDelete}
@@ -1759,6 +1802,8 @@ export default function ActionsPage() {
               <CollapsibleSection
                 label="Done"
                 items={done}
+                archive
+                note="Completed work, kept for the record."
                 defaultOpen={false}
                 onToggle={toggleDone}
                 onDelete={handleDelete}

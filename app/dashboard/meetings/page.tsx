@@ -1,5 +1,6 @@
 "use client";
 
+import { preparationReasons } from "@/lib/today/executive";
 import { useEffect, useState, useMemo, useCallback } from "react";
 import { DataState } from "@/components/ui/data-state";
 import { NewEventDialog } from "@/app/dashboard/schedule/components/NewEventDialog";
@@ -7,18 +8,7 @@ import { useRouter } from "next/navigation";
 import { Card, CardContent } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Button } from "@/components/ui/button";
-import {
-  CalendarCheck,
-  Video,
-  Users,
-  ChevronDown,
-  ChevronUp,
-  Plus,
-  Sparkles,
-  Unplug,
-  Search,
-  Check,
-} from "lucide-react";
+import { CalendarCheck, Video, Users, ChevronDown, ChevronUp, Plus, Sparkles, Unplug, Search, Check, AlertTriangle } from "lucide-react";
 import { formatTime, cn } from "@/lib/utils";
 import Link from "next/link";
 
@@ -34,6 +24,10 @@ interface CalEvent {
   attendeeCount?: number;
   attendees?: string[];
   dateLabel?: string;
+  /** The API has always returned these; the local type simply never read them,
+   *  so RSVP state was invisible on the one page about meetings. */
+  myResponseStatus?: "accepted" | "declined" | "tentative" | "needsAction";
+  isOrganizer?: boolean;
 }
 
 /**
@@ -154,10 +148,29 @@ function CalendarMeetingPicker({ events }: { events: CalEvent[] }) {
                       )}
                     </div>
 
-                    {/* Indicators */}
+                    {/* Indicators — readiness first, because it is the only one
+                        that asks something of the reader. */}
                     <div className="flex items-center gap-1.5 shrink-0">
-                      {event.hasVideo && <Video className="h-3.5 w-3.5 text-muted-foreground" />}
-                      <Sparkles className="h-3.5 w-3.5 text-[var(--w-carbon)]" />
+                      {(() => {
+                        const reasons = preparationReasons({
+                          myResponseStatus: event.myResponseStatus ?? "accepted",
+                          attendeeCount: event.attendeeCount ?? 0,
+                          hasVideo: !!event.hasVideo,
+                          isOrganizer: !!event.isOrganizer,
+                        } as Parameters<typeof preparationReasons>[0]);
+                        return reasons.length > 0 ? (
+                          <span
+                            className="inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-[0.6875rem] font-medium"
+                            style={{ color: "var(--w-manila)", background: "var(--w-manila-tint)" }}
+                            title={`Needs preparation: ${reasons.join(" · ")}`}
+                          >
+                            <AlertTriangle className="h-3 w-3" aria-hidden />
+                            {reasons[0]}
+                          </span>
+                        ) : null;
+                      })()}
+                      {event.hasVideo && <Video className="h-3.5 w-3.5 text-muted-foreground" aria-hidden />}
+                      <Sparkles className="h-3.5 w-3.5 text-[var(--w-carbon)]" aria-hidden />
                     </div>
                   </button>
                 ))

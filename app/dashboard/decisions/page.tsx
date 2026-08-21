@@ -1,5 +1,6 @@
 "use client";
 
+import { NeedsAttention } from "@/components/shared/needs-attention";
 import { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import { useDomainSync } from "@/lib/sync/use-domain-sync";
 import { usePersistentDraft } from "@/lib/hooks/use-persistent-draft";
@@ -240,12 +241,21 @@ function DecisionCard({
                   {sourceLabel}
                 </Badge>
               )}
-              {d.linkedActionIds && d.linkedActionIds.length > 0 && (
+              {d.linkedActionIds && d.linkedActionIds.length > 0 ? (
                 <span className="flex items-center gap-0.5 text-xs text-muted-foreground">
-                  <Link2 className="h-3 w-3" />
+                  <Link2 className="h-3 w-3" aria-hidden />
                   {d.linkedActionIds.length} action{d.linkedActionIds.length !== 1 ? "s" : ""}
                 </span>
-              )}
+              ) : d.status === "active" ? (
+                <span
+                  className="flex items-center gap-0.5 text-xs font-medium"
+                  style={{ color: "var(--w-manila)" }}
+                  title="No commitment is linked to this decision"
+                >
+                  <Link2 className="h-3 w-3" aria-hidden />
+                  No follow-up
+                </span>
+              ) : null}
               {d.needsReview && <NeedsReviewBadge />}
             </div>
 
@@ -754,6 +764,28 @@ export default function DecisionsPage() {
           Log Decision
         </Button>
       </header>
+
+      {/* Which decisions are still doing work.
+          NOTE: the brief also asked for a "conflicting" state. There is no
+          conflict field on Decision and no detector that produces one, so it is
+          not shown — a fourth chip reading 0 would assert that Basil checked for
+          contradictions and found none, which it did not. Documented as an
+          outstanding data requirement rather than faked. */}
+      {!loading && (
+        <NeedsAttention
+          buckets={[
+            { label: "Needs review", count: reviewDecisions.length, urgent: true },
+            { label: "No follow-up", count: active.filter((d) => !d.linkedActionIds?.length).length },
+            { label: "Active", count: confirmedDecisions.length },
+          ]}
+          allClear={
+            superseded.length > 0
+              ? `No active decisions. ${superseded.length} superseded and kept for the record.`
+              : "No decisions logged yet."
+          }
+          unavailable={fetchError ? "Decisions could not be read, so a zero count here would be a guess." : undefined}
+        />
+      )}
 
       {form.showForm && (
         <Card className="border-[var(--w-rule)]">

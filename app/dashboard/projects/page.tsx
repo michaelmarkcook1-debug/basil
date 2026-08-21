@@ -19,6 +19,7 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { NextBestAction } from "@/components/shared/next-best-action";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { relativeTime } from "@/lib/utils";
 import type { CanonicalProject, ProjectPriority, ProjectStatus, ProjectTruthData } from "@/lib/projects/types";
@@ -90,17 +91,7 @@ function ProjectCard({ project }: { project: CanonicalProject }) {
         </div>
       </CardHeader>
       <CardContent className="space-y-4">
-        <div className="rounded-xl border border-border/70 bg-background/50 p-3">
-          <div className="flex gap-2">
-            <ArrowRight className="h-4 w-4 shrink-0 mt-0.5 text-[oklch(0.58_0.15_85)]" />
-            <div>
-              <p className="text-xs uppercase tracking-[0.18em] text-muted-foreground">
-                Next best action
-              </p>
-              <p className="text-sm mt-1">{project.nextBestAction}</p>
-            </div>
-          </div>
-        </div>
+        <NextBestAction action={project.nextBestAction} />
 
         <div className="grid gap-3 sm:grid-cols-4">
           <div className="rounded-lg bg-muted/40 p-3">

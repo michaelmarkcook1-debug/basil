@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useState, useEffect, useRef } from "react";
 import { usePersistentDraft } from "@/lib/hooks/use-persistent-draft";
 import { scopedKey } from "@/lib/session-user";
@@ -525,6 +526,21 @@ export default function BriefingPage() {
           )}
         </Button>
       </header>
+
+      {/* Anchored to Today.
+          This page presented as a standalone generation screen — arrive, find
+          nothing, press a button. That framing makes the briefing feel like a
+          separate product rather than the long form of the read on Today, and
+          an empty screen with one button is the least useful state a surface
+          can open in. The link is cheap and it re-establishes the relationship:
+          Today is the summary, this is the explanation behind it. */}
+      <p className="text-[0.875rem] text-[var(--w-ink-soft)] -mt-2">
+        The expanded explanation behind{" "}
+        <Link href="/dashboard" className="font-semibold underline underline-offset-2" style={{ color: "var(--w-carbon)" }}>
+          Today
+        </Link>
+        {briefing ? "." : " — generate it when you want the reasoning in full."}
+      </p>
 
       {/* ── Briefing type selector ──────────────────────────────────────
            Five operational briefing modes. Auto-selected by time of day.

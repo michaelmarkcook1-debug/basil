@@ -30,6 +30,7 @@ import {
   User,
   Tag,
 } from "lucide-react";
+import { NeedsAttention } from "@/components/shared/needs-attention";
 import { cn } from "@/lib/utils";
 import type { LinearIssue, LinearTeam, LinearWorkflowState, LinearComment, LinearNotification, LinearUser, LinearLabel } from "@/lib/linear/client";
 
@@ -507,6 +508,16 @@ function ForwardToast({ visible }: { visible: boolean }) {
 
 export default function LinearPage() {
   const [issues, setIssues] = useState<LinearIssue[]>([]);
+  // Derived from the loaded issues, never re-fetched — the lead and the list
+  // are then guaranteed to be the same data.
+  const todayIso = new Date().toISOString().slice(0, 10);
+  const liveIssues = issues.filter((i) => i.state?.type !== "completed" && i.state?.type !== "canceled");
+  const overdueIssues = liveIssues.filter((i) => !!i.dueDate && i.dueDate.slice(0, 10) < todayIso);
+  const urgentIssues = liveIssues.filter((i) => i.priority === 1);
+  const startedIssues = liveIssues.filter((i) => i.state?.type === "started");
+  const blockedIssues = liveIssues.filter((i) =>
+    i.labels?.nodes?.some((l) => /^blocked$/i.test(l.name)),
+  );
   const [error, setError] = useState<Error | null>(null);
   const [teams, setTeams] = useState<LinearTeam[]>([]);
   const [states, setStates] = useState<LinearWorkflowState[]>([]);
@@ -1208,6 +1219,34 @@ export default function LinearPage() {
           </button>
         )}
       </div>
+
+      {/* What in this backlog actually wants you.
+          The page opened on every issue in the workspace with the pressing ones
+          somewhere inside it — sorting is not prioritisation. Each count below
+          is computed from the issues already loaded, so it can never disagree
+          with the list, and each is a real Linear field: due date, priority 1
+          (Urgent), workflow state. "Blocked" appears ONLY when an actual
+          `blocked` label exists — Linear models blocking through issue
+          relations that this API does not return, and a count inferred from
+          nothing is worse than an absent one. */}
+      {!loading && !notConnected && (
+        <NeedsAttention
+          buckets={[
+            { label: "Overdue", count: overdueIssues.length, urgent: true, onClick: () => setStatusFilter("all") },
+            { label: "Urgent", count: urgentIssues.length, urgent: true, onClick: () => setStatusFilter("all") },
+            ...(blockedIssues.length > 0
+              ? [{ label: "Blocked", count: blockedIssues.length, urgent: true }]
+              : []),
+            { label: "In progress", count: startedIssues.length, onClick: () => setStatusFilter("started") },
+            ...(!assigneeIsMe
+              ? [{ label: "Assigned to me", count: 0, onClick: () => setAssigneeIsMe(true) }]
+              : []),
+          ].filter((b) => b.count > 0 || b.label === "Assigned to me")}
+          allClear={`Nothing overdue, urgent or in progress across ${issues.length} issue${issues.length === 1 ? "" : "s"}.`}
+          unavailable={error ? "Linear could not be read, so a zero count here would be a guess." : undefined}
+          className="mb-1"
+        />
+      )}
 
       {/* Filter bar */}
       <div className="flex flex-wrap gap-2 items-center">
