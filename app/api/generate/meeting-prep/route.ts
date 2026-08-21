@@ -1,6 +1,6 @@
 import { type ModelMessage } from "ai";
 import { generateTextSafe } from "@/lib/ai/generate";
-import { SpendCapError } from "@/lib/ai/spend-guard";
+import { SpendCapError, spendCapResponse } from "@/lib/ai/spend-guard";
 import { getTextModel, MAX_TOKENS } from "@/lib/ai/model-config";
 
 export const maxDuration = 300;
@@ -630,10 +630,7 @@ Return ONLY valid JSON, no markdown code fences:
     }, "long", { username, feature: "meeting-prep" });
   } catch (e) {
     if (e instanceof SpendCapError) {
-      return Response.json(
-        { error: `AI budget reached (${e.scope}).` },
-        { status: 429, headers: { "Retry-After": String(e.retryAfterSec) } }
-      );
+      return spendCapResponse(e);
     }
     const name = e instanceof Error ? e.constructor.name : "unknown";
     const msg  = e instanceof Error ? e.message : String(e);

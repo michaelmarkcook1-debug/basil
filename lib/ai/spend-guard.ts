@@ -110,6 +110,40 @@ export class SpendCapError extends Error {
   }
 }
 
+/**
+ * The one place a spend rejection is turned into words for a human.
+ *
+ * Eight routes hand-rolled `AI budget reached (${scope}).` That copy names an
+ * internal scope string and nothing a reader can act on — it reads as "your API
+ * credit ran out", so the owner goes hunting through their Anthropic billing for
+ * a limit that is Basil's own and resets at midnight. A wrong recovery
+ * instruction costs more than a vague one: it points you at the wrong system.
+ *
+ * Fixing it in chat alone left the other seven surfaces still lying, which is
+ * why this is a shared helper and not another local string.
+ */
+export function spendCapMessage(err: SpendCapError): string {
+  const resets =
+    err.scope === "user-daily" || err.scope === "daily"
+      ? `resets at midnight UTC (about ${Math.max(1, Math.round(err.retryAfterSec / 3600))}h)`
+      : err.scope === "hard-stop"
+        ? "AI is switched off by the AI_SPEND_HARD_STOP kill switch"
+        : "resets at the start of next month";
+  return (
+    `Basil's own AI budget is spent (${err.scope}) — this is Basil's cap, ` +
+    `not your provider's credit. It ${resets}.`
+  );
+}
+
+/** Standard 429 for a spend rejection, with the Retry-After the scope implies. */
+export function spendCapResponse(err: SpendCapError): Response {
+  return Response.json(
+    { error: spendCapMessage(err), code: "spend_cap", scope: err.scope },
+    { status: 429, headers: { "Retry-After": String(err.retryAfterSec) } },
+  );
+}
+
+
 export interface SpendMeter {
   username: string;
   /** call-site label for the event log, e.g. "chat" | "briefing" | "draft" */

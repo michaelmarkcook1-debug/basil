@@ -21,7 +21,7 @@
  * changes behaviour, update BOTH.
  */
 
-import { readFileSync } from "node:fs";
+import { readFileSync, readdirSync as fsReaddir, statSync as fsStat } from "node:fs";
 import { resolve } from "node:path";
 import assert from "node:assert/strict";
 import { test } from "node:test";
@@ -180,10 +180,37 @@ test("the reservation carries which counters it held", () => {
 });
 
 test("a cap rejection names when it resets, not 'next month' for a daily scope", () => {
-  const chat = readFileSync(resolve(ROOT, "app/api/chat/route.ts"), "utf8");
-  assert.ok(!/Try again next month or contact support/.test(chat),
+  // The copy moved out of chat into a shared helper: eight routes had each
+  // hand-rolled `AI budget reached (${scope}).`, so fixing chat alone left seven
+  // surfaces still telling the owner to go check their provider's billing.
+  assert.ok(!/Try again next month or contact support/.test(guard),
     "the old copy said 'next month' for DAILY caps, sending the owner to their provider's billing");
-  assert.ok(/midnight UTC/.test(chat), "a daily cap must say it resets at midnight UTC");
-  assert.ok(/not your provider's credit/.test(chat),
+  assert.ok(/midnight UTC/.test(guard), "a daily cap must say it resets at midnight UTC");
+  assert.ok(/not your provider's credit/.test(guard),
     "it must say the limit is Basil's own, or the reader debugs the wrong system");
 });
+
+test("no route hand-rolls its own spend-cap copy", () => {
+  // What actually went wrong: the message existed in eight places, so the fix
+  // reached one of them. A route that writes its own string is the regression.
+  const { readdirSync, statSync } = require_fs();
+  const offenders = [];
+  const walk = (dir) => {
+    for (const name of readdirSync(dir)) {
+      const p = resolve(dir, name);
+      if (statSync(p).isDirectory()) walk(p);
+      else if (name === "route.ts") {
+        const src = readFileSync(p, "utf8");
+        // A console warning is fine; a RESPONSE built by hand is not.
+        if (/error:\s*`AI budget reached/.test(src)) offenders.push(p.replace(ROOT + "/", ""));
+      }
+    }
+  };
+  walk(resolve(ROOT, "app/api"));
+  assert.deepEqual(offenders, [],
+    "these build their own cap message instead of spendCapResponse(): " + offenders.join(", "));
+});
+
+function require_fs() {
+  return { readdirSync: fsReaddir, statSync: fsStat };
+}

@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { getTextModel } from "@/lib/ai/model-config";
 import { generateTextSafe } from "@/lib/ai/generate";
-import { SpendCapError } from "@/lib/ai/spend-guard";
+import { SpendCapError, spendCapResponse } from "@/lib/ai/spend-guard";
 import { getSessionUser } from "@/lib/auth";
 import { checkRateLimit, getClientIp } from "@/lib/rate-limit";
 
@@ -65,10 +65,7 @@ Return only the email body text, nothing else.`;
     return NextResponse.json({ body: text.trim() });
   } catch (e) {
     if (e instanceof SpendCapError) {
-      return NextResponse.json(
-        { error: `AI budget reached (${e.scope}).` },
-        { status: 429, headers: { "Retry-After": String(e.retryAfterSec) } }
-      );
+      return spendCapResponse(e);
     }
     console.error("Email generation error:", e);
     return NextResponse.json({ error: "Failed to generate email — please try again" }, { status: 500 });

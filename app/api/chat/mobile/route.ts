@@ -13,7 +13,7 @@ export const maxDuration = 300;
 
 import { stepCountIs, type ModelMessage } from "ai";
 import { generateTextSafe } from "@/lib/ai/generate";
-import { SpendCapError } from "@/lib/ai/spend-guard";
+import { SpendCapError, spendCapResponse } from "@/lib/ai/spend-guard";
 import { getEntitlement } from "@/lib/billing/entitlement-store";
 import { effectiveKind } from "@/lib/ai/tiering";
 import { CHAT_PRICE_FAMILY } from "@/lib/ai/pricing";
@@ -116,10 +116,7 @@ export async function POST(req: Request) {
     return Response.json({ text: result.text });
   } catch (e) {
     if (e instanceof SpendCapError) {
-      return Response.json(
-        { error: `AI budget reached (${e.scope}).` },
-        { status: 429, headers: { "Retry-After": String(e.retryAfterSec) } }
-      );
+      return spendCapResponse(e);
     }
     console.error("[api/chat/mobile] generateText failed:", e);
     return Response.json(

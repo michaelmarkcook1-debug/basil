@@ -27,7 +27,7 @@ import { getSettings } from "@/lib/settings/store";
 import { resolveTimezone } from "@/lib/timezone";
 import { checkRateLimitDurable } from "@/lib/rate-limit";
 import { repairOrphanedToolCalls } from "@/lib/ai/repair-history";
-import { reserveSpend, commitSpend, releaseSpend, SpendCapError } from "@/lib/ai/spend-guard";
+import { reserveSpend, commitSpend, releaseSpend, SpendCapError, spendCapResponse } from "@/lib/ai/spend-guard";
 import { getEntitlement } from "@/lib/billing/entitlement-store";
 import { effectiveKind } from "@/lib/ai/tiering";
 import { CHAT_PRICE_FAMILY, costUsd } from "@/lib/ai/pricing";
@@ -101,20 +101,7 @@ export async function POST(req: Request) {
       // a limit that was Basil's own and reset at midnight. A wrong recovery
       // instruction costs more than a vague one: it points you at the wrong
       // system entirely.
-      const resetsIn =
-        err.scope === "user-daily" || err.scope === "daily"
-          ? `resets at midnight UTC (about ${Math.max(1, Math.round(err.retryAfterSec / 3600))}h)`
-          : err.scope === "hard-stop"
-            ? "AI is switched off by the AI_SPEND_HARD_STOP kill switch"
-            : "resets at the start of next month";
-      return Response.json(
-        {
-          error:
-            `Basil's own AI budget is spent (${err.scope}) — this is Basil's cap, ` +
-            `not your provider's credit. It ${resetsIn}.`,
-        },
-        { status: 429, headers: { "Retry-After": String(err.retryAfterSec) } }
-      );
+      return spendCapResponse(err);
     }
     throw err;
   }

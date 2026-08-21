@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { getStigRequestUser } from "@/lib/stig/auth";
 import { runStigAsk } from "@/lib/stig/engine";
-import { SpendCapError } from "@/lib/ai/spend-guard";
+import { SpendCapError, spendCapResponse } from "@/lib/ai/spend-guard";
 import { mapProviderError } from "@/lib/stig/error-mapper";
 import { checkRateLimitDurable } from "@/lib/rate-limit";
 import type { StigAskRequest } from "@/lib/stig/types";
@@ -60,10 +60,7 @@ export async function POST(req: Request) {
   } catch (err) {
     // AI spend cap — return 429 with Retry-After.
     if (err instanceof SpendCapError) {
-      return NextResponse.json(
-        { error: `AI budget reached (${err.scope}).`, code: "spend_cap" },
-        { status: 429, headers: { "Retry-After": String(err.retryAfterSec) } }
-      );
+      return spendCapResponse(err);
     }
 
     // Check if this is an already-mapped engine error (has a .code property)
