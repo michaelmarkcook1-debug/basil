@@ -54,19 +54,70 @@ test("no Tailwind arbitrary value carries a stray closing bracket", () => {
     hits.join("\n"));
 });
 
-test("the dark chrome does not paint itself with paper-world tokens", () => {
-  // `.wire` is a LIGHT ground. The sidebar and mobile bar are dark chrome
-  // (bg-sidebar / bg-background under the forced dark theme), so any --w- ink or
-  // tint used there is being read against the wrong background by construction.
-  const layout = readFileSync(resolve(ROOT, "app/dashboard/layout.tsx"), "utf8");
-  const paperTokens = [...layout.matchAll(/--w-[a-z-]+/g)].map((m) => m[0]);
-  assert.deepEqual(paperTokens, [],
-    `the dashboard shell paints dark chrome with light-paper tokens (${[...new Set(paperTokens)].join(", ")}); ` +
-    "carbon #35346B on sidebar #0B131F is 1.65:1 and the wordmark disappears");
+test("every arbitrary text colour carries the `color:` type hint", () => {
+  // `text-[var(--w-carbon)]` is AMBIGUOUS to Tailwind — an arbitrary value in a
+  // `text-*` utility could be a colour or a font-size, and given a bare
+  // `var(...)` it cannot tell, so it emits NOTHING. 196 usages across 46 files
+  // generated no rule at all; the pages looked plausible only because `.wire`
+  // sets `color` as an inherited default, so every accent-coloured label had
+  // been silently rendering as plain ink since the day it was written.
+  //
+  // `text-[color:var(--w-carbon)]` disambiguates it. Same failure family as the
+  // stray-bracket bug above: valid TSX, clean build, no rule.
+  const offenders = [];
+  for (const file of SOURCES) {
+    const src = readFileSync(file, "utf8");
+    for (const m of src.matchAll(/text-\[var\(--[\w-]+/g)) {
+      const line = src.slice(0, m.index).split("\n").length;
+      offenders.push(`${file.replace(ROOT + "/", "")}:${line}  ${m[0]}]`);
+    }
+  }
+  assert.deepEqual(offenders, [],
+    "these emit no CSS — write text-[color:var(--x)]:\n  " + offenders.join("\n  "));
 });
 
-test("the wordmark uses a foreground token that reads on its own background", () => {
+test("any wire token used on the nav chrome actually reads on it", () => {
+  // This began life as a blanket ban on --w- tokens in the shell, written when
+  // the accent was violet (#35346B) and the pairing was 1.65:1. The world is now
+  // dark and the accent is gold, so the same token is 8.3:1 — the ban would
+  // forbid a correct choice. Bans encode a conclusion; this computes it, so it
+  // stays right through the next palette change too.
   const layout = readFileSync(resolve(ROOT, "app/dashboard/layout.tsx"), "utf8");
-  assert.ok(/basil-display text-base text-sidebar-foreground/.test(layout),
-    "the mobile wordmark must use the sidebar's own foreground, not an ink borrowed from the paper world");
+  const globals = readFileSync(resolve(ROOT, "app/globals.css"), "utf8");
+  const wire = readFileSync(resolve(ROOT, "app/wire.css"), "utf8");
+
+  const tokenValue = (css, name) => {
+    const m = new RegExp(`${name}:\\s*(#[0-9a-fA-F]{3,8})`).exec(css);
+    return m ? m[1] : null;
+  };
+  const rgb = (hex) => {
+    let h = hex.replace("#", "");
+    if (h.length === 3) h = [...h].map((c) => c + c).join("");
+    return [parseInt(h.slice(0,2),16), parseInt(h.slice(2,4),16), parseInt(h.slice(4,6),16)];
+  };
+  const lum = (c) => {
+    const ch = (v) => { v /= 255; return v <= 0.03928 ? v/12.92 : Math.pow((v+0.055)/1.055, 2.4); };
+    return 0.2126*ch(c[0]) + 0.7152*ch(c[1]) + 0.0722*ch(c[2]);
+  };
+  const ratio = (a, b) => {
+    const [hi, lo] = [lum(a), lum(b)].sort((x, y) => y - x);
+    return (hi + 0.05) / (lo + 0.05);
+  };
+
+  // The sidebar ground, from the DARK block (production pins dark).
+  const darkBlock = globals.slice(globals.search(/^\.dark\s*\{/m));
+  const sidebar = tokenValue(darkBlock, "--sidebar");
+  assert.ok(sidebar, "expected a --sidebar value in the dark theme");
+
+  const used = [...new Set([...layout.matchAll(/--w-[a-z-]+/g)].map((m) => m[0]))];
+  const fails = [];
+  for (const tok of used) {
+    const val = tokenValue(wire, tok);
+    if (!val) continue;                    // tints/alpha values are fills, skipped
+    const r = ratio(rgb(val), rgb(sidebar));
+    if (r < 4.5) fails.push(`${tok} ${val} on ${sidebar} = ${r.toFixed(2)}:1`);
+  }
+  assert.deepEqual(fails, [],
+    "these are painted on the nav chrome but cannot be read against it:\n  " + fails.join("\n  "));
 });
+

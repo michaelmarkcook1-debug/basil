@@ -442,7 +442,7 @@ export default function SchedulePage() {
       )}
       {/* ── Top bar ──────────────────────────────────────────────────────── */}
       <div className="flex flex-wrap items-center gap-x-3 gap-y-1 px-4 py-2 min-h-12 border-b border-border/40 shrink-0 bg-background/80 backdrop-blur-sm">
-        <CalendarPlus className="h-4 w-4 text-[var(--w-carbon)] shrink-0" />
+        <CalendarPlus className="h-4 w-4 text-[color:var(--w-carbon)] shrink-0" />
         <span className="font-semibold text-sm">Schedule</span>
 
         <Button
@@ -539,7 +539,7 @@ export default function SchedulePage() {
                         ${isSelected
                           ? "bg-[var(--w-carbon)] text-[oklch(0.18_0.04_250)]"
                           : isToday
-                            ? "ring-1 ring-[var(--w-carbon)] text-[var(--w-carbon)] font-bold"
+                            ? "ring-1 ring-[var(--w-carbon)] text-[color:var(--w-carbon)] font-bold"
                             : "text-foreground hover:bg-accent/50"
                         }`}
                     >

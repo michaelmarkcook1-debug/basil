@@ -423,7 +423,7 @@ function ContactDetail({
                   )}
                 </div>
               )}
-              <p className="text-sm text-[var(--w-carbon)]">{contact.title}</p>
+              <p className="text-sm text-[color:var(--w-carbon)]">{contact.title}</p>
               <p className="text-sm text-muted-foreground">{contact.company}</p>
               {contact.phone && (
                 <p className="text-sm text-muted-foreground flex items-center gap-1 mt-0.5">
@@ -435,7 +435,7 @@ function ContactDetail({
             <div className="flex items-center gap-2 shrink-0">
               <Badge
                 variant="outline"
-                className="text-[12px] gap-1 border-[var(--w-rule)] text-[var(--w-carbon)]"
+                className="text-[12px] gap-1 border-[var(--w-rule)] text-[color:var(--w-carbon)]"
               >
                 {contact.directory === "work" ? (
                   <Briefcase className="h-3 w-3" />
@@ -483,7 +483,7 @@ function ContactDetail({
                 href={contact.linkedin}
                 target="_blank"
                 rel="noopener noreferrer"
-                className="flex items-center gap-1 text-[var(--w-carbon)] hover:underline"
+                className="flex items-center gap-1 text-[color:var(--w-carbon)] hover:underline"
               >
                 <ExternalLink className="h-3 w-3" /> LinkedIn
               </a>
@@ -501,7 +501,7 @@ function ContactDetail({
           </div>
           <div className="flex flex-wrap gap-1.5 mt-3">
             {contact.tags.map((tag) => (
-              <Badge key={tag} variant="outline" className="text-[12px] border-[var(--w-rule)] text-[var(--w-carbon)]">
+              <Badge key={tag} variant="outline" className="text-[12px] border-[var(--w-rule)] text-[color:var(--w-carbon)]">
                 {tag}
               </Badge>
             ))}
@@ -514,7 +514,7 @@ function ContactDetail({
         <div className="flex items-start justify-between gap-3 flex-wrap">
           <div>
             <p className="text-sm font-semibold flex items-center gap-1.5">
-              <Wand2 className="h-3.5 w-3.5 text-[var(--w-carbon)]" />
+              <Wand2 className="h-3.5 w-3.5 text-[color:var(--w-carbon)]" />
               Personality profile
             </p>
             <p className="text-[12px] text-muted-foreground leading-relaxed mt-0.5">
@@ -661,7 +661,7 @@ function ContactDetail({
                 ] as const
               ).map(([label, value]) => (
                 <div key={label}>
-                  <p className="text-[12px] font-semibold tracking-widest uppercase text-[var(--w-carbon)]">
+                  <p className="text-[12px] font-semibold tracking-widest uppercase text-[color:var(--w-carbon)]">
                     {label}
                   </p>
                   <p className="text-sm leading-relaxed text-foreground/90 mt-1 whitespace-pre-line">
@@ -739,7 +739,7 @@ function ContactDetail({
         <TabsContent value="profile" className="space-y-4 mt-4">
           <Card>
             <CardHeader className="pb-2">
-              <CardTitle className="text-xs font-semibold tracking-widest uppercase text-[var(--w-carbon)]">
+              <CardTitle className="text-xs font-semibold tracking-widest uppercase text-[color:var(--w-carbon)]">
                 Relationship
               </CardTitle>
             </CardHeader>
@@ -749,7 +749,7 @@ function ContactDetail({
           </Card>
           <Card>
             <CardHeader className="pb-2">
-              <CardTitle className="text-xs font-semibold tracking-widest uppercase text-[var(--w-carbon)]">
+              <CardTitle className="text-xs font-semibold tracking-widest uppercase text-[color:var(--w-carbon)]">
                 Company Context
               </CardTitle>
             </CardHeader>
@@ -763,7 +763,7 @@ function ContactDetail({
           <Card className="border-l border-l-[var(--w-carbon)]">
             <CardHeader className="pb-2">
               <CardTitle className="text-xs font-semibold tracking-widest uppercase flex items-center gap-1.5">
-                <Brain className="h-3.5 w-3.5 text-[var(--w-carbon)]" /> Personality
+                <Brain className="h-3.5 w-3.5 text-[color:var(--w-carbon)]" /> Personality
               </CardTitle>
             </CardHeader>
             <CardContent>
@@ -878,7 +878,7 @@ function ContactDetail({
               persona was authored. Shown as a historical note alongside live data. */}
           <Card>
             <CardHeader className="pb-2">
-              <CardTitle className="text-xs font-semibold tracking-widest uppercase text-[var(--w-carbon)]">
+              <CardTitle className="text-xs font-semibold tracking-widest uppercase text-[color:var(--w-carbon)]">
                 {liveItems.length > 0 ? "Background & recent history" : "Recent Activity"}
               </CardTitle>
             </CardHeader>
@@ -1252,7 +1252,7 @@ export default function ContactsPage() {
                 onClick={() => setActiveDirectory(dir)}
                 className={`flex items-center justify-center gap-1.5 py-2.5 text-[12px] font-semibold uppercase tracking-[0.18em] transition-colors ${
                   active
-                    ? "text-[var(--w-carbon)] border-b-2 border-[var(--w-carbon)] bg-[var(--w-carbon-tint)]"
+                    ? "text-[color:var(--w-carbon)] border-b-2 border-[var(--w-carbon)] bg-[var(--w-carbon-tint)]"
                     : "text-muted-foreground hover:text-foreground"
                 }`}
                 aria-pressed={active}
@@ -1283,7 +1283,7 @@ export default function ContactsPage() {
             <button
               onClick={refreshActivity}
               disabled={activityLoading}
-              className="flex items-center gap-1 text-xs text-muted-foreground hover:text-[var(--w-carbon)] transition-colors disabled:opacity-50"
+              className="flex items-center gap-1 text-xs text-muted-foreground hover:text-[color:var(--w-carbon)] transition-colors disabled:opacity-50"
               title="Refresh from Calendar, Gmail & Slack"
             >
               {activityLoading ? (
@@ -1347,7 +1347,7 @@ export default function ContactsPage() {
               <button
                 onClick={refreshActivity}
                 disabled={activityLoading}
-                className="text-muted-foreground/50 hover:text-[var(--w-carbon)] transition-colors"
+                className="text-muted-foreground/50 hover:text-[color:var(--w-carbon)] transition-colors"
                 title="Refresh from Calendar, Gmail & Slack"
                 aria-label="Refresh activity from Calendar, Gmail & Slack"
               >
@@ -1444,7 +1444,7 @@ export default function ContactsPage() {
             <button
               onClick={refreshSuggestions}
               disabled={suggestLoading}
-              className="text-muted-foreground/50 hover:text-[var(--w-carbon)] transition-colors"
+              className="text-muted-foreground/50 hover:text-[color:var(--w-carbon)] transition-colors"
               title="Scan recent email & Slack for people not yet in contacts"
               aria-label="Scan for new contact suggestions"
             >

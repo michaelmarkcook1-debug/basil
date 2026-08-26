@@ -461,7 +461,7 @@ export function AIPlatformsSection() {
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <div>
             <CardTitle className="text-base font-semibold flex items-center gap-2">
-              <Cpu className="h-4 w-4 text-[var(--w-carbon)]" />
+              <Cpu className="h-4 w-4 text-[color:var(--w-carbon)]" />
               AI Command Centre connections
               {loading && <Loader2 className="h-3.5 w-3.5 animate-spin text-muted-foreground" />}
             </CardTitle>

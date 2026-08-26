@@ -469,7 +469,7 @@ function StigApiTab({
           <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
             <div>
               <CardTitle className="text-base font-semibold flex items-center gap-2">
-                <Bot className="h-4 w-4 text-[var(--w-carbon)]" />
+                <Bot className="h-4 w-4 text-[color:var(--w-carbon)]" />
                 The Stig API
               </CardTitle>
               <p className="mt-1 text-xs text-muted-foreground">
@@ -1421,7 +1421,7 @@ export default function SettingsPage() {
       <header className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
         <div>
           <div className="flex items-center gap-2">
-            <Settings className="h-6 w-6 text-[var(--w-carbon)]" />
+            <Settings className="h-6 w-6 text-[color:var(--w-carbon)]" />
             <h1 className="text-2xl font-semibold tracking-tight">Settings & integrations</h1>
           </div>
           <p className="mt-1 max-w-2xl text-sm text-muted-foreground">

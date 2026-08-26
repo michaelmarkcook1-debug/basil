@@ -140,6 +140,32 @@ test("the dark shell meets AA everywhere", () => {
   assert.deepEqual(fails, [], "shell pairings below AA:\n  " + fails.join("\n  "));
 });
 
+test("nothing paints hardcoded white on the accent", () => {
+  // The accent is GOLD (#C8A96B) — a light colour. White on it is roughly 1.7:1.
+  // Every surface that fills with --w-carbon must take its text from
+  // --w-on-accent, which flips with the palette; a literal `text-white` or
+  // `#fff` silently becomes unreadable the moment the accent changes lightness,
+  // and that is exactly what happened when the world went from violet to gold.
+  const files = [
+    "components/today/pressure.tsx",
+    "components/today/priority-action-card.tsx",
+    "components/today/watchlist.tsx",
+    "components/shared/needs-attention.tsx",
+    "components/shared/next-best-action.tsx",
+  ];
+  const offenders = [];
+  for (const f of files) {
+    const src = readFileSync(resolve(ROOT, f), "utf8");
+    for (const m of src.matchAll(/[^\n]*var\(--w-carbon\)[^\n]*/g)) {
+      if (/text-white|#fff|#FFFFFF/.test(m[0])) offenders.push(`${f}: ${m[0].trim().slice(0, 70)}`);
+    }
+  }
+  assert.deepEqual(offenders, [],
+    "use color: var(--w-on-accent) on any --w-carbon fill:\n  " + offenders.join("\n  "));
+  const wire = readFileSync(resolve(ROOT, "app/wire.css"), "utf8");
+  assert.ok(/--w-on-accent:/.test(wire), "the palette must define what text sits on the accent");
+});
+
 test(".wire restates every semantic token the dark theme overrides", () => {
   // The root cause: a light scope nested in a dark one that inherits the dark
   // semantic layer is two themes overlapping, not one theme. Sidebar tokens are

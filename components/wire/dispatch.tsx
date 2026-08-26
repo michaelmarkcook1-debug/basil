@@ -86,28 +86,28 @@ export function Dispatch({ item, seq }: { item: TodayFeedItem; seq: number }) {
   const body = (
     <>
       <div className="flex items-baseline gap-2 min-w-0">
-        <span className="wire-slug text-[0.9375rem] leading-snug text-[var(--w-ink)] truncate">
+        <span className="wire-slug text-[0.9375rem] leading-snug text-[color:var(--w-ink)] truncate">
           {item.title}
         </span>
       </div>
-      <p className="text-[0.8125rem] leading-snug text-[var(--w-ink-soft)] mt-0.5 line-clamp-2">
+      <p className="text-[0.8125rem] leading-snug text-[color:var(--w-ink-soft)] mt-0.5 line-clamp-2">
         {item.subtitle}
       </p>
       {/* Sourcing line — the desk's slug: wire, sequence, filed time, stamp. */}
       <div className="flex flex-wrap items-center gap-x-2 gap-y-1 mt-1.5">
-        <span className="wire-data text-[0.6875rem] text-[var(--w-carbon)] font-bold">{wire}</span>
-        <span className="wire-data text-[0.6875rem] text-[var(--w-ink-soft)]">
+        <span className="wire-data text-[0.6875rem] text-[color:var(--w-carbon)] font-bold">{wire}</span>
+        <span className="wire-data text-[0.6875rem] text-[color:var(--w-ink-soft)]">
           {day ? `${day} ` : ""}
           {filedAt(item.occurredAt)}
         </span>
-        <span className="wire-data text-[0.6875rem] text-[var(--w-ink-soft)]">
+        <span className="wire-data text-[0.6875rem] text-[color:var(--w-ink-soft)]">
           №{String(seq).padStart(3, "0")}
         </span>
         <span className={`wire-stamp ${sourcing.cls}`} title={sourcing.title}>
           {sourcing.label}
         </span>
         {item.hint ? (
-          <span className="text-[0.6875rem] text-[var(--w-ink-soft)] italic">{item.hint}</span>
+          <span className="text-[0.6875rem] text-[color:var(--w-ink-soft)] italic">{item.hint}</span>
         ) : null}
       </div>
     </>
@@ -136,7 +136,7 @@ export function Dispatch({ item, seq }: { item: TodayFeedItem; seq: number }) {
         )}
       </div>
 
-      <span className="wire-data text-[0.6875rem] text-[var(--w-ink-soft)] self-start mt-1 tabular-nums">
+      <span className="wire-data text-[0.6875rem] text-[color:var(--w-ink-soft)] self-start mt-1 tabular-nums">
         {item.kind === "followup" ? `${item.followup.hoursWaiting}h` : ""}
       </span>
     </article>

@@ -399,8 +399,8 @@ export default function MemoryPage() {
         </p>
         <h1 className="basil-display text-2xl sm:text-4xl lg:text-5xl leading-[1.05] text-foreground">
           What Basil{" "}
-          <span className="italic text-[var(--w-carbon)]">remembers</span>
-          <span className="text-[var(--w-carbon)]">.</span>
+          <span className="italic text-[color:var(--w-carbon)]">remembers</span>
+          <span className="text-[color:var(--w-carbon)]">.</span>
         </h1>
         <p className="text-sm text-muted-foreground max-w-2xl leading-relaxed">
           Everything Basil has learned about you, the people around you, and how
@@ -695,7 +695,7 @@ export default function MemoryPage() {
       ) : filtered.length === 0 ? (
         search || filter !== "all" ? (
           <div className="text-center py-16">
-            <Sparkles className="h-8 w-8 text-[var(--w-carbon)]/50 mx-auto mb-3" />
+            <Sparkles className="h-8 w-8 text-[color:var(--w-carbon)]/50 mx-auto mb-3" />
             <p className="text-sm text-muted-foreground">No memories match that filter.</p>
           </div>
         ) : (
@@ -767,7 +767,7 @@ function TabChip({
         className={cn(
           "ml-1.5 inline-flex items-center justify-center h-4 min-w-4 rounded-full px-1 text-[12px] font-mono tabular-nums",
           active
-            ? "bg-[var(--w-carbon-tint)] text-[var(--w-carbon)]"
+            ? "bg-[var(--w-carbon-tint)] text-[color:var(--w-carbon)]"
             : "bg-muted text-muted-foreground"
         )}
       >
@@ -1066,7 +1066,7 @@ function NewMemoryForm({
     <Card className="border-[var(--w-rule)]">
       <CardHeader className="pb-2">
         <CardTitle className="text-sm font-medium flex items-center gap-2">
-          <Sparkles className="h-4 w-4 text-[var(--w-carbon)]" />
+          <Sparkles className="h-4 w-4 text-[color:var(--w-carbon)]" />
           Tell Basil something new
         </CardTitle>
       </CardHeader>

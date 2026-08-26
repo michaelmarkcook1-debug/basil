@@ -38,7 +38,7 @@ interface Block {
 }
 
 const TYPE_META: Record<BlockType, { icon: typeof Brain; dot: string; chip: string; label: string }> = {
-  meeting: { icon: CalendarCheck, dot: "bg-[var(--w-carbon)]",            chip: "text-[var(--w-carbon)]",            label: "Meeting" },
+  meeting: { icon: CalendarCheck, dot: "bg-[var(--w-carbon)]",            chip: "text-[color:var(--w-carbon)]",            label: "Meeting" },
   prep:    { icon: Video,         dot: "bg-signal-info",     chip: "text-signal-info",     label: "Prep" },
   focus:   { icon: Brain,         dot: "bg-signal-positive", chip: "text-signal-positive", label: "Focus" },
   lunch:   { icon: Coffee,        dot: "bg-signal-neutral",  chip: "text-muted-foreground",label: "Downtime" },
@@ -106,7 +106,7 @@ export function DayPlan({ events, focusTask }: { events: PlanEvent[]; focusTask?
     return (
       <section className="rounded-2xl border border-border/60 bg-card/60 p-5">
         <div className="flex items-center gap-2 text-sm text-muted-foreground">
-          <Sparkles className="h-4 w-4 text-[var(--w-carbon)]" /> Open day — no meetings scheduled. A clean canvas for deep work.
+          <Sparkles className="h-4 w-4 text-[color:var(--w-carbon)]" /> Open day — no meetings scheduled. A clean canvas for deep work.
         </div>
       </section>
     );
@@ -122,7 +122,7 @@ export function DayPlan({ events, focusTask }: { events: PlanEvent[]; focusTask?
             {focusMins > 0 && <> · {Math.round(focusMins / 60 * 10) / 10}h focus suggested</>}
           </p>
         </div>
-        <span className="rounded-full bg-[var(--w-carbon-tint)] px-2.5 py-1 text-[11px] font-medium text-[var(--w-carbon)]">Suggested plan</span>
+        <span className="rounded-full bg-[var(--w-carbon-tint)] px-2.5 py-1 text-[11px] font-medium text-[color:var(--w-carbon)]">Suggested plan</span>
       </div>
 
       <ol className="relative space-y-1 pl-1">

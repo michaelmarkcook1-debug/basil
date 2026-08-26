@@ -75,7 +75,7 @@ export default function LearningProfilePage() {
     <div className="wire relative mx-auto max-w-3xl px-6 py-8 lg:px-8 space-y-8">
       <header>
         <div className="flex items-center gap-2.5">
-          <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-[var(--w-carbon-tint)] text-[var(--w-carbon)]">
+          <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-[var(--w-carbon-tint)] text-[color:var(--w-carbon)]">
             <Lightbulb className="h-5 w-5" />
           </span>
           <div>
@@ -128,7 +128,7 @@ export default function LearningProfilePage() {
         <h2 className="mb-3 text-xs font-semibold uppercase tracking-[0.14em] text-muted-foreground/70">How you handle each kind of task</h2>
         {priors.length === 0 ? (
           <div className="rounded-xl border border-border/50 bg-card/40 px-4 py-6 text-center text-sm text-muted-foreground">
-            <Sparkles className="mx-auto mb-2 h-4 w-4 text-[var(--w-carbon)]" />
+            <Sparkles className="mx-auto mb-2 h-4 w-4 text-[color:var(--w-carbon)]" />
             Still learning your patterns. Keep using Done / Push / Delegate on the home and they&apos;ll show up here.
           </div>
         ) : (

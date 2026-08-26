@@ -62,21 +62,21 @@ export function RelationshipOverview({
 
   return (
     <div className="mx-auto w-full max-w-xl py-6">
-      <h2 className="text-[1.0625rem] font-semibold text-[var(--w-ink)]">Relationship health</h2>
-      <p className="mt-1 text-[0.875rem] text-[var(--w-ink-soft)]">
+      <h2 className="text-[1.0625rem] font-semibold text-[color:var(--w-ink)]">Relationship health</h2>
+      <p className="mt-1 text-[0.875rem] text-[color:var(--w-ink-soft)]">
         Ranked by time since the last recorded interaction. Basil does not score
         importance — only how long it has been.
       </p>
 
       {quiet.length === 0 ? (
-        <p className="mt-4 rounded-lg border border-[var(--w-rule)] bg-[var(--w-flimsy)] p-4 text-[0.875rem] text-[var(--w-ink)]">
+        <p className="mt-4 rounded-lg border border-[var(--w-rule)] bg-[var(--w-flimsy)] p-4 text-[0.875rem] text-[color:var(--w-ink)]">
           {withDays.length === 0
             ? "No interaction history recorded yet, so Basil cannot tell which relationships have gone quiet."
             : `Nobody has gone quiet for more than ${quietAfterDays} days.`}
         </p>
       ) : (
         <>
-          <p className="mt-4 text-[0.875rem] font-semibold text-[var(--w-ink)]">
+          <p className="mt-4 text-[0.875rem] font-semibold text-[color:var(--w-ink)]">
             {quiet.length} {quiet.length === 1 ? "person has" : "people have"} gone quiet for
             more than {quietAfterDays} days
           </p>
@@ -96,9 +96,9 @@ export function RelationshipOverview({
                     fallbackClassName="text-xs"
                   />
                   <span className="min-w-0 flex-1">
-                    <span className="block truncate text-[0.9375rem] font-medium text-[var(--w-ink)]">{c.name}</span>
+                    <span className="block truncate text-[0.9375rem] font-medium text-[color:var(--w-ink)]">{c.name}</span>
                     {c.title && (
-                      <span className="block truncate text-[0.8125rem] text-[var(--w-ink-soft)]">{c.title}</span>
+                      <span className="block truncate text-[0.8125rem] text-[color:var(--w-ink-soft)]">{c.title}</span>
                     )}
                   </span>
                   <span className="wire-data shrink-0 text-[0.8125rem] font-semibold" style={{ color: days >= 60 ? "var(--w-stamp)" : "var(--w-manila)" }}>
@@ -112,7 +112,7 @@ export function RelationshipOverview({
       )}
 
       {noRecord > 0 && (
-        <p className="mt-3 text-[0.8125rem] text-[var(--w-ink-soft)]">
+        <p className="mt-3 text-[0.8125rem] text-[color:var(--w-ink-soft)]">
           {noRecord} contact{noRecord === 1 ? " has" : "s have"} no recorded interaction, so
           they are not ranked here. That is missing history, not a cold relationship.
         </p>

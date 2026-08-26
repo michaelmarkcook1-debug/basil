@@ -165,7 +165,7 @@ function SourceBadge({ source }: { source: ActionItem["source"] }) {
     // Was bg-indigo-100/text-indigo-700 — a light-theme leftover that read as an
     // unreadable pale chip on the dark theme. Ask-Basil-sourced items now use the
     // app's own assistant accent (gold), consistent with the sidebar/chat UI.
-    chat:    "bg-[var(--w-carbon-tint)] text-[var(--w-carbon)]",
+    chat:    "bg-[var(--w-carbon-tint)] text-[color:var(--w-carbon)]",
     linear:  "bg-signal-info-subtle text-signal-info",
   };
   return (
@@ -471,7 +471,7 @@ function CollapsibleSection({
   return (
     <div className={archive ? "mt-6 rounded-lg border border-[var(--w-rule)] bg-[var(--w-tray)] p-3" : ""}>
       {archive && (
-        <p className="mb-1.5 text-[0.6875rem] font-semibold uppercase tracking-[0.08em] text-[var(--w-ink-soft)]">
+        <p className="mb-1.5 text-[0.6875rem] font-semibold uppercase tracking-[0.08em] text-[color:var(--w-ink-soft)]">
           Archive
         </p>
       )}
@@ -485,14 +485,14 @@ function CollapsibleSection({
         ) : (
           <ChevronRight className="h-3.5 w-3.5 text-muted-foreground" aria-hidden />
         )}
-        <span className={`text-[0.8125rem] font-semibold ${accent ?? "text-[var(--w-ink)]"}`}>
+        <span className={`text-[0.8125rem] font-semibold ${accent ?? "text-[color:var(--w-ink)]"}`}>
           {label}
         </span>
         <span className="wire-data text-xs text-muted-foreground">({items.length})</span>
         <div className="flex-1 border-t border-border/50" />
       </button>
       {open && note && (
-        <p className="mb-2 text-[0.8125rem] text-[var(--w-ink-soft)]">{note}</p>
+        <p className="mb-2 text-[0.8125rem] text-[color:var(--w-ink-soft)]">{note}</p>
       )}
       {open && (
         <div className="space-y-2">
@@ -543,7 +543,7 @@ function ActionsSyncButton({ onSynced }: { onSynced?: () => void }) {
         setTimeout(() => { onSynced?.(); }, 12_000);
         setTimeout(() => setDone(false), 20_000);
       }}
-      className="inline-flex items-center gap-2 text-sm text-[var(--w-carbon)] hover:underline disabled:opacity-50"
+      className="inline-flex items-center gap-2 text-sm text-[color:var(--w-carbon)] hover:underline disabled:opacity-50"
     >
       <RefreshCw className={`h-3.5 w-3.5 ${syncing ? "animate-spin" : ""}`} />
       {done ? "Syncing in background…" : syncing ? "Syncing…" : "Sync recent activity"}
@@ -794,7 +794,7 @@ function MatrixView({
         <button
           onClick={onClassify}
           disabled={classifying || open.length === 0}
-          className="inline-flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-lg bg-[var(--w-carbon-tint)] text-[var(--w-carbon)] hover:bg-[var(--w-carbon-tint)] border border-[var(--w-rule)] transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+          className="inline-flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-lg bg-[var(--w-carbon-tint)] text-[color:var(--w-carbon)] hover:bg-[var(--w-carbon-tint)] border border-[var(--w-rule)] transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
         >
           {classifying ? (
             <><Loader2 className="h-3 w-3 animate-spin" />Classifying…</>
@@ -1336,8 +1336,8 @@ export default function ActionsPage() {
     <div className="wire p-4 sm:p-6 lg:p-8 space-y-6">
       <header className="flex items-center justify-between">
         <div>
-          <h1 className="wire-slug text-2xl tracking-tight flex items-center gap-2 text-[var(--w-ink)]">
-            <ListChecks className="h-6 w-6 text-[var(--w-carbon)]" />
+          <h1 className="wire-slug text-2xl tracking-tight flex items-center gap-2 text-[color:var(--w-ink)]">
+            <ListChecks className="h-6 w-6 text-[color:var(--w-carbon)]" />
             Commitments
           </h1>
           <p className="text-sm text-muted-foreground mt-1">
@@ -1845,7 +1845,7 @@ export default function ActionsPage() {
           <span className="max-w-[260px] truncate opacity-80">{undoEntry.label}</span>
           <button
             onClick={handleUndo}
-            className="ml-1 text-[var(--w-carbon)] hover:text-[oklch(0.80_0.15_85)] font-semibold transition-colors"
+            className="ml-1 text-[color:var(--w-carbon)] hover:text-[oklch(0.80_0.15_85)] font-semibold transition-colors"
           >
             Undo
           </button>

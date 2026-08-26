@@ -16,44 +16,66 @@
    ─────────────────────────────────────────────────────────────────────────── */
 
 .wire {
-  /* Stock. Teleprinter paper is cool and slightly green, not warm cream —
-     cream + serif + terracotta is the look every model ships. */
-  --w-paper:        #F4F2EC;
-  --w-flimsy:       #FFFFFF;  /* a fresh sheet, raised */
-  --w-tray:         #FAF9F5;  /* quiet surface — deferred and archived */
-  --w-rule:         #E3E0D7;
-  --w-rule-strong:  #C2BEB2;
+  /* ── Dark ground, white and gold ──────────────────────────────────────────
+     Basil's own identity, and the resolution of the split this file used to
+     carry: a light desk sitting inside dark navigation chrome, which was never
+     a decision anyone made — it was two worlds overlapping. The whole surface
+     is now one.
 
-  /* Ink */
-  --w-ink:          #172033;  /* primary ink */
-  --w-ink-soft:     #566070;  /* secondary, still ≥4.5:1 on canvas */
+     Token NAMES are unchanged. They were chosen for the ROLE each colour plays
+     (ground, ink, accent, danger, warning, success), not for the colour it
+     happened to be, so ~1900 call sites and the semantic remap below flip with
+     this block and need no edits. That is the entire reason the names were
+     never `--w-cream` or `--w-violet`. */
 
-  /* The three marks. Each is a state with one meaning and no decorative use. */
-  --w-carbon:       #4A3FA3;  /* accent — structure, attribution, sourcing */
-  --w-stamp:        #B42318;  /* danger — Act now, corrections, kills. Reserved. */
-  --w-manila:       #B54708;  /* warning — deferred / awaiting / at risk */
-  --w-filed:        #027A48;  /* success — confirmed, settled, filed */
+  /* Ground. Navy rather than neutral black: black backgrounds make gold read as
+     yellow, and warm white on true black produces the halation that makes long
+     reading tiring. */
+  --w-paper:        #0E1724;  /* canvas */
+  --w-flimsy:       #18222F;  /* raised surface — cards, sheets */
+  --w-tray:         #131C2A;  /* sunk surface — archived, deferred */
+  --w-rule:         #24314553;
+  --w-rule-strong:  #3A4A61;
 
-  /* Tints for fills — the ink versions above stay for text so contrast holds. */
-  --w-carbon-tint:  #EFF8FF;  /* information surface */
-  --w-stamp-tint:   #FEE4E2;  /* danger surface */
-  --w-manila-tint:  #FEF0C7;  /* warning surface */
-  --w-filed-tint:   #ECFDF3;  /* success surface */
+  /* Ink. Warm white, not pure #FFF — paired with gold, a cold white reads as
+     two unrelated decisions rather than one palette. */
+  --w-ink:          #F4F1EA;  /* primary */
+  --w-ink-soft:     #A9B4C4;  /* secondary, still ≥4.5:1 on the canvas */
 
-  /* Information is a fifth state, distinct from the accent. Previously any
-     "informational" fill borrowed the accent tint, which made sourcing marks
-     and info states indistinguishable. */
-  --w-info:         #175CD3;
-  --w-info-tint:    #EFF8FF;
+  /* Gold is the accent: structure, attribution, sourcing, primary controls.
+     Reserved the way carbon was — it marks where the system is speaking, never
+     used decoratively, or it stops meaning anything. */
+  --w-carbon:       #C8A96B;
+  /* Text that sits ON the accent. Gold is a LIGHT colour, so white on gold is
+     unreadable; anything painting a gold surface must use this, not #fff. */
+  --w-on-accent:    #0E1724;
 
-  /* Navigation chrome. Named here so the shell stops reaching into the
-     incumbent dark theme for it — see the sidebar note below. */
-  --w-nav:          #0D1726;
+  /* Status. Lifted from the light-ground values, which were chosen to sit on
+     paper and are far too dark to read on navy. */
+  --w-stamp:        #FF8A80;  /* danger — Act now, corrections, kills. Reserved. */
+  --w-manila:       #F5B96B;  /* warning — deferred / awaiting / at risk */
+  --w-filed:        #6EE7A0;  /* success — confirmed, settled, filed */
 
-  --w-radius:       3px;   /* paper is cut, not rounded */
+  /* Status surfaces: the same hue at low alpha over the ground, so a fill reads
+     as a tint of its own state rather than an unrelated block of colour. */
+  --w-carbon-tint:  #C8A96B1F;
+  --w-stamp-tint:   #FF8A801F;
+  --w-manila-tint:  #F5B96B1F;
+  --w-filed-tint:   #6EE7A01F;
+
+  /* Information is a fifth state, distinct from the accent, so a sourcing mark
+     and an info state are never the same colour. */
+  --w-info:         #7FB4FF;
+  --w-info-tint:    #7FB4FF1F;
+
+  /* Navigation chrome — now the same family as the canvas rather than a
+     separate dark theme showing through. */
+  --w-nav:          #0B131F;
+
+  --w-radius:       10px;  /* the dark identity is panelled, not cut paper */
   --w-rule-w:       1px;
 
-  /* ── The inherited semantic layer, restated in paper ──────────────────────
+  /* ── The inherited semantic layer, restated in the dark world ────────────
      `.wire` nests INSIDE `.dark` (the app pins the dark theme), and a scope
      that paints a light ground while leaving the semantic tokens on their dark
      values is not a theme — it is two themes overlapping.
@@ -90,7 +112,7 @@
   --secondary:             var(--w-tray);
   --secondary-foreground:  var(--w-ink);
   --primary:               var(--w-carbon);
-  --primary-foreground:    var(--w-paper);
+  --primary-foreground:    var(--w-on-accent);
   --destructive:           var(--w-stamp);
 
   /* Signals map onto the four marks rather than a second colour vocabulary.

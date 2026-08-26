@@ -52,10 +52,10 @@ export function DayTimeline({
     <div className="space-y-2">
       {day.allDay.length > 0 && (
         <Card className="px-3 py-2">
-          <p className="text-[0.75rem] font-semibold uppercase tracking-wide text-[var(--w-ink-soft)]">All day</p>
+          <p className="text-[0.75rem] font-semibold uppercase tracking-wide text-[color:var(--w-ink-soft)]">All day</p>
           <ul className="mt-1 space-y-0.5">
             {day.allDay.map((e) => (
-              <li key={e.id} className="text-[0.875rem] text-[var(--w-ink)]">{e.summary}</li>
+              <li key={e.id} className="text-[0.875rem] text-[color:var(--w-ink)]">{e.summary}</li>
             ))}
           </ul>
         </Card>
@@ -78,10 +78,10 @@ export function DayTimeline({
               const focus = seg.minutes >= 45;
               return (
                 <li key={`gap-${i}`} className="flex items-center gap-3 px-3 py-1.5 bg-[var(--w-tray)]">
-                  <span className="wire-data w-[3.25rem] shrink-0 text-[0.6875rem] text-[var(--w-ink-soft)]">
+                  <span className="wire-data w-[3.25rem] shrink-0 text-[0.6875rem] text-[color:var(--w-ink-soft)]">
                     {hhmm(seg.start)}
                   </span>
-                  <span className="text-[0.8125rem] text-[var(--w-ink-soft)]">
+                  <span className="text-[0.8125rem] text-[color:var(--w-ink-soft)]">
                     {dur(seg.minutes)} clear{focus ? " — usable focus block" : ""}
                   </span>
                 </li>
@@ -105,15 +105,15 @@ export function DayTimeline({
                   />
                 )}
                 <div className="flex items-start gap-3">
-                  <span className="wire-data w-[3.25rem] shrink-0 pt-0.5 text-[0.75rem] font-bold text-[var(--w-ink)]">
+                  <span className="wire-data w-[3.25rem] shrink-0 pt-0.5 text-[0.75rem] font-bold text-[color:var(--w-ink)]">
                     {hhmm(seg.start)}
                   </span>
                   <div className="min-w-0 flex-1">
-                    <p className="text-[0.9375rem] font-medium leading-snug text-[var(--w-ink)]">
+                    <p className="text-[0.9375rem] font-medium leading-snug text-[color:var(--w-ink)]">
                       {isNow && <span className="sr-only">Happening now: </span>}
                       {e.summary}
                     </p>
-                    <p className="mt-0.5 flex flex-wrap items-center gap-x-2.5 gap-y-0.5 text-[0.75rem] text-[var(--w-ink-soft)]">
+                    <p className="mt-0.5 flex flex-wrap items-center gap-x-2.5 gap-y-0.5 text-[0.75rem] text-[color:var(--w-ink-soft)]">
                       <span className="wire-data">{dur(seg.minutes)}</span>
                       {e.attendeeCount > 0 && (
                         <span className="inline-flex items-center gap-1">
@@ -137,7 +137,7 @@ export function DayTimeline({
                   </div>
                   <Link
                     href={`/dashboard/meetings/${e.id}`}
-                    className="shrink-0 self-center rounded p-2 text-[var(--w-carbon)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2"
+                    className="shrink-0 self-center rounded p-2 text-[color:var(--w-carbon)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2"
                     aria-label={`Prepare for ${e.summary}`}
                   >
                     <ArrowRight className="h-4 w-4" aria-hidden />

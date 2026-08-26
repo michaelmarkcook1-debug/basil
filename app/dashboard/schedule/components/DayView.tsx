@@ -453,7 +453,7 @@ function EventDetailPopover({
 
           {/* Time */}
           <div className="flex items-center gap-2 text-sm text-muted-foreground">
-            <Clock className="h-4 w-4 shrink-0 text-[var(--w-carbon)]" />
+            <Clock className="h-4 w-4 shrink-0 text-[color:var(--w-carbon)]" />
             <span>
               {minToTime(startMin)} – {minToTime(endMin)}
               <span className="ml-1.5 text-xs opacity-70">({durationLabel(dur)})</span>
@@ -463,7 +463,7 @@ function EventDetailPopover({
           {/* Location */}
           {event.location && !event.videoLink && (
             <div className="flex items-start gap-2 text-sm text-muted-foreground">
-              <MapPin className="h-4 w-4 shrink-0 mt-0.5 text-[var(--w-carbon)]" />
+              <MapPin className="h-4 w-4 shrink-0 mt-0.5 text-[color:var(--w-carbon)]" />
               <span className="leading-snug">{event.location}</span>
             </div>
           )}
@@ -532,7 +532,7 @@ function EventDetailPopover({
               {hasMoreDesc && (
                 <button
                   onClick={() => setDescExpanded(!descExpanded)}
-                  className="flex items-center gap-0.5 text-xs text-[oklch(0.55_0.12_85)] hover:text-[var(--w-carbon)] transition-colors"
+                  className="flex items-center gap-0.5 text-xs text-[oklch(0.55_0.12_85)] hover:text-[color:var(--w-carbon)] transition-colors"
                 >
                   {descExpanded ? <><ChevronUp className="h-3 w-3" /> Show less</> : <><ChevronDown className="h-3 w-3" /> Show more</>}
                 </button>
@@ -837,7 +837,7 @@ function SmartSlotPicker({
         type="button"
         onClick={findTimes}
         disabled={disabled}
-        className="flex items-center gap-1.5 text-xs font-medium text-[oklch(0.55_0.12_85)] hover:text-[var(--w-carbon)] disabled:text-muted-foreground/40 disabled:cursor-not-allowed transition-colors"
+        className="flex items-center gap-1.5 text-xs font-medium text-[oklch(0.55_0.12_85)] hover:text-[color:var(--w-carbon)] disabled:text-muted-foreground/40 disabled:cursor-not-allowed transition-colors"
         title={emails.length === 0 ? "Add an attendee email first" : "Check everyone's calendars"}
       >
         {loading ? (
@@ -1027,7 +1027,7 @@ function EditModal({
               onChange={(e) => onChange({ addVideoCall: e.target.checked })}
               className="h-4 w-4 rounded border-input accent-gold"
             />
-            <Video className="h-3.5 w-3.5 text-[var(--w-carbon)]" />
+            <Video className="h-3.5 w-3.5 text-[color:var(--w-carbon)]" />
             <span className="text-xs font-medium">Add video call</span>
             {!state.videoLink.trim() && state.addVideoCall && (
               <span className="text-xs text-muted-foreground">
@@ -1352,7 +1352,7 @@ export function DayView({
         </p>
         <button
           onClick={() => openNew()}
-          className="flex items-center gap-1.5 text-xs font-medium px-2.5 py-1 rounded-md border border-[var(--w-rule)] text-[oklch(0.55_0.12_85)] hover:bg-[var(--w-carbon-tint)] hover:text-[var(--w-carbon)] transition-colors"
+          className="flex items-center gap-1.5 text-xs font-medium px-2.5 py-1 rounded-md border border-[var(--w-rule)] text-[oklch(0.55_0.12_85)] hover:bg-[var(--w-carbon-tint)] hover:text-[color:var(--w-carbon)] transition-colors"
         >
           <Plus className="h-3.5 w-3.5" /> Add event
         </button>

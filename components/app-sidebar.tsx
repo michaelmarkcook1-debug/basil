@@ -76,7 +76,7 @@ function NavItem({ href, label, icon: Icon, active, expanded, onNavigate }: NavI
       className={cn(
         "group relative flex items-center gap-3 rounded-lg px-3 py-2.5 transition-all duration-150",
         active
-          ? "text-[var(--w-carbon)] bg-[var(--w-carbon-tint)] ring-1 ring-inset ring-[var(--w-rule)]"
+          ? "text-[color:var(--w-carbon)] bg-[var(--w-carbon-tint)] ring-1 ring-inset ring-[var(--w-rule)]"
           : "text-sidebar-foreground/70 hover:text-sidebar-foreground hover:bg-white/[0.04]"
       )}
     >
@@ -92,7 +92,7 @@ function NavItem({ href, label, icon: Icon, active, expanded, onNavigate }: NavI
         className={cn(
           "relative shrink-0 transition-colors duration-150",
           active
-            ? "text-[var(--w-carbon)]"
+            ? "text-[color:var(--w-carbon)]"
             // Lifted from /55 → /75 so the icon reads as part of the nav row,
             // not a faint hint of one. Group hover takes it to full.
             : "text-sidebar-foreground/75 group-hover:text-sidebar-foreground"
@@ -175,7 +175,7 @@ export function AppSidebar({
         />
         <div className={cn(expanded ? "block" : "hidden lg:block")}>
           <p
-            className="text-[15px] font-semibold leading-none tracking-[0.18em] text-[var(--w-carbon)]"
+            className="text-[15px] font-semibold leading-none tracking-[0.18em] text-[color:var(--w-carbon)]"
             style={{ fontFamily: "var(--font-geist-sans, sans-serif)" }}
           >
             BASIL
@@ -194,7 +194,7 @@ export function AppSidebar({
           className={cn(
             "flex items-center gap-2.5 w-full rounded-lg px-3 py-2.5 transition-all duration-150",
             "border border-[var(--w-rule)] bg-[var(--w-carbon)]/[0.07]",
-            "text-[var(--w-carbon)] hover:bg-[var(--w-carbon)]/[0.12] hover:border-[var(--w-rule)]",
+            "text-[color:var(--w-carbon)] hover:bg-[var(--w-carbon)]/[0.12] hover:border-[var(--w-rule)]",
             isActive("/dashboard/chat") && "bg-[var(--w-carbon)]/[0.14] border-[var(--w-rule)]"
           )}
         >
@@ -209,7 +209,7 @@ export function AppSidebar({
           onClick={onNavigate}
           title="Ask Basil"
           aria-label="Ask Basil"
-          className="flex items-center justify-center w-full rounded-lg p-2.5 border border-[var(--w-rule)] bg-[var(--w-carbon)]/[0.07] text-[var(--w-carbon)] hover:bg-[var(--w-carbon)]/[0.12] transition-all"
+          className="flex items-center justify-center w-full rounded-lg p-2.5 border border-[var(--w-rule)] bg-[var(--w-carbon)]/[0.07] text-[color:var(--w-carbon)] hover:bg-[var(--w-carbon)]/[0.12] transition-all"
         >
           <MessageSquare size={16} strokeWidth={1.8} />
         </Link>
@@ -309,7 +309,7 @@ export function AppSidebar({
             className="flex items-center gap-2.5 px-3 py-2 rounded-lg hover:bg-white/[0.04] transition-colors group"
           >
             <div className="shrink-0 h-7 w-7 rounded-full bg-[var(--w-carbon)]/15 border border-[var(--w-rule)] flex items-center justify-center">
-              <span className="text-xs font-bold text-[var(--w-carbon)]">{userInitials}</span>
+              <span className="text-xs font-bold text-[color:var(--w-carbon)]">{userInitials}</span>
             </div>
             <div className="flex-1 min-w-0">
               <p className="text-sm font-medium text-sidebar-foreground/85 leading-none truncate">{userName}</p>

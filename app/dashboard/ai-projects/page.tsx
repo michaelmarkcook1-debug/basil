@@ -124,7 +124,7 @@ function PlatformStatusBar({ data }: { data: AIProjectsData }) {
               href={status.setupUrl}
               target="_blank"
               rel="noreferrer"
-              className="text-xs text-[var(--w-carbon)] hover:underline"
+              className="text-xs text-[color:var(--w-carbon)] hover:underline"
             >
               Setup
             </a>
@@ -473,7 +473,7 @@ export default function AIProjectsPage() {
       <div className="flex items-center justify-between gap-4 flex-wrap">
         <div>
           <h1 className="text-2xl font-semibold tracking-tight flex items-center gap-2">
-            <BrainCircuit className="h-6 w-6 text-[var(--w-carbon)]" />
+            <BrainCircuit className="h-6 w-6 text-[color:var(--w-carbon)]" />
             AI Tools
           </h1>
           <p className="text-sm text-muted-foreground mt-1">

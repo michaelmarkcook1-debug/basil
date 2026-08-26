@@ -105,7 +105,7 @@ export default function DashboardLayout({
             </button>
             <div className="flex items-center gap-2 ml-2">
               <img src="/brand/basil-mark.png" alt="Basil" className="h-7 w-7 rounded-lg" />
-              <p className="basil-display text-base text-sidebar-foreground">Basil</p>
+              <p className="basil-display text-base text-[color:var(--w-carbon)]">Basil</p>
             </div>
           </header>
         )}

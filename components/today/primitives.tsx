@@ -64,7 +64,7 @@ export function ProvenanceIndicator({
     : `Observed directly in ${source}`;
   return (
     <span
-      className={`inline-flex items-center gap-1 text-[0.6875rem] text-[var(--w-ink-soft)] ${className}`}
+      className={`inline-flex items-center gap-1 text-[0.6875rem] text-[color:var(--w-ink-soft)] ${className}`}
       title={label}
     >
       <Icon className="h-3 w-3 shrink-0" aria-hidden />
@@ -94,7 +94,7 @@ export function Panel({
   return (
     <Tag aria-labelledby={id} className={className}>
       <div className="flex items-baseline justify-between gap-3 mb-2">
-        <h2 id={id} className="text-[0.8125rem] font-semibold uppercase tracking-[0.08em] text-[var(--w-ink-soft)]">
+        <h2 id={id} className="text-[0.8125rem] font-semibold uppercase tracking-[0.08em] text-[color:var(--w-carbon)]">
           {title}
         </h2>
         {action}
@@ -128,7 +128,7 @@ export function Card({ children, className = "", style }: { children: ReactNode;
 export function Unavailable({ what, why, action }: { what: string; why: string; action?: ReactNode }) {
   return (
     <Card className="p-4" style={{ borderColor: "var(--w-manila)", background: "var(--w-manila-tint)" }}>
-      <p className="flex items-start gap-2 text-[0.875rem] text-[var(--w-ink)]">
+      <p className="flex items-start gap-2 text-[0.875rem] text-[color:var(--w-ink)]">
         <AlertTriangle className="h-4 w-4 shrink-0 mt-0.5" style={{ color: "var(--w-manila)" }} aria-hidden />
         <span><strong className="font-semibold">{what} unavailable.</strong> {why}</span>
       </p>
@@ -140,7 +140,7 @@ export function Unavailable({ what, why, action }: { what: string; why: string; 
 export function Empty({ children }: { children: ReactNode }) {
   return (
     <Card className="p-4">
-      <p className="text-[0.875rem] text-[var(--w-ink-soft)]">{children}</p>
+      <p className="text-[0.875rem] text-[color:var(--w-ink-soft)]">{children}</p>
     </Card>
   );
 }
@@ -163,7 +163,7 @@ export function Loading({ label, rows = 3 }: { label: string; rows?: number }) {
 export function Failed({ what, onRetry }: { what: string; onRetry?: () => void }) {
   return (
     <Card className="p-4" style={{ borderColor: "var(--w-stamp)", background: "var(--w-stamp-tint)" }}>
-      <p className="flex items-start gap-2 text-[0.875rem] text-[var(--w-ink)]">
+      <p className="flex items-start gap-2 text-[0.875rem] text-[color:var(--w-ink)]">
         <AlertTriangle className="h-4 w-4 shrink-0 mt-0.5" style={{ color: "var(--w-stamp)" }} aria-hidden />
         <span>
           <strong className="font-semibold">{what} could not be loaded.</strong>{" "}
@@ -174,7 +174,7 @@ export function Failed({ what, onRetry }: { what: string; onRetry?: () => void }
         <button
           type="button"
           onClick={onRetry}
-          className="mt-2 ml-6 min-h-[44px] sm:min-h-0 sm:py-1 px-3 rounded border border-[var(--w-stamp)] text-[0.8125rem] font-semibold text-[var(--w-stamp)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2"
+          className="mt-2 ml-6 min-h-[44px] sm:min-h-0 sm:py-1 px-3 rounded border border-[var(--w-stamp)] text-[0.8125rem] font-semibold text-[color:var(--w-stamp)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2"
         >
           Retry
         </button>

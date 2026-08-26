@@ -146,7 +146,7 @@ export function NewEventDialog({
       <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
-            <CalendarPlus className="h-4 w-4 text-[var(--w-carbon)]" /> New event
+            <CalendarPlus className="h-4 w-4 text-[color:var(--w-carbon)]" /> New event
           </DialogTitle>
         </DialogHeader>
 
@@ -223,7 +223,7 @@ export function NewEventDialog({
                           const selected = selectedEmails.has(email);
                           return (
                             <CommandItem key={c.id} value={`${c.name} ${c.email}`} onSelect={() => toggleContact(c)}>
-                              <Check className={`mr-2 h-3.5 w-3.5 ${selected ? "opacity-100 text-[var(--w-carbon)]" : "opacity-0"}`} />
+                              <Check className={`mr-2 h-3.5 w-3.5 ${selected ? "opacity-100 text-[color:var(--w-carbon)]" : "opacity-0"}`} />
                               <div className="min-w-0">
                                 <div className="truncate text-sm">{c.name}</div>
                                 <div className="truncate text-xs text-muted-foreground">{c.email}</div>

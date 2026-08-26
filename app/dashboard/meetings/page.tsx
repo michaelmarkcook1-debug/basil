@@ -90,7 +90,7 @@ function CalendarMeetingPicker({ events }: { events: CalEvent[] }) {
     <div className="mb-2">
       <button
         onClick={() => setOpen((v) => !v)}
-        className="flex items-center gap-2 text-sm font-medium text-[var(--w-carbon)] hover:underline"
+        className="flex items-center gap-2 text-sm font-medium text-[color:var(--w-carbon)] hover:underline"
       >
         <Search className="h-4 w-4" />
         Prep a specific meeting
@@ -170,7 +170,7 @@ function CalendarMeetingPicker({ events }: { events: CalEvent[] }) {
                         ) : null;
                       })()}
                       {event.hasVideo && <Video className="h-3.5 w-3.5 text-muted-foreground" aria-hidden />}
-                      <Sparkles className="h-3.5 w-3.5 text-[var(--w-carbon)]" aria-hidden />
+                      <Sparkles className="h-3.5 w-3.5 text-[color:var(--w-carbon)]" aria-hidden />
                     </div>
                   </button>
                 ))
@@ -232,7 +232,7 @@ function ManualPrepForm({ onSaved }: { onSaved: (prep: ManualPrep) => void }) {
     <div className="mt-4">
       <button
         onClick={() => setOpen((v) => !v)}
-        className="flex items-center gap-2 text-sm font-medium text-[var(--w-carbon)] hover:underline"
+        className="flex items-center gap-2 text-sm font-medium text-[color:var(--w-carbon)] hover:underline"
       >
         <Plus className="h-4 w-4" />
         Manual meeting note
@@ -324,7 +324,7 @@ function ManualPrepList({ preps }: { preps: ManualPrep[] }) {
         <Card key={prep.id} className="border-border/60">
           <CardContent className="p-4">
             <div className="flex items-start gap-3">
-              <CalendarCheck className="h-4 w-4 text-[var(--w-carbon)] mt-0.5 shrink-0" />
+              <CalendarCheck className="h-4 w-4 text-[color:var(--w-carbon)] mt-0.5 shrink-0" />
               <div className="min-w-0">
                 <p className="font-medium text-sm">{prep.title}</p>
                 {prep.datetime && (
@@ -522,7 +522,7 @@ export default function MeetingsPage() {
       <header className="flex items-start justify-between gap-4">
         <div>
           <h1 className="text-2xl font-semibold tracking-tight flex items-center gap-2">
-            <CalendarCheck className="h-6 w-6 text-[var(--w-carbon)]" />
+            <CalendarCheck className="h-6 w-6 text-[color:var(--w-carbon)]" />
             Meeting Prep
           </h1>
           <p className="text-sm text-muted-foreground mt-1">
@@ -552,7 +552,7 @@ export default function MeetingsPage() {
                 onClick={() => setActiveTab(tab.id)}
                 className={`relative flex items-center gap-2 px-4 py-2.5 text-sm font-medium transition-colors
                   ${active
-                    ? "text-[var(--w-carbon)]"
+                    ? "text-[color:var(--w-carbon)]"
                     : "text-muted-foreground hover:text-foreground"}`}
               >
                 {tab.label}
@@ -608,7 +608,7 @@ export default function MeetingsPage() {
                   <Card key={mem.id} className="border-border/60 hover:border-border transition-colors">
                     <CardContent className="p-4">
                       <div className="flex items-start gap-3">
-                        <Video className="h-4 w-4 text-[var(--w-carbon)] mt-1 shrink-0" />
+                        <Video className="h-4 w-4 text-[color:var(--w-carbon)] mt-1 shrink-0" />
                         <div className="min-w-0 flex-1 space-y-2">
                           {/* Title row */}
                           <p className="font-medium text-sm leading-snug">{title}</p>
@@ -731,7 +731,7 @@ export default function MeetingsPage() {
             dayOrder.map((dayLabel) => (
               <div key={dayLabel}>
                 <div className="flex items-center gap-2 mb-3">
-                  <h2 className="text-sm font-bold uppercase tracking-wider text-[var(--w-carbon)]">
+                  <h2 className="text-sm font-bold uppercase tracking-wider text-[color:var(--w-carbon)]">
                     {dayLabel}
                   </h2>
                   <div className="flex-1 h-px bg-border" />

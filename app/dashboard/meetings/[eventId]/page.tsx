@@ -100,7 +100,7 @@ function priorityStyle(priority: string): { border: string; badge: string } {
   if (/park|low|fyi|note|backlog|defer/.test(p)) {
     return { border: "border-l-slate-400", badge: "border-border text-muted-foreground bg-muted/30" };
   }
-  return { border: "border-l-gold", badge: "border-[var(--w-rule)] text-[var(--w-carbon)] bg-[var(--w-carbon-tint)]" };
+  return { border: "border-l-gold", badge: "border-[var(--w-rule)] text-[color:var(--w-carbon)] bg-[var(--w-carbon-tint)]" };
 }
 
 function SectionHeader({ icon: Icon, label, color }: { icon: typeof Phone; label: string; color: string }) {
@@ -273,11 +273,11 @@ export default function MeetingPrepPage() {
       {/* Header — matches Mike's format */}
       <header className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3">
         <div className="space-y-1 min-w-0">
-          <p className="text-xs font-semibold tracking-widest uppercase text-[var(--w-carbon)]">
+          <p className="text-xs font-semibold tracking-widest uppercase text-[color:var(--w-carbon)]">
             Example Holdings · Meeting Prep
           </p>
           <h1 className="text-xl font-semibold break-words">{meta?.title}</h1>
-          <div className="flex items-center gap-2 text-sm text-[var(--w-carbon)] flex-wrap">
+          <div className="flex items-center gap-2 text-sm text-[color:var(--w-carbon)] flex-wrap">
             {meta?.dateLabel && <span>{meta.dateLabel}</span>}
             {meta?.dateLabel && meta?.time && <span>·</span>}
             {meta?.time && <><Clock className="h-3.5 w-3.5" />{meta.time} UK</>}
@@ -356,7 +356,7 @@ export default function MeetingPrepPage() {
           {/* Context — navy-tinted card (kept for backward-compat with any existing data) */}
           {prep.contextNote && (
             <div>
-              <SectionHeader icon={Phone} label="Context" color="text-[var(--w-carbon)]" />
+              <SectionHeader icon={Phone} label="Context" color="text-[color:var(--w-carbon)]" />
               <Card className="bg-[oklch(0.28_0.06_250)]/5 border-[oklch(0.28_0.06_250)]/20">
                 <CardContent className="p-4">
                   <p className="text-sm leading-relaxed">{prep.contextNote}</p>
@@ -368,7 +368,7 @@ export default function MeetingPrepPage() {
           {/* Attendee Insights — navy-tinted */}
           {prep.attendeeInsights && prep.attendeeInsights.length > 0 && (
             <div>
-              <SectionHeader icon={UserCircle} label="Quick Profile" color="text-[var(--w-carbon)]" />
+              <SectionHeader icon={UserCircle} label="Quick Profile" color="text-[color:var(--w-carbon)]" />
               <div className="space-y-2">
                 {prep.attendeeInsights.map((a, i) => (
                   <Card key={i} className="bg-[oklch(0.28_0.06_250)]/5 border-[oklch(0.28_0.06_250)]/20">

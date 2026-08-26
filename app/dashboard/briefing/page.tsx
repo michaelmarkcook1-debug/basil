@@ -501,7 +501,7 @@ export default function BriefingPage() {
           </p>
           <h1 className="basil-display text-3xl sm:text-5xl lg:text-6xl leading-[1.05] text-foreground">
             {today.split(",")[0]}
-            <span className="text-[var(--w-carbon)]">.</span>
+            <span className="text-[color:var(--w-carbon)]">.</span>
           </h1>
           <p className="text-base text-muted-foreground">
             {today.split(",").slice(1).join(",").trim()} · Prepared by Basil
@@ -534,7 +534,7 @@ export default function BriefingPage() {
           an empty screen with one button is the least useful state a surface
           can open in. The link is cheap and it re-establishes the relationship:
           Today is the summary, this is the explanation behind it. */}
-      <p className="text-[0.875rem] text-[var(--w-ink-soft)] -mt-2">
+      <p className="text-[0.875rem] text-[color:var(--w-ink-soft)] -mt-2">
         The expanded explanation behind{" "}
         <Link href="/dashboard" className="font-semibold underline underline-offset-2" style={{ color: "var(--w-carbon)" }}>
           Today
@@ -559,7 +559,7 @@ export default function BriefingPage() {
                 "inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[12px] font-medium",
                 "transition-all duration-150 border",
                 active
-                  ? "bg-[var(--w-carbon-tint)] text-[var(--w-carbon)] border-[var(--w-rule)]"
+                  ? "bg-[var(--w-carbon-tint)] text-[color:var(--w-carbon)] border-[var(--w-rule)]"
                   : "bg-transparent text-muted-foreground/60 border-border/30 hover:border-border/60 hover:text-muted-foreground"
               )}
             >
@@ -671,11 +671,11 @@ export default function BriefingPage() {
           >
             <span className="flex items-center gap-2.5">
               {stigLoading ? (
-                <Radio className="h-3.5 w-3.5 animate-pulse text-[var(--w-carbon)]" />
+                <Radio className="h-3.5 w-3.5 animate-pulse text-[color:var(--w-carbon)]" />
               ) : (
-                <Brain className="h-3.5 w-3.5 text-[var(--w-carbon)]" />
+                <Brain className="h-3.5 w-3.5 text-[color:var(--w-carbon)]" />
               )}
-              <span className="text-[12px] font-semibold tracking-wide uppercase text-[var(--w-carbon)]">
+              <span className="text-[12px] font-semibold tracking-wide uppercase text-[color:var(--w-carbon)]">
                 Basil&apos;s Operational Read
               </span>
               {stigLoading && (
@@ -706,13 +706,13 @@ export default function BriefingPage() {
                 </div>
               )}
               {stigRead && (
-                <div className="prose prose-sm max-w-none text-[13px] text-foreground/80 leading-relaxed [&_h2]:text-xs [&_h2]:font-semibold [&_h2]:uppercase [&_h2]:tracking-wider [&_h2]:text-[var(--w-carbon)] [&_h2]:mt-4 [&_h2]:mb-1 [&_ul]:pl-4 [&_li]:my-0.5">
+                <div className="prose prose-sm max-w-none text-[13px] text-foreground/80 leading-relaxed [&_h2]:text-xs [&_h2]:font-semibold [&_h2]:uppercase [&_h2]:tracking-wider [&_h2]:text-[color:var(--w-carbon)] [&_h2]:mt-4 [&_h2]:mb-1 [&_ul]:pl-4 [&_li]:my-0.5">
                   {stigRead.briefing.split("\n").map((line, i) => {
                     const trimmed = line.trim();
                     if (!trimmed) return <br key={i} />;
                     if (trimmed.startsWith("## ")) {
                       return (
-                        <h2 key={i} className="text-xs font-semibold uppercase tracking-wider text-[var(--w-carbon)] mt-4 mb-1 first:mt-0">
+                        <h2 key={i} className="text-xs font-semibold uppercase tracking-wider text-[color:var(--w-carbon)] mt-4 mb-1 first:mt-0">
                           {trimmed.replace(/^## /, "")}
                         </h2>
                       );
@@ -932,7 +932,7 @@ export default function BriefingPage() {
           />
           <div className="relative">
             <div className="h-14 w-14 rounded-xl bg-[var(--w-carbon-tint)] flex items-center justify-center mx-auto mb-5 ring-1 ring-[var(--w-rule)]">
-              <Newspaper className="h-6 w-6 text-[var(--w-carbon)]/70" />
+              <Newspaper className="h-6 w-6 text-[color:var(--w-carbon)]/70" />
             </div>
             <h2 className="basil-display text-2xl mb-2">Ready for your briefing</h2>
             <p className="text-sm text-muted-foreground max-w-xs mx-auto leading-relaxed">

@@ -27,22 +27,22 @@ export function OperationalRead({
   return (
     <section aria-labelledby="read-h" className="rounded-lg border border-[var(--w-rule)] bg-[var(--w-flimsy)] p-5 sm:p-6">
       <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
-        <h1 id="read-h" className="text-[1.0625rem] font-semibold text-[var(--w-ink)]">
+        <h1 id="read-h" className="text-[1.0625rem] font-semibold text-[color:var(--w-ink)]">
           {now.toLocaleDateString("en-GB", { weekday: "long", day: "numeric", month: "long" })}
         </h1>
         <time
           dateTime={now.toISOString()}
-          className="wire-data text-[0.8125rem] text-[var(--w-ink-soft)]"
+          className="wire-data text-[0.8125rem] text-[color:var(--w-ink-soft)]"
         >
           {now.toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" })}
         </time>
       </div>
 
-      <p className="basil-display mt-3 text-[1.375rem] sm:text-[1.625rem] leading-[1.35] text-[var(--w-ink)]">
+      <p className="basil-display mt-3 text-[1.375rem] sm:text-[1.625rem] leading-[1.35] text-[color:var(--w-ink)]">
         {shape}
       </p>
       {risk && (
-        <p className="mt-2 text-[0.9375rem] leading-relaxed text-[var(--w-ink)]">
+        <p className="mt-2 text-[0.9375rem] leading-relaxed text-[color:var(--w-ink)]">
           <span className="font-semibold">{risk}</span>
         </p>
       )}

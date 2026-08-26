@@ -41,26 +41,26 @@ export function PressureTimeline({ day, connected }: { day: DayShape; connected:
   return (
     <Card className="p-4">
       {/* The text equivalent IS the content; the bar is the illustration. */}
-      <p className="text-[0.875rem] leading-relaxed text-[var(--w-ink)]">{summary}</p>
+      <p className="text-[0.875rem] leading-relaxed text-[color:var(--w-ink)]">{summary}</p>
       <div
         className="mt-3 flex h-6 overflow-hidden rounded border border-[var(--w-rule-strong)]"
         role="img"
         aria-label={summary}
       >
         <div
-          className="flex items-center justify-center text-[0.6875rem] font-semibold text-white"
-          style={{ width: `${bookedPct}%`, background: "var(--w-carbon)" }}
+          className="flex items-center justify-center text-[0.6875rem] font-semibold"
+          style={{ width: `${bookedPct}%`, background: "var(--w-carbon)", color: "var(--w-on-accent)" }}
         >
           {bookedPct > 18 && <span>Booked</span>}
         </div>
         <div
-          className="flex items-center justify-center text-[0.6875rem] font-semibold text-[var(--w-ink-soft)]"
+          className="flex items-center justify-center text-[0.6875rem] font-semibold text-[color:var(--w-ink-soft)]"
           style={{ width: `${100 - bookedPct}%`, background: "var(--w-tray)" }}
         >
           {100 - bookedPct > 18 && <span>Clear</span>}
         </div>
       </div>
-      <p className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-[0.75rem] text-[var(--w-ink-soft)]">
+      <p className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-[0.75rem] text-[color:var(--w-ink-soft)]">
         <span className="inline-flex items-center gap-1.5">
           <span className="h-2.5 w-2.5 rounded-sm" style={{ background: "var(--w-carbon)" }} aria-hidden />
           Booked <span className="wire-data">{fmt(day.meetingMinutes)}</span>
@@ -101,16 +101,16 @@ export function CommitmentAgeing({
       <ul className="space-y-2" role="img" aria-label={summary}>
         {rows.map((r) => (
           <li key={r.key} className="flex items-center gap-3">
-            <span className="w-[8.5rem] shrink-0 text-[0.8125rem] text-[var(--w-ink)]">{r.label}</span>
+            <span className="w-[8.5rem] shrink-0 text-[0.8125rem] text-[color:var(--w-ink)]">{r.label}</span>
             <span className="flex-1 h-4 rounded-sm bg-[var(--w-tray)] overflow-hidden">
               <span className="block h-full rounded-sm" style={{ width: `${(r.n / max) * 100}%`, background: r.color }} />
             </span>
-            <span className="wire-data w-8 shrink-0 text-right text-[0.8125rem] font-bold text-[var(--w-ink)]">{r.n}</span>
+            <span className="wire-data w-8 shrink-0 text-right text-[0.8125rem] font-bold text-[color:var(--w-ink)]">{r.n}</span>
           </li>
         ))}
       </ul>
       {buckets.stalled.length > 0 && (
-        <p className="mt-3 text-[0.8125rem] text-[var(--w-ink-soft)]">
+        <p className="mt-3 text-[0.8125rem] text-[color:var(--w-ink-soft)]">
           Stalled items have no due date and have not moved in 30 days. They are not overdue — they are forgotten.{" "}
           <Link href="/dashboard/actions" className="font-semibold underline underline-offset-2" style={{ color: "var(--w-carbon)" }}>
             Review commitments
@@ -134,11 +134,11 @@ export function PressureSection({
     <Panel title="Pressure and momentum" id="pressure-h">
       <div className="grid gap-3 lg:grid-cols-2">
         <div>
-          <h3 className="mb-1.5 text-[0.8125rem] font-medium text-[var(--w-ink)]">Today&rsquo;s pressure</h3>
+          <h3 className="mb-1.5 text-[0.8125rem] font-medium text-[color:var(--w-ink)]">Today&rsquo;s pressure</h3>
           <PressureTimeline day={day} connected={calendarConnected} />
         </div>
         <div>
-          <h3 className="mb-1.5 text-[0.8125rem] font-medium text-[var(--w-ink)]">Commitment ageing</h3>
+          <h3 className="mb-1.5 text-[0.8125rem] font-medium text-[color:var(--w-ink)]">Commitment ageing</h3>
           <CommitmentAgeing buckets={buckets} loading={commitmentsLoading} failed={commitmentsFailed} />
         </div>
       </div>

@@ -64,7 +64,7 @@ export function MobileBottomNav({ onMoreClick }: MobileBottomNavProps) {
                 className={cn(
                   "h-[20px] w-[20px] transition-colors",
                   active
-                    ? "text-[var(--w-carbon)]"
+                    ? "text-[color:var(--w-carbon)]"
                     : "text-sidebar-foreground/70"
                 )}
                 strokeWidth={active ? 2 : 1.75}
@@ -73,7 +73,7 @@ export function MobileBottomNav({ onMoreClick }: MobileBottomNavProps) {
                 className={cn(
                   "text-xs font-medium tracking-tight transition-colors",
                   active
-                    ? "text-[var(--w-carbon)]"
+                    ? "text-[color:var(--w-carbon)]"
                     : "text-sidebar-foreground/65"
                 )}
               >
@@ -95,7 +95,7 @@ export function MobileBottomNav({ onMoreClick }: MobileBottomNavProps) {
             className={cn(
               "h-[20px] w-[20px] transition-colors",
               moreActive
-                ? "text-[var(--w-carbon)]"
+                ? "text-[color:var(--w-carbon)]"
                 : "text-sidebar-foreground/70"
             )}
             strokeWidth={1.75}
@@ -104,7 +104,7 @@ export function MobileBottomNav({ onMoreClick }: MobileBottomNavProps) {
             className={cn(
               "text-xs font-medium tracking-tight transition-colors",
               moreActive
-                ? "text-[var(--w-carbon)]"
+                ? "text-[color:var(--w-carbon)]"
                 : "text-sidebar-foreground/65"
             )}
           >

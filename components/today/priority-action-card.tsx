@@ -29,28 +29,28 @@ export function PriorityActionCard({
       <div className="flex flex-wrap items-center gap-2">
         <UrgencyBadge urgency={p.urgency} />
         {p.groupedCount && (
-          <span className="rounded border border-[var(--w-rule-strong)] bg-[var(--w-tray)] px-1.5 py-0.5 text-[0.6875rem] font-medium text-[var(--w-ink-soft)]">
+          <span className="rounded border border-[var(--w-rule-strong)] bg-[var(--w-tray)] px-1.5 py-0.5 text-[0.6875rem] font-medium text-[color:var(--w-ink-soft)]">
             {p.groupedCount} signals grouped
           </span>
         )}
       </div>
 
-      <h3 className="mt-2 text-[1.0625rem] font-semibold leading-snug text-[var(--w-ink)]">
+      <h3 className="mt-2 text-[1.0625rem] font-semibold leading-snug text-[color:var(--w-ink)]">
         {p.title}
       </h3>
-      <p className="mt-1 text-[0.9375rem] leading-relaxed text-[var(--w-ink-secondary,var(--w-ink-soft))]">
+      <p className="mt-1 text-[0.9375rem] leading-relaxed text-[color:var(--w-ink-soft)]">
         {p.why}
       </p>
       {p.context && (
-        <p className="mt-1.5 text-[0.8125rem] font-medium text-[var(--w-carbon)]">{p.context}</p>
+        <p className="mt-1.5 text-[0.8125rem] font-medium text-[color:var(--w-carbon)]">{p.context}</p>
       )}
 
       <div className="mt-3.5 flex flex-wrap items-center gap-2">
         {p.href && (
           <Link
             href={p.href}
-            className="inline-flex min-h-[44px] sm:min-h-[36px] items-center rounded-md px-3.5 text-[0.875rem] font-semibold text-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2"
-            style={{ background: "var(--w-carbon)" }}
+            className="inline-flex min-h-[44px] sm:min-h-[36px] items-center rounded-md px-3.5 text-[0.875rem] font-semibold focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2"
+            style={{ background: "var(--w-carbon)", color: "var(--w-on-accent)" }}
           >
             {primaryLabel}
           </Link>
@@ -60,7 +60,7 @@ export function PriorityActionCard({
           onClick={() => { setOpen((v) => !v); onBrief?.(p); }}
           aria-expanded={open}
           aria-controls={detailId}
-          className="inline-flex min-h-[44px] sm:min-h-[36px] items-center gap-1 rounded-md border border-[var(--w-rule-strong)] px-3 text-[0.875rem] font-medium text-[var(--w-ink)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2"
+          className="inline-flex min-h-[44px] sm:min-h-[36px] items-center gap-1 rounded-md border border-[var(--w-rule-strong)] px-3 text-[0.875rem] font-medium text-[color:var(--w-ink)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2"
         >
           Why?
           <ChevronDown className={`h-4 w-4 motion-safe:transition-transform ${open ? "rotate-180" : ""}`} aria-hidden />
@@ -73,20 +73,20 @@ export function PriorityActionCard({
             {p.members.map((m) => (
               <li key={m.id} className="text-[0.875rem]">
                 {m.href ? (
-                  <Link href={m.href} className="font-medium text-[var(--w-carbon)] underline underline-offset-2">
+                  <Link href={m.href} className="font-medium text-[color:var(--w-carbon)] underline underline-offset-2">
                     {m.title}
                   </Link>
                 ) : (
-                  <span className="font-medium text-[var(--w-ink)]">{m.title}</span>
+                  <span className="font-medium text-[color:var(--w-ink)]">{m.title}</span>
                 )}
-                <span className="text-[var(--w-ink-soft)]"> — {m.subtitle}</span>
+                <span className="text-[color:var(--w-ink-soft)]"> — {m.subtitle}</span>
               </li>
             ))}
           </ul>
         ) : p.detail ? (
-          <p className="text-[0.875rem] text-[var(--w-ink)]">{p.detail}</p>
+          <p className="text-[0.875rem] text-[color:var(--w-ink)]">{p.detail}</p>
         ) : (
-          <p className="text-[0.875rem] text-[var(--w-ink-soft)]">
+          <p className="text-[0.875rem] text-[color:var(--w-ink-soft)]">
             No further detail is stored for this signal.
           </p>
         )}

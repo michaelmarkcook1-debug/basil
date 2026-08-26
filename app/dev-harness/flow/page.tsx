@@ -26,8 +26,8 @@ const CONTACTS = [
 function Case({ title, note, children }: { title: string; note?: string; children: React.ReactNode }) {
   return (
     <section className="mb-7">
-      <h2 className="mb-1 text-[0.8125rem] font-semibold uppercase tracking-[0.08em] text-[var(--w-ink-soft)]">{title}</h2>
-      {note && <p className="mb-2 text-[0.8125rem] text-[var(--w-ink-soft)]">{note}</p>}
+      <h2 className="mb-1 text-[0.8125rem] font-semibold uppercase tracking-[0.08em] text-[color:var(--w-ink-soft)]">{title}</h2>
+      {note && <p className="mb-2 text-[0.8125rem] text-[color:var(--w-ink-soft)]">{note}</p>}
       {children}
     </section>
   );

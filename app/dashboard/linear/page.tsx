@@ -340,7 +340,7 @@ function NotificationCard({
                 href={notif.issue.url}
                 target="_blank"
                 rel="noopener noreferrer"
-                className="block text-sm font-medium text-foreground hover:text-[var(--w-carbon)] transition-colors truncate"
+                className="block text-sm font-medium text-foreground hover:text-[color:var(--w-carbon)] transition-colors truncate"
               >
                 <span className="font-mono text-xs text-muted-foreground mr-1.5">
                   {notif.issue.identifier}
@@ -895,7 +895,7 @@ export default function LinearPage() {
     return (
       <div className="p-4 sm:p-6 lg:p-8">
         <header className="flex items-center gap-3 mb-8">
-          <Triangle className="h-5 w-5 text-[var(--w-carbon)]" />
+          <Triangle className="h-5 w-5 text-[color:var(--w-carbon)]" />
           <div>
             <h1 className="text-2xl font-semibold tracking-tight">Linear</h1>
             <p className="text-sm text-muted-foreground mt-0.5">Issues, projects and blockers</p>
@@ -907,7 +907,7 @@ export default function LinearPage() {
             <p className="text-sm font-medium">Linear not connected</p>
             <p className="text-sm text-muted-foreground">
               Add your Linear API key in{" "}
-              <a href="/dashboard/settings" className="text-[var(--w-carbon)] hover:underline">
+              <a href="/dashboard/settings" className="text-[color:var(--w-carbon)] hover:underline">
                 Settings
               </a>{" "}
               to get started.
@@ -928,7 +928,7 @@ export default function LinearPage() {
       {/* Header */}
       <header className="flex items-start justify-between gap-4">
         <div className="flex items-center gap-3">
-          <Triangle className="h-5 w-5 text-[var(--w-carbon)] shrink-0" />
+          <Triangle className="h-5 w-5 text-[color:var(--w-carbon)] shrink-0" />
           <div>
             <h1 className="text-2xl font-semibold tracking-tight">Linear</h1>
             <p className="text-sm text-muted-foreground mt-0.5">Issues, projects and blockers</p>
@@ -1365,7 +1365,7 @@ export default function LinearPage() {
                     href={selectedIssue.url}
                     target="_blank"
                     rel="noopener noreferrer"
-                    className="text-muted-foreground/60 hover:text-[var(--w-carbon)] transition-colors"
+                    className="text-muted-foreground/60 hover:text-[color:var(--w-carbon)] transition-colors"
                     title="Open in Linear"
                     aria-label="Open issue in Linear"
                   >
@@ -1399,7 +1399,7 @@ export default function LinearPage() {
                 />
               ) : (
                 <button
-                  className="w-full text-left text-sm font-medium leading-snug hover:text-[var(--w-carbon)] transition-colors group flex items-start gap-1"
+                  className="w-full text-left text-sm font-medium leading-snug hover:text-[color:var(--w-carbon)] transition-colors group flex items-start gap-1"
                   onClick={() => setEditingTitle(true)}
                   title="Click to edit title"
                 >
@@ -1460,7 +1460,7 @@ export default function LinearPage() {
                         className={cn(
                           "flex items-center gap-1.5 rounded-md border px-2.5 py-1 text-xs font-medium transition-colors",
                           active
-                            ? "border-[var(--w-rule)] bg-[var(--w-carbon-tint)] text-[var(--w-ink)]"
+                            ? "border-[var(--w-rule)] bg-[var(--w-carbon-tint)] text-[color:var(--w-ink)]"
                             : "border-border text-muted-foreground hover:text-foreground hover:border-border/80"
                         )}
                       >

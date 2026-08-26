@@ -138,7 +138,7 @@ export function CommandPalette() {
             {query.trim() && (
               <button
                 onClick={askBasil}
-                className="mt-3 inline-flex items-center gap-1.5 text-sm font-medium text-[var(--w-carbon)] hover:underline"
+                className="mt-3 inline-flex items-center gap-1.5 text-sm font-medium text-[color:var(--w-carbon)] hover:underline"
               >
                 <Sparkles className="h-3.5 w-3.5" /> Ask Basil: &quot;{query.trim()}&quot;
               </button>
@@ -154,7 +154,7 @@ export function CommandPalette() {
               value={`ask-${query}`}
               className="cursor-pointer"
             >
-              <Sparkles className="text-[var(--w-carbon)]" />
+              <Sparkles className="text-[color:var(--w-carbon)]" />
               <span className="font-medium">Ask Basil:</span>
               <span className="text-muted-foreground truncate">{query.trim()}</span>
             </CommandItem>

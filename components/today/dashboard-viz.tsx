@@ -100,7 +100,7 @@ export function StatCard({
             {ring.center}
           </Ring>
         ) : href ? (
-          <ArrowUpRight className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground/30 transition-colors group-hover:text-[var(--w-carbon)]" strokeWidth={1.8} />
+          <ArrowUpRight className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground/30 transition-colors group-hover:text-[color:var(--w-carbon)]" strokeWidth={1.8} />
         ) : null}
       </div>
       {bar && bar.length > 0 && (
@@ -353,17 +353,17 @@ export function DayTimeline({
         <div>
           <Link
             href="/dashboard/schedule"
-            className="group/hd inline-flex items-center gap-1 text-sm font-semibold tracking-tight text-foreground outline-none transition-colors hover:text-[var(--w-carbon)] focus-visible:text-[var(--w-carbon)]"
+            className="group/hd inline-flex items-center gap-1 text-sm font-semibold tracking-tight text-foreground outline-none transition-colors hover:text-[color:var(--w-carbon)] focus-visible:text-[color:var(--w-carbon)]"
           >
             Your day
-            <ArrowUpRight className="h-3.5 w-3.5 text-muted-foreground/40 transition-colors group-hover/hd:text-[var(--w-carbon)]" strokeWidth={1.8} />
+            <ArrowUpRight className="h-3.5 w-3.5 text-muted-foreground/40 transition-colors group-hover/hd:text-[color:var(--w-carbon)]" strokeWidth={1.8} />
           </Link>
           <p className="mt-0.5 text-xs text-muted-foreground">
             {meetings.length} {meetings.length === 1 ? "meeting" : "meetings"}
             {focusMins > 0 && <> · {Math.round((focusMins / 60) * 10) / 10}h focus protected</>}
           </p>
         </div>
-        <span className="rounded-full bg-[var(--w-carbon-tint)] px-2.5 py-1 text-[11px] font-medium text-[var(--w-carbon)]">Suggested plan</span>
+        <span className="rounded-full bg-[var(--w-carbon-tint)] px-2.5 py-1 text-[11px] font-medium text-[color:var(--w-carbon)]">Suggested plan</span>
       </div>
 
       {blocks.length === 0 ? (
@@ -423,7 +423,7 @@ export function DayTimeline({
                     )}
                     {/* Hover affordance — appears in the slot the time label vacates */}
                     <ArrowUpRight
-                      className="hidden h-3.5 w-3.5 shrink-0 text-[var(--w-carbon)] group-hover/blk:block"
+                      className="hidden h-3.5 w-3.5 shrink-0 text-[color:var(--w-carbon)] group-hover/blk:block"
                       strokeWidth={2}
                     />
                   </Link>

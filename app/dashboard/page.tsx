@@ -146,7 +146,7 @@ export default function Today() {
                 as="aside"
                 action={
                   day.meetingCount > 0 ? (
-                    <span className="wire-data text-[0.75rem] text-[var(--w-ink-soft)]">
+                    <span className="wire-data text-[0.75rem] text-[color:var(--w-ink-soft)]">
                       {day.meetingCount} meeting{day.meetingCount === 1 ? "" : "s"}
                     </span>
                   ) : undefined
@@ -174,7 +174,7 @@ export default function Today() {
         {/* 5 — Watchlist */}
         <Watchlist items={board.watchlist} />
 
-        <p className="mt-8 text-[0.8125rem] text-[var(--w-ink-soft)]">
+        <p className="mt-8 text-[0.8125rem] text-[color:var(--w-ink-soft)]">
           <Link href="/dashboard/briefing" className="font-semibold underline underline-offset-2" style={{ color: "var(--w-carbon)" }}>
             Full briefing
           </Link>{" "}

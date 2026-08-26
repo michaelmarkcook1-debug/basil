@@ -65,10 +65,10 @@ export function Watchlist({ items }: { items: Priority[] }) {
         aria-controls="watchlist-body"
         className="flex min-h-[44px] w-full items-center justify-between gap-3 rounded-lg border border-[var(--w-rule)] bg-[var(--w-flimsy)] px-4 text-left focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2"
       >
-        <span className="text-[0.9375rem] font-semibold text-[var(--w-ink)]">
+        <span className="text-[0.9375rem] font-semibold text-[color:var(--w-ink)]">
           Watchlist — {items.length} more
         </span>
-        <ChevronDown className={`h-4 w-4 shrink-0 text-[var(--w-ink-soft)] motion-safe:transition-transform ${open ? "rotate-180" : ""}`} aria-hidden />
+        <ChevronDown className={`h-4 w-4 shrink-0 text-[color:var(--w-ink-soft)] motion-safe:transition-transform ${open ? "rotate-180" : ""}`} aria-hidden />
       </button>
 
       <div id="watchlist-body" hidden={!open} className="mt-2">
@@ -83,7 +83,7 @@ export function Watchlist({ items }: { items: Priority[] }) {
                 aria-pressed={active}
                 className="min-h-[44px] sm:min-h-[32px] rounded-md border px-3 text-[0.8125rem] font-medium focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2"
                 style={active
-                  ? { background: "var(--w-carbon)", color: "#fff", borderColor: "var(--w-carbon)" }
+                  ? { background: "var(--w-carbon)", color: "var(--w-on-accent)", borderColor: "var(--w-carbon)" }
                   : { borderColor: "var(--w-rule-strong)", color: "var(--w-ink)" }}
               >
                 {f.label} <span className="wire-data">{counts[f.key] ?? 0}</span>
@@ -94,7 +94,7 @@ export function Watchlist({ items }: { items: Priority[] }) {
 
         {shown.length === 0 ? (
           <Card className="mt-2 p-4">
-            <p className="text-[0.875rem] text-[var(--w-ink-soft)]">Nothing in this category.</p>
+            <p className="text-[0.875rem] text-[color:var(--w-ink-soft)]">Nothing in this category.</p>
           </Card>
         ) : (
           <Card className="mt-2 divide-y divide-[var(--w-rule)]">
@@ -104,14 +104,14 @@ export function Watchlist({ items }: { items: Priority[] }) {
                   <div className="flex flex-wrap items-center gap-2">
                     <UrgencyBadge urgency={p.urgency} />
                     {p.href ? (
-                      <Link href={p.href} className="text-[0.9375rem] font-medium text-[var(--w-ink)] underline-offset-2 hover:underline">
+                      <Link href={p.href} className="text-[0.9375rem] font-medium text-[color:var(--w-ink)] underline-offset-2 hover:underline">
                         {p.title}
                       </Link>
                     ) : (
-                      <span className="text-[0.9375rem] font-medium text-[var(--w-ink)]">{p.title}</span>
+                      <span className="text-[0.9375rem] font-medium text-[color:var(--w-ink)]">{p.title}</span>
                     )}
                   </div>
-                  <p className="mt-0.5 text-[0.875rem] text-[var(--w-ink-soft)]">{p.why}</p>
+                  <p className="mt-0.5 text-[0.875rem] text-[color:var(--w-ink-soft)]">{p.why}</p>
                   <ProvenanceIndicator className="mt-1" provenance={p.provenance} source={p.source} at={p.occurredAt} />
                 </li>
               ))}

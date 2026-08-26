@@ -104,7 +104,7 @@ export function WeeklyBriefCard() {
         aria-expanded={open}
         className="flex w-full items-center gap-2.5 rounded-xl border border-border/60 bg-card/40 px-4 py-3 text-left transition-all hover:bg-card/70"
       >
-        <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-[var(--w-carbon-tint)] text-[var(--w-carbon)]">
+        <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-[var(--w-carbon-tint)] text-[color:var(--w-carbon)]">
           <CalendarRange className="h-3.5 w-3.5" />
         </span>
         <div className="flex-1 min-w-0">
@@ -131,7 +131,7 @@ export function WeeklyBriefCard() {
               <div className="grid gap-4 md:grid-cols-2">
                 {DIGEST_SECTIONS.filter((s) => digest?.[s.key]).map((s) => (
                   <div key={s.key}>
-                    <p className="mb-1 text-xs font-semibold uppercase tracking-wide text-[var(--w-carbon)]/80">{s.label}</p>
+                    <p className="mb-1 text-xs font-semibold uppercase tracking-wide text-[color:var(--w-carbon)]/80">{s.label}</p>
                     <p className="whitespace-pre-wrap text-sm leading-relaxed text-foreground/85">{digest?.[s.key]}</p>
                   </div>
                 ))}
@@ -140,7 +140,7 @@ export function WeeklyBriefCard() {
                 type="button"
                 onClick={() => void generate()}
                 disabled={generating}
-                className="mt-4 inline-flex items-center gap-1.5 rounded-md border border-border/60 px-2.5 py-1.5 text-xs font-medium text-muted-foreground transition-colors hover:text-[var(--w-carbon)] hover:border-[var(--w-rule)] disabled:opacity-50"
+                className="mt-4 inline-flex items-center gap-1.5 rounded-md border border-border/60 px-2.5 py-1.5 text-xs font-medium text-muted-foreground transition-colors hover:text-[color:var(--w-carbon)] hover:border-[var(--w-rule)] disabled:opacity-50"
               >
                 {generating
                   ? <><Loader2 className="h-3 w-3 animate-spin" /> Rebuilding…</>
@@ -157,7 +157,7 @@ export function WeeklyBriefCard() {
                 type="button"
                 onClick={() => void generate()}
                 disabled={generating}
-                className="inline-flex items-center gap-1.5 rounded-lg border border-[var(--w-rule)] bg-[var(--w-carbon-tint)] px-3 py-2 text-sm font-medium text-[var(--w-carbon)] transition-colors hover:bg-[var(--w-carbon-tint)] disabled:opacity-60"
+                className="inline-flex items-center gap-1.5 rounded-lg border border-[var(--w-rule)] bg-[var(--w-carbon-tint)] px-3 py-2 text-sm font-medium text-[color:var(--w-carbon)] transition-colors hover:bg-[var(--w-carbon-tint)] disabled:opacity-60"
               >
                 {generating
                   ? <><Loader2 className="h-3.5 w-3.5 animate-spin" /> Building your week…</>

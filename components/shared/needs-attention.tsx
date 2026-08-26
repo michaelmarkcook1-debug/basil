@@ -49,7 +49,7 @@ export function NeedsAttention({
         className={`rounded-lg border p-3.5 ${className}`}
         style={{ borderColor: "var(--w-manila)", background: "var(--w-manila-tint)" }}
       >
-        <p className="flex items-start gap-2 text-[0.875rem] text-[var(--w-ink)]">
+        <p className="flex items-start gap-2 text-[0.875rem] text-[color:var(--w-ink)]">
           <AlertTriangle className="h-4 w-4 shrink-0 mt-0.5" style={{ color: "var(--w-manila)" }} aria-hidden />
           <span><strong className="font-semibold">Cannot tell what needs attention.</strong> {unavailable}</span>
         </p>
@@ -60,7 +60,7 @@ export function NeedsAttention({
   if (total === 0) {
     return (
       <div className={`rounded-lg border border-[var(--w-rule)] bg-[var(--w-flimsy)] p-3.5 ${className}`}>
-        <p className="flex items-start gap-2 text-[0.875rem] text-[var(--w-ink)]">
+        <p className="flex items-start gap-2 text-[0.875rem] text-[color:var(--w-ink)]">
           <CheckCircle2 className="h-4 w-4 shrink-0 mt-0.5" style={{ color: "var(--w-filed)" }} aria-hidden />
           <span>{allClear ?? "Nothing needs attention."}</span>
         </p>
@@ -70,7 +70,7 @@ export function NeedsAttention({
 
   return (
     <div className={`rounded-lg border border-[var(--w-rule)] bg-[var(--w-flimsy)] p-3.5 ${className}`}>
-      <p className="text-[0.9375rem] font-semibold text-[var(--w-ink)]">
+      <p className="text-[0.9375rem] font-semibold text-[color:var(--w-ink)]">
         {total} need{total === 1 ? "s" : ""} attention
       </p>
       <div className="mt-2 flex flex-wrap gap-2">

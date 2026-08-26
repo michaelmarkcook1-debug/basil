@@ -48,15 +48,15 @@ export function ApproachChip({ hint, className }: { hint: ApproachHint; classNam
       title={`Open ${hint.name} in People`}
       className={cn(
         "group relative inline-flex max-w-full items-start gap-1.5 rounded-lg border border-[var(--w-rule)] bg-[var(--w-carbon-tint)] px-2.5 py-1.5",
-        "text-xs leading-snug text-[var(--w-ink-soft)] transition-colors hover:border-[var(--w-rule)] hover:bg-[var(--w-carbon-tint)]",
+        "text-xs leading-snug text-[color:var(--w-ink-soft)] transition-colors hover:border-[var(--w-rule)] hover:bg-[var(--w-carbon-tint)]",
         className
       )}
     >
       {/* Gold corner tick — quietly signals "Basil knows this person" */}
       <span aria-hidden className="absolute right-0 top-0 h-0 w-0 rounded-tr-lg border-l-[7px] border-t-[7px] border-l-transparent border-t-gold/60" />
-      <Compass size={13} strokeWidth={1.8} className="mt-px shrink-0 text-[var(--w-carbon)]" />
+      <Compass size={13} strokeWidth={1.8} className="mt-px shrink-0 text-[color:var(--w-carbon)]" />
       <span className="min-w-0">
-        <span className="font-semibold text-[var(--w-carbon)]">{hint.name.split(" ")[0]}</span>
+        <span className="font-semibold text-[color:var(--w-carbon)]">{hint.name.split(" ")[0]}</span>
         {hint.hint && <span> — {hint.hint}</span>}
         {hint.watchOut && (
           <span className="mt-0.5 flex items-start gap-1 text-foreground/60">

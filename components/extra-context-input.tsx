@@ -428,7 +428,7 @@ export function ExtraContextInput({
                   key={`${u}-${i}`}
                   className="flex items-center gap-2 rounded-md bg-muted/50 px-2.5 py-1.5 text-[12px] text-foreground/80"
                 >
-                  <LinkIcon className="h-3.5 w-3.5 shrink-0 text-[var(--w-carbon)]" />
+                  <LinkIcon className="h-3.5 w-3.5 shrink-0 text-[color:var(--w-carbon)]" />
                   <span className="truncate flex-1" title={u}>
                     {u}
                   </span>

@@ -737,7 +737,7 @@ function ChatPageInner() {
               {message.role === "user" ? (
                 <User className="h-3.5 w-3.5" />
               ) : (
-                <Bot className="h-3.5 w-3.5 text-[var(--w-carbon)]" />
+                <Bot className="h-3.5 w-3.5 text-[color:var(--w-carbon)]" />
               )}
             </AvatarFallback>
           </Avatar>
@@ -892,11 +892,11 @@ function ChatPageInner() {
         <div className="flex gap-3">
           <Avatar className="h-7 w-7 shrink-0 mt-0.5">
             <AvatarFallback className="text-xs bg-secondary">
-              <Bot className="h-3.5 w-3.5 text-[var(--w-carbon)]" />
+              <Bot className="h-3.5 w-3.5 text-[color:var(--w-carbon)]" />
             </AvatarFallback>
           </Avatar>
           <div className="flex items-center gap-2 text-sm text-muted-foreground">
-            <Loader2 className="h-3.5 w-3.5 animate-spin text-[var(--w-carbon)]" />
+            <Loader2 className="h-3.5 w-3.5 animate-spin text-[color:var(--w-carbon)]" />
             Thinking...
           </div>
         </div>
@@ -925,7 +925,7 @@ function ChatPageInner() {
             size="sm"
             onClick={clearChat}
             disabled={isActive || messages.length === 0}
-            className="gap-1.5 border-[var(--w-rule)] text-[oklch(0.55_0.12_85)] hover:bg-[var(--w-carbon-tint)] hover:text-[var(--w-carbon)] hover:border-[var(--w-rule)] disabled:opacity-40"
+            className="gap-1.5 border-[var(--w-rule)] text-[oklch(0.55_0.12_85)] hover:bg-[var(--w-carbon-tint)] hover:text-[color:var(--w-carbon)] hover:border-[var(--w-rule)] disabled:opacity-40"
             title="Start a fresh conversation and clear all visible history"
           >
             <MessageCirclePlus className="h-3.5 w-3.5" />

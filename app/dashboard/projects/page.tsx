@@ -266,7 +266,7 @@ export default function ProjectsPage() {
             Project Truth Layer
           </p>
           <h1 className="basil-display text-3xl sm:text-5xl leading-[1.05] text-foreground">
-            What you are actually working on<span className="text-[var(--w-carbon)]">.</span>
+            What you are actually working on<span className="text-[color:var(--w-carbon)]">.</span>
           </h1>
           <p className="text-sm text-muted-foreground max-w-2xl leading-relaxed">
             Basil clusters Slack, Linear, actions, decisions, memory, and AI work into one canonical project ledger. No more six assistants each inventing their own universe.

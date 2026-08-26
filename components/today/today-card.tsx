@@ -45,7 +45,7 @@ function CardShell({
     <>
       {children}
       {href && (
-        <ArrowUpRight className="ml-auto mt-0.5 h-4 w-4 shrink-0 text-muted-foreground/40 transition-colors group-hover:text-[var(--w-carbon)]" strokeWidth={1.8} />
+        <ArrowUpRight className="ml-auto mt-0.5 h-4 w-4 shrink-0 text-muted-foreground/40 transition-colors group-hover:text-[color:var(--w-carbon)]" strokeWidth={1.8} />
       )}
     </>
   );
@@ -115,7 +115,7 @@ export function TodayCard({ item }: { item: TodayFeedItem }) {
     const summary = `${item.title} — ${item.followup.subject}${item.followup.preview ? `: "${item.followup.preview}"` : ""} · waiting ${item.followup.hoursWaiting}h. Click to open the ${item.followup.source === "slack" ? "Slack thread" : "email"}.`;
     return (
       <CardShell href={item.href} critical={critical} summary={summary}>
-        <span className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-[var(--w-carbon-tint)] text-[var(--w-carbon)]">
+        <span className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-[var(--w-carbon-tint)] text-[color:var(--w-carbon)]">
           <Icon className="h-3.5 w-3.5" strokeWidth={1.8} />
         </span>
         <div className="min-w-0 flex-1">

@@ -31,7 +31,7 @@ export function DeskHeader({
     <>
       <header className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-2">
         <div className="flex items-baseline gap-3 min-w-0">
-          <h1 className="wire-slug text-[1.375rem] leading-none tracking-tight text-[var(--w-ink)]">
+          <h1 className="wire-slug text-[1.375rem] leading-none tracking-tight text-[color:var(--w-ink)]">
             {title}
           </h1>
           {dateline ? <span className="wire-dateline">{dateline}</span> : null}
@@ -60,12 +60,12 @@ export function Section({
       <div className="flex items-baseline justify-between gap-3">
         <h2
           id={`${id}-h`}
-          className="wire-slug text-[0.8125rem] uppercase tracking-[0.1em] text-[var(--w-ink-soft)]"
+          className="wire-slug text-[0.8125rem] uppercase tracking-[0.1em] text-[color:var(--w-ink-soft)]"
         >
           {title}
         </h2>
         {count != null ? (
-          <span className="wire-data text-[0.6875rem] text-[var(--w-ink-soft)]">{count}</span>
+          <span className="wire-data text-[0.6875rem] text-[color:var(--w-ink-soft)]">{count}</span>
         ) : null}
       </div>
       <div className="mt-2">{children}</div>
@@ -106,7 +106,7 @@ export function Sheet({
   if (error) {
     return (
       <div className={`${cls} overflow-hidden`}>
-        <p className="px-4 py-6 text-[0.875rem] text-[var(--w-stamp)]">
+        <p className="px-4 py-6 text-[0.875rem] text-[color:var(--w-stamp)]">
           {errorNote}{" "}
           <button
             type="button"
@@ -122,14 +122,14 @@ export function Sheet({
   if (loading) {
     return (
       <div className={`${cls} overflow-hidden`}>
-        <p className="px-4 py-6 wire-data text-[0.75rem] text-[var(--w-ink-soft)]">Reading the wires…</p>
+        <p className="px-4 py-6 wire-data text-[0.75rem] text-[color:var(--w-ink-soft)]">Reading the wires…</p>
       </div>
     );
   }
   if (isEmpty) {
     return (
       <div className={`${cls} overflow-hidden`}>
-        <p className="px-4 py-6 text-[0.875rem] text-[var(--w-ink-soft)]">{emptyNote}</p>
+        <p className="px-4 py-6 text-[0.875rem] text-[color:var(--w-ink-soft)]">{emptyNote}</p>
       </div>
     );
   }
@@ -152,7 +152,7 @@ export function Row({
 }) {
   const inner = (
     <div className="min-w-0">
-      <div className="wire-slug text-[0.9375rem] leading-snug text-[var(--w-ink)] truncate">{title}</div>
+      <div className="wire-slug text-[0.9375rem] leading-snug text-[color:var(--w-ink)] truncate">{title}</div>
       {meta ? <div className="flex flex-wrap items-center gap-x-2 gap-y-1 mt-1">{meta}</div> : null}
     </div>
   );
@@ -210,6 +210,6 @@ export function Stamp({
 /** A field of typed data — filed times, ids, counts. Monospace as measurement. */
 export function Data({ children, className = "" }: { children: ReactNode; className?: string }) {
   return (
-    <span className={`wire-data text-[0.6875rem] text-[var(--w-ink-soft)] ${className}`}>{children}</span>
+    <span className={`wire-data text-[0.6875rem] text-[color:var(--w-ink-soft)] ${className}`}>{children}</span>
   );
 }

@@ -35,7 +35,7 @@ export function NextBestAction({
     // An empty "Next best action" box is worse than none: it implies Basil
     // considered the question and had nothing, when usually nothing was stored.
     return (
-      <p className={`text-[0.8125rem] text-[var(--w-ink-soft)] ${className}`}>
+      <p className={`text-[0.8125rem] text-[color:var(--w-ink-soft)] ${className}`}>
         No next action recorded.
       </p>
     );
@@ -45,8 +45,8 @@ export function NextBestAction({
     <div className="flex gap-2.5">
       <ArrowRight className="h-4 w-4 shrink-0 mt-[0.2rem]" style={{ color: "var(--w-carbon)" }} aria-hidden />
       <div className="min-w-0">
-        <p className="text-[0.75rem] font-semibold text-[var(--w-carbon)]">{label}</p>
-        <p className="mt-0.5 text-[0.9375rem] leading-snug text-[var(--w-ink)]">{action}</p>
+        <p className="text-[0.75rem] font-semibold text-[color:var(--w-carbon)]">{label}</p>
+        <p className="mt-0.5 text-[0.9375rem] leading-snug text-[color:var(--w-ink)]">{action}</p>
         {children}
         {cta && href && (
           <span className="mt-1.5 inline-flex items-center text-[0.8125rem] font-semibold underline underline-offset-2" style={{ color: "var(--w-carbon)" }}>

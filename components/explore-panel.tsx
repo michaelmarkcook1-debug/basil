@@ -67,7 +67,7 @@ export function ExplorePanel({ notes, onSave, className = "" }: ExplorePanelProp
       >
         <NotebookPen className="h-3 w-3" />
         {hasNotes && !open ? (
-          <span className="text-[var(--w-carbon)]">Notes ·</span>
+          <span className="text-[color:var(--w-carbon)]">Notes ·</span>
         ) : null}
         <span>{open ? "Close" : "Explore further"}</span>
         {hasNotes && !open && (

@@ -429,7 +429,7 @@ export default function WhatsAppPage() {
       <header className="flex items-start justify-between gap-4 flex-wrap">
         <div>
           <h1 className="text-2xl font-semibold tracking-tight flex items-center gap-2">
-            <MessageCircle className="h-6 w-6 text-[var(--w-carbon)]" />
+            <MessageCircle className="h-6 w-6 text-[color:var(--w-carbon)]" />
             WhatsApp
           </h1>
           <p className="text-sm text-muted-foreground mt-1 max-w-2xl leading-relaxed">
@@ -516,7 +516,7 @@ export default function WhatsAppPage() {
         <Card className="border-[var(--w-rule)]">
           <CardContent className="p-6 space-y-4">
             <div className="flex items-center gap-3">
-              <Loader2 className="h-5 w-5 text-[var(--w-carbon)] animate-spin" />
+              <Loader2 className="h-5 w-5 text-[color:var(--w-carbon)] animate-spin" />
               <div>
                 <p className="font-semibold">
                   {stateLabel(status.state)}
@@ -872,12 +872,12 @@ export default function WhatsAppPage() {
                           <div
                             className={`max-w-[80%] rounded-lg px-3 py-2 text-sm leading-relaxed ${
                               m.fromMe
-                                ? "bg-[var(--w-carbon-tint)] text-[var(--w-ink)]"
-                                : "bg-[var(--w-tray)] text-[var(--w-ink)]"
+                                ? "bg-[var(--w-carbon-tint)] text-[color:var(--w-ink)]"
+                                : "bg-[var(--w-tray)] text-[color:var(--w-ink)]"
                             }`}
                           >
                             {!m.fromMe && (
-                              <p className="text-xs font-semibold text-[var(--w-carbon)] mb-0.5">
+                              <p className="text-xs font-semibold text-[color:var(--w-carbon)] mb-0.5">
                                 {chat.isGroup ? (m.authorName || "Unknown") : chat.name}
                               </p>
                             )}

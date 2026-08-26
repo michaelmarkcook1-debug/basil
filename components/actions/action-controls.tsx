@@ -126,7 +126,7 @@ export function ActionControls({
         "flex items-center gap-1 rounded-md px-2.5 py-1 min-h-11 sm:min-h-0 text-[11px] font-medium transition-colors disabled:opacity-50",
         suggested && "ring-1 ring-[var(--w-rule)]",
         active
-          ? "bg-[var(--w-carbon-tint)] text-[var(--w-carbon)]"
+          ? "bg-[var(--w-carbon-tint)] text-[color:var(--w-carbon)]"
           : tone === "positive"
           ? "text-muted-foreground hover:bg-signal-positive-subtle hover:text-signal-positive"
           : tone === "danger"
