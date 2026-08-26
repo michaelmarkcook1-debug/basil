@@ -54,6 +54,18 @@ test("no Tailwind arbitrary value carries a stray closing bracket", () => {
     hits.join("\n"));
 });
 
+test("the world guarantees a visible keyboard focus ring", () => {
+  // Eight controls shipped with outline-style: none — no focus-visible utility
+  // and no global fallback, so a keyboard user lost the caret entirely. Relying
+  // on a per-control utility means one is always forgotten, and the omission is
+  // invisible to anyone using a mouse.
+  const wire = readFileSync(resolve(ROOT, "app/wire.css"), "utf8");
+  const block = /\.wire a:focus-visible[^{]*\{([^}]*)\}/.exec(wire);
+  assert.ok(block, "there must be a global focus-visible rule scoped to .wire");
+  assert.ok(/outline:\s*2px solid/.test(block[1]), "the ring must be a real outline, not a colour swap");
+  assert.ok(/outline-offset/.test(block[1]), "it must clear the element edge to stay visible on filled controls");
+});
+
 test("every arbitrary text colour carries the `color:` type hint", () => {
   // `text-[var(--w-carbon)]` is AMBIGUOUS to Tailwind — an arbitrary value in a
   // `text-*` utility could be a colour or a font-size, and given a bare

@@ -53,14 +53,20 @@
   /* Status. Lifted from the light-ground values, which were chosen to sit on
      paper and are far too dark to read on navy. */
   --w-stamp:        #FF8A80;  /* danger — Act now, corrections, kills. Reserved. */
-  --w-manila:       #F5B96B;  /* warning — deferred / awaiting / at risk */
+  /* Warning is ORANGE, not amber. #F5B96B sat only ΔE 17.4 from the gold accent
+     — the same hue family separated by lightness — so "this is a link, Basil is
+     speaking" and "this is at risk" looked alike, and under deuteranopia they
+     were nearly identical (ΔE 15.8). #FF8A3D is ΔE 42.4 apart in normal vision
+     and 27.2 under deuteranopia, and takes the whole status set to ZERO
+     confusable pairs. */
+  --w-manila:       #FF8A3D;  /* warning — deferred / awaiting / at risk */
   --w-filed:        #6EE7A0;  /* success — confirmed, settled, filed */
 
   /* Status surfaces: the same hue at low alpha over the ground, so a fill reads
      as a tint of its own state rather than an unrelated block of colour. */
   --w-carbon-tint:  #C8A96B1F;
   --w-stamp-tint:   #FF8A801F;
-  --w-manila-tint:  #F5B96B1F;
+  --w-manila-tint:  #FF8A3D1F;
   --w-filed-tint:   #6EE7A01F;
 
   /* Information is a fifth state, distinct from the accent, so a sourcing mark
@@ -159,6 +165,25 @@
    Three, each with a job. The condensed gothic is the desk's own lettering;
    Courier carries DATA (filed times, wire ids, sequence, confidence) — it is
    measurement here, never a costume for "technical". */
+/* ── Keyboard focus, guaranteed ───────────────────────────────────────────────
+   Eight controls shipped with no visible focus indicator: they carried no
+   focus-visible utility, and there was no global rule to fall back on, so
+   `outline-style` computed to `none` and a keyboard user simply lost the caret.
+   Per-control utilities are how that recurs — one is always forgotten, and the
+   omission is invisible to everyone who uses a mouse. This makes a ring the
+   default for the whole world; an element that wants a different treatment must
+   now say so deliberately. */
+.wire a:focus-visible,
+.wire button:focus-visible,
+.wire [tabindex]:focus-visible,
+.wire input:focus-visible,
+.wire select:focus-visible,
+.wire textarea:focus-visible {
+  outline: 2px solid var(--w-carbon);
+  outline-offset: 2px;
+  border-radius: 3px;
+}
+
 .wire-slug {
   font-family: var(--font-archivo-narrow), "Arial Narrow", sans-serif;
   font-weight: 600;

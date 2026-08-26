@@ -463,3 +463,88 @@ export function operationalRead(
 
   return { shape: parts.join(" "), risk };
 }
+
+// ── The executive stat row ───────────────────────────────────────────────────
+
+/**
+ * The five headline counts.
+ *
+ * A hero-metric row is the category's laziest page scaffold, and the craft floor
+ * refuses it by default — a big number with a small label under it usually says
+ * nothing a reader can act on. It is built here because the owner pinned it, and
+ * it earns its place on two conditions: every figure is COUNTED from a store,
+ * never estimated, and every figure is a link to the thing it counts. A number
+ * you cannot click is decoration.
+ *
+ * `unavailable` is the reason a count could not be read. It is deliberately
+ * distinct from zero: "0 awaiting reply" and "Gmail is disconnected so Basil
+ * cannot see what is awaiting reply" are the same integer and opposite facts.
+ */
+export interface Stat {
+  key: string;
+  label: string;
+  count: number;
+  href: string;
+  /** Set when the count is unknown rather than zero. */
+  unavailable?: string;
+  /** Marks the figure that should read as pressure rather than information. */
+  urgent?: boolean;
+}
+
+export function buildStatRow(
+  items: TodayFeedItem[],
+  day: DayShape,
+  buckets: AgeingBuckets | null,
+  sources: TodayFeedResponse["sources"] | undefined,
+  calendarConnected: boolean,
+): Stat[] {
+  const actNow = items.filter((i) => urgencyOf(i) === "act-now").length;
+  const followups = items.filter((i) => i.kind === "followup").length;
+  const quiet = items.filter(isRelationshipRisk).length;
+  const mailConnected = !!sources?.followups?.gmail || !!sources?.followups?.slack;
+
+  return [
+    { key: "act", label: "Act now", count: actNow, href: "/dashboard/actions", urgent: actNow > 0 },
+    {
+      key: "meet", label: "Meetings today", count: day.meetingCount, href: "/dashboard/schedule",
+      unavailable: calendarConnected ? undefined : "Calendar not connected",
+    },
+    {
+      key: "reply", label: "Awaiting your reply", count: followups, href: "/dashboard/threads",
+      unavailable: mailConnected ? undefined : "Gmail and Slack not connected",
+    },
+    {
+      key: "overdue", label: "Overdue", count: buckets?.overdue.length ?? 0,
+      href: "/dashboard/actions?filter=overdue",
+      unavailable: buckets ? undefined : "Commitments could not be read",
+      urgent: (buckets?.overdue.length ?? 0) > 0,
+    },
+    {
+      key: "quiet", label: "Gone quiet", count: quiet, href: "/dashboard/contacts",
+      unavailable: sources?.changes ? undefined : "Basil signals unavailable",
+    },
+  ];
+}
+
+// ── Signal provenance ────────────────────────────────────────────────────────
+
+export interface SignalSlice { source: string; count: number }
+
+/**
+ * Where today's signal actually came from.
+ *
+ * The reference calls this a radar and draws a ring. A ring answers "what share
+ * of the whole", which nobody asks about their own inbox — so this reports the
+ * counts per channel and lets the bar lengths carry the comparison. Same
+ * position in the layout, a question worth answering.
+ */
+export function signalBreakdown(items: TodayFeedItem[]): SignalSlice[] {
+  const counts = new Map<string, number>();
+  for (const i of items) {
+    const s = sourceOf(i);
+    counts.set(s, (counts.get(s) ?? 0) + 1);
+  }
+  return [...counts.entries()]
+    .map(([source, count]) => ({ source, count }))
+    .sort((a, b) => b.count - a.count);
+}

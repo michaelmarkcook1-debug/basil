@@ -137,7 +137,7 @@ export function DayTimeline({
                   </div>
                   <Link
                     href={`/dashboard/meetings/${e.id}`}
-                    className="shrink-0 self-center rounded p-2 text-[color:var(--w-carbon)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2"
+                    className="flex min-h-[44px] min-w-[44px] shrink-0 items-center justify-center self-center rounded text-[color:var(--w-carbon)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 sm:min-h-[36px] sm:min-w-[36px]"
                     aria-label={`Prepare for ${e.summary}`}
                   >
                     <ArrowRight className="h-4 w-4" aria-hidden />

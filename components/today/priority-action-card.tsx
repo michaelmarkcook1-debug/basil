@@ -25,7 +25,16 @@ export function PriorityActionCard({
   const detailId = `why-${p.id.replace(/[^a-z0-9]/gi, "-")}`;
 
   return (
-    <Card className="p-4 sm:p-5 border-l-4" style={{ borderLeftColor: urgencyRule(p.urgency) }}>
+    /* No side-tab. A thick coloured left border is the most recognisable tell of
+       machine-made UI, and here it was pure redundancy: the badge already carries
+       urgency in colour AND icon AND word. Instead the card's own 1px rule takes
+       the urgency colour, and only for "Act now" — the reserved state. Tinting
+       every card would make the accent mean nothing, which is how a reserved
+       colour stops being reserved. */
+    <Card
+      className="p-4 sm:p-5"
+      style={p.urgency === "act-now" ? { borderColor: urgencyRule(p.urgency) } : undefined}
+    >
       <div className="flex flex-wrap items-center gap-2">
         <UrgencyBadge urgency={p.urgency} />
         {p.groupedCount && (

@@ -17,7 +17,7 @@
 
 import { useEffect, useState } from "react";
 import Today from "@/app/dashboard/page";
-import { FEED, EVENTS, ACTIONS } from "./fixtures";
+import { FEED, EVENTS, ACTIONS, SETTINGS } from "./fixtures";
 
 function install(state: string | null) {
   const real = window.fetch.bind(window);
@@ -43,6 +43,7 @@ function install(state: string | null) {
       if (state === "error") return json({ error: "cal" }, 500);
       return json({ connected: true, events: state === "empty" ? [] : EVENTS });
     }
+    if (url.startsWith("/api/settings")) return json(SETTINGS);
     if (url.startsWith("/api/actions")) {
       if (state === "error") return json({ error: "actions" }, 500);
       return json({ actions: state === "empty" ? [] : ACTIONS });

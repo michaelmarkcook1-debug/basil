@@ -32,8 +32,13 @@ import type { ActionItem } from "@/lib/types/action";
 import {
   buildPriorityBoard, buildDayShape, bucketCommitments,
   sourceStates, disconnected, operationalRead, listOf,
+  buildStatRow, signalBreakdown, isRelationshipRisk, provenanceOf,
 } from "@/lib/today/executive";
-import { OperationalRead } from "@/components/today/operational-read";
+import { Hero } from "@/components/today/hero";
+import { StatRow } from "@/components/today/stat-row";
+import {
+  PanelFrame, SignalProvenance, ThreadsPanel, RelationshipPanel, IntelligencePanel,
+} from "@/components/today/panels";
 import { PriorityActionCard } from "@/components/today/priority-action-card";
 import { DayTimeline } from "@/components/today/day-timeline";
 import { PressureSection } from "@/components/today/pressure";
@@ -60,6 +65,9 @@ export default function Today() {
     useSWR<{ connected: boolean; events?: CalendarEvent[] }>("/api/calendar/upcoming", swrFetch, SWR_OPTS);
   const { data: actions, isLoading: actionsLoading, error: actionsError } =
     useSWR<{ actions?: ActionItem[] }>("/api/actions", swrFetch, SWR_OPTS);
+  // The greeting needs a name. Failing to load one is not worth an error state —
+  // it degrades to a greeting without a name, which still reads correctly.
+  const { data: settings } = useSWR<{ name?: string }>("/api/settings", swrFetch, SWR_OPTS);
 
   // `now` is computed once per render pass rather than per component, so the
   // timeline's "now" marker and the header clock cannot disagree.
@@ -82,14 +90,37 @@ export default function Today() {
     [board, day, missing, calConnected],
   );
 
+  const items = useMemo(() => feed?.items ?? [], [feed]);
+  const stats = useMemo(
+    () => buildStatRow(items, day, buckets, feed?.sources, calConnected),
+    [items, day, buckets, feed, calConnected],
+  );
+  const slices = useMemo(() => signalBreakdown(items), [items]);
+  const threads = useMemo(() => items.filter((i) => i.kind === "followup"), [items]);
+  const quiet = useMemo(() => items.filter(isRelationshipRisk), [items]);
+  const inferredCount = useMemo(
+    () => items.filter((i) => provenanceOf(i) === "inferred").length,
+    [items],
+  );
+  // Closed TODAY, counted from the store — not a figure Basil narrates about itself.
+  const closedToday = useMemo(() => {
+    const d = now.toISOString().slice(0, 10);
+    return (actions?.actions ?? []).filter(
+      (a) => a.status === "done" && (a as { updatedAt?: string }).updatedAt?.slice(0, 10) === d,
+    ).length;
+  }, [actions, now]);
+  const firstName = (settings?.name ?? "").split(" ")[0] || "there";
+  const feedUnavailable = feedError ? "The feed could not be read." : undefined;
+
   const [first, ...rest] = board.top;
 
   return (
     <main className="wire min-h-full">
       <div className="mx-auto w-full max-w-[80rem] px-4 sm:px-6 py-4 sm:py-6">
 
-        {/* 1 — Executive operational read, full width */}
-        <OperationalRead
+        {/* 1 — Hero: greeting, the read, the mark */}
+        <Hero
+          name={firstName}
           shape={read.shape}
           risk={read.risk}
           sources={sources}
@@ -97,13 +128,17 @@ export default function Today() {
           generatedAt={feed?.generatedAt}
         />
 
-        {/* 2 + 3 — Priorities (8 cols) beside the day (4 cols).
-            On mobile these become one column and `order` reshuffles them so the
-            first action and then the schedule come before the rest. */}
-        <div className="mt-5 grid grid-cols-1 gap-5 lg:grid-cols-12">
+        {/* 2 — The five counts. Every tile links to what it counts. */}
+        <div className="mt-4">
+          <h2 className="sr-only">Today at a glance</h2>
+          <StatRow stats={stats} />
+        </div>
 
+        {/* 3 — Priorities beside the day. On mobile `order` puts the single most
+            important action first, then the schedule, then the rest: nobody
+            should scroll an alert queue to find their first meeting. */}
+        <div className="mt-5 grid grid-cols-1 gap-5 lg:grid-cols-12">
           <div className="contents lg:col-span-8 lg:block">
-            {/* -- most important action: first on every viewport -- */}
             <div className="order-1 lg:order-none">
               <Panel title="Top priorities" id="prio-h">
                 {feedError ? (
@@ -129,7 +164,6 @@ export default function Today() {
               </Panel>
             </div>
 
-            {/* -- remaining two priorities: after the timeline on mobile -- */}
             {rest.length > 0 && (
               <div className="order-3 lg:order-none space-y-3 lg:mt-3">
                 {rest.map((p) => <PriorityActionCard key={p.id} priority={p} />)}
@@ -137,7 +171,6 @@ export default function Today() {
             )}
           </div>
 
-          {/* -- the day: second on mobile, right rail on desktop -- */}
           <aside className="order-2 lg:order-none lg:col-span-4" aria-labelledby="shape-h">
             <div className="lg:sticky lg:top-4">
               <Panel
@@ -158,6 +191,33 @@ export default function Today() {
               </Panel>
             </div>
           </aside>
+        </div>
+
+        {/* 4 — Signal, threads, relationships, and what Basil did unattended */}
+        <div className="mt-6 grid grid-cols-1 gap-5 sm:grid-cols-2 xl:grid-cols-4">
+          <PanelFrame title="Signal today" href="/dashboard/signals" cta="All signals">
+            {feedLoading ? <Loading label="Reading signal…" rows={1} />
+              : <SignalProvenance slices={slices} total={items.length} unavailable={feedUnavailable} />}
+          </PanelFrame>
+
+          <PanelFrame title="Awaiting your reply" href="/dashboard/threads" cta="All threads">
+            {feedLoading ? <Loading label="Reading threads…" rows={1} />
+              : <ThreadsPanel items={threads} unavailable={feedUnavailable} />}
+          </PanelFrame>
+
+          <PanelFrame title="Relationships" href="/dashboard/contacts" cta="All people">
+            {feedLoading ? <Loading label="Reading relationships…" rows={1} />
+              : <RelationshipPanel items={quiet} unavailable={feedUnavailable} />}
+          </PanelFrame>
+
+          <PanelFrame title="Basil this morning" href="/dashboard/briefing" cta="Full briefing">
+            {feedLoading || actionsLoading ? <Loading label="Reading activity…" rows={1} />
+              : <IntelligencePanel
+                  completedToday={closedToday}
+                  inferred={inferredCount}
+                  unavailable={actionsError ? "Commitments could not be read." : feedUnavailable}
+                />}
+          </PanelFrame>
         </div>
 
         {/* 4 — Pressure and momentum, full width */}

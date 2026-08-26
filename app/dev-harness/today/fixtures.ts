@@ -128,3 +128,6 @@ export const ACTIONS: ActionItem[] = [
     status: "open" as const, updatedAt: daysAgo(60 + i),
   })),
 ] as ActionItem[];
+
+/** Name for the greeting. Clearly a placeholder, like everything else here. */
+export const SETTINGS = { name: "Sample User" };

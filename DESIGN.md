@@ -1,152 +1,121 @@
-# The Wire Desk
+# Basil — the executive desk
 
-Basil's visual world. Direction locked 2026-08-03, seed key `basil01`, index 3
-of the grounded shortlist. Built and shipped 2026-08-15.
+Basil's visual world. Dark navy ground, warm white ink, gold accent. Replaces
+the Wire Desk paper world (2026-08-03 → 2026-08-26), which is retained below
+only as anti-reference.
 
-This document exists so the next person to touch these surfaces changes them on
-purpose. It records what each mark **means**, not just what it looks like — the
-palette is a small vocabulary of states, and a mark used decoratively costs the
-reader the ability to trust it anywhere.
+Mode: **Operate** — the reader is completing a task, so scanability, consistency
+and the real usage scene outrank expression. Brand lives in precise details.
 
 ---
 
 ## Thesis
 
-Basil is a desk editor handing you the queue with its sourcing intact.
+Basil is a chief of staff reporting in. The first screen answers what changed,
+what matters most, and what to do now — then hands over the day, the channels,
+and the people, each with a route into it.
 
-The reader sees what came in, from which wire, when it was filed, and how sure
-Basil is — then works it down and spikes the rest. Everything else is in
-service of that sentence.
+Every number on this surface is counted from a stored record and links to the
+thing it counts. A figure you cannot click is decoration; a figure Basil
+narrates about itself is a claim it has not earned.
 
-## What this world refuses
+## Palette
 
-Refusals are the design. Each of these was the default the surface drifted
-toward, and each was removed for a stated reason:
+Ground is navy, not black: black makes gold read as yellow, and warm white on
+true black halates enough to tire a reader who is here every morning.
 
-| Refused | Why |
-| --- | --- |
-| Greeting header ("Good morning, Michael") | Costs a first viewport to tell the reader something they know. The dateline says where and when instead. |
-| Hero metric row / KPI stats | Numbers with no action attached. The queue length is visible by looking at the queue. |
-| Donut and proportional timelines | Block height encoded duration, which is not what the reader needs. Filed copy, in time order. |
-| A stack of cards | Cards imply independent objects. These are dispatches on one desk; they share one rule. |
-| Corner chat bubble | An assistant persona pretending to be a colleague. Ask Basil is a page. |
-| Confidence as a 6px dot | The number lived in a `title` attribute — invisible on touch, unreadable to a screen reader. Now a legible stamp: `unconfirmed 42%`. |
+| Token | Value | Role |
+| --- | --- | --- |
+| `--w-paper` | `#0E1724` | canvas |
+| `--w-flimsy` | `#18222F` | raised — cards, sheets, the hero |
+| `--w-tray` | `#131C2A` | sunk — archived, deferred |
+| `--w-ink` | `#F4F1EA` | primary ink, warm |
+| `--w-ink-soft` | `#A9B4C4` | secondary, ≥4.5:1 on canvas |
+| `--w-carbon` | `#C8A96B` | **the accent** — gold |
+| `--w-on-accent` | `#0E1724` | text ON gold |
+| `--w-stamp` | `#FF8A80` | danger — Act now, corrections |
+| `--w-manila` | `#FF8A3D` | warning — deferred, at risk |
+| `--w-filed` | `#6EE7A0` | success — settled, closed |
+| `--w-info` | `#7FB4FF` | information, distinct from the accent |
 
-## Ground: why light
+**Gold is reserved.** It marks where the system is speaking: section headers,
+sourcing, primary controls, the wordmark. Used decoratively it stops meaning
+anything, which is the only way a single accent can fail.
 
-Chosen from the **use scene**, not from category. The desk is read at 06:40 in a
-lit kitchen and between meetings in daylight. The morning briefing already
-reached the reader by email at 06:15; this surface is where they come to work
-the queue down, awake and in the light.
+**Gold is a LIGHT colour.** Anything filling with `--w-carbon` takes its text
+from `--w-on-accent`. White on gold is ~1.7:1. A test fails the build on any
+hardcoded white over the accent, so this survives the next palette change.
 
-Teleprinter paper is cool and slightly green (`#E9EAE4`), not warm cream —
-cream plus a serif plus terracotta is the look every model ships, and it reads
-as a template rather than a place.
+## Rules that outrank aesthetics
 
-**Status: this is the one unreviewed bet in the world.** No comp was approved
-before the build (`.impeccable/mocks/` was never created), so the light ground
-went from decision straight to production without ever being seen. It is the
-first thing to revisit.
+**An outage is not an empty desk.** Every panel branches error → loading →
+empty → content, in that order. `Unavailable` and `Empty` are separate
+components on purpose: "nothing needs you" and "Basil cannot see whether
+anything needs you" are the same empty array and opposite facts.
 
-## Palette — every colour is a state
+**Zero is not unknown.** A stat tile with no readable source shows an em-dash and
+the reason, never `0`. The largest type on the page is the worst place to lie.
 
-Scoped under `.wire` rather than `:root` so unconverted surfaces keep working.
-Delete the scope when the last one lands.
+**Nothing is scored that has no field.** No relationship importance, no
+confidence the feed does not carry, no conflict detection that does not exist.
+Where a question cannot be answered from stored data, the surface says so.
 
-**Stock**
-- `--w-paper` `#E9EAE4` — the ground
-- `--w-flimsy` `#F4F4EF` — a fresh sheet, raised
-- `--w-tray` `#DCDDD4` — spike and deferred trays, sunk
-- `--w-rule` / `--w-rule-strong` — the rules that separate dispatches
+**Colour never carries status alone.** Every state is colour *and* icon *and*
+word — and that redundancy is load-bearing, not belt-and-braces. Under
+deuteranopia gold and red collapse toward the same yellow whatever hues you
+pick; that is a property of the deficiency, not a fixable palette flaw. Hue is
+the fast path for most readers, never the only path for any.
 
-**Ink**
-- `--w-ink` `#17170F` — typebar strike
-- `--w-ink-soft` `#55564A` — secondary, still ≥4.5:1 on paper
-
-**The four marks.** Each has one meaning and no decorative use:
-- `--w-carbon` `#35346B` — carbon copy: structure, attribution, which wire
-- `--w-stamp` `#A82D1A` — FLASH, corrections, kills. **Reserved.** Spending
-  stamp red on an ordinary row is what makes a real alert stop working.
-- `--w-manila` `#6E4C15` — spiked, deferred, awaiting
-- `--w-filed` `#2A5233` — confirmed, settled, filed
-
-Tints (`*-tint`, 8% alpha) are for fills only. Text always uses the solid ink so
-contrast holds.
-
-**Paper tokens are for the paper world.** The dashboard shell is dark chrome
-under the forced dark theme; `--w-carbon` on `--sidebar` is 1.65:1. That shipped
-once. `tests/wire-class-hygiene.test.mjs` now fails the build if the shell
-paints itself with paper tokens again.
-
-### `.wire` owns the whole semantic layer
-
-`.wire` nests **inside** `.dark`. A scope that paints a light ground while
-leaving the inherited semantic tokens on their dark values is not a theme — it
-is two themes overlapping, and it shipped that way: 707 uses of
-`text-muted-foreground` at **1.18:1** and 197 of `text-foreground` at **1.07:1**
-on paper. Roughly 900 elements of near-white text on near-white paper. Every
-token was correct in isolation; only the composition was wrong.
-
-So `.wire` restates all 45 tokens the dark theme overrides — core semantics onto
-paper stock and ink, signals onto the four marks, the remainder restored to
-their light-theme values. **Anything that theme-scopes must restate its whole
-inherited surface, not just add to it.** Sidebar tokens are the deliberate
-exception: that chrome is dark and self-consistent.
-
-Signals map onto the marks rather than forming a second colour vocabulary, so a
-critical row and a FLASH prefix are the same red instead of two competing reds:
-
-| Signal | Mark |
-| --- | --- |
-| critical | `--w-stamp` |
-| warning | `--w-manila` |
-| positive | `--w-filed` |
-| info | `--w-carbon` |
-| neutral | `--w-ink-soft` |
-
-`tests/contrast-aa.test.mjs` computes real WCAG ratios for every
-foreground/background pair in both scopes and fails below 4.5:1 — including body
-and muted text against every surface a component can sit on, which is the check
-that catches this class. Contrast is arithmetic; it belongs in the suite, not in
-a review someone has to remember to run.
+**States are checked against each other, not just the background.** A colour can
+clear 7:1 on the canvas and still be useless if it looks like another state. The
+first warning here, `#F5B96B`, was ΔE 17.4 from the gold accent — same hue
+family, separated only by lightness — so "Basil is speaking" and "this is at
+risk" read alike while every contrast test passed. `#FF8A3D` is ΔE 42.4 apart,
+27.2 under deuteranopia, and takes the set to zero confusable pairs.
+`tests/palette-separation.test.mjs` holds that, plus WCAG 1.4.11 non-text
+contrast for icons, bars and rules.
 
 ## Type
 
-- **Archivo Narrow** — condensed news gothic. Slugs, prefixes, decks.
-- **Courier Prime** — the teleprinter. Carries **data only**: filed times, wire
-  ids, sequence numbers, confidence values.
-
-Monospace as a costume for "technical" is a tell. Monospace for measurement is
-what it is for. If a string is not a measurement, it is not Courier.
-
-Both self-host via `next/font`; no webfont request.
+- **Fraunces / Instrument Serif** (`basil-display`) — the greeting only. One
+  editorial moment per page; a serif in six places is decoration.
+- **Geist Sans** — everything else: navigation, body, controls.
+- **Courier Prime** (`wire-data`) — data only: times, counts, durations, ids.
+  Monospace for measurement, never as a costume for "technical".
 
 ## Structure
 
-- Rows share one continuous rule. Never a stack of cards.
-- `--w-radius: 3px` — paper is cut, not rounded.
-- A dispatch is: prefix · slug · wire · time filed · sourcing stamp.
-- The spike sits at the foot: what Basil set aside, always pullable back.
+- `--w-radius: 10px` — this world is panelled.
+- Hero → five counts → priorities beside the day → four channel panels →
+  pressure → watchlist.
+- Mobile reorders: read, single most important action, **then the schedule**,
+  then the rest. Nobody scrolls an alert queue to find their first meeting.
+- The botanical mark sits behind the hero at 0.07 opacity, aria-hidden, never
+  under body copy — contrast is audited against the canvas, so anything altering
+  the effective ground under text would invalidate the audit.
 
-## The rule that outranks aesthetics
+## Refused
 
-**An outage is not an empty desk, and neither is a page still loading.**
+Kept from the previous world because the reasoning still holds:
 
-Every sheet branches error → loading → empty → content, in that order. A failed
-fetch says the wire is down and offers a retry; it never renders as "nothing
-needs you". This is pinned by test, and the test asserts the ordering invariant
-rather than any one spelling of it, so the guard survives a refactor.
+| Refused | Why |
+| --- | --- |
+| Kicker / eyebrow above a heading | The reference had "GOOD MORNING" over "Michael." The heading carries itself; the greeting became the heading. |
+| Thick coloured left border | The clearest tell of machine-made UI. Urgency is already colour + icon + word. |
+| Donut / progress ring for signal | A ring answers "what share of the whole", which nobody asks about their own inbox. Bars answer "how much, from where". |
+| Confidence as a 6px dot | The number lived in a `title` — invisible on touch and to a screen reader. |
+| A stat that is not a link | Then it is decoration. |
+
+## Accepted against default
+
+The **hero-metric row** is a category default the craft floor refuses. It is
+here because the owner pinned it, and it earns its place on two conditions:
+every figure is counted from a store, and every figure links to what it counts.
 
 ## Open
 
-1. **The light ground has never been reviewed.** Highest priority.
-2. **The shell was not redesigned.** The sidebar and mobile bar are still the
-   incumbent dark chrome. Legible now, but not this world — a dark frame around
-   a paper desk is a decision nobody has actually made.
-3. **Confidence is absent from the today feed.** `Dispatch` deliberately does
-   not invent a number the feed does not carry; it shows sourcing (observed vs
-   inferred) instead. When the feed carries confidence, the stamp is ready.
-4. The finish-review pass was run against source and emitted CSS, not against
-   screenshots of the authenticated app. Contrast is now verified numerically,
-   which is stronger than a screenshot for this class — but composition, rhythm
-   and hierarchy still have not been seen.
+1. **Never seen with real data.** Verified against contract-shaped fixtures in
+   `/dev-harness/today`; the authenticated app has not been reviewed.
+2. **Motion is unauthored.** No entrance, no transition beyond hover. The craft
+   floor asks for one authored moment; this world has none yet.
+3. **The seven flow pages** inherited the palette but were not recomposed.
