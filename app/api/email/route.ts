@@ -24,6 +24,8 @@ const KNOWN_CONTACT_EMAILS = new Set(
   })
 );
 
+import { isLinkedInSender, isActionableLinkedIn } from "@/lib/email/linkedin-notification";
+
 const NON_PERSONAL_ADDRESS = /noreply|no-reply|do-not-reply|donotreply|notifications?@|newsletter|marketing@|team@|hello@|support@|info@|updates@|alerts?@|automated|digest@|news@|bounce@|mailer@|postmaster@|admin@/i;
 
 const MARKETING_DOMAINS = /\b(notion\.so|zoom\.us|linkedin\.com|twitter\.com|x\.com|facebook\.com|instagram\.com|hubspot\.com|mailchimp\.com|sendgrid\.net|constantcontact\.com|campaignmonitor\.com|marketo\.com|salesforce\.com|intercom\.io|drift\.com|typeform\.com|surveymonkey\.com|calendly\.com|loom\.com|grammarly\.com|canva\.com|figma\.com|slack\.com|atlassian\.com|jira\.com|asana\.com|monday\.com|clickup\.com)\b/i;
@@ -53,6 +55,14 @@ function isPersonalEmail(from: string, fromEmail: string, subject: string): bool
   if (NON_PERSONAL_ADDRESS.test(addr)) return false;
 
   // Marketing / SaaS notification domains
+  // LinkedIn is in MARKETING_DOMAINS because most of its volume is promotional —
+  // but "X sent you a message" and "X wants to connect" are exactly the
+  // relational signal Basil exists to catch, and the blanket domain rule was
+  // binning them along with the job alerts. Everything LinkedIn sends that is
+  // NOT a recognised interpersonal notification still falls through to the
+  // suppression below.
+  if (isLinkedInSender(addr)) return isActionableLinkedIn(addr, subject);
+
   if (MARKETING_DOMAINS.test(addr)) return false;
 
   // Marketing subject lines
