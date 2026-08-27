@@ -2,6 +2,7 @@ import "server-only";
 
 import { listUserContacts, updateUserContactInStore } from "@/lib/contacts/user-store";
 import { senderProfileFrom } from "@/lib/contacts/linkedin-from-signature";
+import { getSettings } from "@/lib/settings/store";
 
 /**
  * Attach a LinkedIn profile to a contact from the sender's own email signature.
@@ -41,7 +42,16 @@ export async function enrichContactLinkedIn(
     const email = (fromEmail ?? "").trim().toLowerCase();
     if (!email || !email.includes("@")) return null;
 
-    const profile = senderProfileFrom(rawBody);
+    // The user's own profile is excluded before attribution. A reply quotes the
+    // user's signature beneath the sender's, so without this a sender who has no
+    // LinkedIn of their own leaves exactly one profile in the body — the user's —
+    // and it gets attached to them. Reading settings costs one store read and
+    // only happens once a candidate profile is already present.
+    const selfProfile = await getSettings(username)
+      .then((s) => s.linkedin)
+      .catch(() => undefined);   // settings unreadable → fall back to no exclusion
+
+    const profile = senderProfileFrom(rawBody, selfProfile);
     if (!profile) return null;
 
     const contacts = await listUserContacts(username);

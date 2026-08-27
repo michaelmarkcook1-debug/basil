@@ -32,6 +32,18 @@ export interface UserSettings {
    * Falls back to `timezone` if the IP lookup fails.
    */
   useIpTimezone?: boolean;
+  /**
+   * The user's OWN LinkedIn profile URL.
+   *
+   * Not cosmetic. Signature harvesting reads the sender's profile out of a mail
+   * body, and a reply quotes the user's own signature beneath the sender's — so
+   * without knowing which slug is the user's, a reply from someone who has no
+   * LinkedIn of their own yields exactly one profile (the user's) and attaches
+   * it to them. Knowing it also RECOVERS yield: a reply carrying both profiles
+   * is currently discarded as ambiguous, and excluding the user's leaves
+   * precisely one — the sender's.
+   */
+  linkedin?: string;
   /** GitHub Personal Access Token for syncing repositories in AI Projects. */
   githubToken?: string;
   /** OpenAI API key for syncing AI projects. Legacy storage — new saves use secure-token-store. */

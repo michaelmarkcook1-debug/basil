@@ -92,9 +92,31 @@ export function extractLinkedInProfiles(text: string): LinkedInProfile[] {
  * which one belongs to the sender, and a confident wrong answer is worse than
  * no answer — a mis-attributed profile is one the user has to notice to fix.
  */
-export function senderProfileFrom(body: string): LinkedInProfile | null {
-  const found = extractLinkedInProfiles(body);
+export function senderProfileFrom(
+  body: string,
+  /**
+   * The USER's own profile slug or URL. Excluded before the ambiguity test,
+   * because a reply quotes the user's signature under the sender's: without
+   * this, a sender who has no LinkedIn yields exactly one profile — the user's —
+   * and it is attributed to them. Passing it also recovers the common case,
+   * where both profiles appear and the message would otherwise be discarded as
+   * ambiguous.
+   */
+  selfProfile?: string | null,
+): LinkedInProfile | null {
+  const self = slugOf(selfProfile);
+  const found = extractLinkedInProfiles(body)
+    .filter((p) => !self || p.slug.toLowerCase() !== self);
   return found.length === 1 ? found[0] : null;
+}
+
+/** Accepts a full URL or a bare slug; returns the lowercase slug, or null. */
+export function slugOf(input?: string | null): string | null {
+  const raw = (input ?? "").trim();
+  if (!raw) return null;
+  const m = /linkedin\.com\/in\/([A-Za-z0-9\-_%À-ÿ.]{2,100})/i.exec(raw);
+  const slug = (m ? m[1] : raw).split(/[/?#]/)[0] ?? "";
+  return slug ? slug.replace(TRAILING_JUNK, "").toLowerCase() : null;
 }
 
 /**

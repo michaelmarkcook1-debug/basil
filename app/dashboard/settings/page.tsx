@@ -113,6 +113,7 @@ interface UserSettings {
   workEnd: string;
   videoTool: string;
   meetingUrl: string;
+  linkedin?: string;
   useIpTimezone?: boolean;
   briefingEmail?: boolean;
   briefingSlack?: boolean;
@@ -1167,6 +1168,7 @@ export default function SettingsPage() {
           workEnd: draft.workEnd,
           videoTool: draft.videoTool,
           meetingUrl: draft.meetingUrl,
+          linkedin: draft.linkedin ?? "",
           useIpTimezone: draft.useIpTimezone,
           briefingEmail: draft.briefingEmail,
           briefingSlack: draft.briefingSlack,
@@ -1584,6 +1586,19 @@ export default function SettingsPage() {
                   <Input value={draft?.meetingUrl ?? ""} onChange={(e) => setDraft((d) => d ? { ...d, meetingUrl: e.target.value } : d)} placeholder="https://zoom.us/j/…" />
                 </label>
               </div>
+              <label className="block space-y-1.5 text-xs font-medium text-muted-foreground">
+                Your LinkedIn profile
+                <Input
+                  value={draft?.linkedin ?? ""}
+                  onChange={(e) => setDraft((d) => d ? { ...d, linkedin: e.target.value } : d)}
+                  placeholder="https://www.linkedin.com/in/your-slug/"
+                />
+                <span className="block text-[0.6875rem] font-normal text-muted-foreground">
+                  Used to tell your own signature apart from a sender&rsquo;s. Replies quote your
+                  signature under theirs, so without this Basil can attach your profile to the
+                  person who wrote to you.
+                </span>
+              </label>
               <label className="block space-y-1.5 text-xs font-medium text-muted-foreground">
                 Email aliases
                 <Input

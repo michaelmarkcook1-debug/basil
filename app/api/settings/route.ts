@@ -14,6 +14,20 @@ const SettingsPatchSchema = z.object({
   videoTool: z.string().max(100).optional(),
   meetingUrl: z.string().max(500).optional(),
   useIpTimezone: z.boolean().optional(),
+  /**
+   * The user's own LinkedIn profile. Validated to a personal /in/ URL rather
+   * than accepted as free text: a company or post URL stored here would be
+   * excluded from harvesting as though it were the user, silently suppressing
+   * a real contact's profile. Empty string clears it.
+   */
+  linkedin: z
+    .string()
+    .max(300)
+    .refine(
+      (v) => v === "" || /linkedin\.com\/in\/[A-Za-z0-9\-_%À-ÿ.]{2,100}/i.test(v),
+      { message: "Must be a LinkedIn personal profile URL (linkedin.com/in/…)" },
+    )
+    .optional(),
   githubToken: z.string().max(500).optional(),
   openaiApiKey: z.string().max(500).optional(),
   anthropicApiKey: z.string().max(500).optional(),
