@@ -139,21 +139,36 @@
   --signal-neutral:          var(--w-ink-soft);
   --signal-neutral-subtle:   var(--w-tray);
 
-  /* Restored to their light-theme values — the dark overrides do not belong
-     on paper, and these have no paper-world equivalent to map onto. */
-  --chart-1: #1a5c5f;
-  --chart-2: #c17d2a;
-  --chart-3: #4c9297;
-  --chart-4: #d49347;
-  --chart-5: #706e69;
-  --gold: #c17d2a;
-  --gold-muted: #d49347;
-  --gold-subtle: #f5ede0;
-  --surface-0: #f5f4f0;
-  --surface-1: #fafaf8;
-  --surface-2: #f0ede8;
-  --surface-3: #eceae4;
-  --surface-border: rgba(30, 28, 24, 0.1);
+  /* ── Surfaces and gold, mapped into the dark world ────────────────────────
+     These were LEFT at their light-theme values when this scope was a light
+     paper ground, on the reasoning that they had no paper equivalent. When the
+     world flipped to dark they were not revisited, and `.basil-card` — which is
+     `background-color: var(--surface-1)`, with a `.dark` rule that only adds a
+     box-shadow and never touches the background — kept painting #fafaf8 cream
+     under near-white text. Every card on Meetings, Projects, Memory, Decisions,
+     Briefing and Slack Command was unreadable.
+
+     The lesson is in the mapping now: a scope that redefines the world must
+     redefine EVERY inherited surface, not only the ones with an obvious
+     counterpart. "No equivalent" was the wrong answer; "the nearest surface in
+     this world" was the right one. */
+  --surface-0:      var(--w-paper);   /* canvas */
+  --surface-1:      var(--w-flimsy);  /* raised — cards */
+  --surface-2:      #1E2A3A;          /* raised further — dialogs, panels */
+  --surface-3:      var(--w-tray);    /* sunk — archived, deferred */
+  --surface-border: var(--w-rule);
+
+  --gold:        var(--w-carbon);
+  --gold-muted:  #B08F4F;
+  --gold-subtle: var(--w-carbon-tint);
+
+  /* Chart hues lifted for a dark ground — the light-theme values were chosen to
+     sit on paper and are far too dark to read against navy. */
+  --chart-1: #7FB4FF;
+  --chart-2: #C8A96B;
+  --chart-3: #6EE7A0;
+  --chart-4: #FF8A3D;
+  --chart-5: #A9B4C4;
 
   color-scheme: light;
   background: var(--w-paper);

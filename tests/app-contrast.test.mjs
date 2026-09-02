@@ -89,6 +89,47 @@ function tokensFrom(css, selector) {
   return out;
 }
 
+/**
+ * Custom classes that paint a background but leave text to inherit.
+ *
+ * `.basil-card` is `background-color: var(--surface-1)` with a `.dark` rule that
+ * only adds a box-shadow — it never changes the background. When `.wire` left
+ * --surface-1 at its light value (#fafaf8), every card in the app went cream
+ * under near-white inherited text. The Tailwind sweep below could not see it:
+ * `.basil-card` is not a utility, and the text colour lives on a different
+ * element. So the inherited foreground is checked against every custom surface.
+ */
+test("every custom surface class is readable with inherited text", () => {
+  const css = loadCss();
+  if (!css) { console.log("  (skipped: no production build)"); return; }
+  const TOK = { ...tokensFrom(css, /\.dark\{/g), ...tokensFrom(css, /\.wire\{/g) };
+  const rv = (v, d = 0) => {
+    if (v == null || d > 8) return null;
+    v = String(v).trim();
+    const m = /^var\((--[\w-]+)(?:,[^)]*)?\)$/.exec(v);
+    if (m) return rv(TOK[m[1]], d + 1);
+    return v.startsWith("#") ? v : null;
+  };
+  const fg = rgba(rv(TOK["--foreground"]) ?? "#F4F1EA");
+  const muted = rgba(rv(TOK["--muted-foreground"]) ?? "#A9B4C4");
+  const fails = [];
+  for (const m of css.matchAll(/\.(basil-[\w-]+|surface-[\w-]+)\{([^}]*)\}/g)) {
+    const bgDecl = [...m[2].matchAll(/\bbackground-color:\s*([^;]+)/g)].pop();
+    if (!bgDecl) continue;
+    const hex = rv(bgDecl[1]);
+    if (!hex) continue;
+    const bg = rgba(hex);
+    if (!bg) continue;
+    for (const [label, ink] of [["foreground", fg], ["muted-foreground", muted]]) {
+      const r = contrast(ink, bg);
+      if (r < 4.5) fails.push(`.${m[1]} (${hex}) with ${label} = ${r.toFixed(2)}:1`);
+    }
+  }
+  assert.deepEqual(fails, [],
+    "these surfaces are painted but the inherited text cannot be read on them:\n  " +
+    fails.join("\n  "));
+});
+
 test("no element in the app pairs text and background below AA", () => {
   const css = loadCss();
   if (!css) {
