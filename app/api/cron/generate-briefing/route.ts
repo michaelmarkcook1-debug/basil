@@ -15,6 +15,7 @@
  */
 
 import { NextResponse } from "next/server";
+import { selfOrigin } from "@/lib/http/origin";
 import { getUsers } from "@/lib/users";
 import { checkGlobalBudget } from "@/lib/ai/spend-guard";
 import { hasFeature } from "@/lib/billing/paywall";
@@ -41,8 +42,7 @@ export async function GET(req: Request) {
     return NextResponse.json({ ok: false, skipped: "global-budget-reached", scope: budget.scope });
   }
 
-  const host = process.env.APP_URL
-    ?? (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : "http://localhost:3000");
+  const host = selfOrigin();
 
   const users = await getUsers();
   const results: Record<string, unknown> = {};
@@ -96,10 +96,18 @@ export async function GET(req: Request) {
 
   await captureCronFailures("generate-briefing", results);
 
+  // Derived, not hardcoded — a run where every user failed must not report
+  // success. See lib/http/origin.ts for the week-long outage this concealed.
+  const failed = Object.values(results).filter(
+    (r) => !(r as { ok?: boolean })?.ok,
+  ).length;
+  const total = Object.keys(results).length;
+
   return NextResponse.json({
-    ok: true,
-    users: Object.keys(results).length,
+    ok: failed === 0,
+    users: total,
+    failed,
     results,
     triggeredAt: new Date().toISOString(),
-  });
+  }, { status: failed > 0 && failed === total ? 500 : 200 });
 }

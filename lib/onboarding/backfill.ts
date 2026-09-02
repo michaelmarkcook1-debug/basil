@@ -14,14 +14,15 @@
  */
 
 import "server-only";
+import { selfOrigin } from "@/lib/http/origin";
 import { markSyncStarted } from "@/lib/onboarding/sync-status";
 
 function appBaseUrl(): string | undefined {
-  return (
-    process.env.APP_URL ??
-    (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : undefined) ??
-    (process.env.NODE_ENV !== "production" ? "http://localhost:3000" : undefined)
-  );
+  // Self-call: must address THIS deployment. Resolving it from APP_URL first is
+  // what let a repointed public alias send four subsystems into another
+  // application — see lib/http/origin.ts.
+  if (process.env.VERCEL_URL) return selfOrigin();
+  return process.env.NODE_ENV !== "production" ? "http://localhost:3000" : undefined;
 }
 
 /**

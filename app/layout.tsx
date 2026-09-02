@@ -47,7 +47,9 @@ const courierPrime = Courier_Prime({
   weight: ["400", "700"],
 });
 
-const APP_URL = process.env.NEXT_PUBLIC_APP_URL ?? "https://ag-contracts.vercel.app";
+// Basil's canonical public address. The previous default here was
+// ag-contracts.vercel.app, a host since reassigned to another project.
+const APP_URL = process.env.NEXT_PUBLIC_APP_URL ?? "https://basil-app.vercel.app";
 
 export const metadata: Metadata = {
   title: {

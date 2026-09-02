@@ -8,6 +8,7 @@
  * Protected: requires a valid session (not cron-secret) since it runs per-user.
  */
 import { NextResponse } from "next/server";
+import { selfOrigin } from "@/lib/http/origin";
 import { after } from "next/server";
 import { google } from "googleapis";
 import { randomUUID } from "node:crypto";
@@ -152,8 +153,7 @@ export async function POST(req: Request) {
           console.warn("[sync-now] CRON_SECRET unset — cannot trigger briefing");
           return;
         }
-        const host = process.env.APP_URL
-          ?? (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : "http://localhost:3000");
+        const host = selfOrigin();
         const res = await fetch(`${host}/api/generate/briefing`, {
           method: "POST",
           headers: {

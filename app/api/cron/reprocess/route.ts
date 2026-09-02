@@ -14,6 +14,7 @@
  */
 
 import { NextResponse } from "next/server";
+import { selfOrigin } from "@/lib/http/origin";
 import { getUsers } from "@/lib/users";
 import { captureCronFailures } from "@/lib/observability/capture";
 
@@ -30,9 +31,7 @@ export async function GET(req: Request) {
     return new NextResponse("Forbidden", { status: 403 });
   }
 
-  const host =
-    process.env.APP_URL ??
-    (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : "http://localhost:3000");
+  const host = selfOrigin();
 
   const users = await getUsers();
   const activeUsers = users.filter((u) => !u.disabled);
@@ -65,10 +64,19 @@ export async function GET(req: Request) {
 
   await captureCronFailures("reprocess", results);
 
+  // The top-level `ok` must reflect the per-user results. It was hardcoded true,
+  // so a run in which EVERY user failed still reported success — which is how a
+  // week of 404s went unnoticed: nothing that checked this flag ever saw a
+  // problem, and the failures were only visible by reading `results` by hand.
+  const failed = Object.values(results).filter(
+    (r) => !(r as { ok?: boolean })?.ok,
+  ).length;
+
   return NextResponse.json({
-    ok: true,
+    ok: failed === 0,
     users: activeUsers.length,
+    failed,
     results,
     triggeredAt: new Date().toISOString(),
-  });
+  }, { status: failed > 0 && failed === activeUsers.length ? 500 : 200 });
 }
