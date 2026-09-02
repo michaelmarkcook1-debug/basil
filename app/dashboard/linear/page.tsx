@@ -213,7 +213,7 @@ function IssueCard({
           {issue.assignee && (
             <span
               title={`Assigned to ${issue.assignee.name}`}
-              className="hidden sm:inline-flex h-5 w-5 items-center justify-center rounded-full bg-[var(--w-carbon-tint)] text-[10px] font-semibold text-[oklch(0.55_0.12_85)]"
+              className="hidden sm:inline-flex h-5 w-5 items-center justify-center rounded-full bg-[var(--w-carbon-tint)] text-[10px] font-semibold text-[color:var(--w-carbon)]"
             >
               {issue.assignee.name.split(" ").map((w) => w[0]).join("").slice(0, 2).toUpperCase()}
             </span>
@@ -395,7 +395,7 @@ function NotificationCard({
           {/* Delete / archive */}
           <button
             onClick={() => onDelete(notif.id)}
-            className="ml-auto flex items-center gap-1 rounded px-2 py-1 text-xs text-muted-foreground/50 hover:text-signal-critical hover:bg-signal-critical-subtle transition-colors"
+            className="ml-auto flex items-center gap-1 rounded px-2 py-1 text-xs text-muted-foreground hover:text-signal-critical hover:bg-signal-critical-subtle transition-colors"
             title="Archive notification"
           >
             <Trash2 className="h-3 w-3" />
@@ -476,7 +476,7 @@ function InboxReplyPanel({
             className={cn(
               "h-9 w-9 rounded-md border flex items-center justify-center shrink-0 transition-colors",
               body.trim()
-                ? "border-[var(--w-rule)] bg-[var(--w-carbon-tint)] text-[oklch(0.55_0.15_85)] hover:bg-[var(--w-carbon-tint)]"
+                ? "border-[var(--w-rule)] bg-[var(--w-carbon-tint)] text-[color:var(--w-carbon)] hover:bg-[var(--w-carbon-tint)]"
                 : "border-border text-muted-foreground/40"
             )}
             title="Send (⌘↵)"
@@ -1288,7 +1288,7 @@ export default function LinearPage() {
           className={cn(
             "h-9 rounded-md border px-3 text-sm font-medium transition-colors",
             assigneeIsMe
-              ? "border-[var(--w-rule)] bg-[var(--w-carbon-tint)] text-[oklch(0.55_0.15_85)]"
+              ? "border-[var(--w-rule)] bg-[var(--w-carbon-tint)] text-[color:var(--w-carbon)]"
               : "border-border bg-background text-muted-foreground hover:text-foreground"
           )}
         >
@@ -1324,7 +1324,7 @@ export default function LinearPage() {
                 {search && (
                   <button
                     onClick={() => setSearch("")}
-                    className="text-xs text-[oklch(0.55_0.12_85)] hover:underline"
+                    className="text-xs text-[color:var(--w-carbon)] hover:underline"
                   >
                     Clear search
                   </button>
@@ -1629,7 +1629,7 @@ export default function LinearPage() {
                       <div key={c.id} className="space-y-1">
                         <div className="flex items-center gap-2">
                           {/* Avatar initial */}
-                          <span className="inline-flex h-5 w-5 items-center justify-center rounded-full bg-[var(--w-carbon-tint)] text-xs font-semibold text-[oklch(0.55_0.15_85)] shrink-0">
+                          <span className="inline-flex h-5 w-5 items-center justify-center rounded-full bg-[var(--w-carbon-tint)] text-xs font-semibold text-[color:var(--w-carbon)] shrink-0">
                             {c.user.name.charAt(0).toUpperCase()}
                           </span>
                           <span className="text-xs font-medium text-foreground">{c.user.name}</span>
@@ -1671,7 +1671,7 @@ export default function LinearPage() {
                     className={cn(
                       "h-9 w-9 rounded-md border flex items-center justify-center shrink-0 transition-colors",
                       replyBody.trim()
-                        ? "border-[var(--w-rule)] bg-[var(--w-carbon-tint)] text-[oklch(0.55_0.15_85)] hover:bg-[var(--w-carbon-tint)]"
+                        ? "border-[var(--w-rule)] bg-[var(--w-carbon-tint)] text-[color:var(--w-carbon)] hover:bg-[var(--w-carbon-tint)]"
                         : "border-border text-muted-foreground/40"
                     )}
                     title="Send comment (⌘↵)"

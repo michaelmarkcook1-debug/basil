@@ -925,7 +925,7 @@ function ChatPageInner() {
             size="sm"
             onClick={clearChat}
             disabled={isActive || messages.length === 0}
-            className="gap-1.5 border-[var(--w-rule)] text-[oklch(0.55_0.12_85)] hover:bg-[var(--w-carbon-tint)] hover:text-[color:var(--w-carbon)] hover:border-[var(--w-rule)] disabled:opacity-40"
+            className="gap-1.5 border-[var(--w-rule)] text-[color:var(--w-carbon)] hover:bg-[var(--w-carbon-tint)] hover:text-[color:var(--w-carbon)] hover:border-[var(--w-rule)] disabled:opacity-40"
             title="Start a fresh conversation and clear all visible history"
           >
             <MessageCirclePlus className="h-3.5 w-3.5" />

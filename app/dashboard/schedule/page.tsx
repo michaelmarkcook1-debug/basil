@@ -579,7 +579,7 @@ export default function SchedulePage() {
                             <div className="flex-1 min-w-0">
                               <p className="text-xs leading-snug truncate font-medium">{ev.summary}</p>
                               {ev.hasVideo && (
-                                <span className="text-xs text-[oklch(0.55_0.15_85)]">Video call</span>
+                                <span className="text-xs text-[color:var(--w-carbon)]">Video call</span>
                               )}
                             </div>
                           </div>
@@ -675,7 +675,7 @@ export default function SchedulePage() {
                         form?.requestSubmit();
                       });
                     }}
-                    className="text-xs px-2 py-1 rounded-md border border-[var(--w-rule)] bg-[var(--w-carbon-tint)] text-[oklch(0.55_0.12_85)] hover:bg-[var(--w-carbon-tint)] transition-colors text-left leading-tight"
+                    className="text-xs px-2 py-1 rounded-md border border-[var(--w-rule)] bg-[var(--w-carbon-tint)] text-[color:var(--w-carbon)] hover:bg-[var(--w-carbon-tint)] transition-colors text-left leading-tight"
                   >
                     {q}
                   </button>

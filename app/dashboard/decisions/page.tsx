@@ -408,7 +408,7 @@ function SyncButton({ onSynced }: { onSynced?: () => void }) {
         setTimeout(() => { onSynced?.(); }, 12_000);
         setTimeout(() => setDone(false), 20_000);
       }}
-      className="inline-flex items-center gap-2 text-sm text-[oklch(0.58_0.15_85)] hover:underline disabled:opacity-50"
+      className="inline-flex items-center gap-2 text-sm text-[color:var(--w-carbon)] hover:underline disabled:opacity-50"
     >
       <RefreshCw className={`h-3.5 w-3.5 ${syncing ? "animate-spin" : ""}`} />
       {failed ? "Sync failed — tap to retry"

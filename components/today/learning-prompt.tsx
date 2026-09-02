@@ -61,7 +61,10 @@ export function LearningPrompt() {
       className={cn(
         "inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-medium transition-colors disabled:opacity-50",
         primary
-          ? "bg-[var(--w-carbon)] text-background hover:bg-[var(--w-carbon-tint)]"
+          // Hover dims the SAME fill rather than swapping to the tint. Swapping put
+          // dark-navy text on a 12% gold wash — 1.22:1, invisible — because the
+          // text colour is chosen for the solid accent, not for the tint.
+          ? "bg-[var(--w-carbon)] text-[color:var(--w-on-accent)] hover:opacity-90"
           : "border border-border/60 text-muted-foreground hover:border-border hover:text-foreground"
       )}
     >

@@ -109,7 +109,7 @@ const sections: SectionDef[] = [
     icon: Calendar,
     bg: "bg-[var(--w-carbon-tint)]",
     accent: "bg-[var(--w-carbon)]",
-    fg: "text-[oklch(0.58_0.15_85)]",
+    fg: "text-[color:var(--w-carbon)]",
     ring: "ring-[var(--w-rule)]",
   },
   {

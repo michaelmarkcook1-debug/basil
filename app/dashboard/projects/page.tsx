@@ -58,7 +58,7 @@ function StatCard({
           </p>
           <p className="text-2xl font-semibold mt-1">{value}</p>
         </div>
-        <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-[var(--w-carbon-tint)] text-[oklch(0.58_0.15_85)]">
+        <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-[var(--w-carbon-tint)] text-[color:var(--w-carbon)]">
           <Icon className="h-5 w-5" />
         </span>
       </CardContent>

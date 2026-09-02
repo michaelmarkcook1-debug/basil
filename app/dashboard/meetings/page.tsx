@@ -559,7 +559,7 @@ export default function MeetingsPage() {
                 {tab.count > 0 && (
                   <span className={`inline-flex items-center justify-center min-w-[20px] h-5 px-1.5 rounded-full text-xs font-semibold
                     ${active
-                      ? "bg-[var(--w-carbon-tint)] text-[oklch(0.55_0.12_85)]"
+                      ? "bg-[var(--w-carbon-tint)] text-[color:var(--w-carbon)]"
                       : "bg-muted text-muted-foreground"}`}>
                     {tab.count}
                   </span>
@@ -785,7 +785,7 @@ export default function MeetingsPage() {
 
                             {/* Prep CTA — only when there's someone to prep for */}
                             {preppable && (
-                              <div className="flex items-center gap-1.5 rounded-full bg-[var(--w-carbon-tint)] text-[oklch(0.55_0.15_85)] px-3 py-1.5 text-xs font-semibold shrink-0 transition-colors hover:bg-[var(--w-carbon-tint)]">
+                              <div className="flex items-center gap-1.5 rounded-full bg-[var(--w-carbon-tint)] text-[color:var(--w-carbon)] px-3 py-1.5 text-xs font-semibold shrink-0 transition-colors hover:bg-[var(--w-carbon-tint)]">
                                 <Sparkles className="h-3.5 w-3.5" />
                                 Prep
                               </div>
