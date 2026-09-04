@@ -42,7 +42,7 @@ export async function POST(req: Request) {
     // in their local zone, not a hardcoded default.
     const tz = typeof timezone === "string" && timezone.trim()
       ? timezone.trim()
-      : (await getSettings(username).catch(() => null))?.timezone; // basil-ci-allow-silent-catch: settings optional; TZ falls back to calendar default
+      : (await getSettings(username).catch(() => null))?.timezone; // ci-ok: settings optional; TZ falls back to calendar default
 
     const result = await createCalendarEvent(username, {
       title,

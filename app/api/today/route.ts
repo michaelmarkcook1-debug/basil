@@ -85,7 +85,7 @@ async function computeTodayFeed(username: string): Promise<TodayFeedResponse> {
       listUserContacts(username, { fresh: true }),
       getLearning(username),
       getAllOverridesFromStore(username).catch(() => ({})),
-      getSettings(username).catch(() => null), // basil-ci-allow-silent-catch: settings optional; TZ falls back to Europe/London
+      getSettings(username).catch(() => null), // ci-ok: settings optional; TZ falls back to Europe/London
     ]);
 
     // Per-contact tone history (warming/cooling) → the delta engine promotes

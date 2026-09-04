@@ -232,7 +232,7 @@ export async function processRegularEmail(opts: ProcessEmailOpts): Promise<void>
       if (actionIds[0]) backLink.actionId = actionIds[0];
       if (decisionIds[0]) backLink.decisionId = decisionIds[0];
       if (memoryIds[0]) backLink.memoryId = memoryIds[0];
-      void updateEvent(username, eventId, backLink).catch(() => { /* basil-ci-allow-silent-catch: back-link is UI-only, durable records already written */ });
+      void updateEvent(username, eventId, backLink).catch(() => { /* ci-ok: back-link is UI-only, durable records already written */ });
     }
 
     if (result.actionsCreated + result.decisionsCreated + result.memoriesCreated > 0) {

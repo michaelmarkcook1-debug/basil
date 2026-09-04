@@ -73,7 +73,7 @@ export function NewEventDialog({
           .filter((c) => c.email && EMAIL_RE.test(c.email));
         setContacts(withEmail);
       })
-      .catch(() => { /* noop */ }); // basil-ci-allow-silent-catch: contacts optional; free-text email entry still works
+      .catch(() => { /* noop */ }); // ci-ok: contacts optional; free-text email entry still works
     return () => { cancelled = true; };
   }, [open, contacts.length]);
 

@@ -46,3 +46,9 @@ next-env.d.ts
 
 # SWC plugin cache (build artifact)
 .swc/
+
+# Claude Code local config — may contain API keys in permission rules.
+# Protected by the global gitignore on Michael's machine only; pin it here
+# so the protection travels with the repo.
+.claude/settings.local.json
+.mcp.local.json

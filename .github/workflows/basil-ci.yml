@@ -2,7 +2,9 @@ name: Basil CI
 
 on:
   push:
-    branches: ["main"]
+    # Every branch — not just main. A main-only trigger is why 67 commits
+    # across 2.5 months were never verified by CI even once.
+    branches: ["**"]
   pull_request:
     branches: ["main"]
   workflow_dispatch:

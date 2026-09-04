@@ -99,7 +99,7 @@ export async function POST(req: Request) {
           // Don't leak a fresh channel on every Sync now. If a healthy watch
           // already exists (>24h from expiry), keep it. Otherwise stop the old
           // channel before registering a new one so channels don't accumulate.
-          const existing = (await getWatchState(username).catch(() => null))?.calendar; // basil-ci-allow-silent-catch: absent watch-state → treat as no existing channel
+          const existing = (await getWatchState(username).catch(() => null))?.calendar; // ci-ok: absent watch-state → treat as no existing channel
           const DAY_MS = 24 * 60 * 60 * 1000;
           if (existing?.channelId && existing.expiration && existing.expiration > Date.now() + DAY_MS) {
             results.calendar = {

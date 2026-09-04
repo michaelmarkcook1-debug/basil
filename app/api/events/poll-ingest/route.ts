@@ -667,7 +667,7 @@ export async function POST(req: Request) {
         });
         // Update contact lastInteraction after email processing
         if (payload.from && payload.date) {
-          await touchContactLastInteraction(payload.from, payload.date, "email").catch(() => { /* basil-ci-allow-silent-catch: contact recency update is non-fatal */ });
+          await touchContactLastInteraction(payload.from, payload.date, "email").catch(() => { /* ci-ok: contact recency update is non-fatal */ });
         }
       }
       // Flush snapshot after all mutations so BASIL_DATA is updated before
@@ -814,7 +814,7 @@ export async function POST(req: Request) {
 
           // Update contact lastInteraction so the Contacts tab stays current
           if (payload.from && payload.date) {
-            await touchContactLastInteraction(payload.from, payload.date).catch(() => { /* basil-ci-allow-silent-catch: contact recency update is non-fatal */ });
+            await touchContactLastInteraction(payload.from, payload.date).catch(() => { /* ci-ok: contact recency update is non-fatal */ });
           }
 
         } catch (err) {
