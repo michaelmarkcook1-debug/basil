@@ -8,6 +8,7 @@ import { NextResponse } from "next/server";
 import { getSessionUser } from "@/lib/auth";
 import { getUsers, isAdminUser, setUserDisabled, deleteUser, revokeUserSessions } from "@/lib/users";
 import { purgeUserData } from "@/lib/storage/persistent";
+import { revokeSiriToken } from "@/lib/auth/siri-tokens";
 
 type Params = { params: Promise<{ id: string }> };
 
@@ -40,6 +41,7 @@ export async function PATCH(req: Request, { params }: Params) {
 
   if (body.action === "disable") {
     await setUserDisabled(target.username, true);
+    await revokeSiriToken(target.username); // a disabled account must not keep voice access
     await revokeUserSessions(target.username);
     return NextResponse.json({ success: true, action: "disabled" });
   }
@@ -69,6 +71,7 @@ export async function DELETE(_req: Request, { params }: Params) {
   }
 
   await deleteUser(target.username);
+  await revokeSiriToken(target.username); // the token record must not outlive the account
 
   // Best-effort blob purge — fire-and-forget so a storage error never blocks
   // a successful admin deletion response. Account record is already gone.

@@ -58,15 +58,13 @@ export async function createResetToken(username: string, email: string): Promise
 }
 
 /**
- * Validate a reset token.
- * Hashes the presented token and looks it up by hash.
- * Returns the username if valid, null if expired/used/not found.
- * Does NOT mark the token as used — call consumeResetToken() after
- * the password has been successfully changed.
+ * Validate a reset token WITHOUT consuming it — advisory only, for showing or
+ * hiding a form. Reads fresh so a warm instance cannot report a consumed token
+ * as still valid. Never gate a password change on this: use claimResetToken().
  */
 export async function validateResetToken(presentedToken: string): Promise<string | null> {
   const tokenHash = hashResetToken(presentedToken);
-  const records = await readResetTokenRecords();
+  const records = await readResetTokenRecords(true);
   const entry = records.find((t) => t.tokenHash === tokenHash);
   if (!entry || entry.used) return null;
   if (new Date(entry.expiresAt).getTime() < Date.now()) return null;
@@ -84,6 +82,49 @@ export async function consumeResetToken(presentedToken: string): Promise<void> {
     const idx = records.findIndex((t) => t.tokenHash === tokenHash);
     if (idx !== -1) {
       records[idx] = { ...records[idx], used: true };
+      await writeResetTokenRecords(records);
+    }
+  });
+}
+
+/**
+ * Atomically claim a reset token: under the store lock, on a fresh read, find
+ * an unused, unexpired record for this token and mark it used in the same
+ * write. Returns the username, or null if there is nothing to claim.
+ *
+ * This replaces validate → change password → consume, which had two holes:
+ * validate read the /tmp cache, so a second warm instance could still see
+ * `used: false` after the first had consumed it; and consumption came after
+ * the password change, leaving a window in which two requests could both pass
+ * validation. The claim closes both — one durable transition, before any
+ * password is touched.
+ */
+export async function claimResetToken(presentedToken: string): Promise<string | null> {
+  const tokenHash = hashResetToken(presentedToken);
+  return withLock(RESET_LOCK, async () => {
+    const records = await readResetTokenRecords(true);
+    const idx = records.findIndex((t) => t.tokenHash === tokenHash);
+    if (idx === -1) return null;
+    const entry = records[idx];
+    if (entry.used || new Date(entry.expiresAt).getTime() < Date.now()) return null;
+    records[idx] = { ...entry, used: true };
+    await writeResetTokenRecords(records);
+    return entry.username;
+  });
+}
+
+/**
+ * Give a claimed token back. Only for the case where the claim succeeded but
+ * the password write failed — the user still holds a link that should work,
+ * and the expiry still bounds it. Never called on success.
+ */
+export async function releaseResetToken(presentedToken: string): Promise<void> {
+  const tokenHash = hashResetToken(presentedToken);
+  await withLock(RESET_LOCK, async () => {
+    const records = await readResetTokenRecords(true);
+    const idx = records.findIndex((t) => t.tokenHash === tokenHash);
+    if (idx !== -1 && records[idx].used) {
+      records[idx] = { ...records[idx], used: false };
       await writeResetTokenRecords(records);
     }
   });

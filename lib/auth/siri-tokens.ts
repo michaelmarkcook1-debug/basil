@@ -10,6 +10,7 @@
 
 import { createHash, randomBytes } from "node:crypto";
 import { readStore, updateStore } from "@/lib/storage/persistent";
+import { findByUsername } from "@/lib/users";
 
 const STORE_FILE = "siri-tokens.json";
 const TOKEN_PREFIX = "bsl_";
@@ -61,6 +62,15 @@ export async function verifySiriToken(presented: string | null | undefined): Pro
   const records = await readStore<SiriTokenRecord[]>(STORE_FILE, [], undefined, { fresh: true });
   const entry = records.find((r) => r.tokenHash === tokenHash);
   if (!entry) return null;
+
+  // A token is only as valid as the account behind it. Disabling or deleting
+  // an account used to leave this record in place and still authenticating —
+  // the store is global, keyed by token hash, and nothing in the account
+  // lifecycle touched it. Check the account on every bearer request (the user
+  // read is cached, this is not another durable round-trip), and revoke at
+  // disable/delete so the record does not outlive the account either.
+  const account = await findByUsername(entry.username);
+  if (!account || account.disabled) return null;
 
   // Touch lastUsedAt (throttled, fire-and-forget) so Settings can show liveness.
   const last = entry.lastUsedAt ? new Date(entry.lastUsedAt).getTime() : 0;

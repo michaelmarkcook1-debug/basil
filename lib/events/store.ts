@@ -171,6 +171,38 @@ export async function updateEventStatus(
   return updateEvent(username, id, { status });
 }
 
+/**
+ * Atomically claim an event for execution.
+ *
+ * Only a "pending" event (or a legacy "approved" one — the pre-executor state
+ * that was never actually run) can be claimed. The transition to "executing"
+ * happens inside the lock, on a fresh read, so two approvals of the same event
+ * — a double-click, a retry, a second tab — cannot both reach the executor.
+ *
+ *   { claimed: true,  event }       caller owns execution; run it exactly once
+ *   { claimed: false, event }       already claimed / executed / failed / rejected —
+ *                                   event carries the stored receipt, replay that
+ *   { claimed: false, event: null } no such event
+ */
+export type ExecutionClaim =
+  | { claimed: true; event: BasilEvent }
+  | { claimed: false; event: BasilEvent | null };
+
+export async function claimEventForExecution(username: string, id: string): Promise<ExecutionClaim> {
+  return withLock(lockKey(username), async () => {
+    const all = await readAll(username, { fresh: true });
+    const idx = all.findIndex((e) => e.id === id);
+    if (idx === -1) return { claimed: false, event: null };
+    const current = all[idx];
+    if (current.status !== "pending" && current.status !== "approved") {
+      return { claimed: false, event: current };
+    }
+    all[idx] = { ...current, status: "executing", updatedAt: new Date().toISOString() };
+    await writeAll(username, all);
+    return { claimed: true, event: all[idx] };
+  });
+}
+
 export async function deleteEvent(username: string, id: string): Promise<boolean> {
   return withLock(lockKey(username), async () => {
     const all = await readAll(username, { fresh: true });

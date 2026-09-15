@@ -112,3 +112,22 @@ export function worstCaseCostUsd(kind: ModelKind, family: PriceFamily): number {
     outputTokens: RESERVE_OUTPUT_TOKENS[kind],
   });
 }
+
+/**
+ * Families whose spend must fail CLOSED when the counter store is unavailable.
+ *
+ * The guard used to test `family === "opus"` — the exact string from when
+ * opus-4.8 was the expensive path. When the assistant moved to opus-5 the
+ * family became "opus5", the equality silently stopped matching, and a counter
+ * outage on the most expensive workload in the app fell through to the
+ * cheap-tier branch: a zero reservation, observe-only, no budget stop. Deriving
+ * the rule from the price table means a new family cannot dodge it by being
+ * named differently. Anything at or above the threshold is expensive enough
+ * that a 429 during an outage is the right trade; the classifier tiers still
+ * fail open so a counter blip cannot take ingestion down.
+ */
+const FAIL_CLOSED_OUTPUT_PER_M = 25;
+
+export function failsClosedOnCounterOutage(family: PriceFamily): boolean {
+  return FAMILY_PRICING[family].outputPerM >= FAIL_CLOSED_OUTPUT_PER_M;
+}

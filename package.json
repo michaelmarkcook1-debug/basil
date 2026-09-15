@@ -11,7 +11,7 @@
     "sync": "node scripts/basil-sync.mjs",
     "whatsapp:import": "node scripts/whatsapp-import.mjs",
     "check:models": "node scripts/check-model-usage.mjs",
-    "test": "node --test tests/**/*.mjs",
+    "test": "node --test \"tests/*.test.mjs\"",
     "ci:guards": "node scripts/ci-guards.mjs",
     "test:e2e": "playwright test"
   },

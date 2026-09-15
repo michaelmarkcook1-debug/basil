@@ -40,7 +40,7 @@ import {
   worstCaseCostUsd,
   costUsd,
   type TokenUsage,
-} from "./pricing";
+  failsClosedOnCounterOutage,} from "./pricing";
 import { incrCounter, getCounter, isDurableCounter } from "@/lib/storage/counter";
 import { appendSpendEvent, currentPeriod, secondsUntilPeriodEnd, currentDay, secondsUntilDayEnd } from "./spend-log";
 
@@ -351,12 +351,17 @@ export async function reserveSpend(meter: SpendMeter, kind: ModelKind): Promise<
     // best-effort and isolated so a rollback failure can't mask the real error.
     await unwind();
 
-    // Fail CLOSED on the expensive Opus family whenever a cap is configured —
-    // better to 429 than risk runaway Opus spend during a store outage. (We are
-    // past the observe-only early return, so a cap IS configured here.) Cheap
-    // families fail OPEN so a transient counter blip can't take down classifiers.
-    if (family === "opus") {
-      console.error("[spend-guard] counter store error on Opus path — failing CLOSED:", err instanceof Error ? err.message : err);
+    // Fail CLOSED on expensive families whenever a cap is configured — better
+    // to 429 than risk runaway spend during a store outage. (We are past the
+    // observe-only early return, so a cap IS configured here.) Cheap families
+    // fail OPEN so a transient counter blip can't take down classifiers.
+    //
+    // Which families count as expensive is decided by the price table, not by
+    // name: this used to be `family === "opus"`, and when the assistant moved to
+    // "opus5" the check kept passing green while the costliest path in the app
+    // fell open.
+    if (failsClosedOnCounterOutage(family)) {
+      console.error(`[spend-guard] counter store error on ${family} path — failing CLOSED:`, err instanceof Error ? err.message : err);
       throw new SpendCapError("global", secondsUntilPeriodEnd());
     }
     console.warn("[spend-guard] counter store error — failing OPEN (cheap tier):", err instanceof Error ? err.message : err);

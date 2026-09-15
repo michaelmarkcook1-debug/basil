@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { getSessionUser } from "@/lib/auth";
 import { deleteUser, isAdminUser, findByUsername } from "@/lib/users";
 import { forceFlushSnapshot, purgeUserData } from "@/lib/storage/persistent";
+import { revokeSiriToken } from "@/lib/auth/siri-tokens";
 import path from "path";
 import fs from "fs/promises";
 
@@ -43,6 +44,7 @@ export async function DELETE() {
   try {
     // 1. Remove from users.json (account record — must succeed before anything else)
     await deleteUser(username);
+    await revokeSiriToken(username); // the token record must not outlive the account
 
     // 2. Persist deletion so removed user can't reappear on cold start
     await forceFlushSnapshot();

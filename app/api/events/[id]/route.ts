@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { deleteEvent, getEvent, updateEvent, updateEventStatus } from "@/lib/events/store";
+import { claimEventForExecution, deleteEvent, updateEvent, updateEventStatus } from "@/lib/events/store";
 import { executeEvent } from "@/lib/events/executor";
 import { createAction } from "@/lib/actions/store";
 import { getSessionUser } from "@/lib/auth";
@@ -88,15 +88,36 @@ export async function PATCH(
     return NextResponse.json({ event });
   }
 
-  // ── Approval: load → mark executing → run → persist result ───────────────
-  const event = await getEvent(username, id);
-  if (!event) {
+  // ── Approval: claim → run once → persist receipt ──────────────────────────
+  //
+  // The claim is the whole defence against duplicate delivery. Before it, this
+  // branch loaded the event, marked it "executing" and ran the executor with no
+  // check on the state it was in — so a double-click, a retry, or a second tab
+  // sent the same email twice, and each call reported success. Now only a
+  // pending event can be claimed, the transition happens under the store lock
+  // on a fresh read, and a replay gets the stored receipt instead of a re-run.
+  const claim = await claimEventForExecution(username, id);
+  if (!claim.event) {
     console.error(`[events/${id}] PATCH approve: event not found`);
     return NextResponse.json({ error: "not found" }, { status: 404 });
   }
-
-  // Immediately mark as executing so the UI can show a spinner.
-  await updateEvent(username, id, { status: "executing" });
+  if (!claim.claimed) {
+    const prior = claim.event;
+    if (prior.status === "executing") {
+      // Another request holds the claim right now. Don't guess at its outcome.
+      return NextResponse.json({ error: "already executing", event: prior }, { status: 409 });
+    }
+    // executed / failed / rejected / acknowledged — hand back what happened.
+    console.info(`[events/${id}] PATCH approve replayed — status=${prior.status}, not re-executed`);
+    return NextResponse.json({
+      event: prior,
+      replayed: true,
+      execution: prior.status === "executed"
+        ? { ok: true, summary: prior.executionResult ?? "" }
+        : { ok: false, error: prior.executionError ?? `event is ${prior.status}` },
+    });
+  }
+  const event = claim.event;
 
   const executedAt = new Date().toISOString();
   const result = await executeEvent(event, username, body.draftBody);

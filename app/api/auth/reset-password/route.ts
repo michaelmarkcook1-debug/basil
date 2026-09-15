@@ -8,7 +8,7 @@
 
 import { NextResponse } from "next/server";
 import { changePassword } from "@/lib/users";
-import { validateResetToken, consumeResetToken } from "@/lib/auth/reset-tokens";
+import { claimResetToken, releaseResetToken } from "@/lib/auth/reset-tokens";
 import { checkRateLimitDurable, getClientIp } from "@/lib/rate-limit";
 import { forceFlushSnapshot } from "@/lib/storage/persistent";
 
@@ -34,7 +34,10 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "Password must be at least 8 characters" }, { status: 400 });
   }
 
-  const username = await validateResetToken(token);
+  // Claim the token BEFORE touching the password. One durable transition,
+  // under the lock, on a fresh read — a second request, or a second warm
+  // instance with a stale cache, finds it already used and stops here.
+  const username = await claimResetToken(token);
   if (!username) {
     return NextResponse.json(
       { error: "This reset link has expired or already been used. Please request a new one." },
@@ -44,11 +47,15 @@ export async function POST(req: Request) {
 
   try {
     await changePassword(username, newPassword);
-    await consumeResetToken(token);
     await forceFlushSnapshot(); // persist updated sessionVersion so new password survives cold start
     return NextResponse.json({ ok: true });
   } catch (e) {
     console.error("[reset-password] Failed:", e instanceof Error ? e.message : e); // ci-ok: route prefix only — not logging a password value
+    // The claim succeeded but the password write did not. Hand the token back
+    // so the link the user is holding still works — expiry still bounds it.
+    await releaseResetToken(token).catch((err) =>
+      console.error("[reset-password] could not release claimed token:", err instanceof Error ? err.message : err)
+    );
     return NextResponse.json({ error: "Failed to update password. Please try again." }, { status: 500 });
   }
 }
