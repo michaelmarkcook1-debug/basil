@@ -26,7 +26,17 @@ export function StatRow({ stats }: { stats: Stat[] }) {
             href={s.href}
             className="flex h-full min-h-[5.5rem] flex-col justify-between rounded-xl border border-[var(--w-rule)] bg-[var(--w-flimsy)] px-3.5 py-3 transition-colors hover:border-[var(--w-rule-strong)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2"
           >
-            {s.unavailable ? (
+            {s.pending ? (
+              <>
+                {/* Not yet read. Not a zero, not a failure — a dash with no warning mark. */}
+                <span className="wire-data text-[1.75rem] font-bold leading-none text-[color:var(--w-ink-soft)]" aria-hidden>—</span>
+                <span className="mt-2 block">
+                  <span className="block text-[0.8125rem] font-medium text-[color:var(--w-ink)]">{s.label}</span>
+                  <span className="mt-0.5 block text-[0.6875rem] text-[color:var(--w-ink-soft)]">Loading</span>
+                </span>
+                <span className="sr-only">{s.label}: loading.</span>
+              </>
+            ) : s.unavailable ? (
               <>
                 <span className="flex items-center gap-1.5 text-[1.25rem] font-semibold leading-none text-[color:var(--w-manila)]">
                   <AlertTriangle className="h-4 w-4 shrink-0" aria-hidden />

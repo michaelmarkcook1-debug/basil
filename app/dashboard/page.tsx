@@ -24,15 +24,16 @@
  */
 
 import useSWR from "swr";
-import { useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import type { TodayFeedResponse } from "@/lib/today/types";
 import type { CalendarEvent } from "@/lib/google/calendar";
 import type { ActionItem } from "@/lib/types/action";
 import {
   buildPriorityBoard, buildDayShape, bucketCommitments,
-  sourceStates, disconnected, operationalRead, listOf,
+  sourceStates, disconnected, operationalRead, emptyBoardMessage, localDate,
   buildStatRow, signalBreakdown, isRelationshipRisk, provenanceOf,
+  type FeedState,
 } from "@/lib/today/executive";
 import { Hero } from "@/components/today/hero";
 import { StatRow } from "@/components/today/stat-row";
@@ -67,33 +68,45 @@ export default function Today() {
     useSWR<{ actions?: ActionItem[] }>("/api/actions", swrFetch, SWR_OPTS);
   // The greeting needs a name. Failing to load one is not worth an error state —
   // it degrades to a greeting without a name, which still reads correctly.
-  const { data: settings } = useSWR<{ name?: string }>("/api/settings", swrFetch, SWR_OPTS);
+  const { data: settings } = useSWR<{ name?: string; timezone?: string }>("/api/settings", swrFetch, SWR_OPTS);
 
-  // `now` is computed once per render pass rather than per component, so the
-  // timeline's "now" marker and the header clock cannot disagree.
-  const now = useMemo(() => new Date(), []);
+  // One `now` per render so the timeline marker and the header clock agree —
+  // and it ticks, so a tab left open across midnight stops showing yesterday.
+  const [now, setNow] = useState(() => new Date());
+  useEffect(() => {
+    const t = setInterval(() => setNow(new Date()), 60_000);
+    return () => clearInterval(t);
+  }, []);
+  // The user's day, not UTC's. Settings first; the browser's zone is where the
+  // user actually is when nothing is configured.
+  const timeZone = settings?.timezone ?? Intl.DateTimeFormat().resolvedOptions().timeZone;
 
   const board = useMemo(() => buildPriorityBoard(feed?.items ?? []), [feed]);
-  const day = useMemo(() => buildDayShape(cal?.events ?? [], now), [cal, now]);
+  const day = useMemo(() => buildDayShape(cal?.events ?? [], now, timeZone), [cal, now, timeZone]);
   const buckets = useMemo(
-    () => (actions?.actions ? bucketCommitments(actions.actions, now) : null),
-    [actions, now],
+    () => (actions?.actions ? bucketCommitments(actions.actions, now, timeZone) : null),
+    [actions, now, timeZone],
   );
 
   const sources = useMemo(() => sourceStates(feed?.sources ?? {
     changes: false, followups: { gmail: false, slack: false }, linear: false,
   }), [feed]);
   const missing = useMemo(() => (feed ? disconnected(feed.sources) : []), [feed]);
+  // Connected but failed this pass — must never read as "reporting".
+  const degraded = useMemo(() => feed?.degraded ?? [], [feed]);
   const calConnected = !!cal?.connected && !calError;
   const read = useMemo(
-    () => operationalRead(board, day, missing, calConnected),
-    [board, day, missing, calConnected],
+    () => operationalRead(board, day, missing, calConnected, degraded),
+    [board, day, missing, calConnected, degraded],
   );
 
   const items = useMemo(() => feed?.items ?? [], [feed]);
+  // Passed through as a state, not collapsed to []: a failed feed used to
+  // reach buildStatRow as an empty one and "Act now" read 0 during an outage.
+  const feedState: FeedState = feedError ? "failed" : feedLoading ? "loading" : "ready";
   const stats = useMemo(
-    () => buildStatRow(items, day, buckets, feed?.sources, calConnected),
-    [items, day, buckets, feed, calConnected],
+    () => buildStatRow(feed, feedState, day, buckets, calConnected),
+    [feed, feedState, day, buckets, calConnected],
   );
   const slices = useMemo(() => signalBreakdown(items), [items]);
   const threads = useMemo(() => items.filter((i) => i.kind === "followup"), [items]);
@@ -104,11 +117,12 @@ export default function Today() {
   );
   // Closed TODAY, counted from the store — not a figure Basil narrates about itself.
   const closedToday = useMemo(() => {
-    const d = now.toISOString().slice(0, 10);
-    return (actions?.actions ?? []).filter(
-      (a) => a.status === "done" && (a as { updatedAt?: string }).updatedAt?.slice(0, 10) === d,
-    ).length;
-  }, [actions, now]);
+    const d = localDate(now, timeZone);
+    return (actions?.actions ?? []).filter((a) => {
+      const u = (a as { updatedAt?: string }).updatedAt;
+      return a.status === "done" && !!u && localDate(new Date(u), timeZone) === d;
+    }).length;
+  }, [actions, now, timeZone]);
   const firstName = (settings?.name ?? "").split(" ")[0] || "there";
   const feedUnavailable = feedError ? "The feed could not be read." : undefined;
 
@@ -151,9 +165,7 @@ export default function Today() {
                   ) : (
                     <Empty>
                       Nothing needs a decision right now.{" "}
-                      {missing.length > 0
-                        ? `${listOf(missing)} ${missing.length === 1 ? "is" : "are"} not connected, so this is a partial read.`
-                        : "Every connected source is reporting."}
+                      {emptyBoardMessage(missing, degraded)}
                     </Empty>
                   )
                 ) : (
@@ -195,12 +207,16 @@ export default function Today() {
 
         {/* 4 — Signal, threads, relationships, and what Basil did unattended */}
         <div className="mt-6 grid grid-cols-1 gap-5 sm:grid-cols-2 xl:grid-cols-4">
-          <PanelFrame title="Signal today" href="/dashboard/signals" cta="All signals">
+          <PanelFrame title="Signal today">
             {feedLoading ? <Loading label="Reading signal…" rows={1} />
               : <SignalProvenance slices={slices} total={items.length} unavailable={feedUnavailable} />}
           </PanelFrame>
 
-          <PanelFrame title="Awaiting your reply" href="/dashboard/threads" cta="All threads">
+          <PanelFrame
+            title="Awaiting your reply"
+            href="/dashboard/threads"
+            cta={feed?.totals ? `All threads (${feed.totals.followups})` : "All threads"}
+          >
             {feedLoading ? <Loading label="Reading threads…" rows={1} />
               : <ThreadsPanel items={threads} unavailable={feedUnavailable} />}
           </PanelFrame>

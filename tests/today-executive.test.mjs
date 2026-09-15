@@ -120,7 +120,7 @@ test("a disconnected calendar is never reported as an empty day", () => {
 });
 
 test("the page tells the read whether the calendar was readable", () => {
-  assert.ok(/operationalRead\(board, day, missing, calConnected\)/.test(page),
+  assert.ok(/operationalRead\(board, day, missing, calConnected(, degraded)?\)/.test(page),
     "connectivity must reach the headline sentence, not just the timeline panel");
   assert.ok(/const calConnected = !!cal\?\.connected && !calError/.test(page),
     "an errored calendar is as unreadable as a disconnected one");

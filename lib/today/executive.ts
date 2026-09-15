@@ -269,6 +269,31 @@ export interface DayShape {
 
 const MIN = 60_000;
 const mins = (a: string, b: string) => Math.max(0, (new Date(b).getTime() - new Date(a).getTime()) / MIN);
+/** Minutes from a to b, negative when b is before a — needed to tell "nested" from "adjacent". */
+const signedMins = (a: string, b: string) => (new Date(b).getTime() - new Date(a).getTime()) / MIN;
+const later = (a: string, b: string) => (new Date(b).getTime() > new Date(a).getTime() ? b : a);
+
+/**
+ * The calendar date of an instant in the user's timezone, as "YYYY-MM-DD".
+ *
+ * `toISOString().slice(0, 10)` is the UTC date. At 00:30 BST on the 16th that
+ * is still the 15th: the morning's meetings vanish from Today and a commitment
+ * due today files under "next seven days". The user's day is the only day
+ * this surface may reason about. Falls back to UTC only when the zone name
+ * itself is unusable.
+ */
+export function localDate(d: Date, timeZone?: string): string {
+  try {
+    return new Intl.DateTimeFormat("en-CA", { timeZone, year: "numeric", month: "2-digit", day: "2-digit" }).format(d);
+  } catch {
+    return d.toISOString().slice(0, 10);
+  }
+}
+
+/** All-day events arrive as a bare date ("2026-09-16"); that IS the local date. */
+function eventLocalDate(start: string, timeZone?: string): string {
+  return /^\d{4}-\d{2}-\d{2}$/.test(start) ? start : localDate(new Date(start), timeZone);
+}
 
 /**
  * Turn today's events into meetings and the gaps between them.
@@ -278,28 +303,34 @@ const mins = (a: string, b: string) => Math.max(0, (new Date(b).getTime() - new 
  * which is the kind of true-but-useless number that makes a dashboard feel
  * like it is not paying attention.
  */
-export function buildDayShape(events: CalendarEvent[], now: Date = new Date()): DayShape {
-  const today = now.toISOString().slice(0, 10);
-  const onToday = events.filter((e) => (e.start ?? "").slice(0, 10) === today);
+export function buildDayShape(events: CalendarEvent[], now: Date = new Date(), timeZone?: string): DayShape {
+  const today = localDate(now, timeZone);
+  const onToday = events.filter((e) => !!e.start && eventLocalDate(e.start, timeZone) === today);
   const allDay = onToday.filter((e) => e.isAllDay);
   const timed = onToday
     .filter((e) => !e.isAllDay && e.start && e.end)
-    .sort((a, b) => a.start.localeCompare(b.start));
+    .sort((a, b) => new Date(a.start).getTime() - new Date(b.start).getTime());
 
   const segments: DaySegment[] = [];
-  let gapMinutes = 0, longestGapMinutes = 0, backToBackRuns = 0;
+  let gapMinutes = 0, longestGapMinutes = 0, backToBackRuns = 0, occupiedMinutes = 0;
 
-  timed.forEach((e, i) => {
-    const prev = timed[i - 1];
-    if (prev) {
-      const gap = mins(prev.end, e.start);
-      if (gap > 5) {
-        segments.push({ kind: "gap", start: prev.end, end: e.start, minutes: gap });
-        gapMinutes += gap;
-        longestGapMinutes = Math.max(longestGapMinutes, gap);
-      } else if (gap >= 0) {
+  // A gap is time when NOTHING is on — measured against the union of everything
+  // so far, not the previous event. Comparing neighbours reported a clear half
+  // hour between a 10:00 and an 11:00 that both sat inside a 09:00–12:00.
+  let occupiedUntil: string | undefined;
+
+  for (const e of timed) {
+    const sinceOccupied = occupiedUntil ? signedMins(occupiedUntil, e.start) : null;
+    if (sinceOccupied !== null) {
+      if (sinceOccupied > 5) {
+        segments.push({ kind: "gap", start: occupiedUntil!, end: e.start, minutes: sinceOccupied });
+        gapMinutes += sinceOccupied;
+        longestGapMinutes = Math.max(longestGapMinutes, sinceOccupied);
+      } else if (sinceOccupied >= 0) {
         backToBackRuns += 1;
       }
+      // negative: this meeting starts inside one already running — neither a
+      // gap nor a transition, just more of the same block.
     }
     segments.push({
       kind: "meeting",
@@ -307,20 +338,25 @@ export function buildDayShape(events: CalendarEvent[], now: Date = new Date()): 
       end: e.end,
       minutes: mins(e.start, e.end),
       event: e,
-      backToBack: prev ? mins(prev.end, e.start) <= 5 : false,
+      backToBack: sinceOccupied !== null && sinceOccupied >= 0 && sinceOccupied <= 5,
     });
-  });
+    // Only the part of this meeting that extends past what was already booked
+    // adds to the day's booked time. A 30-minute call inside a 3-hour block is
+    // still 3 hours of the day, not 3.5.
+    occupiedMinutes += occupiedUntil ? mins(later(occupiedUntil, e.start), e.end) : mins(e.start, e.end);
+    occupiedUntil = occupiedUntil ? later(occupiedUntil, e.end) : e.end;
+  }
 
   return {
     segments,
     meetingCount: timed.length,
-    meetingMinutes: timed.reduce((s, e) => s + mins(e.start, e.end), 0),
+    meetingMinutes: occupiedMinutes,
     gapMinutes,
     longestGapMinutes,
     backToBackRuns,
     allDay,
     firstStart: timed[0]?.start,
-    lastEnd: timed[timed.length - 1]?.end,
+    lastEnd: occupiedUntil,
   };
 }
 
@@ -354,9 +390,9 @@ export interface AgeingBuckets {
 
 const STALLED_DAYS = 30;
 
-export function bucketCommitments(actions: ActionItem[], now: Date = new Date()): AgeingBuckets {
-  const today = now.toISOString().slice(0, 10);
-  const in7 = new Date(now.getTime() + 7 * 86400_000).toISOString().slice(0, 10);
+export function bucketCommitments(actions: ActionItem[], now: Date = new Date(), timeZone?: string): AgeingBuckets {
+  const today = localDate(now, timeZone);
+  const in7 = localDate(new Date(now.getTime() + 7 * 86400_000), timeZone);
   const stalledBefore = new Date(now.getTime() - STALLED_DAYS * 86400_000).toISOString();
 
   const open = actions.filter((a) => a.status !== "done");
@@ -424,6 +460,7 @@ export function operationalRead(
   day: DayShape,
   missing: string[],
   calendarConnected = true,
+  degraded: string[] = [],
 ): { shape: string; risk: string | null } {
   const parts: string[] = [];
 
@@ -460,8 +497,28 @@ export function operationalRead(
   if (missing.length > 0) {
     parts.push(`${listOf(missing)} ${missing.length === 1 ? "is" : "are"} not connected, so this read is partial.`);
   }
+  if (degraded.length > 0) {
+    // Connected is not the same as answering. A source that is configured but
+    // whose fetch failed used to count as reporting — and an empty Linear
+    // during an outage read as a quiet Linear.
+    parts.push(`${listOf(degraded)} could not be read just now, so this read is partial.`);
+  }
 
   return { shape: parts.join(" "), risk };
+}
+
+/**
+ * What to say under an empty priority board. Only the last branch may claim
+ * every source answered — and it may not claim it while any source failed.
+ */
+export function emptyBoardMessage(missing: string[], degraded: string[] = []): string {
+  if (degraded.length > 0) {
+    return `${listOf(degraded)} could not be read just now, so this is a partial read.`;
+  }
+  if (missing.length > 0) {
+    return `${listOf(missing)} ${missing.length === 1 ? "is" : "are"} not connected, so this is a partial read.`;
+  }
+  return "Every connected source is reporting.";
 }
 
 // ── The executive stat row ───────────────────────────────────────────────────
@@ -487,31 +544,49 @@ export interface Stat {
   href: string;
   /** Set when the count is unknown rather than zero. */
   unavailable?: string;
+  /** Set while the feed is still loading — not a zero, not a failure. */
+  pending?: boolean;
   /** Marks the figure that should read as pressure rather than information. */
   urgent?: boolean;
 }
 
+export type FeedState = "loading" | "failed" | "ready";
+
 export function buildStatRow(
-  items: TodayFeedItem[],
+  feed: TodayFeedResponse | undefined,
+  feedState: FeedState,
   day: DayShape,
   buckets: AgeingBuckets | null,
-  sources: TodayFeedResponse["sources"] | undefined,
   calendarConnected: boolean,
 ): Stat[] {
+  const items = feed?.items ?? [];
+  const sources = feed?.sources;
+  // The page used to collapse a failed feed to [] before this function ever
+  // saw it, so "Act now" read 0 and the tile said "Nothing outstanding" during
+  // an outage. Zero is reserved for a feed that answered and was empty.
+  const feedPending = feedState === "loading";
+  const feedWhy = feedState === "failed" ? "The feed could not be read" : undefined;
+
   const actNow = items.filter((i) => urgencyOf(i) === "act-now").length;
-  const followups = items.filter((i) => i.kind === "followup").length;
+  // The full count, not the displayed one: the feed caps follow-ups at six for
+  // the panel, and the headline used to count those six as the whole workload.
+  const followups = feed?.totals?.followups ?? items.filter((i) => i.kind === "followup").length;
   const quiet = items.filter(isRelationshipRisk).length;
   const mailConnected = !!sources?.followups?.gmail || !!sources?.followups?.slack;
 
   return [
-    { key: "act", label: "Act now", count: actNow, href: "/dashboard/actions", urgent: actNow > 0 },
+    {
+      key: "act", label: "Act now", count: actNow, href: "/dashboard/actions",
+      pending: feedPending, unavailable: feedWhy, urgent: actNow > 0,
+    },
     {
       key: "meet", label: "Meetings today", count: day.meetingCount, href: "/dashboard/schedule",
       unavailable: calendarConnected ? undefined : "Calendar not connected",
     },
     {
       key: "reply", label: "Awaiting your reply", count: followups, href: "/dashboard/threads",
-      unavailable: mailConnected ? undefined : "Gmail and Slack not connected",
+      pending: feedPending,
+      unavailable: feedWhy ?? (mailConnected ? undefined : "Gmail and Slack not connected"),
     },
     {
       key: "overdue", label: "Overdue", count: buckets?.overdue.length ?? 0,
@@ -521,7 +596,8 @@ export function buildStatRow(
     },
     {
       key: "quiet", label: "Gone quiet", count: quiet, href: "/dashboard/contacts",
-      unavailable: sources?.changes ? undefined : "Basil signals unavailable",
+      pending: feedPending,
+      unavailable: feedWhy ?? (sources?.changes ? undefined : "Basil signals unavailable"),
     },
   ];
 }

@@ -76,7 +76,23 @@ export type TodayFeedItem = TodayChangeItem | TodayFollowupItem | TodayLinearIte
 export interface TodayFeedResponse {
   /** Already deduped, sorted by rank DESC, and capped. */
   items: TodayFeedItem[];
+  /**
+   * Everything that qualified, BEFORE the display cap. This is the number a
+   * headline may show. It used to be `items.length` — the capped figure — so
+   * twenty unanswered threads read as six, with no sign that six was a cut.
+   */
   total: number;
+  /** Per-source counts before the cap. Absent on responses cached before 2026-09-15. */
+  totals?: { changes: number; followups: number; linear: number };
+  /** True when `items` is shorter than `total`. Absent on older cached responses. */
+  truncated?: boolean;
+  /**
+   * Connected sources whose read FAILED this pass. Distinct from `sources`,
+   * which says whether a source is configured: "Linear is connected" and
+   * "Linear answered" are different facts, and a failed fetch used to report
+   * as the second. Absent on older cached responses.
+   */
+  degraded?: string[];
   /** ISO8601 of when this response was generated. */
   generatedAt: string;
   /**

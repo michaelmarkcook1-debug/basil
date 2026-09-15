@@ -109,11 +109,13 @@ test("calendar attendance counts toward contact recency (gone-quiet accuracy)", 
 });
 
 test("the gone-quiet delta reads contacts FRESH, not a warm instance's /tmp copy", () => {
-  const today = read("app/api/today/route.ts");
+  // The composition moved from app/api/today/route.ts to lib/today/feed.ts on
+  // 2026-09-15; the read it guards moved with it.
+  const today = read("lib/today/feed.ts");
   // /tmp has no TTL: without fresh, the cron's recency touches are invisible to
   // whichever warm instance serves the dashboard — stale "gone quiet" all day.
   assert.ok(/listUserContacts\(username, \{ fresh: true \}\)/.test(today),
-    "/api/today must read contacts with { fresh: true } for accurate silence math");
+    "the Today feed must read contacts with { fresh: true } for accurate silence math");
 });
 
 test("expired invite-responses auto-retire like past meetings", () => {
