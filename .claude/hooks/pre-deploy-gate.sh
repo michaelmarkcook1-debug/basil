@@ -23,6 +23,8 @@ FAILED=""
 
 npm test        >/tmp/basil-gate-test.log  2>&1 || FAILED="$FAILED\n  ✗ npm test           → /tmp/basil-gate-test.log"
 npm run typecheck >/tmp/basil-gate-tsc.log 2>&1 || FAILED="$FAILED\n  ✗ npm run typecheck  → /tmp/basil-gate-tsc.log"
+# lint errors (not warnings) fail CI; the gate must match CI exactly
+npm run lint    >/tmp/basil-gate-lint.log 2>&1 || FAILED="$FAILED\n  ✗ npm run lint       → /tmp/basil-gate-lint.log"
 node scripts/ci-guards.mjs >/tmp/basil-gate-guards.log 2>&1 || FAILED="$FAILED\n  ✗ npm run ci:guards  → /tmp/basil-gate-guards.log"
 
 if [ -n "$FAILED" ]; then

@@ -33,7 +33,7 @@ export function loadTs(relative, mocks = {}, env = {}) {
     fileName: relative,
     compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022, esModuleInterop: true },
   });
-  const module = { exports: {} };
+  const mod = { exports: {} }; // the sandbox global is named `module`; this local is not
   const restrictedRequire = (id) => {
     if (Object.hasOwn(mocks, id)) return mocks[id];
     if (id.startsWith("node:")) return require(id);
@@ -42,13 +42,13 @@ export function loadTs(relative, mocks = {}, env = {}) {
     throw new Error(`[load-ts] ${relative} required "${id}" and no mock was supplied`);
   };
   vm.runInNewContext(outputText, {
-    module, exports: module.exports, require: restrictedRequire,
+    module: mod, exports: mod.exports, require: restrictedRequire,
     console, Buffer, Date, Error, URL, TextEncoder, TextDecoder, structuredClone,
     setTimeout, clearTimeout, setImmediate, queueMicrotask,
     crypto: globalThis.crypto,
     process: { env, nextTick: process.nextTick },
   }, { filename: relative });
-  return module.exports;
+  return mod.exports;
 }
 
 /** A real per-key mutex — so concurrent-request tests actually contend. */
