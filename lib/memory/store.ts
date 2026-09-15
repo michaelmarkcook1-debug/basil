@@ -10,8 +10,20 @@ function lockKey(username: string) {
   return `memory:${username}`;
 }
 
-async function readAll(username: string): Promise<Memory[]> {
-  return readUserStore<Memory[]>(username, MEMORY_FILE, []);
+/**
+ * `fresh: true` bypasses the /tmp write-through cache and re-reads the durable
+ * store. EVERY read inside a withLock() read-modify-write MUST pass it.
+ *
+ * The lock gives mutual exclusion on this instance; it says nothing about
+ * whether the cached array is current. Two warm instances that had each
+ * listed memories, then each saved one, ended with only the second save
+ * durable — the first instance's write was read back through a cache that
+ * predated it and overwritten. lib/events/store.ts and lib/actions/store.ts
+ * carry the same fix for the same reason; this store was missed because it
+ * looked correct: it *does* hold the lock.
+ */
+async function readAll(username: string, options?: { fresh?: boolean }): Promise<Memory[]> {
+  return readUserStore<Memory[]>(username, MEMORY_FILE, [], options);
 }
 
 async function writeAll(username: string, items: Memory[]): Promise<void> {
@@ -49,7 +61,7 @@ export interface CreateMemoryInput {
 
 export async function createMemory(username: string, input: CreateMemoryInput): Promise<Memory> {
   return withLock(lockKey(username), async () => {
-    const items = await readAll(username);
+    const items = await readAll(username, { fresh: true });
     const now = new Date().toISOString();
 
     // Dedupe layer 1 — same sourceRef: return existing without bumping updatedAt
@@ -108,7 +120,8 @@ export async function createMemoryTracked(
   username: string,
   input: CreateMemoryInput
 ): Promise<CreateMemoryResult> {
-  const before = await readAll(username);
+  // Fresh: a stale snapshot here would report a dedupe hit as a creation.
+  const before = await readAll(username, { fresh: true });
   const existingIds = new Set(before.map((m) => m.id));
   const item = await createMemory(username, input);
   return { item, created: !existingIds.has(item.id) };
@@ -120,7 +133,7 @@ export async function updateMemory(
   patch: Partial<Pick<Memory, "content" | "kind" | "entity">>
 ): Promise<Memory | null> {
   return withLock(lockKey(username), async () => {
-    const items = await readAll(username);
+    const items = await readAll(username, { fresh: true });
     const idx = items.findIndex((m) => m.id === id);
     if (idx === -1) return null;
     items[idx] = {
@@ -135,7 +148,7 @@ export async function updateMemory(
 
 export async function deleteMemory(username: string, id: string): Promise<boolean> {
   return withLock(lockKey(username), async () => {
-    const items = await readAll(username);
+    const items = await readAll(username, { fresh: true });
     const next = items.filter((m) => m.id !== id);
     if (next.length === items.length) return false;
     await writeAll(username, next);

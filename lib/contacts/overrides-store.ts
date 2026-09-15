@@ -28,6 +28,12 @@ function lockKey(username: string): string {
   return `contact-overrides:${username}`;
 }
 
+// Every read inside a locked read-modify-write below passes `fresh: true`.
+// The lock is mutual exclusion on this instance only; the /tmp cache can be
+// older than another instance's write, and writing a merged copy of a stale
+// map erases that write. Same fix as lib/events/store.ts — see the note there.
+const FRESH = { fresh: true } as const;
+
 // ── Public API ────────────────────────────────────────────────────────────────
 // All functions require `username` so each user's overrides are stored under
 // DATA_DIR/users/<username>/sage-contact-overrides.json (isolated per user).
@@ -50,7 +56,7 @@ export async function setOverrideInStore(
   patch: ProfileOverride
 ): Promise<ProfileOverride> {
   return withLock(lockKey(username), async () => {
-    const all = await readUserStore<OverrideMap>(username, OVERRIDES_FILE, {});
+    const all = await readUserStore<OverrideMap>(username, OVERRIDES_FILE, {}, FRESH);
     const merged: ProfileOverride = { ...all[contactId], ...patch };
     all[contactId] = merged;
     await writeUserStore(username, OVERRIDES_FILE, all);
@@ -71,7 +77,7 @@ export async function appendToneObservation(
   observation: ToneObservation
 ): Promise<void> {
   return withLock(lockKey(username), async () => {
-    const all = await readUserStore<OverrideMap>(username, OVERRIDES_FILE, {});
+    const all = await readUserStore<OverrideMap>(username, OVERRIDES_FILE, {}, FRESH);
     const existing = all[contactId] ?? {};
     const history = existing.toneHistory ?? [];
 
@@ -91,7 +97,7 @@ export async function appendToneObservation(
 
 export async function clearOverrideFromStore(username: string, contactId: string): Promise<void> {
   return withLock(lockKey(username), async () => {
-    const all = await readUserStore<OverrideMap>(username, OVERRIDES_FILE, {});
+    const all = await readUserStore<OverrideMap>(username, OVERRIDES_FILE, {}, FRESH);
     if (!all[contactId]) return;
     delete all[contactId];
     await writeUserStore(username, OVERRIDES_FILE, all);

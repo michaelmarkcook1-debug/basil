@@ -23,7 +23,7 @@
  *   - System/prompt excerpts truncated to 500 chars — no PII in traces
  */
 
-import { readUserStore, writeUserStore } from "@/lib/storage/user-store";
+import { readUserStore, updateUserStore } from "@/lib/storage/user-store";
 import { generateValidated, AIValidationError } from "@/lib/ai/generate-validated";
 import type { SpendMeter } from "@/lib/ai/spend-guard";
 import { hashContent } from "@/lib/ingest/content-hash";
@@ -40,13 +40,18 @@ import type { z } from "zod";
 
 async function appendTrace(username: string, trace: DispatchTrace): Promise<void> {
   try {
-    const existing = await readUserStore<DispatchTrace[]>(
+    // Callers fire this with `void` so a trace write never blocks a dispatch —
+    // which means several can be in flight at once. The old body read the
+    // cached array, appended, and wrote it back with no lock: concurrent
+    // dispatches read the same array and the last write won, so the log
+    // under-counted exactly when it was busiest. updateUserStore serialises
+    // under the store lock and reads fresh inside it.
+    await updateUserStore<DispatchTrace[]>(
       username,
       DISPATCH_LOG_FILE,
+      (existing) => [...existing, trace].slice(-MAX_DISPATCH_TRACES),
       []
     );
-    const updated = [...existing, trace].slice(-MAX_DISPATCH_TRACES);
-    await writeUserStore(username, DISPATCH_LOG_FILE, updated);
   } catch (err) {
     // Trace write failures must never surface to the caller
     console.error(
