@@ -15,6 +15,7 @@ export const maxDuration = 300;
  * raw source text (email, Slack, Zoom) as supporting evidence.
  */
 
+import { redactSensitive, redactDeep } from "@/lib/security/sensitive";
 import { type ModelMessage } from "ai";
 import { generateTextSafe } from "@/lib/ai/generate";
 import { SpendCapError, spendCapResponse } from "@/lib/ai/spend-guard";
@@ -160,10 +161,8 @@ function formatEmailBlock(emails: GmailMessage[], snippetLen = 160, tz = "Europe
         hour: "2-digit",
         minute: "2-digit",
       });
-      const snippet =
-        e.snippet.length > snippetLen
-          ? e.snippet.slice(0, snippetLen) + "…"
-          : e.snippet;
+      const raw = redactSensitive(e.snippet).text;
+      const snippet = raw.length > snippetLen ? raw.slice(0, snippetLen) + "…" : raw;
       return `- [${date}] From: ${e.from} | "${e.subject}"\n  ${snippet}`;
     })
     .join("\n");
@@ -192,7 +191,8 @@ function formatZoomBlock(summaries: ZoomSummary[], tz = "Europe/London"): string
         month: "short",
         timeZone: tz,
       });
-      const body = s.body.length > 350 ? s.body.slice(0, 350) + "…" : s.body;
+      const safe = redactSensitive(s.body).text;
+      const body = safe.length > 350 ? safe.slice(0, 350) + "…" : safe;
       return `- [${date}] ${s.title}\n  ${body}`;
     })
     .join("\n");
@@ -207,7 +207,8 @@ function formatReadBlock(summaries: ReadSummary[], tz = "Europe/London"): string
         month: "short",
         timeZone: tz,
       });
-      const body = s.body.length > 350 ? s.body.slice(0, 350) + "…" : s.body;
+      const safe = redactSensitive(s.body).text;
+      const body = safe.length > 350 ? safe.slice(0, 350) + "…" : safe;
       return `- [${date}] ${s.title}\n  ${body}`;
     })
     .join("\n");
@@ -928,7 +929,7 @@ Return ONLY valid JSON, no markdown code fences:
   const parseResult = parseAndValidate(result.text, BriefingOutputSchema, "[briefing]");
   if (parseResult.ok) {
     briefingData = {
-      ...parseResult.data,
+      ...redactDeep(parseResult.data).value,
       generatedAt: new Date().toISOString(),
       extraContextSummary: extra.summary,
       dataSources: dataSourceCounts,

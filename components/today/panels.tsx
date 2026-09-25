@@ -9,6 +9,7 @@
  * read as a set of database views.
  */
 
+import { subjectOf } from "@/lib/today/executive";
 import Link from "next/link";
 import { ArrowUpRight } from "lucide-react";
 import { Card, Empty, Unavailable } from "./primitives";
@@ -129,7 +130,7 @@ export function RelationshipPanel({
     <Card className="divide-y divide-[var(--w-rule)]">
       <ul className="divide-y divide-[var(--w-rule)]">
         {items.slice(0, 4).map((i) => {
-          const name = i.title.replace(/\s*(has|have)\s+gone\s+quiet.*$/i, "").trim() || i.title;
+          const name = subjectOf(i);
           return (
             <li key={i.id}>
               <Link

@@ -26,7 +26,8 @@ const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
  */
 const plain = (v) => structuredClone(v);
 const X = loadTs("lib/today/executive.ts");
-const ev = (id, start, end, extra = {}) => ({ id, summary: id, start, end, isAllDay: false, attendeeCount: 0, attendees: [], hasVideo: false, isOrganizer: true, myResponseStatus: "accepted", ...extra });
+// A meeting has someone else on it; since L7 an event with nobody else is a personal block, not a meeting.
+const ev = (id, start, end, extra = {}) => ({ id, summary: id, start, end, isAllDay: false, attendeeCount: 1, attendees: ["p@example.invalid"], hasVideo: false, isOrganizer: true, myResponseStatus: "accepted", ...extra });
 const NOON = new Date("2026-09-15T12:00:00Z");
 const READY_EMPTY = { items: [], total: 0, totals: { changes: 0, followups: 0, linear: 0 }, truncated: false, generatedAt: NOON.toISOString(), sources: { changes: true, followups: { gmail: true, slack: true }, linear: true }, degraded: [] };
 

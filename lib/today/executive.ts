@@ -173,14 +173,30 @@ export function groupRelationshipRisk(items: TodayFeedItem[]): TodayFeedItem[] |
   return risks.length > 1 ? risks : null;
 }
 
-/** Names the grouped card should list, deduped, in rank order. */
+/**
+ * Who or what an item is about — typed, not scraped from a sentence. The
+ * relationship panel once showed "Stakeholder" because it read the change's
+ * kind as the entity's name.
+ */
+export function subjectOf(item: TodayFeedItem): string {
+  if (item.kind === "change") return item.change.subject ?? item.title;
+  if (item.kind === "followup") return item.followup.fromName || item.title;
+  return item.title;
+}
+
+/** Stable identity for deduping — the contact/action id where the engine recorded one. */
+export function entityKeyOf(item: TodayFeedItem): string {
+  if (item.kind === "change" && item.change.entityId) return `${item.change.source}:${item.change.entityId}`;
+  return subjectOf(item).toLowerCase();
+}
+
+/** Names the grouped card should list, deduped by entity, in rank order. */
 function namesFrom(items: TodayFeedItem[]): string[] {
   const seen = new Set<string>();
   const out: string[] = [];
   for (const i of items) {
-    // The engine puts the person in the title; the context line carries detail.
-    const name = i.title.replace(/\s*(has|have)\s+gone\s+quiet.*$/i, "").trim();
-    const key = name.toLowerCase();
+    const key = entityKeyOf(i);
+    const name = subjectOf(i);
     if (name && !seen.has(key)) { seen.add(key); out.push(name); }
   }
   return out;
@@ -219,7 +235,9 @@ export function buildPriorityBoard(items: TodayFeedItem[]): PriorityBoard {
         // Silence is never "act now" on its own — it is the definition of a
         // thing that has been true for a while. Today, not an interrupt.
         urgency: "today",
-        title: `${risks.length} relationships need attention`,
+        // Counted by contact, not by signal: a cooling AND a silence on the
+        // same person is one relationship needing attention, not two.
+        title: `${names.length || risks.length} relationship${(names.length || risks.length) === 1 ? "" : "s"} need${(names.length || risks.length) === 1 ? "s" : ""} attention`,
         why:
           names.length > 0
             ? `No meaningful contact recently with ${names.slice(0, 3).join(", ")}` +
@@ -230,7 +248,7 @@ export function buildPriorityBoard(items: TodayFeedItem[]): PriorityBoard {
         occurredAt: lead.occurredAt,
         // Ranked as the strongest member, so grouping never buries the signal.
         rank: Math.max(...risks.map((r) => r.rank)),
-        groupedCount: risks.length,
+        groupedCount: names.length || risks.length,
         members: risks,
         href: "/dashboard/contacts",
       },
@@ -256,6 +274,8 @@ export interface DaySegment {
 export interface DayShape {
   segments: DaySegment[];
   meetingCount: number;
+  /** Timed events with nobody else on them — focus time, lunch, a decompression block. Booked, not a meeting. */
+  blockCount: number;
   meetingMinutes: number;
   /** Unbooked minutes BETWEEN the first and last meeting — not "free time". */
   gapMinutes: number;
@@ -347,9 +367,14 @@ export function buildDayShape(events: CalendarEvent[], now: Date = new Date(), t
     occupiedUntil = occupiedUntil ? later(occupiedUntil, e.end) : e.end;
   }
 
+  // "Meetings today" once counted focus time, lunch and a decompression block
+  // alongside the one meeting with another person. Blocks still occupy the
+  // day — every availability figure keeps them — but they are not meetings.
+  const withPeople = timed.filter((e) => e.attendeeCount > 0);
   return {
     segments,
-    meetingCount: timed.length,
+    meetingCount: withPeople.length,
+    blockCount: timed.length - withPeople.length,
     meetingMinutes: occupiedMinutes,
     gapMinutes,
     longestGapMinutes,
@@ -470,12 +495,16 @@ export function operationalRead(
     // failure this surface exists to prevent — stated in the headline sentence,
     // where it is least recoverable.
     parts.push("Basil cannot see your calendar, so the shape of your day is unknown.");
-  } else if (day.meetingCount === 0) {
+  } else if (day.meetingCount === 0 && day.blockCount === 0) {
     parts.push("No meetings scheduled today.");
+  } else if (day.meetingCount === 0) {
+    const h = Math.round((day.meetingMinutes / 60) * 10) / 10;
+    parts.push(`No meetings with anyone today; ${day.blockCount} personal block${day.blockCount === 1 ? "" : "s"}, ${h}h booked.`);
   } else {
     const h = Math.round((day.meetingMinutes / 60) * 10) / 10;
+    const blocks = day.blockCount > 0 ? ` and ${day.blockCount} personal block${day.blockCount === 1 ? "" : "s"}` : "";
     parts.push(
-      `${day.meetingCount} meeting${day.meetingCount === 1 ? "" : "s"} today, ${h}h booked` +
+      `${day.meetingCount} meeting${day.meetingCount === 1 ? "" : "s"}${blocks} today, ${h}h booked` +
       (day.longestGapMinutes >= 45
         ? `, longest clear stretch ${Math.floor(day.longestGapMinutes / 60)}h${String(Math.round(day.longestGapMinutes % 60)).padStart(2, "0")}.`
         : day.meetingCount > 1 ? ", with no clear stretch over 45 minutes." : "."),

@@ -1,5 +1,6 @@
 export const maxDuration = 300;
 
+import { redactSensitive, redactDeep } from "@/lib/security/sensitive";
 import { generateTextSafe } from "@/lib/ai/generate";
 import { SpendCapError, spendCapResponse } from "@/lib/ai/spend-guard";
 import { getTextModel, MAX_TOKENS } from "@/lib/ai/model-config";
@@ -102,7 +103,7 @@ function formatEmailBlock(emails: GmailMessage[], label = "RECENT EMAILS", tz = 
       timeZone: tz,
     });
     const unread = e.unread ? " [UNREAD]" : "";
-    return `- ${date} from ${e.from}: ${e.subject}${unread}\n  ${e.snippet.substring(0, 180)}`;
+    return `- ${date} from ${e.from}: ${e.subject}${unread}\n  ${redactSensitive(e.snippet).text.substring(0, 180)}`;
   });
 
   return `=== ${label} (${emails.length}) ===\n${lines.join("\n")}\n`;
@@ -114,7 +115,8 @@ function formatZoomBlock(summaries: ZoomSummary[], tz = "Europe/London"): string
     const date = new Date(s.date).toLocaleDateString("en-GB", {
       day: "numeric", month: "short", timeZone: tz,
     });
-    const body = s.body.length > 600 ? s.body.slice(0, 600) + "…" : s.body;
+    const safe = redactSensitive(s.body).text;
+    const body = safe.length > 600 ? safe.slice(0, 600) + "…" : safe;
     return `- [${date}] ${s.title}\n  ${body}`;
   });
   return `=== ZOOM MEETING SUMMARIES (last 14 days, ${summaries.length} found) ===\n${lines.join("\n")}\n`;
@@ -126,7 +128,8 @@ function formatReadBlock(summaries: ReadSummary[], tz = "Europe/London"): string
     const date = new Date(s.date).toLocaleDateString("en-GB", {
       day: "numeric", month: "short", timeZone: tz,
     });
-    const body = s.body.length > 600 ? s.body.slice(0, 600) + "…" : s.body;
+    const safe = redactSensitive(s.body).text;
+    const body = safe.length > 600 ? safe.slice(0, 600) + "…" : safe;
     return `- [${date}] ${s.title}\n  ${body}`;
   });
   return `=== READ.AI MEETING SUMMARIES (last 14 days, ${summaries.length} found) ===\n${lines.join("\n")}\n`;
@@ -535,7 +538,7 @@ ${formatOutboundBlock(outboundEvents)}
     readSummaries.length > 0 ? formatReadBlock(readSummaries) : "",
     teamsMeetings.length > 0
       ? `=== MICROSOFT TEAMS MEETINGS (last 14 days, ${teamsMeetings.length} found) ===\n` +
-        teamsMeetings.map((m) => `- [${m.date}] ${m.title}\n  ${m.body}`).join("\n") + "\n"
+        teamsMeetings.map((m) => `- [${m.date}] ${m.title}\n  ${redactSensitive(m.body).text}`).join("\n") + "\n"
       : "",
     actionsBlock,
     decisionsBlock,
@@ -617,7 +620,7 @@ Return ONLY valid JSON, no markdown code fences.`;
   const parseResult = parseAndValidate(result.text, DigestOutputSchema, "[digest]");
   if (parseResult.ok) {
     digestData = {
-      ...parseResult.data,
+      ...redactDeep(parseResult.data).value,
       generatedAt: now.toISOString(),
       weekStart: weekStart.toLocaleDateString("en-GB", { day: "numeric", month: "short", timeZone: tz }),
       weekEnd:   weekEnd.toLocaleDateString("en-GB",   { day: "numeric", month: "short", timeZone: tz }),

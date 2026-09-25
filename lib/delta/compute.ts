@@ -162,6 +162,7 @@ function actionChanges(actions: ActionItem[], since: Date, todayLocal: string): 
           severity,
           score: computeScore(severity, "operational", occurredAt),
           title: "Action needs your review",
+          subject: a.text,
           context: a.text.length > 80 ? a.text.slice(0, 77) + "…" : a.text,
           implication: "→ Basil flagged this for confirmation before acting",
           occurredAt,
@@ -181,6 +182,7 @@ function actionChanges(actions: ActionItem[], since: Date, todayLocal: string): 
           severity,
           score: computeScore(severity, "operational", occurredAt),
           title: "New commitment tracked",
+          subject: a.text,
           context: a.text.length > 80 ? a.text.slice(0, 77) + "…" : a.text,
           implication: a.dueDate
             ? `→ Due ${a.dueDate}`
@@ -209,6 +211,7 @@ function actionChanges(actions: ActionItem[], since: Date, todayLocal: string): 
         severity: "critical",
         score: computeScore("critical", "urgency", occurredAt),
         title: "Commitment is now overdue",
+        subject: a.text,
         context: a.text.length > 80 ? a.text.slice(0, 77) + "…" : a.text,
         implication: a.dueDate ? `→ Deadline was ${a.dueDate}` : undefined,
         occurredAt,
@@ -233,6 +236,7 @@ function actionChanges(actions: ActionItem[], since: Date, todayLocal: string): 
         severity: "medium",
         score: computeScore("medium", "operational", occurredAt),
         title: "Commitment resolved",
+        subject: a.text,
         context: a.text.length > 80 ? a.text.slice(0, 77) + "…" : a.text,
         occurredAt,
         source: "actions",
@@ -255,6 +259,7 @@ function actionChanges(actions: ActionItem[], since: Date, todayLocal: string): 
         severity: "high",
         score: computeScore("high", "urgency", now),
         title: "Due today",
+        subject: a.text,
         context: a.text.length > 80 ? a.text.slice(0, 77) + "…" : a.text,
         implication: "→ Deadline is today",
         occurredAt: now,
@@ -287,6 +292,7 @@ function decisionChanges(decisions: Decision[], since: Date): ChangeEvent[] {
         severity: "medium",
         score: computeScore("medium", "operational", occurredAt),
         title: "Decision logged",
+        subject: displayText,
         context: displayText,
         implication: d.decidedBy ? `→ ${d.decidedBy}` : undefined,
         occurredAt,
@@ -311,6 +317,7 @@ function decisionChanges(decisions: Decision[], since: Date): ChangeEvent[] {
         severity: "medium",
         score: computeScore("medium", "confidence", occurredAt),
         title: "Decision superseded",
+        subject: displayText,
         context: displayText,
         implication: "→ A newer decision replaced this",
         occurredAt,
@@ -378,6 +385,7 @@ function relationshipChanges(
           severity: toneSeverity,
           score: computeScore(toneSeverity, "relationship", recent.date),
           title: cooling ? "Stakeholder cooling" : "Stakeholder warming",
+          subject: c.name,
           context: `${c.name} — ${recent.summary}`,
           implication: c.title ? `→ ${c.title}` : undefined,
           occurredAt: recent.date,
@@ -404,6 +412,7 @@ function relationshipChanges(
         severity,
         score: computeScore(severity, "relationship", c.lastInteraction),
         title: "Stakeholder re-engaged",
+        subject: c.name,
         context: `${c.name} — activity in last ${formatSilence(since)}`,
         implication: c.title ? `→ ${c.title}` : undefined,
         occurredAt: c.lastInteraction,
@@ -434,6 +443,7 @@ function relationshipChanges(
           severity,
           score: computeScore(severity, "relationship", now),
           title: "Stakeholder has gone quiet",
+          subject: c.name,
           context: `${c.name} — no activity for ${Math.floor(silenceDays)} days`,
           implication: c.recentActivity
             ? `→ Last: ${c.recentActivity.slice(0, 50)}`
@@ -494,6 +504,7 @@ function threadChanges(
         severity,
         score: computeScore(severity, "momentum", occurredAt),
         title: "Thread active",
+        subject: t.title,
         context: t.title.length > 80 ? t.title.slice(0, 77) + "…" : t.title,
         implication:
           t.actionIds.length > 0

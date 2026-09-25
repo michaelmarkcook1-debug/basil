@@ -713,7 +713,7 @@ export default function SchedulePage() {
         </aside>
 
         {/* ── Main: full-width DayView ────────────────────────────────── */}
-        <main className="flex-1 min-w-0 flex flex-col overflow-hidden min-h-[70vh] md:min-h-0">
+        <div className="flex-1 min-w-0 flex flex-col overflow-hidden min-h-[70vh] md:min-h-0">
           {/* Day header bar */}
           <div className="flex items-center justify-between px-4 h-10 border-b border-border/40 shrink-0 bg-background/60">
             <div className="flex items-center gap-3">
@@ -747,7 +747,7 @@ export default function SchedulePage() {
               </div>
             )}
           </div>
-        </main>
+        </div>
 
       </div>
     </div>

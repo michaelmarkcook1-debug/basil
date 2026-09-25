@@ -28,6 +28,13 @@ export interface PendingFollowup {
 
 export interface DetectFollowupsResult {
   items: PendingFollowup[];
-  /** Whether each source was actually reachable (connected) for this user. */
+  /** Whether each source is configured (connected) for this user. */
   sources: { gmail: boolean; slack: boolean };
+  /**
+   * Sources whose read THREW this pass — connected is not the same as
+   * answering. Until 2026-09-17 a Gmail failure came back as `connected:
+   * false`, so an outage read as "Gmail not connected" (and, once cached,
+   * as a quiet inbox). Absent when nothing failed.
+   */
+  degraded?: string[];
 }

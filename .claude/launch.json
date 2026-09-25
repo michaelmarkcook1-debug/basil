@@ -4,20 +4,68 @@
     {
       "name": "execauto-dev",
       "runtimeExecutable": "npm",
-      "runtimeArgs": ["run", "dev", "--", "-p", "3002"],
+      "runtimeArgs": [
+        "run",
+        "dev",
+        "--",
+        "-p",
+        "3002"
+      ],
       "port": 3002
     },
     {
       "name": "pool-coach-preview",
       "runtimeExecutable": "python3",
-      "runtimeArgs": ["-m", "http.server", "8787", "--directory", "/Users/michaelcook/projects/pool-coach/.preview"],
+      "runtimeArgs": [
+        "-m",
+        "http.server",
+        "8787",
+        "--directory",
+        "/Users/michaelcook/projects/pool-coach/.preview"
+      ],
       "port": 8787
     },
     {
       "name": "basil-redesign-preview",
       "runtimeExecutable": "python3",
-      "runtimeArgs": ["-m", "http.server", "8788", "--directory", "/Users/michaelcook/execautoclaude/.preview"],
+      "runtimeArgs": [
+        "-m",
+        "http.server",
+        "8788",
+        "--directory",
+        "/Users/michaelcook/execautoclaude/.preview"
+      ],
       "port": 8788
+    },
+    {
+      "name": "basil-prod-local",
+      "runtimeExecutable": "env",
+      "runtimeArgs": [
+        "SKIP_AUTH=",
+        "VERCEL_OIDC_TOKEN=",
+        "VERCEL_TEAM_ID=",
+        "VERCEL_PROJECT_ID=",
+        "VERCEL_TOKEN=",
+        "BLOB_READ_WRITE_TOKEN=",
+        "KV_REST_API_URL=",
+        "KV_REST_API_TOKEN=",
+        "KV_REST_API_READ_ONLY_TOKEN=",
+        "KV_URL=",
+        "REDIS_URL=",
+        "DATABASE_URL=",
+        "VERCEL=",
+        "VERCEL_ENV=",
+        "BASIL_DATA=",
+        "E2E_TEST_MODE=true",
+        "PORT=3003",
+        "npm",
+        "run",
+        "start",
+        "--",
+        "-p",
+        "3003"
+      ],
+      "port": 3003
     }
   ]
 }

@@ -23,6 +23,7 @@ import {
   isMeetingAttendancePast,
 } from "./utils";
 import { getSelfIdentity } from "@/lib/self-identity";
+import { redactSensitive } from "@/lib/security/sensitive";
 export {
   isActionStalled,
   isOverdueStale,
@@ -561,7 +562,13 @@ export interface CreateActionInput {
  * - Cross-source near-duplicate → appends sourceRef to additionalSourceRefs,
  *   returns existing without creating a new row
  */
-export async function createAction(username: string, input: CreateActionInput): Promise<ActionItem> {
+export async function createAction(username: string, rawInput: CreateActionInput): Promise<ActionItem> {
+  // A commitment extracted from an email once carried the email's one-time
+  // verification code verbatim. Whatever produced the text, the store does not
+  // keep credentials.
+  const scrubbed = redactSensitive(rawInput.text ?? "");
+  if (scrubbed.count > 0) console.warn(`[actions] redacted ${scrubbed.count} value(s) from a new action for ${username}`);
+  const input: CreateActionInput = { ...rawInput, text: scrubbed.text };
   return withLock(lockKey(username), async () => {
     const items = await readAll(username, { fresh: true });
     const now = new Date().toISOString();

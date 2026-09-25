@@ -20,24 +20,21 @@
 
 import { ProvenanceIndicator } from "./primitives";
 import type { SourceState } from "@/lib/today/executive";
-
-function greeting(now: Date): string {
-  const h = now.getHours();
-  if (h < 12) return "Good morning";
-  if (h < 18) return "Good afternoon";
-  return "Good evening";
-}
+import { greeting, formatClock } from "@/lib/today/clock";
 
 export function Hero({
-  name, shape, risk, sources, now, generatedAt,
+  name, shape, risk, sources, now, timeZone, generatedAt,
 }: {
   name: string;
   shape: string;
   risk: string | null;
   sources: SourceState[];
-  now: Date;
+  /** null until the browser has a clock — see lib/today/clock.ts. */
+  now: Date | null;
+  timeZone?: string;
   generatedAt?: string;
 }) {
+  const clock = now ? formatClock(now, timeZone) : null;
   const missing = sources.filter((s) => !s.connected);
 
   return (
@@ -59,7 +56,7 @@ export function Hero({
           id="hero-h"
           className="basil-display text-[2rem] leading-[1.1] tracking-[-0.02em] text-[color:var(--w-ink)] sm:text-[2.75rem]"
         >
-          {greeting(now)}, {name}.
+          {greeting(now, timeZone)}, {name}.
         </h1>
 
         <p className="mt-3 max-w-[62ch] text-[1rem] leading-relaxed text-[color:var(--w-ink)] sm:text-[1.0625rem]">
@@ -72,11 +69,11 @@ export function Hero({
         )}
 
         <div className="mt-5 flex flex-wrap items-center gap-x-4 gap-y-1.5 border-t border-[var(--w-rule)] pt-3.5">
-          <time dateTime={now.toISOString()} className="wire-data text-[0.75rem] text-[color:var(--w-ink-soft)]">
-            {now.toLocaleDateString("en-GB", { weekday: "long", day: "numeric", month: "long" })}
-            {" · "}
-            {now.toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" })}
-          </time>
+          {now && clock && (
+            <time dateTime={now.toISOString()} className="wire-data text-[0.75rem] text-[color:var(--w-ink-soft)]">
+              {clock.date}{" · "}{clock.time}
+            </time>
+          )}
           <ProvenanceIndicator provenance="observed" source="your connected accounts" at={generatedAt} />
           {missing.length > 0 && (
             <span className="text-[0.6875rem] font-medium text-[color:var(--w-manila)]">

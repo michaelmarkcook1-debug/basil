@@ -70,22 +70,31 @@ export default function Today() {
   // it degrades to a greeting without a name, which still reads correctly.
   const { data: settings } = useSWR<{ name?: string; timezone?: string }>("/api/settings", swrFetch, SWR_OPTS);
 
-  // One `now` per render so the timeline marker and the header clock agree —
-  // and it ticks, so a tab left open across midnight stops showing yesterday.
-  const [now, setNow] = useState(() => new Date());
+  // One `now` per render so the timeline marker and the header clock agree.
+  // It starts NULL: the page is statically generated, and a Date created
+  // during render is the build's date on the server and today's in the
+  // browser — hydration error 418 and a first frame showing the wrong day.
+  // The browser sets it after mount, then it ticks so a tab left open across
+  // midnight stops showing yesterday.
+  const [now, setNow] = useState<Date | null>(null);
   useEffect(() => {
+    setNow(new Date());
     const t = setInterval(() => setNow(new Date()), 60_000);
     return () => clearInterval(t);
   }, []);
+  // Derived data needs a Date; before the clock exists none of its inputs
+  // (all SWR-fetched, all absent during SSR) exist either. Memoised so the
+  // placeholder is one object, not a new one per render.
+  const clock = useMemo(() => now ?? new Date(0), [now]);
   // The user's day, not UTC's. Settings first; the browser's zone is where the
   // user actually is when nothing is configured.
   const timeZone = settings?.timezone ?? Intl.DateTimeFormat().resolvedOptions().timeZone;
 
   const board = useMemo(() => buildPriorityBoard(feed?.items ?? []), [feed]);
-  const day = useMemo(() => buildDayShape(cal?.events ?? [], now, timeZone), [cal, now, timeZone]);
+  const day = useMemo(() => buildDayShape(cal?.events ?? [], clock, timeZone), [cal, clock, timeZone]);
   const buckets = useMemo(
-    () => (actions?.actions ? bucketCommitments(actions.actions, now, timeZone) : null),
-    [actions, now, timeZone],
+    () => (actions?.actions ? bucketCommitments(actions.actions, clock, timeZone) : null),
+    [actions, clock, timeZone],
   );
 
   const sources = useMemo(() => sourceStates(feed?.sources ?? {
@@ -117,19 +126,19 @@ export default function Today() {
   );
   // Closed TODAY, counted from the store — not a figure Basil narrates about itself.
   const closedToday = useMemo(() => {
-    const d = localDate(now, timeZone);
+    const d = localDate(clock, timeZone);
     return (actions?.actions ?? []).filter((a) => {
       const u = (a as { updatedAt?: string }).updatedAt;
       return a.status === "done" && !!u && localDate(new Date(u), timeZone) === d;
     }).length;
-  }, [actions, now, timeZone]);
+  }, [actions, clock, timeZone]);
   const firstName = (settings?.name ?? "").split(" ")[0] || "there";
   const feedUnavailable = feedError ? "The feed could not be read." : undefined;
 
   const [first, ...rest] = board.top;
 
   return (
-    <main className="wire min-h-full">
+    <div className="wire min-h-full">
       <div className="mx-auto w-full max-w-[80rem] px-4 sm:px-6 py-4 sm:py-6">
 
         {/* 1 — Hero: greeting, the read, the mark */}
@@ -139,6 +148,7 @@ export default function Today() {
           risk={read.risk}
           sources={sources}
           now={now}
+          timeZone={timeZone}
           generatedAt={feed?.generatedAt}
         />
 
@@ -199,7 +209,7 @@ export default function Today() {
               >
                 {calError
                   ? <Failed what="Your calendar" onRetry={() => location.reload()} />
-                  : <DayTimeline day={day} connected={calConnected} now={now} />}
+                  : <DayTimeline day={day} connected={calConnected} now={clock} />}
               </Panel>
             </div>
           </aside>
@@ -257,6 +267,6 @@ export default function Today() {
           — the long-form explanation behind this read.
         </p>
       </div>
-    </main>
+    </div>
   );
 }

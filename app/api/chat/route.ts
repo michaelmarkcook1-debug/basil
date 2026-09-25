@@ -72,6 +72,20 @@ export async function POST(req: Request) {
     );
   }
 
+  // Validate the request BEFORE holding any budget. A malformed body used to
+  // reserve a full step's worst case, return 400, and never release it — the
+  // hold sat against the daily cap until its window expired.
+  let messages: UIMessage[];
+  try {
+    const body = await req.json() as { messages?: unknown };
+    if (!Array.isArray(body?.messages)) {
+      return Response.json({ error: "messages must be an array" }, { status: 400 });
+    }
+    messages = body.messages as UIMessage[];
+  } catch {
+    return Response.json({ error: "Invalid JSON body" }, { status: 400 });
+  }
+
   // Plan-aware model tier: Pro/admin get Opus on chat; Free/trial-expired get
   // Sonnet ("balanced"). The per-user spend cap comes from the plan's AI quota.
   const entitlement = await getEntitlement(username);
@@ -106,38 +120,34 @@ export async function POST(req: Request) {
     throw err;
   }
 
-  let messages: UIMessage[];
-  try {
-    const body = await req.json() as { messages?: unknown };
-    if (!Array.isArray(body?.messages)) {
-      return Response.json({ error: "messages must be an array" }, { status: 400 });
-    }
-    messages = body.messages as UIMessage[];
-  } catch {
-    return Response.json({ error: "Invalid JSON body" }, { status: 400 });
-  }
 
   // A tool call that never returned leaves an orphaned tool_use in history with
   // no tool_result. Providers reject that outright ("Tool result is missing for
   // tool call toolu_…"), and because the whole history is resent every turn, ONE
   // interrupted tool call permanently bricks the conversation — every later
   // message fails too. Repair before converting.
-  const { messages: safeMessages, repaired } = repairOrphanedToolCalls(messages);
-  if (repaired > 0) {
-    console.warn(
-      `[api/chat] repaired ${repaired} orphaned tool call(s) — a prior turn was ` +
-      `interrupted mid-tool; without this the conversation would be unusable`
-    );
+  // Everything between the hold and the stream is inside one try: if setup
+  // throws (settings, conversion, prompt), the reservation goes back. Only the
+  // stream's own onFinish/onError may settle it after this point.
+  let modelMessages: Awaited<ReturnType<typeof convertToModelMessages>>;
+  let firstName: string, timezone: string, system: string;
+  try {
+    const { messages: safeMessages, repaired } = repairOrphanedToolCalls(messages);
+    if (repaired > 0) {
+      console.warn(
+        `[api/chat] repaired ${repaired} orphaned tool call(s) — a prior turn was ` +
+        `interrupted mid-tool; without this the conversation would be unusable`
+      );
+    }
+    const settings = await getSettings(username);
+    modelMessages = await convertToModelMessages(safeMessages);
+    firstName = settings.name.split(" ")[0] ?? settings.name;
+    timezone  = resolveTimezone(settings, req);
+    system    = await getSystemPrompt(username, timezone);
+  } catch (err) {
+    await releaseSpend(reservation).catch((e) => console.error("[api/chat] release after setup failure failed:", e instanceof Error ? e.message : e));
+    throw err;
   }
-
-  const [settings, modelMessages] = await Promise.all([
-    getSettings(username),
-    convertToModelMessages(safeMessages),
-  ]);
-
-  const firstName = settings.name.split(" ")[0] ?? settings.name;
-  const timezone  = resolveTimezone(settings, req);
-  const system    = await getSystemPrompt(username, timezone);
 
   // Settle the spend reservation exactly once — onFinish (success) and onError
   // (failure) are mutually exclusive, but guard so we never both commit AND

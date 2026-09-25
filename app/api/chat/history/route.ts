@@ -2,11 +2,13 @@ import { NextResponse } from "next/server";
 import { getSessionUser } from "@/lib/auth";
 import { getChatHistory, appendChatMessages, clearChatHistory } from "@/lib/chat/store";
 import type { StoredMessage } from "@/lib/chat/store";
+import { outcomeFromState, type ToolOutcome } from "@/lib/chat/receipts";
 
 /** Default recall window — recent enough to be relevant, small enough to be cheap. */
 const DEFAULT_DAYS = 14;
 const DEFAULT_LIMIT = 40;
 const MAX_LIMIT = 200;
+const OUTCOMES = new Set<ToolOutcome>(["success", "denied", "failed", "pending", "unknown"]);
 
 /**
  * GET /api/chat/history?days=14&limit=40&q=kyndryl
@@ -108,10 +110,22 @@ async function saveMessages(req: Request, _forceReplace: boolean) {
     )
     .map((m) => {
       const toolReceipts = Array.isArray(m.toolReceipts)
-        ? (m.toolReceipts as Array<{ toolName?: unknown; state?: unknown; input?: unknown }>)
+        ? (m.toolReceipts as Array<{ toolName?: unknown; state?: unknown; outcome?: unknown; input?: unknown }>)
             .filter((r) => !!r && typeof r === "object" && typeof r.toolName === "string" && typeof r.state === "string")
             .slice(0, 20) // a single turn calling 20+ tools is pathological — cap defensively
-            .map((r) => ({ toolName: r.toolName as string, state: r.state as string, input: r.input }))
+            .map((r) => ({
+              toolName: r.toolName as string,
+              state: r.state as string,
+              // The state decides. A client outcome is used only where the state
+              // says nothing (an unrecognised state) — a client cannot promote an
+              // approval-requested receipt to success by asserting it.
+              outcome: ((): ToolOutcome => {
+                const derived = outcomeFromState(r.state as string);
+                if (derived !== "unknown") return derived;
+                return OUTCOMES.has(r.outcome as ToolOutcome) ? (r.outcome as ToolOutcome) : "unknown";
+              })(),
+              input: r.input,
+            }))
         : undefined;
       return {
         id: m.id ?? crypto.randomUUID(),

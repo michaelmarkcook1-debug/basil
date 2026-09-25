@@ -26,7 +26,7 @@ export function PressureTimeline({ day, connected }: { day: DayShape; connected:
   if (!connected) {
     return <Unavailable what="Pressure timeline" why="It is drawn from your calendar, which is not connected." />;
   }
-  if (day.meetingCount === 0) {
+  if (day.meetingCount === 0 && day.blockCount === 0) {
     return <Empty>No meetings today, so there is no booked-versus-clear split to show.</Empty>;
   }
 
@@ -35,7 +35,7 @@ export function PressureTimeline({ day, connected }: { day: DayShape; connected:
   const summary =
     `Between ${new Date(day.firstStart!).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" })} ` +
     `and ${new Date(day.lastEnd!).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" })}, ` +
-    `${fmt(day.meetingMinutes)} is booked in ${day.meetingCount} meetings and ${fmt(day.gapMinutes)} is clear. ` +
+    `${fmt(day.meetingMinutes)} is booked across ${day.meetingCount} meeting${day.meetingCount === 1 ? "" : "s"}${day.blockCount > 0 ? ` and ${day.blockCount} personal block${day.blockCount === 1 ? "" : "s"}` : ""}, and ${fmt(day.gapMinutes)} is clear. ` +
     `Longest uninterrupted stretch: ${fmt(day.longestGapMinutes)}.`;
 
   return (

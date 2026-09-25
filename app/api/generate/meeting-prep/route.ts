@@ -1,3 +1,4 @@
+import { redactSensitive, redactDeep } from "@/lib/security/sensitive";
 import { type ModelMessage } from "ai";
 import { generateTextSafe } from "@/lib/ai/generate";
 import { SpendCapError, spendCapResponse } from "@/lib/ai/spend-guard";
@@ -308,7 +309,7 @@ export async function POST(req: Request) {
   const emailContext = relevantEmails.length > 0
     ? relevantEmails
         .slice(0, 10)
-        .map((e) => `- [${e.date}] From ${e.from}: "${e.subject}" — ${e.snippet}`)
+        .map((e) => `- [${e.date}] From ${e.from}: "${e.subject}" — ${redactSensitive(e.snippet).text}`)
         .join("\n")
     : null;
 
@@ -316,7 +317,7 @@ export async function POST(req: Request) {
   const slackContext = relevantSlack.length > 0
     ? relevantSlack
         .slice(0, 15)
-        .map((m) => `- [${m.date}] ${m.author} in ${m.channel}: ${m.text}`)
+        .map((m) => `- [${m.date}] ${m.author} in ${m.channel}: ${redactSensitive(m.text).text}`)
         .join("\n")
     : null;
 
@@ -332,13 +333,13 @@ export async function POST(req: Request) {
 
   const carryInEmailBlock = recentEmailsAnyAttendee.length > 0
     ? recentEmailsAnyAttendee
-        .map((e) => `- [${e.date}] From ${e.from}: "${e.subject}" — ${e.snippet}`)
+        .map((e) => `- [${e.date}] From ${e.from}: "${e.subject}" — ${redactSensitive(e.snippet).text}`)
         .join("\n")
     : `No recent email traffic in the last ${CARRY_IN_HOURS} hours.`;
 
   const carryInSlackBlock = recentSlackAnyAttendee.length > 0
     ? recentSlackAnyAttendee
-        .map((m) => `- [${m.date}] ${m.author} in ${m.channel}: ${m.text}`)
+        .map((m) => `- [${m.date}] ${m.author} in ${m.channel}: ${redactSensitive(m.text).text}`)
         .join("\n")
     : `No recent Slack traffic in the last ${CARRY_IN_HOURS} hours.`;
 
@@ -545,7 +546,7 @@ ${totalSignal < 3 && !extraBlock ? "⚠️ LOW SIGNAL: You have very little hard
   Only include entries where CARRY-IN email/Slack contains concrete evidence. Empty array is correct if nothing to carry in.
 
 **attendeeInsights** — ONE entry per attendee. "style" is a 2-3 sentence **operating profile**, not tone advice. Describe: role, what they care about, how they operate, current context. Example:
-  - name: "Sam Rivera", role: "COO, Example Holdings", style: "Operationally focused, accountability-minded. Tracks vendor delivery and company-wide accountability. Currently 30 mins before a Leadership sync — he'll be triaging what needs escalating there."
+  - name: "<attendee>", role: "COO, <their company>", style: "Operationally focused, accountability-minded. Tracks vendor delivery and company-wide accountability. Currently 30 mins before a Leadership sync — he'll be triaging what needs escalating there."
   Draw from persona background for operating style; never fabricate current activity.
 
 **topicsToRaise** — 3-6 entries. This is the heart of the prep. Each is:
@@ -651,8 +652,10 @@ Return ONLY valid JSON, no markdown code fences:
     );
   }
 
+  // The model is not trusted to have left credentials out even though it was
+  // never shown any: the output is checked independently of the input.
   const prepResult = {
-    ...parseResult.data,
+    ...redactDeep(parseResult.data).value,
     generatedAt: new Date().toISOString(),
     extraContextSummary: extra.summary,
     // Signal counts for trust UX — how much evidence backed this prep

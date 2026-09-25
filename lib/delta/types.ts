@@ -90,6 +90,12 @@ export interface ChangeEvent {
   entityHref?: string;
 
   /** What specifically changed (field, from, to). */
+  /**
+   * The thing this is about — the action's text, the contact's name, the
+   * decision's title. `title` is the KIND of change ("Due today",
+   * "Stakeholder has gone quiet"); this is its subject. Cards lead with it.
+   */
+  subject?: string;
   delta: {
     field: string;
     from?: string;

@@ -99,8 +99,10 @@ export async function computeTodayFeed(username: string): Promise<TodayFeedRespo
     // ── Integration sources, each fault-isolated ──────────────────────────────
     const [followupResult, linearOn] = await Promise.all([
       detectPendingFollowups(username).catch((e) => {
+        // The detector isolates its own sources; reaching here means the
+        // detector itself failed. Unknown connectivity, and say so.
         console.warn("[today] followups failed:", e instanceof Error ? e.message : e);
-        return { items: [], sources: { gmail: false, slack: false } };
+        return { items: [], sources: { gmail: false, slack: false }, degraded: ["Follow-ups"] };
       }),
       isLinearConnected(username).catch(() => false),
     ]);
@@ -154,8 +156,11 @@ export async function computeTodayFeed(username: string): Promise<TodayFeedRespo
           kind: "change",
           rank,
           lane,
-          title: change.title,
-          subtitle: change.context,
+          // Lead with the SUBJECT — the task, the person — and let the kind of
+          // change support it. "Due today" told the reader nothing until they
+          // opened Why; the task's own text is the headline.
+          title: change.subject ?? change.title,
+          subtitle: change.subject ? change.title : change.context,
           occurredAt: change.occurredAt,
           href: change.entityHref,
           hint,
@@ -227,7 +232,7 @@ export async function computeTodayFeed(username: string): Promise<TodayFeedRespo
         followups: followupResult.sources,
         linear: linearOn,
       },
-      degraded: linearFailed ? ["Linear"] : [],
+      degraded: [...(followupResult.degraded ?? []), ...(linearFailed ? ["Linear"] : [])],
     } satisfies TodayFeedResponse;
 }
 

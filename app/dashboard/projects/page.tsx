@@ -344,7 +344,7 @@ export default function ProjectsPage() {
               <Input
                 value={createForm.name}
                 onChange={(e) => setCreateForm((f) => ({ ...f, name: e.target.value }))}
-                placeholder="e.g. Example Holdings v2"
+                placeholder="e.g. Q4 platform launch"
                 required
               />
             </label>

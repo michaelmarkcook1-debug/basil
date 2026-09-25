@@ -1,5 +1,6 @@
 "use client";
 
+import { redactDeep } from "@/lib/security/sensitive";
 import { useState, useEffect } from "react";
 import { useParams } from "next/navigation";
 import { usePersistentDraft } from "@/lib/hooks/use-persistent-draft";
@@ -155,7 +156,9 @@ export default function MeetingPrepPage() {
     try {
       const cached = localStorage.getItem(cacheKey);
       if (!cached) return;
-      const parsed = JSON.parse(cached) as PrepData;
+      // Scrub on restore: a prep cached in this browser before the fix may
+      // still carry what the model repeated from an email.
+      const parsed = redactDeep(JSON.parse(cached) as PrepData).value;
       // Drop cached prep older than 24h — meeting context moves fast and a
       // day-old prep is usually worse than regenerating fresh.
       const generated = parsed?.generatedAt ? new Date(parsed.generatedAt).getTime() : 0;
@@ -274,7 +277,7 @@ export default function MeetingPrepPage() {
       <header className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3">
         <div className="space-y-1 min-w-0">
           <p className="text-xs font-semibold tracking-widest uppercase text-[color:var(--w-carbon)]">
-            Example Holdings · Meeting Prep
+            Meeting Prep
           </p>
           <h1 className="text-xl font-semibold break-words">{meta?.title}</h1>
           <div className="flex items-center gap-2 text-sm text-[color:var(--w-carbon)] flex-wrap">

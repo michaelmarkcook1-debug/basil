@@ -1,5 +1,6 @@
 "use client";
 
+import { toStoredMessage, toUIMessage, shouldRenderApproval, receiptLabel } from "@/lib/chat/receipts";
 import { useChat } from "@ai-sdk/react";
 import {
   lastAssistantMessageIsCompleteWithToolCalls,
@@ -88,13 +89,6 @@ const toolIcons: Record<string, typeof Calendar> = {
   listLinearIssues: ListTodo,
   updateLinearIssueStatus: ListTodo,
 };
-
-const ACTION_TOOLS = new Set([
-  "draftEmail",
-  "scheduleMeeting",
-  "sendSlackMessage",
-  "updateLinearIssueStatus",
-]);
 
 /**
  * Maps tool names that mutate server state to the domain they affect.
@@ -199,9 +193,12 @@ function ChatPageInner() {
       .catch((err) => { console.warn("[chat] settings load failed:", err); });
   }, []);
 
-  // Check brain status once on mount
+  // Brain status on mount comes from CONFIGURATION, not a model call. Opening
+  // this page used to send a real request to the assistant's model every time,
+  // outside the spend meter. /api/ai/test-brain still exists for an explicit
+  // connectivity test; nothing calls it just by looking.
   useEffect(() => {
-    fetch("/api/ai/test-brain")
+    fetch("/api/ai/status")
       .then((r) => r.ok ? r.json() : null)
       .then((d: { ok?: boolean; model?: string } | null) => {
         if (d) { setBrainReady(d.ok ?? false); setBrainModel(d.model ?? null); }
@@ -306,38 +303,13 @@ function ChatPageInner() {
     // Server — durable, cross-device, per-user. POST = idempotent APPEND (dedup by
     // id server-side): a new session can only ADD to the archive. The old PUT-replace
     // wiped every prior conversation the moment a fresh session saved its first turn.
+    // lib/chat/receipts owns the shape: every text part (a denial's
+    // acknowledgement is usually the second one) and an explicit outcome per
+    // tool call. The server upserts by id, so a continuation that reuses the
+    // assistant id revises its earlier "approval requested" receipt.
     const storedMessages = messages
-      .filter((m) => m.role === "user" || m.role === "assistant")
-      .map((m) => {
-        // In AI SDK v6, text content is always in parts — there is no .content shorthand
-        const textPart = m.parts?.find((p) => (p as { type: string }).type === "text") as { type: string; text: string } | undefined;
-        // Tool receipts — WHAT Basil actually did (drafted an email, booked a
-        // meeting, etc.) was previously never archived; only the answer text
-        // that happened to follow was saved. Capture a lightweight summary
-        // (name + final state + input) so history reflects real actions taken.
-        const toolReceipts = (m.parts ?? [])
-          .filter((p) => typeof (p as { type?: unknown }).type === "string" && (p as { type: string }).type.startsWith("tool-"))
-          .map((p) => {
-            const tp = p as Record<string, unknown>;
-            const toolName = (tp.type as string).replace("tool-", "");
-            const state = typeof tp.state === "string" ? tp.state : "unknown";
-            return { toolName, state, input: tp.input };
-          })
-          // Cap serialized size per receipt so a large draft body can't bloat storage.
-          .map((r) => {
-            const json = JSON.stringify(r.input ?? {});
-            return json.length > 1000 ? { ...r, input: { truncated: true } } : r;
-          });
-        return {
-          id: m.id,
-          role: m.role as "user" | "assistant",
-          content: textPart?.text ?? "",
-          createdAt: new Date().toISOString(),
-          ...(toolReceipts.length > 0 ? { toolReceipts } : {}),
-        };
-      })
-      // A tool-only message (no text) still records what Basil did — don't drop it.
-      .filter((m) => m.content.trim().length > 0 || (m.toolReceipts?.length ?? 0) > 0);
+      .map((m) => toStoredMessage(m as unknown as Parameters<typeof toStoredMessage>[0]))
+      .filter((m): m is NonNullable<typeof m> => m !== null);
 
     fetch("/api/chat/history", {
       // POST = idempotent APPEND (server dedups by id). Was PUT (replace), which
@@ -507,32 +479,13 @@ function ChatPageInner() {
       );
       if (archive.length === 0) return;
 
-      const uiMessages = archive.map((m: {
-        id: string; role: string; content: string; createdAt: string;
-        toolReceipts?: Array<{ toolName: string; state: string; input?: unknown }>;
-      }) => {
-        const parts: Array<Record<string, unknown>> = [];
-        if (m.content) parts.push({ type: "text" as const, text: m.content });
-        // Rehydrate archived tool receipts as synthetic tool parts — reuses the
-        // existing tool-part renderer (icon + name + done/denied state) so a
-        // reopened conversation shows what Basil actually did, not just the reply.
-        for (const r of m.toolReceipts ?? []) {
-          parts.push({
-            type: `tool-${r.toolName}`,
-            state: r.state === "output-denied" ? "output-denied" : "output-available",
-            input: r.input,
-          });
-        }
-        return {
-          id: m.id,
-          role: m.role as "user" | "assistant",
-          // Synthetic tool parts are dynamically shaped per tool name — same
-          // pattern as the live renderer's `part as Record<string, unknown>` cast.
-          parts: parts as unknown as UIMessage["parts"],
-          content: m.content,
-          createdAt: new Date(m.createdAt),
-        };
-      });
+      // Restored receipts carry their archived outcome — pending and unknown
+      // get states of their own, so nothing unfinished renders as done and
+      // nothing restored can ever show Approve/Deny. (The old mapping turned
+      // every non-denied receipt into a tick.)
+      const uiMessages = archive.map((m: Parameters<typeof toUIMessage>[0]) =>
+        toUIMessage(m) as unknown as UIMessage,
+      );
 
       // Prepend archive so any in-progress conversation stays at the bottom
       setMessages((prev) => (prev.length === 0 ? uiMessages : [...uiMessages, ...prev]));
@@ -825,13 +778,18 @@ function ChatPageInner() {
                 const IconComponent = toolIcons[toolName] || FileText;
                 const toolPart = part as Record<string, unknown>;
                 const state = toolPart.state as string | undefined;
-                const isAction = ACTION_TOOLS.has(toolName);
                 const isApprovalRequested = state === "approval-requested";
                 const isDone = state === "output-available" || state === "done";
                 const isDenied = state === "output-denied";
-                const isPending = !isDone && !isApprovalRequested && !isDenied;
+                const isFailed = state === "output-error";
+                const isArchived = state === "archived-pending" || state === "archived-unknown";
+                // A spinner means "still running". Archived rows are not running.
+                const isPending = !isDone && !isApprovalRequested && !isDenied && !isFailed && !isArchived;
 
-                if (isAction && isApprovalRequested) {
+                // Any tool the server marked approval-requested gets controls —
+                // there is no allowlist to fall out of step with lib/ai/tools.ts.
+                // (addAction and five other approval tools were missing from it.)
+                if (shouldRenderApproval(toolPart)) {
                   const approval = toolPart.approval as { id: string } | undefined;
                   const toolInput = toolPart.input as Record<string, unknown>;
                   return (
@@ -877,8 +835,10 @@ function ChatPageInner() {
                     <IconComponent className="h-3 w-3" />
                     <span className="font-medium">{toolName.replace(/([A-Z])/g, " $1").trim()}</span>
                     {isPending && <Loader2 className="h-3 w-3 animate-spin" />}
-                    {isDone && <span className="text-signal-positive">✓</span>}
-                    {isDenied && <span className="text-destructive">denied</span>}
+                    {isDone && <span className="text-signal-positive">{receiptLabel(state).label}</span>}
+                    {isDenied && <span className="text-destructive">{receiptLabel(state).label}</span>}
+                    {isFailed && <span className="text-destructive">{receiptLabel(state).label}</span>}
+                    {isArchived && <span className="text-[color:var(--w-manila)]">{receiptLabel(state).label}</span>}
                   </div>
                 );
               }

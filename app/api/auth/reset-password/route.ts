@@ -54,7 +54,7 @@ export async function POST(req: Request) {
     // The claim succeeded but the password write did not. Hand the token back
     // so the link the user is holding still works — expiry still bounds it.
     await releaseResetToken(token).catch((err) =>
-      console.error("[reset-password] could not release claimed token:", err instanceof Error ? err.message : err)
+      console.error("[reset-password] could not release claimed token:", err instanceof Error ? err.message : err) // ci-ok: error message only — never the token value
     );
     return NextResponse.json({ error: "Failed to update password. Please try again." }, { status: 500 });
   }

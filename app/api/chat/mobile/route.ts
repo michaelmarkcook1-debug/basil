@@ -1,18 +1,31 @@
 /**
  * POST /api/chat/mobile
  *
- * Non-streaming chat endpoint for the mobile app.
- * Accepts the same message history format as /api/chat but returns a simple
- * JSON { text: string } response instead of a streaming UI message stream.
+ * Non-streaming chat endpoint for the mobile app. Same message history as
+ * /api/chat, plain JSON back.
  *
- * Mobile clients don't benefit from streaming in the same way web clients do,
- * so this approach is simpler, more reliable, and easier to handle offline.
+ * Response: { text, approvals, assistantMessage }
+ *
+ *   text             — the reply
+ *   approvals        — tools the model wants to run that need the user's say-so
+ *                      ({ approvalId, toolName, toolCallId, input })
+ *   assistantMessage — the assistant turn as a UI message. Echo it back in the
+ *                      next request with each approval part's state set to
+ *                      "approval-responded" and `approval: { id, approved }`;
+ *                      the tool then runs (or the model is told it was denied).
+ *
+ * Until 2026-09-15 this route flattened every incoming part to text and
+ * returned only `text`, so an approval request came back as `{ text: "" }`,
+ * and a client could not answer it — approval-required tools were silently
+ * unusable from mobile. Messages now keep their parts and go through the same
+ * convertToModelMessages path as the web route.
  */
 
 export const maxDuration = 300;
 
-import { stepCountIs, type ModelMessage } from "ai";
+import { stepCountIs, convertToModelMessages, type UIMessage } from "ai";
 import { generateTextSafe } from "@/lib/ai/generate";
+import { repairOrphanedToolCalls } from "@/lib/ai/repair-history";
 import { SpendCapError, spendCapResponse } from "@/lib/ai/spend-guard";
 import { getEntitlement } from "@/lib/billing/entitlement-store";
 import { effectiveKind } from "@/lib/ai/tiering";
@@ -28,8 +41,17 @@ import { checkRateLimitDurable } from "@/lib/rate-limit";
 interface IncomingMessage {
   id?: string;
   role: "user" | "assistant";
-  parts?: Array<{ type: string; text?: string }>;
+  /** UI message parts — text, tool parts (including approval-responded), files. */
+  parts?: Array<Record<string, unknown> & { type: string }>;
+  /** Legacy clients send a bare string; it becomes a single text part. */
   content?: string;
+}
+
+export interface MobileApproval {
+  approvalId: string;
+  toolName: string;
+  toolCallId: string;
+  input: unknown;
 }
 
 // Match the web chat route's protections (this endpoint previously had neither).
@@ -65,19 +87,19 @@ export async function POST(req: Request) {
     return Response.json({ error: "Invalid JSON body" }, { status: 400 });
   }
 
-  // Normalise to ModelMessage format (AI SDK v6) — handle both parts[] and content string
-  const messages: ModelMessage[] = rawMessages
+  // Keep parts intact — an approval decision is a tool part, not text.
+  const uiMessages: UIMessage[] = rawMessages
     .filter((m) => m.role === "user" || m.role === "assistant")
-    .map((m) => ({
-      role: m.role as "user" | "assistant",
-      content:
-        m.content ??
-        m.parts?.find((p) => p.type === "text")?.text ??
-        "",
+    .map((m, i) => ({
+      id: m.id ?? `m-${i}`,
+      role: m.role,
+      parts: (m.parts && m.parts.length > 0
+        ? m.parts
+        : [{ type: "text", text: m.content ?? "" }]) as UIMessage["parts"],
     }))
-    .filter((m) => m.content.trim().length > 0);
+    .filter((m) => m.parts.some((p) => (p as { type: string }).type !== "text" || ((p as { text?: string }).text ?? "").trim().length > 0));
 
-  if (messages.length === 0) {
+  if (uiMessages.length === 0) {
     return Response.json({ error: "No valid messages provided" }, { status: 400 });
   }
 
@@ -91,12 +113,17 @@ export async function POST(req: Request) {
     const entitlement = await getEntitlement(username);
     const chatKind = effectiveKind("default", entitlement.plan);
 
+    const { messages: safeMessages } = repairOrphanedToolCalls(uiMessages);
+    const messages = await convertToModelMessages(safeMessages);
+
     const result = await generateTextSafe({
       model: getChatModel(chatKind),
       maxOutputTokens: MAX_TOKENS[chatKind],
       system,
       messages,
       tools: buildAssistantTools(username, firstName, timezone),
+      // generateTextSafe appends the spend ceiling: the loop stops when its
+      // accumulated cost reaches the one-step reservation, whatever this says.
       stopWhen: stepCountIs(5),
       ...(PROVIDER_MODE === "vercel_gateway" && {
         providerOptions: {
@@ -113,7 +140,29 @@ export async function POST(req: Request) {
       maxSteps: 5,
     });
 
-    return Response.json({ text: result.text });
+    // Approval requests come back as content parts, not as a paused call.
+    const approvals: MobileApproval[] = [];
+    for (const part of result.content as ReadonlyArray<Record<string, unknown>>) {
+      if (part.type !== "tool-approval-request") continue;
+      const call = part.toolCall as { toolName: string; toolCallId: string; input: unknown };
+      approvals.push({ approvalId: String(part.approvalId), toolName: call.toolName, toolCallId: call.toolCallId, input: call.input });
+    }
+    const assistantMessage = {
+      id: `asst-${Date.now().toString(36)}`,
+      role: "assistant" as const,
+      parts: [
+        ...(result.text ? [{ type: "text", text: result.text }] : []),
+        ...approvals.map((a) => ({
+          type: `tool-${a.toolName}`,
+          toolCallId: a.toolCallId,
+          state: "approval-requested",
+          input: a.input,
+          approval: { id: a.approvalId },
+        })),
+      ],
+    };
+
+    return Response.json({ text: result.text, approvals, assistantMessage });
   } catch (e) {
     if (e instanceof SpendCapError) {
       return spendCapResponse(e);

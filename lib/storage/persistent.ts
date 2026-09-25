@@ -248,13 +248,16 @@ export async function readStore<T>(
 ): Promise<T> {
   const scope = subdir ?? "";
 
+  // Run migration once (no-op on subsequent calls or if already done). It MUST
+  // precede the Postgres branch: with DATABASE_URL newly set, reads went
+  // straight to an empty Postgres before the Blob→Postgres copy had run, so
+  // every existing account and record was invisible until someone noticed.
+  await maybeRunMigration();
+
   // Postgres is the consistent source of truth — always fresh, no /tmp cache.
   if (isPgEnabled()) {
     return pgReadJson(scope, filename, fallback);
   }
-
-  // Run migration once (no-op on subsequent calls or if already done)
-  await maybeRunMigration();
 
   if (!isBlobEnabled() && !isEnvEnabled()) {
     // Local dev: filesystem only
@@ -307,6 +310,10 @@ export async function writeStore<T>(
 ): Promise<void> {
   const scope = subdir ?? "";
   const durability = options?.durability ?? "eventual";
+
+  // Same ordering rule as readStore: a cold instance's first write must not
+  // land in an empty Postgres that the Blob copy is about to populate.
+  await maybeRunMigration();
 
   // Postgres: a single upsert is immediately durable (no /tmp, no write queue).
   if (isPgEnabled()) {

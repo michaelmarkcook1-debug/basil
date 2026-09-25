@@ -52,3 +52,7 @@ next-env.d.ts
 # so the protection travels with the repo.
 .claude/settings.local.json
 .mcp.local.json
+
+# Playwright output
+test-results/
+playwright-report/

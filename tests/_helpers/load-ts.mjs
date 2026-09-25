@@ -43,8 +43,11 @@ export function loadTs(relative, mocks = {}, env = {}) {
   };
   vm.runInNewContext(outputText, {
     module: mod, exports: mod.exports, require: restrictedRequire,
-    console, Buffer, Date, Error, URL, TextEncoder, TextDecoder, structuredClone,
+    console, Buffer, Date, Error, URL, URLSearchParams, TextEncoder, TextDecoder, structuredClone,
     setTimeout, clearTimeout, setImmediate, queueMicrotask,
+    // WHATWG globals route handlers and the AI SDK rely on. Same objects as
+    // this realm so a Response built inside can be read outside.
+    Response, Request, Headers, fetch, AbortController, AbortSignal, ReadableStream, TransformStream, Blob, FormData,
     crypto: globalThis.crypto,
     process: { env, nextTick: process.nextTick },
   }, { filename: relative });

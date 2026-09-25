@@ -33,7 +33,7 @@ export default function ThreadsPage() {
   const count = data?.totals?.followups ?? threads.length;
 
   return (
-    <main className="wire min-h-full">
+    <div className="wire min-h-full">
       <div className="mx-auto w-full max-w-[52rem] px-4 sm:px-6 py-4 sm:py-6">
         <Panel
           title="Awaiting your reply"
@@ -83,6 +83,6 @@ export default function ThreadsPage() {
           </Link>
         </p>
       </div>
-    </main>
+    </div>
   );
 }

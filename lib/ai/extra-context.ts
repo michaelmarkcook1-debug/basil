@@ -15,6 +15,7 @@
 // we flag it so the route can mention it in the prompt ("Michael also attached
 // X but it wasn't supported") or the UI can show it back to the user.
 
+import { redactSensitive } from "@/lib/security/sensitive";
 import {
   parseOffice,
   type OfficeContentNode,
@@ -351,7 +352,7 @@ export async function parseExtraContext(
           continue;
         }
         const text = await file.text();
-        textChunks.push(`### FILE: ${file.name}\n\n${text.trim()}`);
+        textChunks.push(`### FILE: ${file.name}\n\n${redactSensitive(text.trim()).text}`);
         totalTextBytes += file.size;
         filesProcessed++;
       } else if (isOfficeDoc(file)) {
@@ -393,8 +394,10 @@ export async function parseExtraContext(
         if (extracted.length > capBytes) {
           extracted = extracted.slice(0, capBytes) + "\n\n…[truncated]";
         }
+        // An attached document is model input like any other — a pasted
+        // credentials sheet must not reach the prompt.
         textChunks.push(
-          `### ${officeKindLabel(file).toUpperCase()}: ${file.name}\n\n${extracted}`
+          `### ${officeKindLabel(file).toUpperCase()}: ${file.name}\n\n${redactSensitive(extracted).text}`
         );
         totalTextBytes += Math.min(extracted.length, capBytes);
         filesProcessed++;

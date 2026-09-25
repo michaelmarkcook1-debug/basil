@@ -1,4 +1,5 @@
 import { tool } from "ai";
+import { redactDeep } from "@/lib/security/sensitive";
 import { z } from "zod";
 import { webSearch, fetchPageContent } from "@/lib/web/search";
 import { isGoogleConnected } from "@/lib/google/auth";
@@ -117,7 +118,7 @@ export function buildAssistantTools(username: string, firstName?: string, timezo
         const emails = query
           ? await searchEmails(username, query, limit || 5)
           : await getRecentEmails(username, limit || 5);
-        return { results: emails, count: emails.length, query: query || "(recent)" };
+        return redactDeep({ results: emails, count: emails.length, query: query || "(recent)" }).value;
       },
     }),
 
@@ -135,7 +136,7 @@ export function buildAssistantTools(username: string, firstName?: string, timezo
         }
         try {
           const email = await getEmailBody(username, messageId);
-          return email;
+          return redactDeep(email).value;
         } catch (e) {
           return {
             error: `Failed to fetch email body: ${e instanceof Error ? e.message : "Unknown error"}`,
@@ -154,7 +155,7 @@ export function buildAssistantTools(username: string, firstName?: string, timezo
           return { error: "Slack not connected." };
         }
         const results = await searchSlackMessages(username, query, 10);
-        return { results, count: results.length, query };
+        return redactDeep({ results, count: results.length, query }).value;
       },
     }),
 
@@ -169,7 +170,7 @@ export function buildAssistantTools(username: string, firstName?: string, timezo
         }
         const all = await getRecentSlackMessages(username, limit || 10);
         const dms = all.filter((m) => m.channel.startsWith("DM:") || m.channel === "Group DM");
-        return { results: dms, count: dms.length };
+        return redactDeep({ results: dms, count: dms.length }).value;
       },
     }),
 
@@ -416,7 +417,10 @@ export function buildAssistantTools(username: string, firstName?: string, timezo
           return { error: "Google Calendar not connected. Cannot schedule until Google is connected in Settings." };
         }
         try {
-          const result = await createCalendarEvent(username, { title, attendees, date, startTime, duration });
+          // The model was told to give the time in the user's local zone; the
+          // adapter defaulted to London when none was passed. 09:00 New York
+          // booked as 09:00 London — five hours early.
+          const result = await createCalendarEvent(username, { title, attendees, date, startTime, duration, timezone });
           await emitAuditEvent({ username,
             source: "calendar",
             headline: `Scheduled "${title}" on ${date} ${startTime}`,

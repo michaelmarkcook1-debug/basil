@@ -35,6 +35,7 @@
 
 import { createHash } from "node:crypto";
 import { readStore, writeStore, deleteStore } from "@/lib/storage/persistent";
+import { redactDeep } from "@/lib/security/sensitive";
 
 // ── Types ──────────────────────────────────────────────────────────────────────
 
@@ -59,6 +60,8 @@ export type CacheType =
  * T is the generated output shape (Briefing, Digest, MeetingPrepOutput, etc.)
  */
 export interface CacheRecord<T = unknown> {
+  /** Set on read: how many values had to be redacted from a record cached before the fix. */
+  redactedOnRead?: number;
   /** Owning user. Redundant with the path but useful for debugging / auditing. */
   username: string;
   /** Discriminant for the type of generated output. */
@@ -144,7 +147,14 @@ export async function readGenerateCache<T>(
 ): Promise<CacheRecord<T> | null> {
   const subdir = cacheSubdir(username);
   const filename = cacheFilename(cacheType);
-  return readStore<CacheRecord<T> | null>(filename, null, subdir, { fresh: opts?.fresh });
+  const record = await readStore<CacheRecord<T> | null>(filename, null, subdir, { fresh: opts?.fresh });
+  if (!record) return null;
+  // Records written before 2026-09-15 were cached with whatever the model
+  // said, credentials included. They are not deleted — they are scrubbed on
+  // the way out, every time, so a restored cache is as safe as a fresh one.
+  const { value, count } = redactDeep(record.content);
+  if (count > 0) console.warn(`[generate-cache] ${cacheType} for ${username}: redacted ${count} value(s) on read`);
+  return { ...record, content: value, redactedOnRead: count };
 }
 
 /**
@@ -165,13 +175,16 @@ export async function writeGenerateCache<T>(
   }
 ): Promise<void> {
   const now = new Date();
+  // Nothing credential-shaped is written durably, whatever the route did.
+  const { value: safeContent, count } = redactDeep(content);
+  if (count > 0) console.warn(`[generate-cache] ${cacheType} for ${username}: redacted ${count} value(s) before write`);
   const record: CacheRecord<T> = {
     username,
     cacheType,
     generatedAt: now.toISOString(),
     inputHash: opts.inputHash,
     expiresAt: new Date(now.getTime() + opts.ttlMs).toISOString(),
-    content,
+    content: safeContent,
   };
 
   const subdir = cacheSubdir(username);

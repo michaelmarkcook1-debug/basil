@@ -18,7 +18,7 @@
  * instead of calling generateText / streamText directly.
  */
 
-import { generateText, streamText } from "ai";
+import { generateText, streamText, stepCountIs } from "ai";
 import {
   getTextModel,
   getDirectAnthropicModel,
@@ -33,7 +33,43 @@ import {
   commitSpend,
   releaseSpend,
   type SpendMeter,
+  type SpendReservation,
 } from "@/lib/ai/spend-guard";
+import { costUsd } from "@/lib/ai/pricing";
+
+// ── The reservation is a ceiling ──────────────────────────────────────────────
+//
+// reserveSpend() holds ONE step's worst case (RESERVE_STEP_CAP). That is only
+// safe if the tool loop is stopped when its accumulated cost reaches the hold.
+// The web chat route enforces this in its own stopWhen; every other metered
+// caller — mobile chat passed maxSteps: 5 and got a one-step hold and a
+// five-step loop — did not. So the wrapper enforces it for all of them: the
+// caller's stopWhen is kept (or the SDK default of one step), and a spend
+// ceiling is appended. reservedUsd === 0 means observe-only: never stop.
+//
+// Exported so the contract can be tested with synthetic steps.
+type StepLike = { usage?: { inputTokens?: number; outputTokens?: number } };
+type StopLike = (ctx: { steps: readonly StepLike[] }) => boolean | PromiseLike<boolean>;
+
+export function withSpendCeiling(
+  existing: StopLike | StopLike[] | undefined,
+  reservation: SpendReservation | null,
+  onStop?: (spentUsd: number) => void,
+): StopLike | StopLike[] | undefined {
+  if (!reservation || reservation.reservedUsd <= 0) return existing;
+  const base: StopLike[] = existing === undefined
+    ? [stepCountIs(1) as unknown as StopLike] // the SDK default — keep it
+    : Array.isArray(existing) ? existing : [existing];
+  const ceiling: StopLike = ({ steps }) => {
+    const spent = steps.reduce((sum, st) => sum + costUsd(reservation.family, {
+      inputTokens: st.usage?.inputTokens, outputTokens: st.usage?.outputTokens,
+    }), 0);
+    if (spent < reservation.reservedUsd) return false;
+    onStop?.(spent);
+    return true;
+  };
+  return [...base, ceiling];
+}
 
 // ── Internal helpers ──────────────────────────────────────────────────────────
 
@@ -136,12 +172,19 @@ export async function generateTextSafe(
   // Reserve worst-case budget up front (throws SpendCapError if over cap).
   const reservation = meter ? await reserveSpend(meter, kind) : null;
 
+  const stopWhen = withSpendCeiling(
+    (options as { stopWhen?: StopLike | StopLike[] }).stopWhen,
+    reservation,
+    (spent) => console.warn(`[ai/generate] BUDGET-STOPPED (${kind}): loop reached its $${reservation?.reservedUsd.toFixed(2)} reservation at $${spent.toFixed(3)}`),
+  );
+
   // ── Attempt 1: primary ────────────────────────────────────────────────────
   try {
     // Cast: model is always supplied here; the relaxed wrapper type (model
     // optional) doesn't narrow the SDK's prompt|messages union, so re-assert it.
-    const result = await generateText({ ...options, model: primaryModel, abortSignal: attemptSignal(kind, options.abortSignal) } as Parameters<typeof generateText>[0]);
-    if (reservation) await commitSpend(reservation, result.usage);
+    const result = await generateText({ ...options, model: primaryModel, stopWhen, abortSignal: attemptSignal(kind, options.abortSignal) } as Parameters<typeof generateText>[0]);
+    // totalUsage spans every step of a tool loop; usage is the final step only.
+    if (reservation) await commitSpend(reservation, result.totalUsage ?? result.usage);
     return result;
   } catch (primaryErr) {
     const msg = primaryErr instanceof Error ? primaryErr.message : String(primaryErr);
@@ -189,8 +232,8 @@ export async function generateTextSafe(
     attempted = true;
     try {
       console.info(`[ai/generate] Retrying with ${name} fallback (${kind})`);
-      const result = await generateText({ ...options, model, abortSignal: attemptSignal(kind, options.abortSignal) } as Parameters<typeof generateText>[0]);
-      if (reservation) await commitSpend(reservation, result.usage);
+      const result = await generateText({ ...options, model, stopWhen, abortSignal: attemptSignal(kind, options.abortSignal) } as Parameters<typeof generateText>[0]);
+      if (reservation) await commitSpend(reservation, result.totalUsage ?? result.usage);
       return result;
     } catch (fallbackErr) {
       lastErr = fallbackErr;

@@ -66,24 +66,21 @@ export default function DashboardLayout({
       {/* Global command palette (Cmd-K) — works on every dashboard route */}
       <CommandPalette />
 
-      {/* ── Desktop: side-by-side, no topbar ─────────────────────────────────── */}
-      <div className="wire hidden lg:flex h-screen overflow-hidden">
-        {/* Sidebar */}
-        <AppSidebar />
+      {/*
+        ONE shell. Until 2026-09-17 this was two complete trees — a desktop
+        `hidden lg:flex` and a mobile `lg:hidden` — each with its own main
+        element, its own copy of every global bar, and its own mount of the
+        page. CSS hid one, but both were mounted: every page fetched twice,
+        every effect ran twice, every id appeared twice, and screen readers
+        read it all twice. Now the chrome is responsive around one main.
+      */}
+      <div className="wire flex h-screen overflow-hidden flex-col lg:flex-row">
+        {/* Desktop sidebar */}
+        <div className="hidden lg:flex shrink-0">
+          <AppSidebar />
+        </div>
 
-        {/* Main content */}
-        <main className="flex-1 overflow-y-auto basil-scroll bg-background">
-          <SyncBanner />
-          <ModeStatusBar />
-          <ModeIntelligenceBar />
-          <ModeSwitcherDialog open={modeDialogOpen} onOpenChange={setModeDialogOpen} />
-          {children}
-        </main>
-      </div>
-
-      {/* ── Mobile ───────────────────────────────────────────────────────────── */}
-      <div className="wire lg:hidden flex h-screen overflow-hidden flex-col">
-        {/* Mobile slide-out drawer */}
+        {/* Mobile slide-out drawer (portal — position in the tree is irrelevant) */}
         <Sheet open={mobileOpen} onOpenChange={setMobileOpen}>
           <SheetContent
             side="left"
@@ -95,7 +92,7 @@ export default function DashboardLayout({
 
         {/* Mobile top bar */}
         {!isStandalone && (
-          <header className="flex items-center h-14 px-4 bg-sidebar border-b border-sidebar-border shrink-0 pt-[env(safe-area-inset-top)]">
+          <header className="lg:hidden flex items-center h-14 px-4 bg-sidebar border-b border-sidebar-border shrink-0 pt-[env(safe-area-inset-top)]">
             <button
               onClick={() => setMobileOpen(true)}
               className="rounded-md p-2 -ml-2 text-sidebar-foreground/60 hover:text-sidebar-foreground hover:bg-sidebar-accent transition-colors"
@@ -111,13 +108,14 @@ export default function DashboardLayout({
         )}
 
         {isStandalone && (
-          <div className="shrink-0 bg-sidebar" style={{ height: "env(safe-area-inset-top)" }} />
+          <div className="lg:hidden shrink-0 bg-sidebar" style={{ height: "env(safe-area-inset-top)" }} />
         )}
 
         <main
           className={cn(
             "flex-1 overflow-y-auto basil-scroll bg-background",
-            "pb-[calc(3.5rem+env(safe-area-inset-bottom))]"
+            // Clear the fixed bottom nav on small screens only.
+            "pb-[calc(3.5rem+env(safe-area-inset-bottom))] lg:pb-0"
           )}
         >
           <SyncBanner />

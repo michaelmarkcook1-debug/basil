@@ -11,6 +11,7 @@
  * - Body clipped to 4 000 chars to keep AI costs bounded
  */
 
+import { redactSensitive, redactDeep } from "@/lib/security/sensitive";
 import { generateTextSafe } from "@/lib/ai/generate";
 import { getTextModel, MAX_TOKENS } from "@/lib/ai/model-config";
 import { getSystemPrompt } from "@/lib/ai/system-prompt";
@@ -204,7 +205,10 @@ export async function classifyEmail(
   const userFirstName = userName.split(" ")[0];
 
   // Clip to 4 000 chars — enough for rich emails, bounded AI cost
-  const bodyClip = (body || snippet || "").trim().slice(0, 4_000);
+  // Credentials are not intelligence. A password-reset or 2FA email still
+  // classifies correctly without its code; the code must never reach the
+  // model, and so can never come back as an "action".
+  const bodyClip = redactSensitive((body || snippet || "").trim().slice(0, 4_000)).text;
 
   if (!bodyClip) return emptyIntelligence();
 
@@ -324,7 +328,7 @@ Respond with ONLY valid JSON — no markdown fences, no explanation:
         meter: { username, feature: "classify:email" },
       });
 
-      return output as EmailIntelligence;
+      return redactDeep(output as EmailIntelligence).value;
     } catch (err) {
       // Dispatch failure: log and fall through to legacy path below
       console.error(
@@ -345,7 +349,7 @@ Respond with ONLY valid JSON — no markdown fences, no explanation:
       messages: [{ role: "user", content: prompt }],
     }, "balanced", { username, feature: "classify:email" });
 
-    const result = parseIntelligence(text);
+    const result = redactDeep(parseIntelligence(text)).value;
 
     // dispatch_shadow: parallel trace — only when dispatch is not already primary
     if (flags?.dispatch_shadow && !(flags?.dispatch_active)) {
