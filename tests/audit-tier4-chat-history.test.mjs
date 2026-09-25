@@ -89,7 +89,7 @@ test("L3 every tool that requires approval renders controls when the server asks
   // with needsApproval: true, so this test grows with the tool set.
   const decls = [...src.matchAll(/^\s{4}([a-zA-Z]+): tool\(\{/gm)];
   const names = decls
-    .filter((d, i) => /needsApproval: true/.test(src.slice(d.index, decls[i + 1]?.index ?? src.length)))
+    .filter((d, i) => /needsApproval: (true|!delegated\.has\()/.test(src.slice(d.index, decls[i + 1]?.index ?? src.length)))
     .map((d) => d[1]);
   assert.ok(names.includes("addAction") && names.includes("draftEmail") && names.length >= 8, `found ${names}`);
   for (const n of names) {

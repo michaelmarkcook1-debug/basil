@@ -12,6 +12,7 @@ import { useState } from "react";
 import Link from "next/link";
 import { ChevronDown } from "lucide-react";
 import { UrgencyBadge, urgencyRule, ProvenanceIndicator, Card } from "./primitives";
+import { ConfidenceMeter } from "@/components/ui/trust-ui";
 import type { Priority } from "@/lib/today/executive";
 
 export function PriorityActionCard({
@@ -52,6 +53,11 @@ export function PriorityActionCard({
       </p>
       {p.context && (
         <p className="mt-1.5 text-[0.8125rem] font-medium text-[color:var(--w-carbon)]">{p.context}</p>
+      )}
+      {/* An inferred priority says how sure the inference was — the same meter
+          the Actions page uses, so the number means the same thing everywhere. */}
+      {p.provenance === "inferred" && typeof p.confidence === "number" && (
+        <ConfidenceMeter value={p.confidence} className="mt-2 max-w-[12rem]" />
       )}
 
       <div className="mt-3.5 flex flex-wrap items-center gap-2">

@@ -10,6 +10,7 @@
  */
 
 import { subjectOf } from "@/lib/today/executive";
+import { FreshnessTag } from "@/components/ui/trust-ui";
 import Link from "next/link";
 import { ArrowUpRight } from "lucide-react";
 import { Card, Empty, Unavailable } from "./primitives";
@@ -141,6 +142,10 @@ export function RelationshipPanel({
                 <span className="min-w-0 flex-1">
                   <span className="block truncate text-[0.875rem] font-medium text-[color:var(--w-ink)]">{name}</span>
                   <span className="block truncate text-[0.75rem] text-[color:var(--w-ink-soft)]">{i.subtitle}</span>
+                  {/* How old the evidence is — the last contact, not when Basil noticed. */}
+                  {i.kind === "change" && i.change.observedAt && (
+                    <FreshnessTag createdAt={i.change.observedAt} halfLifeDays={14} className="mt-0.5" />
+                  )}
                 </span>
               </Link>
             </li>

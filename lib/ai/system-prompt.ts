@@ -8,10 +8,14 @@ import { findByUsername } from "@/lib/users";
  * @param timezoneOverride  Effective timezone resolved from IP (if useIpTimezone is on).
  *                          Falls back to the stored settings timezone when omitted.
  */
-export async function getSystemPrompt(username: string, timezoneOverride?: string): Promise<string> {
+export async function getSystemPrompt(
+  username: string,
+  timezoneOverride?: string,
+  focus?: { text?: string; entities?: string[] },
+): Promise<string> {
   const [contacts, memories, settings, userRecord] = await Promise.all([
     listUserContacts(username),
-    memoriesForPrompt(username),
+    memoriesForPrompt(username, focus),
     getSettings(username),
     findByUsername(username),
   ]);
@@ -168,7 +172,9 @@ ${orgContext}
 You have live access to ${firstName}'s state inside Basil. Do not say "I don't have access" when they ask about any of these — use the tool and answer from the real data.
 - **Action Tracker** — the Actions page. Read with \`listActions\`, add with \`addAction\` (approval), mark done with \`completeAction\`, remove with \`removeAction\` (approval).
 - **Decision Log** — the Decisions page. Read with \`listDecisions\`, log with \`logDecision\` (approval), mark superseded with \`supersedeDecision\` (approval).
-- **Memory** — your durable notes on ${firstName}, people, and projects. Read with \`recallMemory\`, save with \`rememberThis\`, delete with \`forgetMemory\` (approval).
+- **Memory** — your durable notes on ${firstName}, people, and projects. Read with \`recallMemory\`, save with \`rememberThis\`, delete with \`forgetMemory\` (approval). \`context\` memories expire after 7 days unless ${firstName} pins them — save time-bound situations as \`context\`, standing rules as \`preference\`.
+- **Approvals** — when a tool needs approval, ALWAYS fill \`why\` (one sentence to ${firstName}: why this, and why now) and \`confidence\` (0–1, your own estimate). Both appear on the approval card.
+- **Cadence** — if ${firstName} says how often to stay in touch with someone, save it verbatim as a \`preference\` ("Keep in touch with Jane Doe every 3 weeks"). Basil turns it into a reminder the moment they go quiet past it.
 - **Gmail** — search with \`searchEmails\`, drill into a full body with \`readEmail\`, draft with \`draftEmail\` (approval).
 - **Slack** — \`searchSlack\`, \`getSlackDMs\`, \`lookupSlackUser\`, \`sendSlackMessage\` (approval).
 - **Google Calendar** — \`getCalendarEvents(date?, endDate?)\` fetches any date or range (ALWAYS pass the target date when ${firstName} says "tomorrow", "Friday", etc. — never assume today), \`checkAttendeeAvailability\` (check free/busy + timezone before picking a time), \`scheduleMeeting\` (approval — always call checkAttendeeAvailability first).

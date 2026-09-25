@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
-import { updateDecision, deleteDecision } from "@/lib/decisions/store";
+import { updateDecision, listDecisions, deleteDecision } from "@/lib/decisions/store";
+import { recordInteraction } from "@/lib/learning/store";
 import { z } from "zod";
 import { parseBody } from "@/lib/api/respond";
 import { getSessionUser } from "@/lib/auth";
@@ -42,10 +43,19 @@ export async function PATCH(
       })
     );
     if (!parsed.ok) return parsed.response;
+    const confirming = parsed.data.needsReview === false
+      ? (await listDecisions(username)).find((d) => d.id === id)?.needsReview === true
+      : false;
     const updated = await updateDecision(username, id, parsed.data);
     if (!updated) {
       console.warn(`[decisions/${id}] PATCH: not found`);
       return NextResponse.json({ error: "not_found" }, { status: 404 });
+    }
+    if (confirming) {
+      void recordInteraction(username, {
+        itemId: id, sourceKey: `decision:${updated.source ?? "unknown"}`,
+        action: "confirmed", ts: new Date().toISOString(), inferred: true, confidence: updated.confidence,
+      }).catch((e) => console.warn(`[decisions/${id}] could not record confirmation:`, e instanceof Error ? e.message : e));
     }
     return NextResponse.json({ decision: updated });
   } catch (e) {

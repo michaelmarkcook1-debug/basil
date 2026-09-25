@@ -25,6 +25,9 @@ function resubmitWhen({ messages }: { messages: UIMessage[] }): boolean {
 import { useSearchParams, useRouter } from "next/navigation";
 import { emitChange, type SyncDomain } from "@/lib/sync/channel";
 import { Card } from "@/components/ui/card";
+import { ConfidenceMeter } from "@/components/ui/trust-ui";
+import { TrustLine, UndoTool } from "@/components/chat/trust";
+import useSWR from "swr";
 import { Button } from "@/components/ui/button";
 import { downscaleImage } from "@/lib/images/downscale";
 import { Markdown } from "@/components/ui/markdown";
@@ -119,8 +122,11 @@ function formatToolInput(toolName: string, input: Record<string, unknown>): stri
       return `${input.title}\n${input.date} at ${input.startTime} (${input.duration}min)\nAttendees: ${(input.attendees as string[])?.join(", ")}`;
     case "sendSlackMessage":
       return `Channel: ${input.channel}\n\n${input.message}`;
-    default:
-      return JSON.stringify(input, null, 2);
+    default: {
+      // `why` and `confidence` are rendered as prose above, not as input.
+      const { why: _why, confidence: _confidence, ...rest } = input;
+      return JSON.stringify(rest, null, 2);
+    }
   }
 }
 
@@ -146,6 +152,18 @@ function ChatPageInner() {
     { total: number; returned: number; truncated: boolean } | null
   >(null);
   const [brainModel, setBrainModel] = useState<string | null>(null);
+  // What Basil is carrying into this conversation — the count is the point;
+  // the memory page is where to read them.
+  const { data: memoryData } = useSWR<{ memories?: Array<{ pinned?: boolean; kind?: string; expiresAt?: string }> } | null>(
+    "/api/memory", (u: string) => fetch(u).then((r) => (r.ok ? r.json() : null)), { revalidateOnFocus: false },
+  );
+  const memoryStats = memoryData?.memories
+    ? {
+        total: memoryData.memories.length,
+        pinned: memoryData.memories.filter((m) => m.pinned).length,
+        expired: memoryData.memories.filter((m) => !m.pinned && m.expiresAt && new Date(m.expiresAt).getTime() < Date.now()).length,
+      }
+    : null;
   const [firstName, setFirstName] = useState<string | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -804,6 +822,14 @@ function ChatPageInner() {
                           {toolName.replace(/([A-Z])/g, " $1").trim()}
                         </span>
                       </div>
+                      {/* Why this, now — the model's one sentence to the user — and how
+                          sure it is. Both are the model's own claims and are labelled so. */}
+                      {typeof toolInput?.why === "string" && toolInput.why.trim() !== "" && (
+                        <p className="mb-2 text-sm text-foreground/90">{toolInput.why}</p>
+                      )}
+                      {typeof toolInput?.confidence === "number" && (
+                        <ConfidenceMeter value={toolInput.confidence} className="mb-3 max-w-[14rem]" />
+                      )}
                       {toolInput && (
                         <pre className="text-sm bg-background/50 rounded-md p-3 mb-3 whitespace-pre-wrap">
                           {formatToolInput(toolName, toolInput)}
@@ -826,6 +852,7 @@ function ChatPageInner() {
                           <X className="h-3.5 w-3.5" /> Deny
                         </Button>
                       </div>
+                      <TrustLine tool={toolName} />
                     </Card>
                   );
                 }
@@ -839,6 +866,7 @@ function ChatPageInner() {
                     {isDenied && <span className="text-destructive">{receiptLabel(state).label}</span>}
                     {isFailed && <span className="text-destructive">{receiptLabel(state).label}</span>}
                     {isArchived && <span className="text-[color:var(--w-manila)]">{receiptLabel(state).label}</span>}
+                    {isDone && <UndoTool toolName={toolName} output={toolPart.output} />}
                   </div>
                 );
               }
@@ -963,6 +991,16 @@ function ChatPageInner() {
               <span className="font-medium">AI ready</span>
               <span className="text-signal-positive/70">·</span>
               <span className="font-mono">{brainModel}</span>
+              {memoryStats && (
+                <>
+                  <span className="text-signal-positive/70">·</span>
+                  <a href="/dashboard/memory" className="hover:underline">
+                    {memoryStats.total} {memoryStats.total === 1 ? "memory" : "memories"} on file
+                    {memoryStats.pinned > 0 ? ` · ${memoryStats.pinned} pinned` : ""}
+                    {memoryStats.expired > 0 ? ` · ${memoryStats.expired} expired` : ""}
+                  </a>
+                </>
+              )}
             </div>
           )}
 

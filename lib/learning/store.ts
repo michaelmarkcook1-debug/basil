@@ -34,7 +34,7 @@ export async function getLearning(username: string): Promise<LearningStore> {
 /** Append one interaction event (newest kept if we hit the cap). */
 export async function recordInteraction(
   username: string,
-  input: { itemId: string; sourceKey: string; category?: string; action: InteractionAction; ts: string }
+  input: { itemId: string; sourceKey: string; category?: string; action: InteractionAction; ts: string; inferred?: boolean; confidence?: number }
 ): Promise<void> {
   const event: InteractionEvent = {
     id: randomUUID(),
@@ -43,6 +43,8 @@ export async function recordInteraction(
     category: input.category,
     action: input.action,
     ts: input.ts,
+    ...(input.inferred !== undefined ? { inferred: input.inferred } : {}),
+    ...(typeof input.confidence === "number" ? { confidence: input.confidence } : {}),
   };
   await updateUserStore<LearningStore>(
     username,

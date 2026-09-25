@@ -16,6 +16,7 @@ const plain = (v) => structuredClone(v);
 
 function chatRoute({ reserve, release, setupThrows = false }) {
   return loadTs("app/api/chat/route.ts", {
+    "@/lib/trust/ledger": { getDelegations: async () => new Set(), recordApprovalResponses: async () => 0, recordDelegatedRuns: async () => 0 },
     ai: { ...ai, streamText: () => ({ toUIMessageStreamResponse: () => new Response("ok"), consumeStream: async () => {} }) },
     "@/lib/ai/model-config": { getChatModel: () => "mock-model", MAX_TOKENS: { default: 1, balanced: 1, long: 1, fast: 1 }, PROVIDER_MODE: "openai_direct" },
     "@/lib/ai/system-prompt": { getSystemPrompt: async () => "sys" },
@@ -174,6 +175,7 @@ test("AI-02 scheduleMeeting forwards the resolved timezone to the calendar adapt
 
 function mobileRoute(generateTextSafe) {
   return loadTs("app/api/chat/mobile/route.ts", {
+    "@/lib/trust/ledger": { getDelegations: async () => new Set(), recordApprovalResponses: async () => 0, recordDelegatedRuns: async () => 0 },
     ai,
     "@/lib/ai/generate": { generateTextSafe },
     "@/lib/ai/repair-history": loadTs("lib/ai/repair-history.ts"),

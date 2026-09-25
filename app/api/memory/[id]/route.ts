@@ -49,6 +49,7 @@ export async function PATCH(
       content: z.string().min(1).optional(),
       kind: z.enum(["fact", "preference", "person", "context"]).optional(),
       entity: z.string().optional(),
+      pinned: z.boolean().optional(),
     })
   );
   if (!parsed.ok) return parsed.response;

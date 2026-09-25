@@ -410,7 +410,7 @@ function dismissMode(modeId: string): void {
 // ── ModeIntelligenceBar ───────────────────────────────────────────────────────
 
 export function ModeIntelligenceBar() {
-  const { mode, state, isDefault } = useMode();
+  const { mode, state, isDefault, meetingSuggestion, dismissMeetingSuggestion, setMode } = useMode();
   const [dismissed, setDismissed] = useState(false);
 
   // Re-evaluate dismiss state whenever the mode changes
@@ -421,6 +421,38 @@ export function ModeIntelligenceBar() {
     const key = `${state.active}:${state.activeSince ?? ""}`;
     setDismissed(dismissedModes.has(key));
   }, [state.active, state.activeSince, isDefault]);
+
+  // A meeting with other people is about to start. Suggest, never switch:
+  // the user may be skipping it, and a mode that flips itself is a mode the
+  // user stops trusting.
+  if (meetingSuggestion) {
+    const when = meetingSuggestion.startsInMin > 0
+      ? `starts in ${meetingSuggestion.startsInMin} min`
+      : meetingSuggestion.startsInMin === 0 ? "is starting now" : "is in progress";
+    return (
+      <div className="flex items-center justify-between gap-3 px-4 py-2 border-b text-xs bg-[var(--w-tray)] border-[var(--w-rule)]">
+        <div className="flex-1 min-w-0 font-medium text-[color:var(--w-ink)]">
+          <span className="text-[color:var(--w-carbon)]">Meeting Mode?</span>{" "}
+          <span className="truncate">“{meetingSuggestion.summary}” {when} with {meetingSuggestion.attendeeCount} {meetingSuggestion.attendeeCount === 1 ? "person" : "people"}.</span>
+        </div>
+        <div className="flex shrink-0 items-center gap-1.5">
+          <button
+            onClick={() => setMode("meeting", 60)}
+            className="rounded-md px-2.5 py-1 text-xs font-semibold focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2"
+            style={{ background: "var(--w-carbon)", color: "var(--w-on-accent)" }}
+          >
+            Switch for 1h
+          </button>
+          <button
+            onClick={dismissMeetingSuggestion}
+            className="rounded-md border border-[var(--w-rule)] px-2.5 py-1 text-xs font-medium text-[color:var(--w-ink-soft)] hover:text-[color:var(--w-ink)]"
+          >
+            Not now
+          </button>
+        </div>
+      </div>
+    );
+  }
 
   if (isDefault || dismissed) return null;
 

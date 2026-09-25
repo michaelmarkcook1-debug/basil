@@ -5,6 +5,7 @@ import { createAction } from "@/lib/actions/store";
 import { getSessionUser } from "@/lib/auth";
 import type { EventStatus } from "@/lib/events/types";
 import type { ActionItem } from "@/lib/types/action";
+import { recordDecision, editDistance } from "@/lib/trust/ledger";
 
 /** Map BasilEvent source → ActionItem source (best-fit) */
 function toActionSource(evSource: string): ActionItem["source"] {
@@ -71,6 +72,12 @@ export async function PATCH(
       console.error(`[events/${id}] PATCH status=${body.status}: event not found`);
       return NextResponse.json({ error: "not found" }, { status: 404 });
     }
+    if (body.status === "rejected") {
+      void recordDecision(username, {
+        tool: `event:${event.actionType ?? event.draft?.channel ?? "unknown"}`,
+        decision: "denied", source: "event", ref: `event:${id}`,
+      }).catch((e) => console.warn(`[events/${id}] could not record denial:`, e instanceof Error ? e.message : e));
+    }
 
     // When a notify alert is acknowledged, log a completed action as a receipt so
     // the user has a permanent record that they reviewed the alert.
@@ -121,6 +128,20 @@ export async function PATCH(
 
   const executedAt = new Date().toISOString();
   const result = await executeEvent(event, username, body.draftBody);
+
+  // What the user changed before approving is the clearest signal of draft
+  // quality Basil will ever get. The executor already prefers the edited
+  // body; until now the difference was thrown away.
+  {
+    const original = (event.draft?.body ?? "").trim();
+    const sent = typeof body.draftBody === "string" ? body.draftBody.trim() : original;
+    const edited = sent !== original;
+    void recordDecision(username, {
+      tool: `event:${event.actionType ?? event.draft?.channel ?? "unknown"}`,
+      decision: "approved", source: "event", ref: `event:${id}`,
+      edited, ...(edited ? { editDistance: editDistance(original, sent) } : {}),
+    }).catch((e) => console.warn(`[events/${id}] could not record approval:`, e instanceof Error ? e.message : e));
+  }
 
   if (!result.ok) {
     console.error(

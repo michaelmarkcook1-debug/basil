@@ -136,6 +136,14 @@ export interface ModeState {
 
 // ── Context value ─────────────────────────────────────────────────────────────
 
+export interface MeetingSuggestion {
+  eventId: string;
+  summary: string;
+  /** Negative once the meeting has started. */
+  startsInMin: number;
+  attendeeCount: number;
+}
+
 export interface ModeContextValue {
   /** Active mode configuration */
   mode: ModeConfig;
@@ -160,6 +168,10 @@ export interface ModeContextValue {
   /**
    * Whether a ChangeEvent should be visible in the current mode.
    */
+  // ── Calendar-driven suggestion ─────────────────────────────────────────
+  /** A meeting with other people is starting (or just started) and Meeting Mode is not on. */
+  meetingSuggestion: MeetingSuggestion | null;
+  dismissMeetingSuggestion: () => void;
   shouldShowChange: (severity: ChangeSeverity, category: ChangeCategory) => boolean;
 
   /**

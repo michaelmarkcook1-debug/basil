@@ -82,6 +82,8 @@ export interface Priority {
    * reader that opening things is not worth doing.
    */
   detail?: string;
+  /** Confidence of the inference behind an inferred priority, when the record carries one. */
+  confidence?: number;
   /** Set when this card stands for several grouped signals. */
   groupedCount?: number;
   /** The items folded into this card, for the "Why?" disclosure. */
@@ -148,6 +150,7 @@ function toPriority(item: TodayFeedItem): Priority {
     source: sourceOf(item),
     occurredAt: item.occurredAt,
     rank: item.rank,
+    ...(typeof item.confidence === "number" ? { confidence: item.confidence } : {}),
   };
 }
 

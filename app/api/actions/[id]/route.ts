@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
-import { updateAction, deleteAction } from "@/lib/actions/store";
+import { updateAction, deleteAction, listActions } from "@/lib/actions/store";
+import { recordInteraction } from "@/lib/learning/store";
 import { getSessionUser } from "@/lib/auth";
 import { parseBody } from "@/lib/api/respond";
 
@@ -47,10 +48,21 @@ export async function PATCH(
     ({ id } = await ctx.params);
     const parsed = await parseBody(req, PatchSchema);
     if (!parsed.ok) return parsed.response;
+    // A review being cleared is a "Basil was right" signal. Read the prior
+    // state first so a plain edit of an already-confirmed item is not counted.
+    const confirming = parsed.data.needsReview === false
+      ? (await listActions(username)).find((a) => a.id === id)?.needsReview === true
+      : false;
     const updated = await updateAction(username, id, parsed.data);
     if (!updated) {
       console.warn(`[actions/${id}] PATCH: not found`);
       return NextResponse.json({ error: "not_found" }, { status: 404 });
+    }
+    if (confirming) {
+      void recordInteraction(username, {
+        itemId: id, sourceKey: updated.source || "unknown", category: updated.category,
+        action: "confirmed", ts: new Date().toISOString(), inferred: true, confidence: updated.confidence,
+      }).catch((e) => console.warn(`[actions/${id}] could not record confirmation:`, e instanceof Error ? e.message : e));
     }
     return NextResponse.json({ action: updated });
   } catch (e) {

@@ -96,6 +96,12 @@ export interface ChangeEvent {
    * "Stakeholder has gone quiet"); this is its subject. Cards lead with it.
    */
   subject?: string;
+  /**
+   * When the underlying fact was last observed, where that differs from
+   * `occurredAt` — a silence signal "occurs" now, but the last contact was
+   * weeks ago. Lets the UI say how fresh the evidence is.
+   */
+  observedAt?: string;
   delta: {
     field: string;
     from?: string;

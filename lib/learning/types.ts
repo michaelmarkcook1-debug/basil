@@ -10,7 +10,12 @@
  * silently suppresses a source; it asks, and every learned rule is reversible.
  */
 
-export type InteractionAction = "done" | "push" | "delegate" | "delete" | "opened";
+/**
+ * `confirmed` — the user verified something Basil inferred (needsReview → false).
+ * Until 2026-09-25 Basil learned from being wrong (delete → noise) but never
+ * from being right; confirmations were invisible to it.
+ */
+export type InteractionAction = "done" | "push" | "delegate" | "delete" | "opened" | "confirmed";
 
 export interface InteractionEvent {
   id: string;
@@ -22,6 +27,10 @@ export interface InteractionEvent {
   category?: string;
   action: InteractionAction;
   ts: string; // ISO8601
+  /** The item was a Basil inference awaiting review when this happened. */
+  inferred?: boolean;
+  /** The inference's confidence at the time, when known. */
+  confidence?: number;
 }
 
 /** A user's standing preference for a source, learned + confirmed. */

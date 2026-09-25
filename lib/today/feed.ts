@@ -16,6 +16,8 @@ import type { ToneObservation } from "@/lib/contact-profile-overrides";
 import { isLinearConnected, getMyOpenIssues, type LinearIssue } from "@/lib/linear/client";
 import { detectPendingFollowups } from "@/lib/followups/detect";
 import { getLearning } from "@/lib/learning/store";
+import { listMemories } from "@/lib/memory/store";
+import { extractCadenceRules } from "@/lib/contacts/cadence-rules";
 import { getSettings } from "@/lib/settings/store";
 import { computeCategoryPriors, taskClassOf, priorEffect } from "@/lib/learning/priors";
 import type {
@@ -73,7 +75,7 @@ function followupSeverity(hoursWaiting: number): ChangeSeverity {
 /** Compute the full feed — the Gmail/Slack/Linear/delta fan-out (~5s). */
 export async function computeTodayFeed(username: string): Promise<TodayFeedResponse> {
     // ── Core inputs (local stores — must succeed for the feed to compute) ──────
-    const [since, actions, decisions, contacts, learning, overrides, settings] = await Promise.all([
+    const [since, actions, decisions, contacts, learning, overrides, settings, memories] = await Promise.all([
       getSinceDate(username),
       listActions(username),
       listDecisions(username),
@@ -81,7 +83,11 @@ export async function computeTodayFeed(username: string): Promise<TodayFeedRespo
       getLearning(username),
       getAllOverridesFromStore(username).catch(() => ({})),
       getSettings(username).catch(() => null), // ci-ok: settings optional; TZ falls back to Europe/London
+      listMemories(username).catch((e) => { console.warn("[today] memories failed:", e instanceof Error ? e.message : e); return []; }),
     ]);
+    // "Keep in touch with Jane every 3 weeks" is a memory; the delta engine
+    // honours it as that person's silence threshold.
+    const cadenceRules = extractCadenceRules(memories, contacts);
 
     // Per-contact tone history (warming/cooling) → the delta engine promotes
     // recent shifts into home-feed cards.
@@ -122,7 +128,7 @@ export async function computeTodayFeed(username: string): Promise<TodayFeedRespo
     // ── Map each source → TodayFeedItem, computing rank ───────────────────────
 
     // 1. Delta changes — score is already a composite (severity × category × recency).
-    const delta = computeDeltas({ actions, decisions, contacts, since, toneHistory, timezone: settings?.timezone });
+    const delta = computeDeltas({ actions, decisions, contacts, since, toneHistory, timezone: settings?.timezone, cadenceRules });
     const changeItems: TodayChangeItem[] = delta.changes
       .filter(isActionableChange)
       .map((change) => {
@@ -156,6 +162,7 @@ export async function computeTodayFeed(username: string): Promise<TodayFeedRespo
           kind: "change",
           rank,
           lane,
+          ...(typeof action?.confidence === "number" ? { confidence: action.confidence } : {}),
           // Lead with the SUBJECT — the task, the person — and let the kind of
           // change support it. "Due today" told the reader nothing until they
           // opened Why; the task's own text is the headline.

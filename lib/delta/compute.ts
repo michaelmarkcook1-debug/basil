@@ -114,26 +114,40 @@ function isPhoneishName(name: string): boolean {
 }
 
 /**
- * Determines which contacts are "key" based on interaction recency.
- * Top 25% by recency (floor 5, cap 20) get elevated priority — no hardcoded names.
+ * Who Basil treats as a key relationship.
+ *
+ * This used to be the top quartile by recency of last interaction — which
+ * inverted the signal it fed: someone who had gone quiet for six weeks was,
+ * by construction, not recent, therefore not key, therefore graded down (and,
+ * as it turned out, never surfaced). Importance now comes from evidence that
+ * does not decay with silence:
+ *
+ *   declared  — a tag the user gave them (key, vip, important, pinned, priority)
+ *   cadence   — the user asked Basil to keep in touch with them
+ *   evidence  — Basil has observed their tone shifting (a real, two-way relationship)
+ *   recency   — the top quartile by last interaction, as before (floor 5, cap 20)
+ *
+ * No hardcoded names.
  */
-function buildKeyContactSet(contacts: Contact[]): Set<string> {
-  const withInteraction = contacts
-    // Ranking is purely by recency, so a chatty newsletter that mails weekly
-    // would out-rank real colleagues and claim a "key contact" slot. Only
-    // curated contacts may be key.
-    .filter((c) => !(c.status === "pending" && (c.tags ?? []).includes("auto-added")))
+function buildKeyContactSet(
+  contacts: Contact[],
+  toneHistory?: Map<string, ToneObservation[]>,
+  cadence?: Map<string, { contactId: string }>,
+): Set<string> {
+  const DECLARED = new Set(["key", "vip", "important", "pinned", "priority", "key-contact"]);
+  const curated = contacts.filter((c) => !(c.status === "pending" && (c.tags ?? []).includes("auto-added")));
+  const key = new Set<string>();
+  for (const c of curated) {
+    if ((c.tags ?? []).some((t) => DECLARED.has(t.toLowerCase()))) key.add(c.id);
+    if (cadence?.has(c.id)) key.add(c.id);
+    if ((toneHistory?.get(c.id)?.length ?? 0) > 0) key.add(c.id);
+  }
+  const withInteraction = curated
     .filter((c) => c.lastInteraction)
-    .sort(
-      (a, b) =>
-        new Date(b.lastInteraction!).getTime() -
-        new Date(a.lastInteraction!).getTime()
-    );
-  const keyCount = Math.min(
-    Math.max(5, Math.ceil(withInteraction.length * 0.25)),
-    20
-  );
-  return new Set(withInteraction.slice(0, keyCount).map((c) => c.id));
+    .sort((a, b) => new Date(b.lastInteraction!).getTime() - new Date(a.lastInteraction!).getTime());
+  const keyCount = Math.min(Math.max(5, Math.ceil(withInteraction.length * 0.25)), 20);
+  for (const c of withInteraction.slice(0, keyCount)) key.add(c.id);
+  return key;
 }
 
 // ── Action changes ────────────────────────────────────────────────────────────
@@ -338,13 +352,15 @@ function decisionChanges(decisions: Decision[], since: Date): ChangeEvent[] {
 function relationshipChanges(
   contacts: Contact[],
   since: Date,
-  toneHistory?: Map<string, ToneObservation[]>
+  toneHistory?: Map<string, ToneObservation[]>,
+  cadenceRules?: ReadonlyArray<{ contactId: string; name: string; everyDays: number }>
 ): ChangeEvent[] {
   const events: ChangeEvent[] = [];
   let continuousCount = 0;
+  const cadence = new Map((cadenceRules ?? []).map((r) => [r.contactId, r] as const));
 
   // Determine key contacts dynamically — most recently active top quartile
-  const keyContactIds = buildKeyContactSet(contacts);
+  const keyContactIds = buildKeyContactSet(contacts, toneHistory, cadence);
 
   // Prioritise key contacts, then all others
   const sorted = [...contacts].sort((a, b) => {
@@ -425,18 +441,21 @@ function relationshipChanges(
     }
 
     // ── Contact going silent (continuous signal) ──────────────────────────────
-    if (
-      silenceDays >= SILENCE_DAYS &&
-      (isKey || silenceDays >= SILENCE_DAYS * 2) &&
-      continuousCount < MAX_CONTINUOUS_PER_CATEGORY
-    ) {
-      const severity: ChangeSeverity = isKey
-        ? silenceDays >= 14
-          ? "high"
-          : "medium"
-        : "low";
+    // A cadence the user set wins outright. Otherwise key contacts register at
+    // SILENCE_DAYS and everyone else at twice that — and everyone else DOES
+    // register: the old branch graded non-key silence "low" and then dropped
+    // every "low", so a person outside the recency-top quartile could never
+    // produce this signal at all.
+    const rule = cadence.get(c.id);
+    const threshold = rule ? rule.everyDays : isKey ? SILENCE_DAYS : SILENCE_DAYS * 2;
+    if (silenceDays >= threshold && continuousCount < MAX_CONTINUOUS_PER_CATEGORY) {
+      const severity: ChangeSeverity = rule
+        ? (silenceDays >= rule.everyDays * 1.5 ? "critical" : "high")
+        : isKey
+          ? (silenceDays >= 14 ? "high" : "medium")
+          : "medium";
 
-      if (severity !== "low") {
+      {
         events.push({
           id: changeId("contact", c.id, "silent"),
           category: "relationship",
@@ -444,11 +463,14 @@ function relationshipChanges(
           score: computeScore(severity, "relationship", now),
           title: "Stakeholder has gone quiet",
           subject: c.name,
-          context: `${c.name} — no activity for ${Math.floor(silenceDays)} days`,
+          context: rule
+            ? `${c.name} — ${Math.floor(silenceDays)} days since contact; you asked to stay in touch every ${rule.everyDays} days`
+            : `${c.name} — no activity for ${Math.floor(silenceDays)} days`,
           implication: c.recentActivity
             ? `→ Last: ${c.recentActivity.slice(0, 50)}`
             : undefined,
           occurredAt: now,
+          observedAt: c.lastInteraction,
           source: "contacts",
           entityId: c.id,
           entityHref: "/dashboard/contacts",
@@ -571,6 +593,8 @@ export interface ComputeDeltasInput {
   toneHistory?: Map<string, ToneObservation[]>;
   /** IANA timezone for day-boundary math (e.g. "Due today"). Default Europe/London. */
   timezone?: string;
+  /** Relationship cadences the user has set — see lib/contacts/cadence-rules.ts. */
+  cadenceRules?: ReadonlyArray<{ contactId: string; name: string; everyDays: number }>;
 }
 
 export function computeDeltas(input: ComputeDeltasInput): ChangesResponse {
@@ -582,7 +606,7 @@ export function computeDeltas(input: ComputeDeltasInput): ChangesResponse {
   const all: ChangeEvent[] = [
     ...actionChanges(actions, since, todayLocal),
     ...decisionChanges(decisions, since),
-    ...relationshipChanges(contacts, since, toneHistory),
+    ...relationshipChanges(contacts, since, toneHistory, input.cadenceRules),
     ...threadChanges(threads, since),
   ];
 

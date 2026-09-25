@@ -4,6 +4,16 @@ import { withLock } from "@/lib/events/lock";
 import { readUserStore, writeUserStore } from "@/lib/storage/user-store";
 
 const MEMORY_FILE = "sage-memory.json";
+/** Rolling lifetime of a `context` memory, per basil/memory/SPEC.md §1.3. */
+export const CONTEXT_TTL_DAYS = 7;
+const contextExpiry = (from = Date.now()) => new Date(from + CONTEXT_TTL_DAYS * 86_400_000).toISOString();
+
+/** A memory that has aged out. Never true for pinned or non-context memories. */
+export function isExpired(m: Pick<Memory, "kind" | "pinned" | "expiresAt">, now = Date.now()): boolean {
+  if (m.pinned) return false;
+  if (!m.expiresAt) return false;
+  return new Date(m.expiresAt).getTime() < now;
+}
 
 // Lock key is per-user so concurrent writes from different users don't block each other
 function lockKey(username: string) {
@@ -97,6 +107,7 @@ export async function createMemory(username: string, input: CreateMemoryInput): 
       ...(input.needsReview !== undefined && { needsReview: input.needsReview }),
       eventId: input.eventId,
       sourceRef: input.sourceRef,
+      ...(input.kind === "context" ? { expiresAt: contextExpiry() } : {}),
     };
     items.unshift(memory);
     await writeAll(username, items);
@@ -130,17 +141,17 @@ export async function createMemoryTracked(
 export async function updateMemory(
   username: string,
   id: string,
-  patch: Partial<Pick<Memory, "content" | "kind" | "entity">>
+  patch: Partial<Pick<Memory, "content" | "kind" | "entity" | "pinned">>
 ): Promise<Memory | null> {
   return withLock(lockKey(username), async () => {
     const items = await readAll(username, { fresh: true });
     const idx = items.findIndex((m) => m.id === id);
     if (idx === -1) return null;
-    items[idx] = {
-      ...items[idx],
-      ...patch,
-      updatedAt: new Date().toISOString(),
-    };
+    const next: Memory = { ...items[idx], ...patch, updatedAt: new Date().toISOString() };
+    // Touching a context memory renews its week; changing kind sets or clears the clock.
+    if (next.kind === "context") next.expiresAt = contextExpiry();
+    else delete next.expiresAt;
+    items[idx] = next;
     await writeAll(username, items);
     return items[idx];
   });
@@ -162,8 +173,51 @@ const PROMPT_MAX_PER_KIND = 10;
 const PROMPT_MAX_TOTAL = 40;
 
 /** Compact, AI-prompt-friendly serialization. */
-export async function memoriesForPrompt(username: string): Promise<string> {
-  const items = await listMemories(username); // already newest-first
+export interface MemoryFocus {
+  /** The current user turn, or the meeting/thread being prepared. */
+  text?: string;
+  /** Names already resolved — attendees, a contact being discussed. */
+  entities?: string[];
+}
+
+/** Words that carry meaning for matching; short and common ones do not. */
+function significantWords(text: string): Set<string> {
+  return new Set(text.toLowerCase().split(/[^a-z0-9'’-]+/).filter((w) => w.length >= 5));
+}
+
+/**
+ * Rank memories for a prompt. Pinned first; expired context excluded; then
+ * relevance to what the user is doing right now; then recency.
+ *
+ * Until 2026-09-25 this was newest-first with a hard cap of 40, so a
+ * preference saved in month one silently dropped out by month six, and a
+ * time-bound "context" note never aged. Exported so the policy is testable.
+ */
+export function rankForPrompt(items: Memory[], focus?: MemoryFocus, now = Date.now()): Memory[] {
+  const words = significantWords(focus?.text ?? "");
+  const entities = (focus?.entities ?? []).map((e) => e.toLowerCase()).filter(Boolean);
+  const text = (focus?.text ?? "").toLowerCase();
+  const score = (m: Memory): number => {
+    let s = 0;
+    if (m.pinned) s += 100;
+    const entity = m.entity?.toLowerCase();
+    if (entity && (entities.includes(entity) || (text && text.includes(entity)))) s += 3;
+    if (words.size) {
+      let overlap = 0;
+      for (const w of significantWords(m.content)) if (words.has(w)) overlap += 1;
+      s += Math.min(3, overlap);
+    }
+    return s;
+  };
+  return items
+    .filter((m) => !isExpired(m, now))
+    .map((m) => ({ m, s: score(m) }))
+    .sort((a, b) => b.s - a.s || new Date(b.m.updatedAt).getTime() - new Date(a.m.updatedAt).getTime())
+    .map((x) => x.m);
+}
+
+export async function memoriesForPrompt(username: string, focus?: MemoryFocus): Promise<string> {
+  const items = rankForPrompt(await listMemories(username), focus);
   if (items.length === 0) return "";
 
   const byKind: Record<MemoryKind, Memory[]> = {
@@ -174,6 +228,7 @@ export async function memoriesForPrompt(username: string): Promise<string> {
   };
 
   // Fill each bucket up to per-kind cap, stopping when the total cap is reached.
+  // Pinned memories are ranked first, so they are the last to be cut.
   let total = 0;
   for (const m of items) {
     if (total >= PROMPT_MAX_TOTAL) break;

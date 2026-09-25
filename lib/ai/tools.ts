@@ -51,7 +51,25 @@ import { listUserContacts } from "@/lib/contacts/user-store";
  * @param username  The authenticated user's login name (e.g. "michael").
  * @param firstName Optional display first name override. Derived from username if omitted.
  */
-export function buildAssistantTools(username: string, firstName?: string, timezone = "Europe/London") {
+/**
+ * Fields every approval-required tool carries. `why` is shown to the user on
+ * the approval card; `confidence` is the model's own estimate and is labelled
+ * as such. Both are optional so an older model that omits them still works.
+ */
+const APPROVAL_META = {
+  why: z.string().optional().describe("One sentence addressed to the user: why this action, and why now. Shown on the approval card."),
+  confidence: z.number().min(0).max(1).optional().describe("Your own estimate, 0–1, that this is exactly what the user wants. Shown on the approval card."),
+};
+
+export function buildAssistantTools(
+  username: string,
+  firstName?: string,
+  timezone = "Europe/London",
+  opts: { delegated?: ReadonlySet<string> } = {},
+) {
+  // Tools the user has delegated (lib/trust/ledger.ts) run without asking.
+  // Only reversible tools can be in this set; the ledger enforces that.
+  const delegated: ReadonlySet<string> = opts.delegated ?? new Set<string>();
   // Derive a readable first name from the username if not explicitly provided.
   // "michael" → "Michael", "alice_jones" → "Alice"
   const name = firstName
@@ -208,11 +226,12 @@ export function buildAssistantTools(username: string, firstName?: string, timezo
     draftEmail: tool({
       description: `Queue an email for ${name} to review and send. Creates a pending approval item — ${name} sees the draft, can edit it, then clicks Send. Always use '${name}' as the sender name. Never bypass this queue to send directly.`,
       inputSchema: z.object({
+        ...APPROVAL_META,
         to: z.string().describe("Recipient email address"),
         subject: z.string().describe("Email subject"),
         body: z.string().describe("Full email body text"),
       }),
-      needsApproval: true,
+      needsApproval: !delegated.has("draftEmail"),
       execute: async ({ to, subject, body }) => {
         if (!(await isGoogleConnected(username))) {
           return { error: "Gmail not connected. Cannot draft emails until Google is connected in Settings." };
@@ -405,13 +424,14 @@ export function buildAssistantTools(username: string, firstName?: string, timezo
     scheduleMeeting: tool({
       description: `Schedule a meeting on Google Calendar on ${name}'s behalf. Shows details for approval before booking. IMPORTANT: Always call checkAttendeeAvailability first to verify the proposed time works for all attendees in their local timezones.`,
       inputSchema: z.object({
+        ...APPROVAL_META,
         title: z.string().describe("Meeting title"),
         attendees: z.array(z.string()).describe("List of attendee email addresses"),
         date: z.string().describe("Date in YYYY-MM-DD format"),
         startTime: z.string().describe(`Start time in HH:MM 24h format in ${name}'s local timezone (${timezone})`),
         duration: z.number().describe("Duration in minutes").default(30),
       }),
-      needsApproval: true,
+      needsApproval: !delegated.has("scheduleMeeting"),
       execute: async ({ title, attendees, date, startTime, duration }) => {
         if (!(await isGoogleConnected(username))) {
           return { error: "Google Calendar not connected. Cannot schedule until Google is connected in Settings." };
@@ -527,9 +547,10 @@ export function buildAssistantTools(username: string, firstName?: string, timezo
       description:
         `Delete a stored memory by id. Only use when ${name} explicitly asks to forget something, or when a memory has been explicitly superseded by newer information.`,
       inputSchema: z.object({
+        ...APPROVAL_META,
         id: z.string().describe("The memory id to delete"),
       }),
-      needsApproval: true,
+      needsApproval: !delegated.has("forgetMemory"),
       execute: async ({ id }) => {
         const ok = await deleteMemory(username, id);
         if (ok) {
@@ -587,6 +608,7 @@ export function buildAssistantTools(username: string, firstName?: string, timezo
       description:
         `Add a new item to ${name}'s Action Tracker. Use when ${name} says something like 'add X to my list', 'remind me to', or when you spot a clear commitment from an email or Slack thread they want captured. Keep \`text\` specific and outcome-oriented. Shows for approval before saving.`,
       inputSchema: z.object({
+        ...APPROVAL_META,
         text: z.string().describe("The action. One sentence, specific, outcome-oriented."),
         owner: z
           .string()
@@ -611,7 +633,7 @@ export function buildAssistantTools(username: string, firstName?: string, timezo
           .optional()
           .describe("Where this action came from. Defaults to chat."),
       }),
-      needsApproval: true,
+      needsApproval: !delegated.has("addAction"),
       execute: async ({ text, owner, dueDate, priority, source }) => {
         const ownerId = owner ? findContactByName(owner)?.id : undefined;
         const action = await createAction(username, {
@@ -637,12 +659,13 @@ export function buildAssistantTools(username: string, firstName?: string, timezo
       description:
         `Mark an action as done. Use when ${name} says they finished something or when a commitment is clearly resolved.`,
       inputSchema: z.object({
+        ...APPROVAL_META,
         id: z.string().describe("The action id."),
       }),
       // Marking a real commitment done is a mutation — require confirmation, like
       // removeAction. The model can otherwise close a tracked commitment off a
       // misread ("I finished the deck" about something else) with no undo.
-      needsApproval: true,
+      needsApproval: !delegated.has("completeAction"),
       execute: async ({ id }) => {
         const updated = await updateAction(username, id, { status: "done" });
         if (!updated) return { result: "not_found", id };
@@ -654,9 +677,10 @@ export function buildAssistantTools(username: string, firstName?: string, timezo
       description:
         `Delete an action from the tracker. Use only when ${name} explicitly asks to remove one. Irreversible.`,
       inputSchema: z.object({
+        ...APPROVAL_META,
         id: z.string().describe("The action id."),
       }),
-      needsApproval: true,
+      needsApproval: !delegated.has("removeAction"),
       execute: async ({ id }) => {
         const ok = await deleteAction(username, id);
         return { result: ok ? "removed" : "not_found", id };
@@ -704,6 +728,7 @@ export function buildAssistantTools(username: string, firstName?: string, timezo
       description:
         `Log a new decision to ${name}'s Decision Log. Use when ${name} says something was decided, or when a thread clearly reached a call they want captured. Shows for approval before saving.`,
       inputSchema: z.object({
+        ...APPROVAL_META,
         text: z.string().describe("What was decided. One crisp sentence."),
         title: z
           .string()
@@ -735,7 +760,7 @@ export function buildAssistantTools(username: string, firstName?: string, timezo
           .optional()
           .describe("Direct follow-up commitments or implications tied to this decision."),
       }),
-      needsApproval: true,
+      needsApproval: !delegated.has("logDecision"),
       execute: async ({ text, title, decidedBy, stakeholders, date, context, rationale, alternatives, consequences }) => {
         const decidedById = findContactByName(decidedBy)?.id;
         const decision = await createDecision(username, {
@@ -767,9 +792,10 @@ export function buildAssistantTools(username: string, firstName?: string, timezo
       description:
         "Mark a decision as superseded (no longer the active call). Use when a new decision overrides an older one.",
       inputSchema: z.object({
+        ...APPROVAL_META,
         id: z.string().describe("The decision id."),
       }),
-      needsApproval: true,
+      needsApproval: !delegated.has("supersedeDecision"),
       execute: async ({ id }) => {
         const updated = await updateDecision(username, id, { status: "superseded" });
         if (!updated) return { result: "not_found", id };
@@ -837,10 +863,11 @@ export function buildAssistantTools(username: string, firstName?: string, timezo
     sendSlackMessage: tool({
       description: `Send a message on Slack on ${name}'s behalf. Can send to channels (#channel-name) or DM a person by name. Shows message for approval before sending.`,
       inputSchema: z.object({
+        ...APPROVAL_META,
         channel: z.string().describe("Channel name (e.g., #general) or person's name for DM (e.g., Alice Smith)"),
         message: z.string().describe("Message to send"),
       }),
-      needsApproval: true,
+      needsApproval: !delegated.has("sendSlackMessage"),
       execute: async ({ channel, message }) => {
         if (!(await isSlackConnected(username))) {
           return { error: "Slack not connected. Cannot send messages until Slack is configured in Settings." };
@@ -914,10 +941,11 @@ export function buildAssistantTools(username: string, firstName?: string, timezo
     updateLinearIssueStatus: tool({
       description: `Change the status of a Linear issue. Use when ${name} asks to move, close, reopen, or update the status of a Linear issue — e.g. "mark ANA-135 done", "move the sentiment graph bug to In Progress". Identify the issue by its identifier (e.g. "ANA-135"). Shows the change for approval before applying.`,
       inputSchema: z.object({
+        ...APPROVAL_META,
         identifier: z.string().describe('The Linear issue identifier, e.g. "ANA-135".'),
         targetStatus: z.string().describe('The status to move it to, e.g. "Done", "In Progress", "Todo", "Backlog", "Cancelled". Matched against the team\'s workflow states.'),
       }),
-      needsApproval: true,
+      needsApproval: !delegated.has("updateLinearIssueStatus"),
       execute: async ({ identifier, targetStatus }) => {
         if (!(await isLinearConnected(username))) {
           return { error: "Linear not connected." };

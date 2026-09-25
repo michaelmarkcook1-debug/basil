@@ -29,6 +29,16 @@ export interface Memory {
   eventId?: string;
   /** Stable reference to the originating record in the source system (e.g. "gmail:1abc2def"). */
   sourceRef?: string;
+
+  // ── Lifecycle ─────────────────────────────────────────────────────────────
+  /** Always loaded into the prompt, first, and never expires. The user's call. */
+  pinned?: boolean;
+  /**
+   * `context` memories are time-bound by nature — a situation, not a rule —
+   * and expire 7 days after their last update unless pinned. Expired memories
+   * are kept (nothing is deleted on the user's behalf) but stop being loaded.
+   */
+  expiresAt?: string;
 }
 
 export const MEMORY_KIND_LABELS: Record<MemoryKind, string> = {

@@ -5,7 +5,7 @@ import { parseSlackChannelId } from "@/lib/slack/cleanup-nonmember";
 import { recordInteraction } from "@/lib/learning/store";
 import type { InteractionAction } from "@/lib/learning/types";
 
-const VALID: ReadonlySet<string> = new Set(["done", "push", "delegate", "delete", "opened"]);
+const VALID: ReadonlySet<string> = new Set(["done", "push", "delegate", "delete", "opened", "confirmed"]);
 
 /**
  * POST /api/learning/interaction  { actionId, action }
@@ -45,6 +45,10 @@ export async function POST(req: Request) {
       category: item.category,
       action: action as InteractionAction,
       ts: new Date().toISOString(),
+      // Whether this was a Basil inference is what makes confirm/dismiss an
+      // accuracy signal rather than just an engagement one.
+      inferred: !!item.needsReview,
+      confidence: item.confidence,
     });
     return NextResponse.json({ ok: true });
   } catch (err) {

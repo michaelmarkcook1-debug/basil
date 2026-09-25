@@ -33,6 +33,8 @@ export type TodayLane = "critical" | "needs-you" | "linear" | "later";
 export type SuggestVerb = "done" | "push" | "delegate";
 
 interface TodayItemBase {
+  /** Confidence of the underlying inference, when the source record has one (inferred actions). */
+  confidence?: number;
   /** Stable dedup id, unique across the whole feed. Prefixed by kind. */
   id: string;
   kind: TodayItemKind;

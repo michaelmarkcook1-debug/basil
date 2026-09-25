@@ -39,6 +39,7 @@ function eventsFixture(seedStatus = "pending") {
   });
   let executions = 0;
   const route = loadTs("app/api/events/[id]/route.ts", {
+    "@/lib/trust/ledger": { recordDecision: async () => true, editDistance: () => 0 },
     "next/server": nextServer,
     "@/lib/auth": { getSessionUser: async () => "fixture" },
     "@/lib/events/store": eventsStore,

@@ -31,6 +31,7 @@ import { reserveSpend, commitSpend, releaseSpend, SpendCapError, spendCapRespons
 import { getEntitlement } from "@/lib/billing/entitlement-store";
 import { effectiveKind } from "@/lib/ai/tiering";
 import { CHAT_PRICE_FAMILY, costUsd } from "@/lib/ai/pricing";
+import { getDelegations, recordApprovalResponses, recordDelegatedRuns } from "@/lib/trust/ledger";
 
 /**
  * Body ceiling. Was 200 KB, sized for text-only histories — far too small the
@@ -131,7 +132,13 @@ export async function POST(req: Request) {
   // stream's own onFinish/onError may settle it after this point.
   let modelMessages: Awaited<ReturnType<typeof convertToModelMessages>>;
   let firstName: string, timezone: string, system: string;
+  let delegated: ReadonlySet<string> = new Set();
   try {
+    // The user's approve/deny decisions ride in on the resent history. Write
+    // them to the trust ledger (idempotent by toolCallId) before anything else.
+    void recordApprovalResponses(username, messages).catch((e) =>
+      console.warn("[api/chat] could not record approval responses:", e instanceof Error ? e.message : e));
+    delegated = await getDelegations(username);
     const { messages: safeMessages, repaired } = repairOrphanedToolCalls(messages);
     if (repaired > 0) {
       console.warn(
@@ -143,7 +150,12 @@ export async function POST(req: Request) {
     modelMessages = await convertToModelMessages(safeMessages);
     firstName = settings.name.split(" ")[0] ?? settings.name;
     timezone  = resolveTimezone(settings, req);
-    system    = await getSystemPrompt(username, timezone);
+    // Memory relevance: the latest user turn steers which memories are loaded.
+    const lastUser = [...messages].reverse().find((m) => m.role === "user");
+    const focusText = (lastUser?.parts ?? [])
+      .filter((p): p is { type: "text"; text: string } => p.type === "text" && typeof (p as { text?: unknown }).text === "string")
+      .map((p) => p.text).join(" ");
+    system    = await getSystemPrompt(username, timezone, { text: focusText });
   } catch (err) {
     await releaseSpend(reservation).catch((e) => console.error("[api/chat] release after setup failure failed:", e instanceof Error ? e.message : e));
     throw err;
@@ -195,7 +207,7 @@ export async function POST(req: Request) {
     maxOutputTokens: MAX_TOKENS[chatKind],
     system,
     messages: modelMessages,
-    tools: buildAssistantTools(username, firstName, timezone),
+    tools: buildAssistantTools(username, firstName, timezone, { delegated }),
     stopWhen: [
       stepCountIs(8),
       // Declared inline so TypeScript contextually types `steps` from the real
@@ -210,7 +222,10 @@ export async function POST(req: Request) {
     ],
     // Reconcile the reservation to ACTUAL token usage once the stream finishes.
     // totalUsage aggregates across all tool-loop steps.
-    onFinish: ({ totalUsage, finishReason }) => {
+    onFinish: ({ totalUsage, finishReason, steps }) => {
+      // A delegated tool that ran is a receipt, not a silence.
+      void recordDelegatedRuns(username, steps, delegated).catch((e) =>
+        console.warn("[api/chat] could not record delegated runs:", e instanceof Error ? e.message : e));
       // finishReason === "length" means the answer was CUT OFF by the output
       // ceiling — it still returns 200 and looks fine, so without this line a
       // truncated reply is indistinguishable from a complete one. (This is what

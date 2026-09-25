@@ -118,6 +118,8 @@ function feedModule({ linearOn = false, linearThrows = false, followups = 0 } = 
     lastInboundAt: new Date().toISOString(), href: `https://example.test/${i}`,
   }));
   return loadTs("lib/today/feed.ts", {
+    "@/lib/memory/store": { listMemories: async () => [] },
+    "@/lib/contacts/cadence-rules": { extractCadenceRules: () => [] },
     "@/lib/delta/compute": { computeDeltas: () => ({ changes: [] }) },
     "@/lib/delta/types": { SEVERITY_WEIGHT: { critical: 1, high: 0.7, medium: 0.4 }, CATEGORY_CONFIG: { urgency: { weight: 1 } } },
     "@/lib/delta/store": { getSinceDate: async () => new Date().toISOString() },

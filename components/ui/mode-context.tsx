@@ -20,6 +20,8 @@ import {
   useState,
 } from "react";
 import { MODES, severityIndex } from "@/lib/modes/config";
+import { findMeetingSuggestion, type UpcomingEvent } from "@/lib/modes/suggest";
+import useSWR from "swr";
 import type {
   AttentionPriority,
   AttentionType,
@@ -75,6 +77,24 @@ function writePersistedState(state: ModeState): void {
   }
 }
 
+/**
+ * The copy that travels. localStorage paints instantly; the server copy is
+ * what a second device sees. Until 2026-09-25 modes were browser-local only.
+ */
+function persistRemote(state: ModeState): void {
+  if (typeof window === "undefined") return;
+  void fetch("/api/mode", {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ state }),
+  }).catch(() => undefined); // best-effort — local copy already written
+}
+
+const SUGGEST_DISMISS_KEY = "basil-mode-suggest-dismissed";
+
+const calendarFetcher = (u: string) =>
+  fetch(u, { cache: "no-store" }).then((r) => (r.ok ? r.json() : { events: [] }));
+
 function computeMinutesRemaining(state: ModeState): number | null {
   if (!state.activeUntil) return null;
   const ms = new Date(state.activeUntil).getTime() - Date.now();
@@ -86,6 +106,51 @@ function computeMinutesRemaining(state: ModeState): number | null {
 export function ModeProvider({ children }: { children: React.ReactNode }) {
   const [state, setState] = useState<ModeState>(() => readPersistedState());
   const expiryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Adopt the server copy when it is newer than what this browser has — a mode
+  // set on the phone appears on the laptop without either side losing a local
+  // change made since.
+  useEffect(() => {
+    let cancelled = false;
+    fetch("/api/mode", { cache: "no-store" })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d: { state?: ModeState | null } | null) => {
+        if (cancelled || !d?.state) return;
+        const remote = d.state;
+        if (!MODES[remote.active]) return;
+        if (remote.activeUntil && new Date(remote.activeUntil) < new Date()) return;
+        setState((local) => {
+          const localAt = local.activeSince ? new Date(local.activeSince).getTime() : 0;
+          const remoteAt = remote.activeSince ? new Date(remote.activeSince).getTime() : 0;
+          if (remoteAt <= localAt) return local;
+          writePersistedState(remote);
+          return remote;
+        });
+      })
+      .catch(() => undefined);
+    return () => { cancelled = true; };
+  }, []);
+
+  // ── Calendar-driven Meeting Mode suggestion ────────────────────────────────
+  // Same SWR key as the Today page, so this is one request, shared.
+  const { data: cal } = useSWR<{ events?: UpcomingEvent[] }>("/api/calendar/upcoming", calendarFetcher, {
+    refreshInterval: 5 * 60_000, revalidateOnFocus: false, dedupingInterval: 30_000,
+  });
+  const [tick, setTick] = useState(() => Date.now());
+  useEffect(() => { const t = setInterval(() => setTick(Date.now()), 60_000); return () => clearInterval(t); }, []);
+  const [dismissedEvent, setDismissedEvent] = useState<string | null>(() => {
+    if (typeof window === "undefined") return null;
+    try { return localStorage.getItem(SUGGEST_DISMISS_KEY); } catch { return null; }
+  });
+  // Plain call, no manual useMemo: the React Compiler memoises it on its
+  // inputs, and a hand-written dependency list here is what it refused to
+  // preserve. The logic lives in lib/modes/suggest.ts so it is unit-tested.
+  const meetingSuggestion = findMeetingSuggestion(cal?.events, tick, state.active, dismissedEvent);
+  const suggestedEventId = meetingSuggestion?.eventId ?? null;
+  const dismissMeetingSuggestion = useCallback(() => {
+    setDismissedEvent(suggestedEventId);
+    try { if (suggestedEventId) localStorage.setItem(SUGGEST_DISMISS_KEY, suggestedEventId); } catch { /* ignore */ }
+  }, [suggestedEventId]);
 
   // Schedule auto-expiry when activeUntil is set
   useEffect(() => {
@@ -150,6 +215,7 @@ export function ModeProvider({ children }: { children: React.ReactNode }) {
         previousMode: prev.active !== id ? prev.active : prev.previousMode,
       };
       writePersistedState(next);
+      persistRemote(next);
       return next;
     });
   }, []);
@@ -161,6 +227,7 @@ export function ModeProvider({ children }: { children: React.ReactNode }) {
         previousMode: prev.active !== "default" ? prev.active : prev.previousMode,
       };
       writePersistedState(next);
+      persistRemote(next);
       return next;
     });
   }, []);
@@ -234,6 +301,8 @@ export function ModeProvider({ children }: { children: React.ReactNode }) {
       clearMode,
       isDefault: state.active === "default",
       minutesRemaining,
+      meetingSuggestion,
+      dismissMeetingSuggestion,
       shouldShowChange,
       shouldShowAttention,
       shouldInterrupt,
@@ -246,6 +315,8 @@ export function ModeProvider({ children }: { children: React.ReactNode }) {
       setMode,
       clearMode,
       minutesRemaining,
+      meetingSuggestion,
+      dismissMeetingSuggestion,
       shouldShowChange,
       shouldShowAttention,
       shouldInterrupt,
@@ -278,6 +349,7 @@ const DEFAULT_MODE_VALUE: ModeContextValue = {
   clearMode: () => undefined,
   isDefault: true,
   minutesRemaining: null,
+  meetingSuggestion: null,  dismissMeetingSuggestion: () => undefined,
   shouldShowChange: () => true,
   shouldShowAttention: () => true,
   shouldInterrupt: () => false,

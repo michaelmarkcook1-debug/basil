@@ -24,6 +24,8 @@ import {
   AlertTriangle,
   ShieldCheck,
   RefreshCw,
+  Pin,
+  PinOff,
 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
@@ -366,7 +368,7 @@ export default function MemoryPage() {
   }
 
   // ── Edit ──────────────────────────────────────────────────────────────────
-  async function handleEdit(id: string, patch: { content: string; kind: MemoryKind; entity?: string }) {
+  async function handleEdit(id: string, patch: { content: string; kind: MemoryKind; entity?: string; pinned?: boolean }) {
     const previous = memories ?? [];
     // Optimistic update
     setMemories(previous.map((m) => m.id === id ? { ...m, ...patch, updatedAt: new Date().toISOString() } : m));
@@ -789,7 +791,7 @@ function MemoryRow({
 }: {
   memory: Memory;
   onDelete: (id: string) => void;
-  onEdit: (id: string, patch: { content: string; kind: MemoryKind; entity?: string }) => Promise<void>;
+  onEdit: (id: string, patch: { content: string; kind: MemoryKind; entity?: string; pinned?: boolean }) => Promise<void>;
 }) {
   const s = KIND_STYLE[memory.kind];
   const Icon = s.Icon;
@@ -831,6 +833,16 @@ function MemoryRow({
   function cancelEdit() {
     setEditing(false);
   }
+
+  // Pinned: always loaded into the prompt, never expires. The user's call.
+  async function togglePin() {
+    setSaving(true);
+    await onEdit(memory.id, { content: memory.content, kind: memory.kind, entity: memory.entity, pinned: !memory.pinned });
+    setSaving(false);
+  }
+  const expiresInDays = memory.kind === "context" && memory.expiresAt && !memory.pinned
+    ? Math.ceil((new Date(memory.expiresAt).getTime() - Date.now()) / 86_400_000)
+    : null;
 
   function requestDelete() {
     setConfirmDelete(true);
@@ -943,6 +955,22 @@ function MemoryRow({
               {memory.entity}
             </span>
           )}
+          {memory.pinned && (
+            <span className="inline-flex items-center gap-1 text-[11px] font-medium rounded-full bg-[var(--w-carbon-tint)] text-[color:var(--w-carbon)] px-2 py-0.5" title="Always loaded into the prompt; never expires">
+              <Pin className="h-3 w-3" /> Pinned
+            </span>
+          )}
+          {expiresInDays !== null && (
+            expiresInDays <= 0 ? (
+              <span className="text-[11px] font-medium rounded-full bg-muted text-muted-foreground px-2 py-0.5" title="Context memories expire 7 days after their last update. This one is kept but no longer loaded — edit it to renew, or pin it.">
+                Expired · not loaded
+              </span>
+            ) : (
+              <span className="text-[11px] font-medium rounded-full bg-muted text-muted-foreground px-2 py-0.5" title="Context memories expire 7 days after their last update unless pinned.">
+                Expires in {expiresInDays}d
+              </span>
+            )
+          )}
           {memory.needsReview && (
             <span
               className="text-[11px] font-medium rounded-full bg-signal-warning-subtle text-signal-warning border border-signal-warning-border px-2 py-0.5"
@@ -980,6 +1008,17 @@ function MemoryRow({
           </>
         ) : (
           <>
+            <button
+              onClick={togglePin}
+              disabled={saving}
+              className={memory.pinned
+                ? "text-[color:var(--w-carbon)] p-1 rounded-md"
+                : "opacity-0 group-hover:opacity-100 transition-opacity text-muted-foreground hover:text-foreground p-1 rounded-md"}
+              aria-label={memory.pinned ? "Unpin this memory" : "Pin this memory"}
+              title={memory.pinned ? "Unpin — let it compete for the prompt like the rest" : "Pin — always loaded, never expires"}
+            >
+              {memory.pinned ? <PinOff className="h-3.5 w-3.5" /> : <Pin className="h-3.5 w-3.5" />}
+            </button>
             <button
               onClick={startEdit}
               className="opacity-0 group-hover:opacity-100 transition-opacity text-muted-foreground hover:text-foreground p-1 rounded-md"

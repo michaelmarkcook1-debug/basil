@@ -26,6 +26,7 @@ export const maxDuration = 300;
 import { stepCountIs, convertToModelMessages, type UIMessage } from "ai";
 import { generateTextSafe } from "@/lib/ai/generate";
 import { repairOrphanedToolCalls } from "@/lib/ai/repair-history";
+import { getDelegations, recordApprovalResponses, recordDelegatedRuns } from "@/lib/trust/ledger";
 import { SpendCapError, spendCapResponse } from "@/lib/ai/spend-guard";
 import { getEntitlement } from "@/lib/billing/entitlement-store";
 import { effectiveKind } from "@/lib/ai/tiering";
@@ -107,7 +108,14 @@ export async function POST(req: Request) {
     const settings = await getSettings(username);
     const timezone = resolveTimezone(settings, req);
     const firstName = settings.name.split(" ")[0] ?? settings.name;
-    const system = await getSystemPrompt(username, timezone);
+    void recordApprovalResponses(username, uiMessages).catch((e) =>
+      console.warn("[api/chat/mobile] could not record approval responses:", e instanceof Error ? e.message : e));
+    const delegated = await getDelegations(username);
+    const lastUser = [...uiMessages].reverse().find((m) => m.role === "user");
+    const focusText = (lastUser?.parts ?? [])
+      .filter((p): p is { type: "text"; text: string } => p.type === "text" && typeof (p as { text?: unknown }).text === "string")
+      .map((p) => p.text).join(" ");
+    const system = await getSystemPrompt(username, timezone, { text: focusText });
 
     // Plan-aware tier (mirror the web chat route): Pro/admin → Opus, Free → Sonnet.
     const entitlement = await getEntitlement(username);
@@ -121,7 +129,7 @@ export async function POST(req: Request) {
       maxOutputTokens: MAX_TOKENS[chatKind],
       system,
       messages,
-      tools: buildAssistantTools(username, firstName, timezone),
+      tools: buildAssistantTools(username, firstName, timezone, { delegated }),
       // generateTextSafe appends the spend ceiling: the loop stops when its
       // accumulated cost reaches the one-step reservation, whatever this says.
       stopWhen: stepCountIs(5),
@@ -139,6 +147,9 @@ export async function POST(req: Request) {
       userMonthlyUsd: entitlement.aiMonthlyUsd,
       maxSteps: 5,
     });
+
+    void recordDelegatedRuns(username, result.steps, delegated).catch((e) =>
+      console.warn("[api/chat/mobile] could not record delegated runs:", e instanceof Error ? e.message : e));
 
     // Approval requests come back as content parts, not as a paused call.
     const approvals: MobileApproval[] = [];
