@@ -52,9 +52,13 @@ test("a single chat reservation fits inside a $1/day per-user cap", () => {
     `a $${reserved.toFixed(2)} hold leaves only $${usable.toFixed(2)} of a $${CAP} cap usable`);
 });
 
-test("the step multiplier is clamped to ONE step in source", () => {
-  assert.ok(/const RESERVE_STEP_CAP = 1;/.test(guard),
-    "the hold must be one step — anything larger eats the cap before a token is sent");
+test("the hold is elastic: up to three steps, falling back to one when a cap is nearly used", () => {
+  // 2026-09-26: a fixed one-step hold stopped Ask Basil after two steps on every
+  // turn. The hold now tries RESERVE_STEP_CAP steps and falls back to ONE — the
+  // old, lockout-safe amount — only when a cap would otherwise be exceeded.
+  // Behaviour is tested against the real module in spend-hold-elastic.test.mjs.
+  assert.ok(/const RESERVE_STEP_CAP = 3;/.test(guard), "the full hold is three steps");
+  assert.ok(/steps = 1; \/\/ not enough room/.test(guard), "and it falls back to one step, never refuses outright on the bigger hold");
   assert.ok(/Math\.min\(Math\.max\(1, meter\.maxSteps \?\? 1\), RESERVE_STEP_CAP\)/.test(guard),
     "steps must be clamped, not taken raw from maxSteps");
 });
@@ -175,7 +179,7 @@ test("release refunds only the counters that took the hold", () => {
 
 test("the reservation carries which counters it held", () => {
   assert.ok(/heldKeys: string\[\]/.test(guard), "the reservation must record its held keys");
-  assert.ok(/heldKeys: applied\.map\(\(h\) => h\.key\)/.test(guard),
+  assert.ok(/return applied\.map\(\(h\) => h\.key\)/.test(guard),
     "held keys come from the holds actually applied, not from which caps exist");
 });
 

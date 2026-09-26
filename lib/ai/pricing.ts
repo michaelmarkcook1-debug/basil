@@ -97,7 +97,9 @@ export function familyForTier(kind: ModelKind): PriceFamily {
  * before a call (we don't know the real prompt size cheaply at reserve time).
  * Covers the ~18K context-input budget plus system prompt + tools headroom.
  */
-export const WORST_CASE_INPUT_TOKENS = 24_000;
+// 48k, not 24k: a real Ask Basil step carries 34–42k tokens of prompt (system
+// prompt, memories, contacts, tool schemas, history). Measured 2026-09-25.
+export const WORST_CASE_INPUT_TOKENS = 48_000;
 
 /**
  * Worst-case USD for a tier — used to RESERVE budget before a call runs.

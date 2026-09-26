@@ -242,7 +242,7 @@ export async function POST(req: Request) {
         // short because the tool loop exhausted its RESERVED BUDGET, not its token
         // ceiling. Same symptom for the reader, completely different fix — one
         // wants MAX_TOKENS raised, this one wants the daily cap raised.
-        (ceilingStopped ? ` ⚠️ BUDGET-STOPPED — loop hit its $${reservation.reservedUsd.toFixed(2)} reservation; raise AI_PER_USER_DAILY_USD` : "")
+        (ceilingStopped ? ` ⚠️ BUDGET-STOPPED — loop spent its $${reservation.reservedUsd.toFixed(2)} per-message hold (${reservation.heldSteps ?? 1} step${(reservation.heldSteps ?? 1) === 1 ? "" : "s"})${(reservation.heldSteps ?? 1) === 1 ? "; only one step fitted under today's cap — raise AI_PER_USER_DAILY_USD for fuller answers" : ""}` : "")
       );
       if (spendSettled) return;
       spendSettled = true;

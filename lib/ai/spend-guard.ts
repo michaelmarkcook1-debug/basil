@@ -189,6 +189,8 @@ export interface SpendReservation {
    * configured cap into a suggestion.
    */
   reservedUsd: number;
+  /** How many worst-case steps the hold covers (3 with room, 1 when a cap is nearly used). */
+  heldSteps?: number;
   /**
    * The counters that actually received the up-front hold — only those with a
    * cap configured. Commit and release must distinguish these from the merely
@@ -304,9 +306,20 @@ export async function reserveSpend(meter: SpendMeter, kind: ModelKind): Promise<
   // message before commitSpend() reconciles. A caller that does NOT enforce the
   // ceiling is back to an unbounded 1-step guess — which is exactly why the
   // contract is stated on the field rather than left implicit here.
-  const RESERVE_STEP_CAP = 1;
-  const steps = Math.min(Math.max(1, meter.maxSteps ?? 1), RESERVE_STEP_CAP);
-  const worst = worstCaseCostUsd(kind, family) * steps;
+  // ── 2026-09-26: an elastic hold ───────────────────────────────────────────
+  // One step was the right hold for a $1/day cap, but a real Ask Basil step
+  // costs ~$0.17–0.25, so the loop hit its ceiling after two steps and
+  // stopped mid-task (finish=tool-calls) on every recent turn. Holding more
+  // steps outright would bring back the August lockout on a small cap.
+  //
+  // So the hold tries RESERVE_STEP_CAP steps first and, only if a cap would
+  // be exceeded, falls back to ONE step — exactly the old behaviour. Plenty of
+  // room: the loop gets three steps before its ceiling. Little room: it runs
+  // as before instead of being refused. Either way the ceiling is still a
+  // reservation that fitted under every configured cap.
+  const RESERVE_STEP_CAP = 3;
+  const oneStep = worstCaseCostUsd(kind, family);
+  const wantSteps = Math.min(Math.max(1, meter.maxSteps ?? 1), RESERVE_STEP_CAP);
 
   // Every ceiling this call must satisfy, ordered TIGHTEST FIRST so a rejection
   // touches as few counters as possible.
@@ -323,33 +336,48 @@ export async function reserveSpend(meter: SpendMeter, kind: ModelKind): Promise<
   if (uc !== null) holds.push({ key: userKey(meter.username, period), ttl: COUNTER_TTL_SECONDS, cap: uc, scope: "user", retryAfter: secondsUntilPeriodEnd() });
   if (gc !== null) holds.push({ key: globalKey(period), ttl: COUNTER_TTL_SECONDS, cap: gc, scope: "global", retryAfter: secondsUntilPeriodEnd() });
 
-  const applied: typeof holds = [];
-  /** Return every hold taken so far. Best-effort and isolated, so one failed
-   *  rollback cannot mask the original error or abort the others. */
-  const unwind = async () => {
-    for (const h of applied) {
-      try { await incrCounter(h.key, -worst, h.ttl); } catch { /* best-effort */ }
+  /** Take `amount` on every hold, tightest first; all or nothing. */
+  const tryHold = async (amount: number): Promise<string[]> => {
+    const applied: typeof holds = [];
+    const unwind = async () => {
+      for (const h of applied) {
+        try { await incrCounter(h.key, -amount, h.ttl); } catch { /* best-effort */ }
+      }
+      applied.length = 0;
+    };
+    try {
+      for (const h of holds) {
+        const { value } = await incrCounter(h.key, amount, h.ttl);
+        applied.push(h); // pushed BEFORE the check, so unwind() also returns this one
+        if (value > h.cap) {
+          await unwind();
+          throw new SpendCapError(h.scope, h.retryAfter);
+        }
+      }
+      return applied.map((h) => h.key);
+    } catch (err) {
+      // A store error mid-way: return what was taken, then let the caller decide.
+      if (!(err instanceof SpendCapError)) await unwind();
+      throw err;
     }
-    applied.length = 0;
   };
 
   try {
-    for (const h of holds) {
-      const { value } = await incrCounter(h.key, worst, h.ttl);
-      applied.push(h); // pushed BEFORE the check, so unwind() also returns this one
-      if (value > h.cap) {
-        await unwind();
-        throw new SpendCapError(h.scope, h.retryAfter);
-      }
+    let steps = wantSteps;
+    let heldKeys: string[];
+    try {
+      heldKeys = await tryHold(oneStep * steps);
+    } catch (err) {
+      if (!(err instanceof SpendCapError) || steps === 1) throw err;
+      steps = 1; // not enough room for the full hold — run with one step, as before
+      heldKeys = await tryHold(oneStep);
     }
-    return { username: meter.username, feature: meter.feature, family, period, day, reservedUsd: worst, heldKeys: applied.map((h) => h.key) };
+    return { username: meter.username, feature: meter.feature, family, period, day, reservedUsd: oneStep * steps, heldKeys, heldSteps: steps };
   } catch (err) {
     if (err instanceof SpendCapError) throw err;
 
-    // Counter STORE error (not a cap rejection). Compensate any increment that
-    // already committed so a partial reservation never leaks. Each rollback is
-    // best-effort and isolated so a rollback failure can't mask the real error.
-    await unwind();
+    // Counter STORE error (not a cap rejection). tryHold has already returned
+    // any increment it took, so a partial reservation never leaks.
 
     // Fail CLOSED on expensive families whenever a cap is configured — better
     // to 429 than risk runaway spend during a store outage. (We are past the
