@@ -10,10 +10,10 @@
  * (last write wins). The URL is cached in memory to avoid list() round-trips
  * on warm instances.
  *
- * Reads are authenticated server-side via Authorization: Bearer <BLOB_READ_WRITE_TOKEN>.
+ * Reads go to ORIGIN storage, never the Blob CDN — see readBlobText().
  */
 
-import { put, list, del } from "@vercel/blob";
+import { put, list, del, get } from "@vercel/blob";
 
 // Namespace prefix so all Basil blobs are grouped together
 const PREFIX = "basil";
@@ -30,13 +30,25 @@ function blobPathname(scope: string, key: string): string {
   return scope ? `${PREFIX}/${scope}/${key}` : `${PREFIX}/${key}`;
 }
 
-/** Server-side authenticated fetch for private blobs. */
-async function fetchBlob(url: string): Promise<Response> {
-  const token = process.env.BLOB_READ_WRITE_TOKEN;
-  return fetch(`${url}?v=${Date.now()}`, {
-    cache: "no-store",
-    headers: token ? { Authorization: `Bearer ${token}` } : {},
-  });
+/**
+ * Read a private blob's body from ORIGIN storage. Returns null when it is absent.
+ *
+ * `useCache: false` is the SDK's documented CDN bypass (it sends `?cache=0`).
+ * Without it the Blob CDN keeps serving the pre-overwrite copy after
+ * put(..., allowOverwrite): measured 2026-09-26 on basil/_diag/* at 13s, 54s
+ * and 42s+ (still stale when the run ended), and over a minute on a real
+ * contacts file. A cache-buster query (the old `?v=Date.now()`) does NOT help —
+ * the CDN leaves it out of the cache key — and cacheControlMaxAge: 60 does not
+ * bound it either (a 60s blob served stale at age=92). Every read-modify-write
+ * reads through here, so a stale copy would let a write resurrect deleted items
+ * or drop another instance's recent write.
+ */
+async function readBlobText(url: string): Promise<string | null> {
+  const result = await get(url, { access: "private", useCache: false });
+  if (!result) return null; // 404
+  // 304 only answers an ifNoneMatch request, which this never sends.
+  if (result.statusCode !== 200) throw new Error(`unexpected blob status ${result.statusCode}`);
+  return new Response(result.stream).text();
 }
 
 /** Resolve the URL for a blob pathname, using cache or list(). */
@@ -94,20 +106,18 @@ export async function blobReadJson<T>(
   }
   if (!url) return fallback; // genuinely absent → empty fallback is correct
 
-  let res: Response;
+  let text: string | null;
   try {
-    res = await fetchBlob(url);
+    // Throws on network errors and non-404 failures (5xx, 403).
+    text = await readBlobText(url);
   } catch (err) {
-    throw new BlobReadError(`blob fetch threw for ${pathname}`, err);
+    throw new BlobReadError(`blob fetch failed for ${pathname}`, err);
   }
-  if (res.status === 404) return fallback; // raced deletion → treat as missing
-  if (!res.ok) {
-    throw new BlobReadError(`blob fetch ${res.status} for ${pathname}`);
-  }
+  if (text === null) return fallback; // 404: raced deletion → treat as missing
 
   let data: unknown;
   try {
-    data = await res.json();
+    data = JSON.parse(text);
   } catch (err) {
     // The blob EXISTS but its JSON is corrupt/partial. Throwing preserves it;
     // returning empty here would let the next write overwrite it with nothing.
@@ -299,9 +309,9 @@ export async function blobReadAllRaw(): Promise<Array<{ scope: string; key: stri
       const scope = parts.join("/");
 
       try {
-        const res = await fetchBlob(b.url);
-        if (!res.ok) continue; // skip unreadable entries — non-fatal for a migration copy
-        const data = await res.json();
+        const text = await readBlobText(b.url);
+        if (text === null) continue; // deleted since list() — non-fatal for a migration copy
+        const data = JSON.parse(text);
         out.push({ scope, key, data });
       } catch {
         continue; // one bad file must not abort the whole migration

@@ -37,7 +37,7 @@ test("blobReadJson throws (not coerces) on real read errors", () => {
 
 test("blobReadJson still returns fallback for genuine absence", () => {
   assert.match(blobSrc, /if \(!url\) return fallback/, "missing blob → fallback");
-  assert.match(blobSrc, /res\.status === 404[\s\S]{0,60}return fallback/, "404 → fallback");
+  assert.match(blobSrc, /if \(text === null\) return fallback/, "404 → fallback");
 });
 
 test("blobWriteJson has a shrink tripwire", () => {
