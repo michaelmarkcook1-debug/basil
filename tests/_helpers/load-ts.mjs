@@ -27,7 +27,9 @@ const ROOT = process.env.LOAD_TS_ROOT ? path.resolve(process.env.LOAD_TS_ROOT) :
 const require = createRequire(import.meta.url);
 const ts = require(path.join(PROJECT, "node_modules/typescript"));
 
-export function loadTs(relative, mocks = {}, env = {}) {
+// `globals` adds or replaces sandbox globals — e.g. window/localStorage/fetch
+// for client modules.
+export function loadTs(relative, mocks = {}, env = {}, globals = {}) {
   const source = fs.readFileSync(path.join(ROOT, relative), "utf8");
   const { outputText } = ts.transpileModule(source, {
     fileName: relative,
@@ -50,6 +52,7 @@ export function loadTs(relative, mocks = {}, env = {}) {
     Response, Request, Headers, fetch, AbortController, AbortSignal, ReadableStream, TransformStream, Blob, FormData,
     crypto: globalThis.crypto,
     process: { env, nextTick: process.nextTick },
+    ...globals,
   }, { filename: relative });
   return mod.exports;
 }

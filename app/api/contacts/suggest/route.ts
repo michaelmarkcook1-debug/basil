@@ -102,7 +102,7 @@ export async function GET() {
     listUserContacts(username).catch(() => []),
   ]);
   // People the user deleted are never offered back.
-  const suppressed = await getContactSuppressions(username).catch(() => ({ emails: [], names: [] }));
+  const suppressed = await getContactSuppressions(username).catch(() => ({ emails: [], names: [], ids: [] }));
 
   // Keyed by a stable identity — email when we have it, else slugified name.
   const byKey = new Map<string, ContactSuggestion>();

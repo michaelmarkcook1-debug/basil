@@ -13,6 +13,7 @@ import { randomUUID } from "node:crypto";
 import type { Contact } from "@/lib/contacts-data";
 import { readUserStore, writeUserStore } from "@/lib/storage/user-store";
 import { withLock } from "@/lib/events/lock";
+import { getContactSuppressions } from "@/lib/contacts/suppressions";
 
 const CONTACTS_FILE = "sage-user-contacts.json";
 
@@ -128,6 +129,8 @@ export interface BulkImportResult {
   unchanged: number;
   /** Incoming stubs with no resolvable name (still a phone number). */
   unresolved: number;
+  /** New records refused because the user deleted them. */
+  skippedDeleted: number;
 }
 
 /**
@@ -147,16 +150,29 @@ export async function bulkImportUserContacts(
   incoming: Contact[]
 ): Promise<BulkImportResult> {
   return withLock(lockKey(username), async () => {
-    const items = await readAll(username, true);
+    const [items, suppressed] = await Promise.all([
+      readAll(username, true),
+      getContactSuppressions(username, { fresh: true }),
+    ]);
     const existingById = new Map(items.map((c) => [c.id, c]));
+    // Every caller of this is automatic — a browser re-uploading its cache, a
+    // WhatsApp snapshot, an admin import. None of them may bring back someone
+    // the user deleted; an explicit single add (POST one contact) still can.
+    const deletedIds = new Set(suppressed.ids);
+    const deletedEmails = new Set(suppressed.emails);
     let added = 0;
     let updated = 0;
     let unchanged = 0;
     let unresolved = 0;
+    let skippedDeleted = 0;
 
     for (const c of incoming) {
       const existing = existingById.get(c.id);
       if (!existing) {
+        if (deletedIds.has(c.id) || (c.email && deletedEmails.has(c.email.trim().toLowerCase()))) {
+          skippedDeleted++;
+          continue;
+        }
         items.push(normalize(c));
         added++;
         continue;
@@ -221,7 +237,7 @@ export async function bulkImportUserContacts(
     }
 
     if (added > 0 || updated > 0) await writeAll(username, items);
-    return { added, updated, unchanged, unresolved };
+    return { added, updated, unchanged, unresolved, skippedDeleted };
   });
 }
 

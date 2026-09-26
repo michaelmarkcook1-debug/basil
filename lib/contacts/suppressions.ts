@@ -7,6 +7,12 @@
  * only record of the deletion was a per-browser tombstone. This list is
  * per-user and server-side, so every device and the suggester honour it.
  */
+//
+// `ids` exists because a browser's local contact cache re-uploads anything the
+// server lacks (lib/user-contacts.ts reconcile). A deletion made anywhere but
+// that browser — another device, a server-side cleanup — was undone the next
+// time the People page opened: 375 deleted contacts came back within seconds
+// on 2026-09-26. Imports skip these ids, and every browser is told to drop them.
 import { readUserStore, updateUserStore } from "@/lib/storage/user-store";
 
 const FILE = "sage-contact-suppressions.json";
@@ -14,26 +20,43 @@ const FILE = "sage-contact-suppressions.json";
 export interface ContactSuppressions {
   emails: string[];
   names: string[];
+  /** Deleted contact ids — never re-imported, and dropped from every browser's cache. */
+  ids: string[];
 }
-const EMPTY: ContactSuppressions = { emails: [], names: [] };
+const EMPTY: ContactSuppressions = { emails: [], names: [], ids: [] };
 const norm = (s: string) => s.trim().toLowerCase();
 
-export async function getContactSuppressions(username: string): Promise<ContactSuppressions> {
-  const s = await readUserStore<ContactSuppressions>(username, FILE, EMPTY);
-  return { emails: s.emails ?? [], names: s.names ?? [] };
+export async function getContactSuppressions(
+  username: string,
+  options?: { fresh?: boolean },
+): Promise<ContactSuppressions> {
+  const s = await readUserStore<ContactSuppressions>(username, FILE, EMPTY, options);
+  return { emails: s.emails ?? [], names: s.names ?? [], ids: s.ids ?? [] };
 }
 
-export async function suppressContact(username: string, who: { name?: string; email?: string }): Promise<void> {
+export async function suppressContact(username: string, who: { id?: string; name?: string; email?: string }): Promise<void> {
   await updateUserStore<ContactSuppressions>(
     username,
     FILE,
     (cur) => {
       const emails = new Set((cur.emails ?? []).map(norm));
       const names = new Set((cur.names ?? []).map(norm));
+      const ids = new Set(cur.ids ?? []);
       if (who.email?.trim()) emails.add(norm(who.email));
       if (who.name?.trim()) names.add(norm(who.name));
-      return { emails: [...emails], names: [...names] };
+      if (who.id?.trim()) ids.add(who.id.trim());
+      return { emails: [...emails], names: [...names], ids: [...ids] };
     },
+    EMPTY,
+  );
+}
+
+/** The user added this contact back themselves — let it stay. */
+export async function unsuppressContactId(username: string, id: string): Promise<void> {
+  await updateUserStore<ContactSuppressions>(
+    username,
+    FILE,
+    (cur) => ({ emails: cur.emails ?? [], names: cur.names ?? [], ids: (cur.ids ?? []).filter((x) => x !== id) }),
     EMPTY,
   );
 }

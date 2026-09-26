@@ -103,7 +103,7 @@ export async function DELETE(
     await clearOverrideFromStore(username, id).catch((e) =>
       console.warn(`[contacts/${id}] DELETE: could not clear profile/tone history:`, e instanceof Error ? e.message : e));
     if (target) {
-      await suppressContact(username, { name: target.name, email: target.email }).catch((e) =>
+      await suppressContact(username, { id: target.id, name: target.name, email: target.email }).catch((e) =>
         console.warn(`[contacts/${id}] DELETE: could not record suppression:`, e instanceof Error ? e.message : e));
     }
     await invalidateActivityCache(username);

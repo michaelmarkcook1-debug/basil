@@ -7,6 +7,7 @@ import {
 import type { Contact } from "@/lib/contacts-data";
 import { getSessionUser } from "@/lib/auth";
 import { deleteGenerateCache } from "@/lib/generate-cache/store";
+import { getContactSuppressions, unsuppressContactId } from "@/lib/contacts/suppressions";
 
 /** See the note in ./[id]/route.ts — adding a contact must also drop the
  *  People page's 30-minute activity cache, or the new person won't appear. */
@@ -23,8 +24,16 @@ async function invalidateActivityCache(username: string) {
 export async function GET() {
   const username = await getSessionUser();
   if (!username) return NextResponse.json({ error: "Unauthorised" }, { status: 401 });
-  const contacts = await listUserContacts(username);
-  return NextResponse.json({ contacts });
+  // Fresh reads: this list is what browsers reconcile their caches against,
+  // so a stale per-instance copy would tell them deleted people still exist.
+  const [contacts, suppressed] = await Promise.all([
+    listUserContacts(username, { fresh: true }),
+    getContactSuppressions(username, { fresh: true }),
+  ]);
+  const deleted = new Set(suppressed.ids);
+  // deletedIds lets every browser drop these from its local cache instead of
+  // re-uploading them as "stranded" (lib/user-contacts.ts).
+  return NextResponse.json({ contacts: contacts.filter((c) => !deleted.has(c.id)), deletedIds: suppressed.ids });
 }
 
 /**
@@ -53,6 +62,9 @@ export async function POST(req: Request) {
       );
     }
     const saved = await addUserContactToStore(username, contact);
+    // Adding someone by hand is the one way back from a deletion.
+    await unsuppressContactId(username, saved.id).catch((e) =>
+      console.warn("[contacts] could not lift deletion block:", e instanceof Error ? e.message : e));
     await invalidateActivityCache(username);
     return NextResponse.json({ contact: saved }, { status: 201 });
   } catch {

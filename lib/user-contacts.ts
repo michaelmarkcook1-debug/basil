@@ -51,6 +51,16 @@ function addDeletedContactId(id: string): void {
   localStorage.setItem(DELETED_CONTACTS_KEY, JSON.stringify([...ids, id]));
 }
 
+/** Adopt deletions the server knows about (made on another device, or server-side). */
+function addDeletedContactIds(ids: readonly string[]): void {
+  if (typeof window === "undefined" || ids.length === 0) return;
+  const current = getDeletedContactIds();
+  const merged = new Set(current);
+  for (const id of ids) merged.add(id);
+  if (merged.size === current.length) return;
+  localStorage.setItem(DELETED_CONTACTS_KEY, JSON.stringify([...merged]));
+}
+
 function clearDeletedContactId(id: string): void {
   if (typeof window === "undefined") return;
   const ids = getDeletedContactIds();
@@ -154,6 +164,9 @@ export async function loadUserContactsFromServer(): Promise<Contact[]> {
     const res = await fetch("/api/contacts/user");
     if (!res.ok) return getUserContacts();
     const data = await res.json();
+    // Server-side deletions become local tombstones BEFORE the merge below, so
+    // this browser drops them instead of re-uploading them as "stranded".
+    addDeletedContactIds(Array.isArray(data.deletedIds) ? (data.deletedIds as string[]) : []);
     const serverContacts = (data.contacts as Contact[]).map(normalize);
     const current = getUserContacts();
 
