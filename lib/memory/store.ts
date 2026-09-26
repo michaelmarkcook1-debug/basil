@@ -216,7 +216,14 @@ export function rankForPrompt(items: Memory[], focus?: MemoryFocus, now = Date.n
     .map((x) => x.m);
 }
 
-export async function memoriesForPrompt(username: string, focus?: MemoryFocus): Promise<string> {
+export async function memoriesForPrompt(
+  username: string,
+  focus?: MemoryFocus,
+  /** Lower total cap for background prompts that need only the most relevant few. */
+  maxTotal: number = PROMPT_MAX_TOTAL,
+): Promise<string> {
+  if (maxTotal <= 0) return "";
+  const cap = Math.min(maxTotal, PROMPT_MAX_TOTAL);
   const items = rankForPrompt(await listMemories(username), focus);
   if (items.length === 0) return "";
 
@@ -231,7 +238,7 @@ export async function memoriesForPrompt(username: string, focus?: MemoryFocus): 
   // Pinned memories are ranked first, so they are the last to be cut.
   let total = 0;
   for (const m of items) {
-    if (total >= PROMPT_MAX_TOTAL) break;
+    if (total >= cap) break;
     const bucket = byKind[m.kind];
     if (bucket.length < PROMPT_MAX_PER_KIND) {
       bucket.push(m);

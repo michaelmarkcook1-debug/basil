@@ -61,9 +61,8 @@ export function withSpendCeiling(
     ? [stepCountIs(1) as unknown as StopLike] // the SDK default — keep it
     : Array.isArray(existing) ? existing : [existing];
   const ceiling: StopLike = ({ steps }) => {
-    const spent = steps.reduce((sum, st) => sum + costUsd(reservation.family, {
-      inputTokens: st.usage?.inputTokens, outputTokens: st.usage?.outputTokens,
-    }), 0);
+    // The whole usage object, so cached input is priced at the cached rate.
+    const spent = steps.reduce((sum, st) => sum + costUsd(reservation.family, st.usage), 0);
     if (spent < reservation.reservedUsd) return false;
     onStop?.(spent);
     return true;

@@ -16,7 +16,7 @@
 import { generateTextSafe } from "@/lib/ai/generate";
 import { getTextModel, MAX_TOKENS } from "@/lib/ai/model-config";
 import { familyForTier } from "@/lib/ai/pricing";
-import { getSystemPrompt } from "@/lib/ai/system-prompt";
+import { getTaskSystemPrompt } from "@/lib/ai/system-prompt";
 import { parseAndValidate } from "@/lib/ai/parse-json";
 import { ZoomMeetingExtractSchema } from "@/lib/ai/schemas";
 
@@ -218,7 +218,7 @@ Respond with ONLY valid JSON — no markdown fences, no explanation, no preamble
 }`;
 
   try {
-    const system = await getSystemPrompt(username);
+    const system = await getTaskSystemPrompt(username, undefined, { memories: 8, focus: { text: metadata.subject } });
     const { text } = await generateTextSafe(
       {
         // DATA GATHERING → lowest tier. This pulls known fields (actions,

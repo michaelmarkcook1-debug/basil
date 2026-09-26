@@ -431,6 +431,8 @@ export async function commitSpend(
     family,
     inputTokens: usage?.inputTokens ?? 0,
     outputTokens: usage?.outputTokens ?? 0,
+    ...(usage?.inputTokenDetails?.cacheReadTokens ? { cacheReadTokens: usage.inputTokenDetails.cacheReadTokens } : {}),
+    ...(usage?.inputTokenDetails?.cacheWriteTokens ? { cacheWriteTokens: usage.inputTokenDetails.cacheWriteTokens } : {}),
     usd: actualUsd,
   });
 }

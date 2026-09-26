@@ -20,7 +20,7 @@ import { createDecision } from "@/lib/decisions/store";
 import { createMemory } from "@/lib/memory/store";
 import { writeToneObservations } from "@/lib/contacts/tone-store";
 import { actionTier, decisionTier, memoryTier, needsReviewFlag } from "@/lib/trust/policy";
-import { getSystemPrompt } from "@/lib/ai/system-prompt";
+import { getTaskSystemPrompt } from "@/lib/ai/system-prompt";
 import type { ZoomMeeting, ZoomParticipant, ZoomRecording } from "./client";
 
 export interface ProcessZoomMeetingOpts {
@@ -57,7 +57,7 @@ async function extractMeetingIntelligence(
   date: string
 ): Promise<MeetingIntelligence | null> {
   try {
-    const sysPrompt = await getSystemPrompt(username).catch(() => "");
+    const sysPrompt = await getTaskSystemPrompt(username, undefined, { memories: 8, focus: { text: topic, entities: attendees } }).catch(() => "");
     const { text } = await generateTextSafe({
       // CATEGORIZATION → mid tier.
       model: getTextModel("balanced"),

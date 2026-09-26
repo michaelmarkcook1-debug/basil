@@ -14,7 +14,7 @@
 import { redactSensitive, redactDeep } from "@/lib/security/sensitive";
 import { generateTextSafe } from "@/lib/ai/generate";
 import { getTextModel, MAX_TOKENS } from "@/lib/ai/model-config";
-import { getSystemPrompt } from "@/lib/ai/system-prompt";
+import { getTaskSystemPrompt } from "@/lib/ai/system-prompt";
 import { parseAndValidate } from "@/lib/ai/parse-json";
 import { EmailIntelligenceSchema } from "@/lib/ai/schemas";
 import { getFlags } from "@/core/feature-flags";
@@ -308,7 +308,7 @@ Respond with ONLY valid JSON — no markdown fences, no explanation:
       const { serializeContext } = await import("@/core/primitives/intelligence-context");
       const { dispatch } = await import("@/core/dispatch/dispatcher");
 
-      const system = await getSystemPrompt(username);
+      const system = await getTaskSystemPrompt(username, undefined, { memories: 8, focus: { text: `${from} ${subject}` } });
       const ctx = await buildIntelligenceContext({ username, currentSignal: null, flags });
       const ctxText = serializeContext(ctx);
       const enrichedSystem = ctxText
@@ -340,7 +340,7 @@ Respond with ONLY valid JSON — no markdown fences, no explanation:
 
   // ── Legacy path: generateText + optional dispatch_shadow trace ────────────
   try {
-    const system = await getSystemPrompt(username);
+    const system = await getTaskSystemPrompt(username, undefined, { memories: 8, focus: { text: `${from} ${subject}` } });
     const { text } = await generateTextSafe({
       // CATEGORIZATION → mid tier (deciding what an email IS).
       model: getTextModel("balanced"),

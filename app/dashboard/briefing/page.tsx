@@ -347,7 +347,8 @@ export default function BriefingPage() {
 
     // Load source readiness in parallel
     Promise.all([
-      fetch("/api/ai/test-brain", { cache: "no-store" }).then((r) => r.ok ? r.json() : null).catch((e: unknown) => { console.warn("[briefing] brain status:", e); return null; }), // ci-ok: readiness check, null handled below
+      // Configuration-only status: test-brain ran a real Opus generation on every visit.
+      fetch("/api/ai/status", { cache: "no-store" }).then((r) => r.ok ? r.json() : null).catch((e: unknown) => { console.warn("[briefing] brain status:", e); return null; }), // ci-ok: readiness check, null handled below
       fetch("/api/readiness", { cache: "no-store" }).then((r) => r.ok ? r.json() : null).catch((e: unknown) => { console.warn("[briefing] readiness:", e); return null; }), // ci-ok: readiness check, null handled below
       fetch("/api/actions", { cache: "no-store" }).then((r) => r.ok ? r.json() : null).catch((e: unknown) => { console.warn("[briefing] actions:", e); return null; }), // ci-ok: source count, null handled below
       fetch("/api/decisions", { cache: "no-store" }).then((r) => r.ok ? r.json() : null).catch((e: unknown) => { console.warn("[briefing] decisions:", e); return null; }), // ci-ok: source count, null handled below

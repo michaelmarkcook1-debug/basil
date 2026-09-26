@@ -56,16 +56,45 @@ export const FAMILY_PRICING: Record<PriceFamily, { inputPerM: number; outputPerM
 export const CHAT_PRICE_FAMILY: PriceFamily = "opus55";
 
 export interface TokenUsage {
+  /** TOTAL input tokens — includes any cache reads and cache writes. */
   inputTokens?: number;
   outputTokens?: number;
+  /**
+   * Provider-reported split of inputTokens (the AI SDK v6 LanguageModelUsage
+   * shape, so a raw `result.totalUsage` can be passed straight in).
+   */
+  inputTokenDetails?: {
+    cacheReadTokens?: number | undefined;
+    cacheWriteTokens?: number | undefined;
+  };
 }
 
-/** Compute the USD cost of a single call for the given family + token usage. */
+/**
+ * Prompt-cache price multipliers on the input rate. Anthropic: reads 0.1×,
+ * 5-minute writes 1.25×. OpenAI caches automatically: reads ~0.1× on the
+ * gpt-5 families, and it never charges a premium for the write.
+ */
+function cacheMultipliers(family: PriceFamily): { read: number; write: number } {
+  return family.startsWith("gpt") ? { read: 0.1, write: 1 } : { read: 0.1, write: 1.25 };
+}
+
+/**
+ * Compute the USD cost of a single call for the given family + token usage.
+ *
+ * Cache-aware: without the split, every cached token was billed at the full
+ * input rate, which would overstate a cached Ask Basil step ~5× and trip the
+ * per-message ceiling on spend that never happened.
+ */
 export function costUsd(family: PriceFamily, usage: TokenUsage | undefined): number {
   const p = FAMILY_PRICING[family];
   const inTok = Math.max(0, usage?.inputTokens ?? 0);
   const outTok = Math.max(0, usage?.outputTokens ?? 0);
-  return (inTok / 1_000_000) * p.inputPerM + (outTok / 1_000_000) * p.outputPerM;
+  const read = Math.min(inTok, Math.max(0, usage?.inputTokenDetails?.cacheReadTokens ?? 0));
+  const write = Math.min(inTok - read, Math.max(0, usage?.inputTokenDetails?.cacheWriteTokens ?? 0));
+  const plain = inTok - read - write;
+  const m = cacheMultipliers(family);
+  const billableIn = plain + read * m.read + write * m.write;
+  return (billableIn / 1_000_000) * p.inputPerM + (outTok / 1_000_000) * p.outputPerM;
 }
 
 /**

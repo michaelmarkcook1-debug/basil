@@ -20,7 +20,7 @@ import { type ModelMessage } from "ai";
 import { generateTextSafe } from "@/lib/ai/generate";
 import { SpendCapError, spendCapResponse } from "@/lib/ai/spend-guard";
 import { getTextModel, MAX_TOKENS } from "@/lib/ai/model-config";
-import { getSystemPrompt } from "@/lib/ai/system-prompt";
+import { getTaskSystemPrompt } from "@/lib/ai/system-prompt";
 import { parseAndValidate } from "@/lib/ai/parse-json";
 import { BriefingOutputSchema } from "@/lib/ai/schemas";
 import { getSettings } from "@/lib/settings/store";
@@ -73,9 +73,9 @@ import { checkRateLimit, getClientIp } from "@/lib/rate-limit";
 const GEN_BRIEFING_RATE_LIMIT = 5; // Briefings are expensive — 5 per minute per IP
 
 /**
- * Briefing-specific depth directive, appended to the generic chat system prompt.
+ * Briefing-specific depth directive, appended to the background task prompt.
  *
- * The shared Ask-Basil persona (getSystemPrompt) is tuned for terse chat replies
+ * The task prompt (getTaskSystemPrompt) carries terse ground rules
  * ("Empty is acceptable", "No filler") — exactly wrong for a morning briefing,
  * where the user wants a thorough chief-of-staff read. This addendum flips that
  * posture for the briefing path only: go deep on sections that HAVE signal, name
@@ -890,7 +890,9 @@ Return ONLY valid JSON, no markdown code fences:
     result = await generateTextSafe({
       model: getTextModel("long"),
       maxOutputTokens: MAX_TOKENS.long,
-      system: (await getSystemPrompt(username, tz)) + BRIEFING_DEPTH_DIRECTIVE,
+      // Task prompt, not the chat prompt: no tool manuals, and personality notes
+      // only for people the day's data actually names.
+      system: (await getTaskSystemPrompt(username, tz, { memories: 25, personasFor: promptText, maxPersonas: 12 })) + BRIEFING_DEPTH_DIRECTIVE,
       ...(messages ? { messages } : { prompt: promptText }),
     }, "long", { username, feature: "briefing" });
   } catch (e) {

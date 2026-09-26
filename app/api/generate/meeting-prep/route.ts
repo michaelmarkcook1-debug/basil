@@ -5,7 +5,7 @@ import { SpendCapError, spendCapResponse } from "@/lib/ai/spend-guard";
 import { getTextModel, MAX_TOKENS } from "@/lib/ai/model-config";
 
 export const maxDuration = 300;
-import { getSystemPrompt } from "@/lib/ai/system-prompt";
+import { getTaskSystemPrompt } from "@/lib/ai/system-prompt";
 import { getSettings } from "@/lib/settings/store";
 import { findContactByName, getPersonaSummary } from "@/lib/contacts-lookup";
 import { listUserContacts } from "@/lib/contacts/user-store";
@@ -614,7 +614,9 @@ Return ONLY valid JSON, no markdown code fences:
 
   let systemPrompt: string;
   try {
-    systemPrompt = await getSystemPrompt(username, tz);
+    // Attendee profiles and per-attendee memories are already in the prompt
+    // body — the system prompt only needs who the user is and a few memories.
+    systemPrompt = await getTaskSystemPrompt(username, tz, { memories: 10, focus: { text: title, entities: attendeeNames } });
   } catch (e) {
     const msg = e instanceof Error ? e.message.slice(0, 120) : String(e).slice(0, 120);
     console.error("[mp] systemPrompt fail:", msg);

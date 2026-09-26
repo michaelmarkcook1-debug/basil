@@ -20,7 +20,8 @@ import {
   stepCountIs,
 } from "ai";
 import { getChatModel, MAX_TOKENS, PROVIDER_MODE } from "@/lib/ai/model-config";
-import { getSystemPrompt } from "@/lib/ai/system-prompt";
+import { getChatPromptParts } from "@/lib/ai/system-prompt";
+import { cachedSystem, withTurnContext, cacheLatestStep } from "@/lib/ai/prompt-cache";
 import { buildAssistantTools } from "@/lib/ai/tools";
 import { getSessionUser } from "@/lib/auth";
 import { getSettings } from "@/lib/settings/store";
@@ -30,7 +31,7 @@ import { repairOrphanedToolCalls } from "@/lib/ai/repair-history";
 import { reserveSpend, commitSpend, releaseSpend, SpendCapError, spendCapResponse } from "@/lib/ai/spend-guard";
 import { getEntitlement } from "@/lib/billing/entitlement-store";
 import { effectiveKind } from "@/lib/ai/tiering";
-import { CHAT_PRICE_FAMILY, costUsd } from "@/lib/ai/pricing";
+import { CHAT_PRICE_FAMILY, costUsd, type TokenUsage } from "@/lib/ai/pricing";
 import { getDelegations, recordApprovalResponses, recordDelegatedRuns } from "@/lib/trust/ledger";
 
 /**
@@ -131,7 +132,7 @@ export async function POST(req: Request) {
   // throws (settings, conversion, prompt), the reservation goes back. Only the
   // stream's own onFinish/onError may settle it after this point.
   let modelMessages: Awaited<ReturnType<typeof convertToModelMessages>>;
-  let firstName: string, timezone: string, system: string;
+  let firstName: string, timezone: string, system: ReturnType<typeof cachedSystem>;
   let delegated: ReadonlySet<string> = new Set();
   try {
     // The user's approve/deny decisions ride in on the resent history. Write
@@ -155,7 +156,11 @@ export async function POST(req: Request) {
     const focusText = (lastUser?.parts ?? [])
       .filter((p): p is { type: "text"; text: string } => p.type === "text" && typeof (p as { text?: unknown }).text === "string")
       .map((p) => p.text).join(" ");
-    system    = await getSystemPrompt(username, timezone, { text: focusText });
+    // Instructions go in a cached system block; the clock, memories and people
+    // for THIS message ride on the latest message so the cached prefix survives.
+    const { instructions, turnContext } = await getChatPromptParts(username, timezone, { text: focusText });
+    system        = cachedSystem(instructions);
+    modelMessages = withTurnContext(modelMessages, turnContext);
   } catch (err) {
     await releaseSpend(reservation).catch((e) => console.error("[api/chat] release after setup failure failed:", e instanceof Error ? e.message : e));
     throw err;
@@ -191,16 +196,10 @@ export async function POST(req: Request) {
   // or an unconfigured install would truncate every reply after one step.
   const ceilingUsd = reservation.reservedUsd;
   let ceilingStopped = false;
-  const spentAcross = (
-    steps: readonly { usage?: { inputTokens?: number; outputTokens?: number } }[],
-  ) =>
-    steps.reduce(
-      (sum, st) => sum + costUsd(CHAT_PRICE_FAMILY, {
-        inputTokens:  st.usage?.inputTokens,
-        outputTokens: st.usage?.outputTokens,
-      }),
-      0,
-    );
+  // Priced with the cache split: a cached step costs a fraction of a fresh one,
+  // and counting it at the full rate would stop the loop on phantom spend.
+  const spentAcross = (steps: readonly { usage?: TokenUsage }[]) =>
+    steps.reduce((sum, st) => sum + costUsd(CHAT_PRICE_FAMILY, st.usage), 0);
 
   const result = streamText({
     model: chatModel,
@@ -208,6 +207,7 @@ export async function POST(req: Request) {
     system,
     messages: modelMessages,
     tools: buildAssistantTools(username, firstName, timezone, { delegated }),
+    prepareStep: cacheLatestStep,
     stopWhen: [
       stepCountIs(8),
       // Declared inline so TypeScript contextually types `steps` from the real
@@ -236,6 +236,7 @@ export async function POST(req: Request) {
       log(
         `[api/chat] finish=${finishReason} tier=${chatKind} ` +
         `in=${totalUsage?.inputTokens} out=${totalUsage?.outputTokens}` +
+        ` cacheRead=${totalUsage?.inputTokenDetails?.cacheReadTokens ?? 0} cacheWrite=${totalUsage?.inputTokenDetails?.cacheWriteTokens ?? 0}` +
         (reasoning !== undefined ? ` reasoning=${reasoning}` : "") +
         (finishReason === "length" ? " ⚠️ TRUNCATED — raise MAX_TOKENS" : "") +
         // Distinct from the maxOutputTokens truncation above: the answer was cut
@@ -246,10 +247,7 @@ export async function POST(req: Request) {
       );
       if (spendSettled) return;
       spendSettled = true;
-      void commitSpend(reservation, {
-        inputTokens: totalUsage?.inputTokens,
-        outputTokens: totalUsage?.outputTokens,
-      });
+      void commitSpend(reservation, totalUsage);
     },
     // If the model errors before producing usage, return the reservation so a
     // failed call costs nothing. LOG the error — previously this was silent, so

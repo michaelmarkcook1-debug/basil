@@ -30,6 +30,10 @@ export interface SpendEvent {
   family: PriceFamily;
   inputTokens: number;
   outputTokens: number;
+  /** Portion of inputTokens served from the prompt cache (billed at ~10%). */
+  cacheReadTokens?: number;
+  /** Portion of inputTokens written to the prompt cache (billed at ~125%). */
+  cacheWriteTokens?: number;
   usd: number;
 }
 

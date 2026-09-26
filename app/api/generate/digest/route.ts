@@ -4,7 +4,7 @@ import { redactSensitive, redactDeep } from "@/lib/security/sensitive";
 import { generateTextSafe } from "@/lib/ai/generate";
 import { SpendCapError, spendCapResponse } from "@/lib/ai/spend-guard";
 import { getTextModel, MAX_TOKENS } from "@/lib/ai/model-config";
-import { getSystemPrompt } from "@/lib/ai/system-prompt";
+import { getTaskSystemPrompt } from "@/lib/ai/system-prompt";
 import { parseAndValidate } from "@/lib/ai/parse-json";
 import { DigestOutputSchema } from "@/lib/ai/schemas";
 import { getSettings } from "@/lib/settings/store";
@@ -602,7 +602,7 @@ Return ONLY valid JSON, no markdown code fences.`;
       // CONTEXTUAL + REASONING over a long window → flagship, long context.
       model: getTextModel("long"),
       maxOutputTokens: MAX_TOKENS.long,
-      system: await getSystemPrompt(username, tz),
+      system: await getTaskSystemPrompt(username, tz, { memories: 20, personasFor: prompt, maxPersonas: 12 }),
       prompt,
     }, "long", { username, feature: "digest" });
   } catch (e) {

@@ -32,7 +32,8 @@ import { getEntitlement } from "@/lib/billing/entitlement-store";
 import { effectiveKind } from "@/lib/ai/tiering";
 import { CHAT_PRICE_FAMILY } from "@/lib/ai/pricing";
 import { getChatModel, MAX_TOKENS, PROVIDER_MODE } from "@/lib/ai/model-config";
-import { getSystemPrompt } from "@/lib/ai/system-prompt";
+import { getChatPromptParts } from "@/lib/ai/system-prompt";
+import { cachedSystem, withTurnContext, cacheLatestStep } from "@/lib/ai/prompt-cache";
 import { buildAssistantTools } from "@/lib/ai/tools";
 import { getSessionUser } from "@/lib/auth";
 import { getSettings } from "@/lib/settings/store";
@@ -115,21 +116,22 @@ export async function POST(req: Request) {
     const focusText = (lastUser?.parts ?? [])
       .filter((p): p is { type: "text"; text: string } => p.type === "text" && typeof (p as { text?: unknown }).text === "string")
       .map((p) => p.text).join(" ");
-    const system = await getSystemPrompt(username, timezone, { text: focusText });
+    const { instructions, turnContext } = await getChatPromptParts(username, timezone, { text: focusText });
 
     // Plan-aware tier (mirror the web chat route): Pro/admin → Opus, Free → Sonnet.
     const entitlement = await getEntitlement(username);
     const chatKind = effectiveKind("default", entitlement.plan);
 
     const { messages: safeMessages } = repairOrphanedToolCalls(uiMessages);
-    const messages = await convertToModelMessages(safeMessages);
+    const messages = withTurnContext(await convertToModelMessages(safeMessages), turnContext);
 
     const result = await generateTextSafe({
       model: getChatModel(chatKind),
       maxOutputTokens: MAX_TOKENS[chatKind],
-      system,
+      system: cachedSystem(instructions),
       messages,
       tools: buildAssistantTools(username, firstName, timezone, { delegated }),
+      prepareStep: cacheLatestStep,
       // generateTextSafe appends the spend ceiling: the loop stops when its
       // accumulated cost reaches the one-step reservation, whatever this says.
       stopWhen: stepCountIs(5),

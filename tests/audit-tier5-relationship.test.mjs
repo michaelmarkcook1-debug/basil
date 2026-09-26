@@ -304,7 +304,8 @@ test("chat route: decisions are harvested, delegations reach the tools, the turn
   const route = loadTs("app/api/chat/route.ts", {
     ai: { ...ai, streamText: () => ({ toUIMessageStreamResponse: () => new Response("ok"), consumeStream: async () => {} }) },
     "@/lib/ai/model-config": { getChatModel: () => "mock-model", MAX_TOKENS: { default: 1 }, PROVIDER_MODE: "openai_direct" },
-    "@/lib/ai/system-prompt": { getSystemPrompt: async (_u, _tz, focus) => { calls.focus = focus; return "sys"; } },
+    "@/lib/ai/system-prompt": { getChatPromptParts: async (_u, _tz, focus) => { calls.focus = focus; return { instructions: "sys", turnContext: "ctx" }; } },
+    "@/lib/ai/prompt-cache": loadTs("lib/ai/prompt-cache.ts"),
     "@/lib/ai/tools": { buildAssistantTools: (_u, _n, _tz, opts) => { calls.delegatedSeen = opts?.delegated; return {}; } },
     "@/lib/auth": { getSessionUser: async () => "u" }, "@/lib/settings/store": { getSettings: async () => ({ name: "Fixture User" }) },
     "@/lib/timezone": { resolveTimezone: () => "Europe/London" }, "@/lib/rate-limit": { checkRateLimitDurable: async () => ({ allowed: true }), getClientIp: () => "203.0.113.1" },
