@@ -52,6 +52,6 @@ test("reply prompts require the user to be an actual recipient", () => {
   assert.ok(/selfFirstNames\.some\(\(n\) => snip\.includes\(n\)\)/.test(detect),
     "Cc-only mail must be kept ONLY when the snippet names the user");
   // And the To header must actually be available to check.
-  assert.ok(/metadataHeaders: \["From", "To", "Subject", "Date"\]/.test(gmail),
+  assert.ok(/const METADATA_HEADERS = \[[^\]]*"To"/.test(gmail) && /metadataHeaders: METADATA_HEADERS/.test(gmail),
     "getRecentEmails must fetch the To header");
 });

@@ -20,7 +20,8 @@
  * an empty result is disambiguated by the `sources` flags, not by length.
  */
 
-import { getRecentEmails, getGmailAddress, checkThreadForSentReply } from "@/lib/google/gmail";
+import { getRecentEmails, getGmailAddress, getThreadState } from "@/lib/google/gmail";
+import { loadKnownSenders } from "@/lib/email/known-senders";
 import { getEventsForDateRange } from "@/lib/google/calendar";
 import { findAnsweringCalendarEvent, type InviteCalendarEvent } from "@/lib/followups/invitation-rsvp";
 import { getSlackUserClientForUser, isSlackConnected } from "@/lib/slack/client";
@@ -164,10 +165,17 @@ async function detectGmail(
     .map((n) => n.trim().split(/\s+/)[0]?.toLowerCase() ?? "")
     .filter((n) => n.length > 2);
 
-  const inbound = await getRecentEmails(username, 50, maxAgeDays);
-  const candidates = inbound.filter((m) => {
+  const [inbound, known] = await Promise.all([
+    getRecentEmails(username, 50, maxAgeDays),
+    loadKnownSenders(username),
+  ]);
+  const addressed = inbound.filter((m) => {
     if (new Date(m.date).getTime() >= cutoff) return false;
     if (isAutomatedSender(m.from, m.fromEmail, m.subject)) return false;
+    // List / marketing mail, by its own headers or Gmail's tabs — unless a
+    // known correspondent sent it. Nobody is waiting on a reply to a blast.
+    const promo = (m.labels ?? []).some((l) => l === "CATEGORY_PROMOTIONS" || l === "CATEGORY_SOCIAL");
+    if ((m.bulk || promo) && !known.isKnown(m.fromEmail)) return false;
     // Never tell the user to reply to themselves.
     if (selfEmails.has((m.fromEmail || "").toLowerCase())) return false;
     if (isSelf(m.fromEmail, identity) || isSelf(m.from, identity)) return false;
@@ -189,6 +197,17 @@ async function detectGmail(
     }
     return true;
   });
+
+  // One card per CONVERSATION, anchored on its newest message addressed to the
+  // user. Per-message cards kept asking for a reply to an early message after a
+  // colleague had answered it on a reply-all.
+  const newestPerThread = new Map<string, (typeof addressed)[number]>();
+  for (const m of addressed) {
+    const key = m.threadId ?? m.id;
+    const prev = newestPerThread.get(key);
+    if (!prev || m.date > prev.date) newestPerThread.set(key, m);
+  }
+  const candidates = [...newestPerThread.values()];
 
   // Calendar RSVP state, so an invitation the user ANSWERED on the calendar
   // stops being reported as awaiting a reply. checkThreadForSentReply below can
@@ -215,8 +234,12 @@ async function detectGmail(
       return null;
     }
 
-    const reply = await checkThreadForSentReply(username, m.id, m.date);
-    if (reply !== null) return null; // user already replied in this thread
+    // Awaiting only while this is still the last word in the conversation: a
+    // later message from the user means they replied; a later message from
+    // anyone else means the thread moved on without needing them (if it DID
+    // ask them, that newer message is its own candidate above).
+    const thread = await getThreadState(username, m.id);
+    if (thread && thread.later.length > 0) return null;
     const followup: PendingFollowup = {
       id: `gmail:${m.id}`,
       source: "gmail",
@@ -255,10 +278,15 @@ async function detectSlack(
   if (!selfId) return { items: [], connected: false };
 
   // Enumerate DMs + Group DMs.
-  let channels: Array<{ id?: string }> = [];
+  let channels: Array<{ id?: string; is_mpim?: boolean }> = [];
+  // In a group DM the last word is often a colleague answering someone else —
+  // that only waits on the user when it names them.
+  const selfFirstNames = (await getSelfIdentity(username)).names
+    .map((n) => n.trim().split(/\s+/)[0]?.toLowerCase() ?? "")
+    .filter((n) => n.length > 2);
   try {
     const list = await web.conversations.list({ types: "im,mpim", limit: 50 });
-    channels = (list.channels as Array<{ id?: string }>) ?? [];
+    channels = (list.channels as Array<{ id?: string; is_mpim?: boolean }>) ?? [];
   } catch {
     return { items: [], connected: true };
   }
@@ -276,6 +304,12 @@ async function detectSlack(
       // Awaiting iff the newest message is inbound (not from us) AND stale.
       if (last.user === selfId) continue;
       if (lastMs >= cutoff) continue;
+      if (c.is_mpim) {
+        const text = (last.text ?? "").toLowerCase();
+        const mentioned = text.includes(`<@${selfId.toLowerCase()}>`)
+          || selfFirstNames.some((n) => new RegExp(`\\b${n}\\b`).test(text));
+        if (!mentioned) continue;
+      }
 
       let fromName = "";
       if (last.user) {

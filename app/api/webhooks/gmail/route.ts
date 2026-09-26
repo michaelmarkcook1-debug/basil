@@ -7,6 +7,8 @@ import { publish } from "@/lib/events/bus";
 import { getWatchState, updateGmail } from "@/lib/google/watch-state";
 import { detectZoomEmail } from "@/lib/google/zoom-email-detector";
 import { triageEmail } from "@/lib/email/triage";
+import { loadKnownSenders, type KnownSenders } from "@/lib/email/known-senders";
+import { isBulkMail } from "@/lib/google/gmail";
 import { start } from "workflow/api";
 import { ingestGmailWorkflow } from "@/lib/jobs/workflows/ingest-gmail";
 import { createJobRecord } from "@/lib/jobs/store";
@@ -109,6 +111,7 @@ export async function POST(req: Request) {
     // Pub/Sub has a ~10 s ACK deadline — sequential fetches on 50 messages
     // would consistently time out on busy inboxes.
     const addedIds = [...added];
+    let knownSenders: Promise<KnownSenders> | undefined;
     const BATCH_SIZE = 5;
     for (let i = 0; i < addedIds.length; i += BATCH_SIZE) {
       await Promise.all(addedIds.slice(i, i + BATCH_SIZE).map(async (id) => {
@@ -121,11 +124,15 @@ export async function POST(req: Request) {
             userId: "me",
             id,
             format: "metadata",
-            metadataHeaders: ["From", "Subject"],
+            metadataHeaders: ["From", "Subject", "List-Unsubscribe", "List-Id", "Precedence", "Auto-Submitted"],
           });
+          const labels = detail.data.labelIds || [];
+          // The history delta can carry the user's own sent mail; Basil only
+          // ingests inbound (mirrors poll-ingest's in:inbox + isSelf).
+          if (labels.includes("SENT") && !labels.includes("INBOX")) return;
           const headers = detail.data.payload?.headers || [];
           const h = (n: string) =>
-            headers.find((hh) => hh.name === n)?.value || "";
+            headers.find((hh) => hh.name?.toLowerCase() === n.toLowerCase())?.value || "";
 
           const fromRaw = h("From");
           const subject = h("Subject");
@@ -143,7 +150,11 @@ export async function POST(req: Request) {
           // empty/"Test", no-reply, or marketing mail. Zoom recaps bypass it.
           if (source === "email") {
             const fromEmail = (fromRaw.match(/<([^>]+)>/)?.[1] || fromRaw).trim();
-            const triage = triageEmail({ from: fromRaw, fromEmail, subject, snippet });
+            const known = await (knownSenders ??= loadKnownSenders(webhookUsername));
+            const triage = triageEmail({
+              from: fromRaw, fromEmail, subject, snippet,
+              labels, bulk: isBulkMail(h), knownSender: known.isKnown(fromEmail),
+            });
             if (triage.lowValue) return; // skip this message (per-id async callback)
           }
 

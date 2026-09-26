@@ -16,8 +16,9 @@ function detector({ gmailThrows = false, slackThrows = false, googleConnected = 
   return loadTs("lib/followups/detect.ts", {
     "@/lib/google/gmail": {
       getRecentEmails: async () => { if (gmailThrows) throw new Error("429 rate limited"); return []; },
-      getGmailAddress: async () => "fixture@example.invalid", checkThreadForSentReply: async () => null,
+      getGmailAddress: async () => "fixture@example.invalid", getThreadState: async () => ({ later: [] }),
     },
+    "@/lib/email/known-senders": { loadKnownSenders: async () => ({ isKnown: () => false }) },
     "@/lib/google/calendar": { getEventsForDateRange: async () => [] },
     "@/lib/followups/invitation-rsvp": { findAnsweringCalendarEvent: () => null },
     "@/lib/slack/client": {

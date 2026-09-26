@@ -285,10 +285,14 @@ function ActionCard({
                 sent a reply) read as what you DID; lifecycle sweeps read as
                 auto-archived. Neither is conflated with a manual completion. */}
             {action.archivedReason && (() => {
-              const signalDriven = action.archivedReason === "rsvp-confirmed" || action.archivedReason === "reply-sent";
+              const signalDriven = action.archivedReason === "rsvp-confirmed" || action.archivedReason === "reply-sent"
+                || action.archivedReason === "answered-elsewhere";
               const label =
                 action.archivedReason === "rsvp-confirmed" ? "you responded on your calendar"
                 : action.archivedReason === "reply-sent" ? "you replied"
+                : action.archivedReason === "answered-elsewhere" ? "answered in the thread"
+                : action.archivedReason === "bulk-mail" ? "marketing mail"
+                : action.archivedReason === "stale-untouched" ? "untouched 30 days"
                 : action.archivedReason === "stale-overdue" ? "expired overdue"
                 : action.archivedReason === "past-meeting" ? "meeting passed"
                 : "time-boxed";
@@ -1000,6 +1004,13 @@ export default function ActionsPage() {
         }
       }
       await refresh();
+      // Close anything whose email/Slack conversation has moved on (you replied,
+      // someone else answered, it was marketing). Server-throttled per action.
+      try {
+        const res = await fetch("/api/actions/resolve-threads", { method: "POST" });
+        const out = res.ok ? await res.json() as { closed?: number } : null;
+        if (out?.closed) await refresh();
+      } catch { /* best-effort tidy-up */ }
     })();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);

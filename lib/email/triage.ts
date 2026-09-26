@@ -58,6 +58,12 @@ export interface EmailTriageInput {
   subject: string;
   /** Snippet or body — whatever cheap text is available pre-fetch. */
   snippet: string;
+  /** Gmail label ids (CATEGORY_PROMOTIONS, CATEGORY_SOCIAL, …) when known. */
+  labels?: readonly string[];
+  /** List-Unsubscribe / List-Id / Precedence: bulk / Auto-Submitted (gmail.isBulkMail). */
+  bulk?: boolean;
+  /** A contact, a colleague's domain, or the user's own — exempt from the bulk rules. */
+  knownSender?: boolean;
 }
 
 export interface EmailTriageResult {
@@ -105,6 +111,18 @@ export function triageEmail(e: EmailTriageInput): EmailTriageResult {
   // substring, which drops real humans like "Sarah | Marketing at Acme".
   if (/\bnewsletter\b/.test(name)) {
     return { lowValue: true, reason: "marketing-name" };
+  }
+
+  // 4. Mail sent to a list, not to the user — by the message's own headers and
+  //    Gmail's categorisation rather than guessable sender names. Event blasts,
+  //    review requests and community mailers ("Events | BPESA", "Waitilist |
+  //    OP Labs") passed every rule above and became "Register for…" / "Leave a
+  //    review…" actions. A known sender (colleague list post, a contact's
+  //    company newsletter tool) is exempt: that mail can still matter.
+  if (!e.knownSender) {
+    if (e.labels?.includes("CATEGORY_PROMOTIONS")) return { lowValue: true, reason: "gmail-promotions" };
+    if (e.labels?.includes("CATEGORY_SOCIAL")) return { lowValue: true, reason: "gmail-social" };
+    if (e.bulk) return { lowValue: true, reason: "bulk-headers" };
   }
 
   return { lowValue: false };

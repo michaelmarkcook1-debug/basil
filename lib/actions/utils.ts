@@ -16,6 +16,29 @@ export const STALE_THRESHOLD_DAYS = 14;
 export const STALE_OVERDUE_THRESHOLD_DAYS = 14;
 
 /**
+ * Days an AUTO-EXTRACTED action may sit untouched before it is archived. By then
+ * the conversation it came from has moved on; 277 of 362 open actions on
+ * 2026-09-26 had not been touched in 90+ days and buried the live ones.
+ */
+export const UNTOUCHED_ARCHIVE_DAYS = 30;
+
+const AUTO_SOURCES = new Set(["email", "slack", "teams", "meeting"]);
+
+/**
+ * Auto-extracted (email/Slack/Teams/meeting), still open, no due date still
+ * ahead, and no activity for UNTOUCHED_ARCHIVE_DAYS. Anything the user created
+ * (manual, chat) or that syncs from a system of record (linear) is never
+ * archived for age. Archiving sets status "done" with a reason — recoverable.
+ */
+export function isUntouchedStale(action: ActionItem, now = Date.now()): boolean {
+  if (action.status !== "open" && action.status !== "overdue") return false;
+  if (!AUTO_SOURCES.has(action.source)) return false;
+  if (action.dueDate && new Date(action.dueDate).getTime() >= now) return false;
+  const lastTouch = action.lastActivityAt ?? action.createdAt;
+  return now - new Date(lastTouch).getTime() >= UNTOUCHED_ARCHIVE_DAYS * 86_400_000;
+}
+
+/**
  * Returns true if the action has been open with no meaningful activity for
  * STALE_THRESHOLD_DAYS or more. Items with a dueDate are either "overdue" or
  * "upcoming" — stale only applies to undated open items that have gone quiet.

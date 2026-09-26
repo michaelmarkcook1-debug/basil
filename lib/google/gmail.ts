@@ -13,6 +13,30 @@ export interface GmailMessage {
   snippet: string;
   date: string;
   unread: boolean;
+  /** Gmail label ids, e.g. CATEGORY_PROMOTIONS, SENT, INBOX. */
+  labels?: string[];
+  /** Mailing-list / bulk / auto-generated mail (see isBulkMail). */
+  bulk?: boolean;
+  cc?: string;
+  threadId?: string;
+}
+
+/** Headers requested with every metadata fetch — enough to judge bulk mail and addressing. */
+const METADATA_HEADERS = ["From", "To", "Cc", "Subject", "Date", "List-Unsubscribe", "List-Id", "Precedence", "Auto-Submitted"];
+
+/**
+ * Mail sent to a list rather than to a person: newsletters, marketing, event
+ * blasts, review requests, automated notices. Those carry List-Unsubscribe /
+ * List-Id (RFC 2369/2919), "Precedence: bulk|list|junk", or Auto-Submitted
+ * (RFC 3834). Sender-name heuristics alone missed "Events | BPESA" and
+ * "Waitilist | OP Labs", which became "Register for…" and "Leave a review…"
+ * on the Action Tracker. Pure — exported for tests.
+ */
+export function isBulkMail(header: (name: string) => string): boolean {
+  if (header("List-Unsubscribe").trim() || header("List-Id").trim()) return true;
+  if (/^\s*(bulk|list|junk)\b/i.test(header("Precedence"))) return true;
+  const auto = header("Auto-Submitted").trim().toLowerCase();
+  return !!auto && auto !== "no";
 }
 
 /**
@@ -88,11 +112,11 @@ export async function searchEmails(
       userId: "me",
       id: msg.id,
       format: "metadata",
-      metadataHeaders: ["From", "To", "Subject", "Date"],
+      metadataHeaders: METADATA_HEADERS,
     });
 
     const headers = detail.data.payload?.headers || [];
-    const getHeader = (name: string) => headers.find((h) => h.name === name)?.value || "";
+    const getHeader = (name: string) => headers.find((h) => h.name?.toLowerCase() === name.toLowerCase())?.value || "";
 
     // Extract just the display name from "Name <email>" format
     function extractName(raw: string): string {
@@ -120,6 +144,10 @@ export async function searchEmails(
       snippet: detail.data.snippet || "",
       date: new Date(parseInt(detail.data.internalDate || "0")).toISOString(),
       unread: (detail.data.labelIds || []).includes("UNREAD"),
+      labels: detail.data.labelIds || [],
+      bulk: isBulkMail(getHeader),
+      cc: getHeader("Cc"),
+      threadId: detail.data.threadId || undefined,
     });
   }
 
@@ -357,6 +385,76 @@ export async function checkThreadForSentReply(
     return null;
   } catch (err) {
     console.error("[gmail] checkThreadForSentReply error:", err);
+    return null;
+  }
+}
+
+export interface ThreadMessage {
+  id: string;
+  fromName: string;
+  fromEmail: string;
+  to: string;
+  cc: string;
+  date: string;
+  /** Sent by the mailbox owner. */
+  sent: boolean;
+  snippet: string;
+  labels: string[];
+  bulk: boolean;
+}
+
+export interface ThreadState {
+  threadId: string;
+  subject: string;
+  original: ThreadMessage;
+  /** Messages after the original, oldest first — replies from anyone. */
+  later: ThreadMessage[];
+}
+
+/**
+ * The whole conversation around one message: the message itself and everything
+ * after it, from anyone. checkThreadForSentReply only asks "did the user reply?",
+ * which cannot see a colleague answering the question on a reply-all — the
+ * other half of "is this still waiting on me?". Never throws; null on failure.
+ */
+export async function getThreadState(username: string, messageId: string): Promise<ThreadState | null> {
+  try {
+    const auth = await getAuthedClient(username);
+    if (!auth) return null;
+    const gmail = google.gmail({ version: "v1", auth });
+    const orig = await gmail.users.messages.get({ userId: "me", id: messageId, format: "minimal" });
+    const threadId = orig.data.threadId;
+    if (!threadId) return null;
+    const thread = await gmail.users.threads.get({ userId: "me", id: threadId, format: "metadata", metadataHeaders: METADATA_HEADERS });
+    const msgs: ThreadMessage[] = (thread.data.messages ?? []).map((m) => {
+      const hs = m.payload?.headers ?? [];
+      const h = (n: string) => hs.find((x) => x.name?.toLowerCase() === n.toLowerCase())?.value || "";
+      const fromRaw = h("From");
+      const nameMatch = fromRaw.match(/^"?([^"<]+)"?\s*</);
+      const emailMatch = fromRaw.match(/<([^>]+@[^>]+)>/);
+      return {
+        id: m.id ?? "",
+        fromName: nameMatch ? nameMatch[1].trim() : fromRaw.split("@")[0],
+        fromEmail: (emailMatch ? emailMatch[1] : fromRaw).trim().toLowerCase(),
+        to: h("To"),
+        cc: h("Cc"),
+        date: new Date(parseInt(m.internalDate ?? "0", 10)).toISOString(),
+        sent: (m.labelIds ?? []).includes("SENT"),
+        snippet: m.snippet ?? "",
+        labels: m.labelIds ?? [],
+        bulk: isBulkMail(h),
+      };
+    });
+    const original = msgs.find((m) => m.id === messageId);
+    if (!original) return null;
+    const subjectHeader = (thread.data.messages ?? []).find((m) => m.id === messageId)?.payload?.headers
+      ?.find((x) => x.name?.toLowerCase() === "subject")?.value ?? "(no subject)";
+    const later = msgs
+      .filter((m) => m.id !== messageId && m.date > original.date)
+      .sort((a, b) => a.date.localeCompare(b.date));
+    return { threadId, subject: subjectHeader, original, later };
+  } catch (err) {
+    console.error("[gmail] getThreadState error:", err instanceof Error ? err.message : err);
     return null;
   }
 }

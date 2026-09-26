@@ -29,9 +29,12 @@ export {
   isOverdueStale,
   isGroupOwner,
   isMeetingAttendancePast,
+  isUntouchedStale,
   STALE_THRESHOLD_DAYS,
   STALE_OVERDUE_THRESHOLD_DAYS,
+  UNTOUCHED_ARCHIVE_DAYS,
 } from "./utils";
+import { isUntouchedStale as untouchedStale } from "./utils";
 
 const ACTIONS_FILE = "sage-actions.json";
 
@@ -511,8 +514,34 @@ export async function listActions(username: string, options?: { fresh?: boolean 
     }).catch((err) => console.error("[actions] expiry archive failed:", err));
   }
   const expiredIds = new Set(expired.map((a) => a.id));
-  const live = afterPastMeeting.map((a) =>
+  const afterExpired = afterPastMeeting.map((a) =>
     expiredIds.has(a.id) ? { ...a, status: "done" as const, archivedReason: "expired" as const } : a
+  );
+
+  // ── Untouched auto-extracted archive ─────────────────────────────────────────
+  // An action Basil extracted from a message, which nobody has touched in 30
+  // days, belongs to a conversation that has moved on. Left open, hundreds of
+  // them buried the live work. Archived (status done + reason), not deleted.
+  const untouched = afterExpired.filter((a) => untouchedStale(a));
+  if (untouched.length > 0) {
+    const untouchedIds = new Set(untouched.map((a) => a.id));
+    withLock(lockKey(username), async () => {
+      const current = await readAll(username, { fresh: true });
+      let changed = false;
+      const archived = current.map((a) => {
+        if (!untouchedIds.has(a.id) || a.status === "done" || !untouchedStale(a)) return a;
+        changed = true;
+        return { ...a, status: "done" as const, archivedReason: "stale-untouched" as const, updatedAt: new Date().toISOString() };
+      });
+      if (changed) {
+        await writeAll(username, archived);
+        console.log(`[actions] archived ${untouched.length} untouched auto-extracted action(s) for ${username}`);
+      }
+    }).catch((err) => console.error("[actions] untouched archive failed:", err));
+  }
+  const untouchedIds = new Set(untouched.map((a) => a.id));
+  const live = afterExpired.map((a) =>
+    untouchedIds.has(a.id) ? { ...a, status: "done" as const, archivedReason: "stale-untouched" as const } : a
   );
 
   return live.sort(
@@ -654,6 +683,8 @@ export async function updateAction(
       | "eisenhower"
       | "eisenhowerReason"
       | "eisenhowerClassifiedAt"
+      | "threadCheckedAt"
+      | "notes"
       // Signal-driven auto-resolution (calendar RSVP, sent reply) marks an
       // action done AND tags why — so it lands in Done as "you accepted /
       // replied", not conflated with genuinely hand-completed work.
@@ -678,6 +709,36 @@ export async function updateAction(
     };
     await writeAll(username, items);
     return items[idx];
+  });
+}
+
+/**
+ * Several patches in ONE locked read-modify-write — for background resolvers,
+ * which would otherwise rewrite the whole actions file once per item. A patch
+ * that closes an item is dropped (bar bookkeeping) if the user already closed
+ * it meanwhile, so a background close never overwrites a human one.
+ */
+export async function bulkUpdateActions(
+  username: string,
+  updates: ReadonlyArray<{ id: string; patch: Partial<ActionItem> }>,
+): Promise<number> {
+  if (updates.length === 0) return 0;
+  return withLock(lockKey(username), async () => {
+    const items = await readAll(username, { fresh: true });
+    const byId = new Map(updates.map((u) => [u.id, u.patch]));
+    const now = new Date().toISOString();
+    let n = 0;
+    const next = items.map((a) => {
+      const patch = byId.get(a.id);
+      if (!patch) return a;
+      n++;
+      if (a.status === "done" && patch.status !== undefined) {
+        return { ...a, ...(patch.threadCheckedAt ? { threadCheckedAt: patch.threadCheckedAt } : {}) };
+      }
+      return { ...a, ...patch, updatedAt: now };
+    });
+    if (n > 0) await writeAll(username, next);
+    return n;
   });
 }
 

@@ -18,7 +18,8 @@ import { publish } from "@/lib/events/bus";
 import { generateDraftForEvent } from "@/lib/events/drafter";
 import type { IngestPayload, BasilEvent } from "@/lib/events/types";
 import { getTodayEvents, getEventsForMonth } from "@/lib/google/calendar";
-import { getRecentEmails, searchEmails, checkThreadForSentReply } from "@/lib/google/gmail";
+import { getRecentEmails, searchEmails } from "@/lib/google/gmail";
+import { resolveThreadActions } from "@/lib/actions/resolve-threads";
 import { getRecentSlackMessages } from "@/lib/slack/client";
 import { getMutedSourceKeys } from "@/lib/learning/store";
 import { listActions, updateAction, createAction } from "@/lib/actions/store";
@@ -31,6 +32,7 @@ import { getSelfIdentity, isSelf } from "@/lib/self-identity";
 import { ZOOM_GMAIL_QUERY, ZOOM_FORWARDED_GMAIL_QUERY, detectZoomEmail } from "@/lib/google/zoom-email-detector";
 import { processRegularEmail, processZoomEmail } from "@/lib/email/process-gmail-message";
 import { triageEmail } from "@/lib/email/triage";
+import { loadKnownSenders } from "@/lib/email/known-senders";
 import { getSessionUser } from "@/lib/auth";
 import { getUsers, isAdminUser } from "@/lib/users";
 import { fetchSlackThread, formatThreadTranscript } from "@/lib/slack/fetch-thread";
@@ -231,6 +233,8 @@ export async function POST(req: Request) {
   const zoomEmailIds = new Set(zoomEmails.map((m) => m.id));
 
   const payloads: IngestPayload[] = [];
+  // Bulk/promotional mail is dropped unless a known correspondent sent it.
+  const knownSenders = await loadKnownSenders(username);
 
   // ── Regular emails (excluding Zoom and self-sent) ───────────────────────────
   for (const e of emails) {
@@ -252,7 +256,10 @@ export async function POST(req: Request) {
 
     // Aggressive junk gate — drop empty/"Test", no-reply notifications, and
     // newsletters/marketing/digests BEFORE a durable event is created for them.
-    const triage = triageEmail({ from: e.from, fromEmail: e.fromEmail, subject: e.subject, snippet: e.snippet });
+    const triage = triageEmail({
+      from: e.from, fromEmail: e.fromEmail, subject: e.subject, snippet: e.snippet,
+      labels: e.labels, bulk: e.bulk, knownSender: knownSenders.isKnown(e.fromEmail),
+    });
     if (triage.lowValue) {
       console.log(`[poll-ingest] skipped low-value email (${triage.reason}): ${e.subject?.slice(0, 60)}`);
       continue;
@@ -1008,61 +1015,40 @@ export async function POST(req: Request) {
     return 0;
   });
 
-  // ── Email action completion detection ─────────────────────────────────────
-  // For each open email action with a Gmail sourceRef, check whether the user
-  // has sent a reply in that thread since the action was created. If yes:
-  //   1. Mark the action "done"
-  //   2. Create a Decision recording what was resolved, with suggested follow-ups
-  //
-  // Capped at 10 per cycle to avoid excessive Gmail API usage.
+  // ── Close actions whose conversation moved on ─────────────────────────────
+  // Re-reads the email thread / Slack conversation behind each open action:
+  // your own reply, marketing mail, or someone else settling it closes the
+  // action (lib/actions/resolve-threads.ts). Replaces a check that only saw
+  // your own email replies, anchored on the action's creation time and capped
+  // at 10. Your replies still record a "Replied to …" decision, as before.
   let actionsAutoCompleted = 0;
   after(async () => {
     try {
-      const allActions = await listActions(username);
-      const emailActions = allActions
-        .filter((a) => a.status === "open" && a.source === "email" && a.sourceRef?.startsWith("gmail:"))
-        .slice(0, 10);
-
-      for (const action of emailActions) {
-        const originalMessageId = action.sourceRef!.replace("gmail:", "");
-        const reply = await checkThreadForSentReply(username, originalMessageId, action.createdAt);
-        if (!reply) continue;
-
-        // Mark action done
-        await updateAction(username, action.id, {
-          status:         "done",
-          lastActivityAt: reply.sentAt,
-        });
-
-        // Follow-up date: 3 business days from now
-        const followUpDate = new Date(Date.now() + 3 * 24 * 60 * 60 * 1000)
-          .toISOString().split("T")[0];
-
-        // Create a Decision capturing the completed action and suggested next steps
+      const { closed } = await resolveThreadActions(username);
+      for (const { action, resolution } of closed) {
+        actionsAutoCompleted++;
+        if (resolution.kind !== "reply-sent" || action.source !== "email") continue;
+        const followUpDate = new Date(Date.now() + 3 * 24 * 60 * 60 * 1000).toISOString().split("T")[0];
         await createDecision(username, {
-          title:   `Replied to ${reply.originalFrom} re: ${reply.subject.slice(0, 50)}`,
-          text:    `Sent reply to ${reply.originalFrom} regarding "${reply.subject}". Original action: ${action.text}`,
-          summary: `Replied to ${reply.originalFrom} completing the pending action: "${action.text}"`,
+          title:   `Replied to ${resolution.counterpart} re: ${resolution.subject.slice(0, 50)}`,
+          text:    `Sent reply to ${resolution.counterpart} regarding "${resolution.subject}". Original action: ${action.text}`,
+          summary: `Replied to ${resolution.counterpart} completing the pending action: "${action.text}"`,
           consequences: [
-            `Await response from ${reply.originalFrom}`,
+            `Await response from ${resolution.counterpart}`,
             `Follow up if no reply by ${followUpDate}`,
           ],
           decidedBy:      username,
-          context:        reply.subject,
+          context:        resolution.subject,
           source:         "email",
-          sourceRef:      `gmail:${reply.messageId}`,
+          sourceRef:      action.sourceRef,
           linkedActionIds: [action.id],
           confidence:     0.9,
-          date:           reply.sentAt.split("T")[0],
+          date:           resolution.at.split("T")[0],
         });
-
-        actionsAutoCompleted++;
-        console.log(`[poll-ingest] Auto-completed action ${action.id} — reply found in thread`);
       }
-
       if (actionsAutoCompleted > 0) await forceFlushSnapshot();
     } catch (err) {
-      console.error("[poll-ingest] Email action completion check failed:", err);
+      console.error("[poll-ingest] thread resolution failed:", err);
     }
   });
 

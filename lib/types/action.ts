@@ -24,7 +24,16 @@ export interface ActionItem {
    * still treats it as terminal, but flagged so the Done list and completion
    * metrics don't conflate silently-expired work with genuinely-finished work.
    */
-  archivedReason?: "stale-overdue" | "past-meeting" | "expired" | "rsvp-confirmed" | "reply-sent";
+  archivedReason?:
+    | "stale-overdue" | "past-meeting" | "expired" | "rsvp-confirmed" | "reply-sent"
+    /** Auto-extracted, then nobody touched it for UNTOUCHED_ARCHIVE_DAYS. */
+    | "stale-untouched"
+    /** Someone else in the thread answered or handled it (lib/actions/resolve-threads.ts). */
+    | "answered-elsewhere"
+    /** Came from bulk/marketing mail — never the user's work. */
+    | "bulk-mail";
+  /** When resolve-threads last re-read this action's source conversation. */
+  threadCheckedAt?: string;
   source: "meeting" | "slack" | "teams" | "email" | "manual" | "chat" | "linear";
   createdAt: string;
   updatedAt: string;

@@ -215,6 +215,7 @@ export async function classifySlack(
     isMention && `${userFirstName} was @-mentioned in this conversation.`,
     `Lines prefixed [You] are messages ${userFirstName} themselves sent. Lines with other names are messages they received.`,
     isDM && `In a DM, if the last message is prefixed [You], ${userFirstName} has already replied and likely does not need to reply again.`,
+    `If a later message in the transcript shows someone else already answered the question or handled the request, it is settled — do NOT create an action for ${userFirstName} to respond to it.`,
   ]
     .filter(Boolean)
     .join(" ");
