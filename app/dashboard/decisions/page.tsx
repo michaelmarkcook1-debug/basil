@@ -34,7 +34,6 @@ import { findContactByName } from "@/lib/contacts-lookup";
 import { dashboardCache } from "@/lib/dashboard-cache";
 import type { Decision } from "@/lib/types/decision";
 import { DataState } from "@/components/ui/data-state";
-import { EvidencePanel } from "@/components/ui/trust-badge";
 import { TrustReviewPrompt } from "@/components/ui/trust-ui";
 import { ExplorePanel } from "@/components/explore-panel";
 
@@ -77,18 +76,6 @@ const SOURCE_COLOR: Record<string, string> = {
   chat:    "bg-signal-positive-subtle text-signal-positive border-signal-positive-border",
 };
 
-function ConfidenceDot({ confidence }: { confidence?: number }) {
-  if (confidence === undefined) return null;
-  const pct = Math.round(confidence * 100);
-  const color =
-    pct >= 80 ? "bg-signal-positive" : pct >= 60 ? "bg-signal-warning" : "bg-signal-critical";
-  return (
-    <span
-      title={`Extraction confidence: ${pct}%`}
-      className={`inline-block h-2 w-2 rounded-full ${color} shrink-0 mt-1`}
-    />
-  );
-}
 
 function NeedsReviewBadge() {
   return (
@@ -132,7 +119,6 @@ function DecisionCard({
     <Card className={d.status === "superseded" ? "opacity-50" : ""}>
       <CardContent className="p-4">
         <div className="flex items-start gap-3">
-          <ConfidenceDot confidence={d.confidence} />
 
           <div className="flex-1 min-w-0">
             {/* ── Headline row ────────────────────────────────────────── */}
@@ -351,16 +337,6 @@ function DecisionCard({
                   <p className="text-xs text-muted-foreground italic">{d.context}</p>
                 )}
               </div>
-            )}
-
-            {/* Evidence panel — always shown when provenance or confidence is available */}
-            {(d.sourceRef || d.additionalSourceRefs?.length || d.confidence !== undefined) && (
-              <EvidencePanel
-                sourceRef={d.sourceRef}
-                additionalSourceRefs={d.additionalSourceRefs}
-                confidence={d.confidence}
-                context={expanded ? d.context : undefined}
-              />
             )}
 
             {/* Explore further — inline notes */}

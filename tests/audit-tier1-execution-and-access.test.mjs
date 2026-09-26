@@ -267,10 +267,10 @@ const pricing = loadTs("lib/ai/pricing.ts", {
 
 test("#8 the fail-closed set is derived from the price table, not from a family's name", () => {
   const expected = Object.entries(pricing.FAMILY_PRICING)
-    .filter(([, p]) => p.outputPerM >= 25).map(([f]) => f).sort();
+    .filter(([, p]) => p.outputPerM >= 20).map(([f]) => f).sort();
   const actual = Object.keys(pricing.FAMILY_PRICING).filter((f) => pricing.failsClosedOnCounterOutage(f)).sort();
   assert.deepEqual(actual, expected);
-  assert.ok(actual.includes("opus5"), "the assistant's own family must be in the set");
+  assert.ok(actual.includes("opus55") && actual.includes("opus5"), "the assistant's own family (opus55 since 2026-09-25) must be in the set");
   assert.ok(actual.includes("opus") && actual.includes("gpt56sol"));
   assert.ok(!actual.includes("haiku") && !actual.includes("gpt56luna"), "classifier tiers still fail open");
 });
@@ -285,7 +285,7 @@ function guardWithCounterOutage() {
 
 test("#8 with a cap configured, an outage on the opus5 chat path refuses the request instead of reserving zero", async () => {
   const guard = guardWithCounterOutage();
-  for (const family of ["opus5", "opus", "gpt56sol"]) {
+  for (const family of ["opus55", "opus5", "opus", "gpt56sol"]) {
     await assert.rejects(
       guard.reserveSpend({ username: "fixture", feature: "chat", family }, "default"),
       (e) => e instanceof guard.SpendCapError,

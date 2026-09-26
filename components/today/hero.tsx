@@ -18,12 +18,11 @@
  * effective background under text would invalidate the whole palette audit.
  */
 
-import { ProvenanceIndicator } from "./primitives";
 import type { SourceState } from "@/lib/today/executive";
 import { greeting, formatClock } from "@/lib/today/clock";
 
 export function Hero({
-  name, shape, risk, sources, now, timeZone, generatedAt,
+  name, shape, risk, sources, now, timeZone,
 }: {
   name: string;
   shape: string;
@@ -32,7 +31,6 @@ export function Hero({
   /** null until the browser has a clock — see lib/today/clock.ts. */
   now: Date | null;
   timeZone?: string;
-  generatedAt?: string;
 }) {
   const clock = now ? formatClock(now, timeZone) : null;
   const missing = sources.filter((s) => !s.connected);
@@ -74,7 +72,6 @@ export function Hero({
               {clock.date}{" · "}{clock.time}
             </time>
           )}
-          <ProvenanceIndicator provenance="observed" source="your connected accounts" at={generatedAt} />
           {missing.length > 0 && (
             <span className="text-[0.6875rem] font-medium text-[color:var(--w-manila)]">
               {missing.map((m) => m.label).join(", ")} not connected

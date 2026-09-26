@@ -51,10 +51,10 @@ test("every user-facing assistant surface resolves via getChatModel", () => {
 test("assistant is pinned to Opus 5 in BOTH id forms (gateway vs direct)", () => {
   // OWNER POLICY 2026-07-23: the assistant runs Claude Opus 5; GPT-5.6 Sol is
   // now only its fallback. The id FORMS differ and mixing them 404s.
-  assert.ok(/CHAT_MODEL_GATEWAY_ID\s*=\s*process\.env\.\w+\s*\?\?\s*"anthropic\/claude-opus-5"/.test(cfg),
-    'gateway id must default to "anthropic/claude-opus-5" (provider-prefixed)');
-  assert.ok(/CHAT_MODEL_ANTHROPIC_ID\s*=\s*process\.env\.\w+\s*\?\?\s*"claude-opus-5"/.test(cfg),
-    'direct id must default to the bare "claude-opus-5"');
+  assert.ok(/CHAT_MODEL_GATEWAY_ID\s*=\s*process\.env\.\w+\s*\?\?\s*"anthropic\/claude-opus-5\.5"/.test(cfg),
+    'gateway id must default to "anthropic/claude-opus-5.5" (provider-prefixed)');
+  assert.ok(/CHAT_MODEL_ANTHROPIC_ID\s*=\s*process\.env\.\w+\s*\?\?\s*"claude-opus-5-5"/.test(cfg),
+    'direct id must default to the bare "claude-opus-5-5"');
   assert.ok(/CHAT_MODEL_OPENAI_ID\s*=\s*process\.env\.\w+\s*\?\?\s*"gpt-5\.6-sol"/.test(cfg),
     'the OpenAI id must remain defined as the assistant FALLBACK');
   // Must never be ASSIGNED as a model value (prose mentioning it is fine).
@@ -64,13 +64,13 @@ test("assistant is pinned to Opus 5 in BOTH id forms (gateway vs direct)", () =>
 
 test("the pinned assistant runs at an explicit reasoning effort", () => {
   assert.ok(/export const CHAT_EFFORT: AnthropicEffort/.test(cfg), "CHAT_EFFORT must be declared");
-  assert.ok(/process\.env\.CHAT_EFFORT as AnthropicEffort\) \?\? "high"/.test(cfg),
-    "the assistant must default to effort high");
+  assert.ok(/process\.env\.CHAT_EFFORT as AnthropicEffort\) \?\? "medium"/.test(cfg),
+    "the assistant must default to effort medium (was high until 2026-09-25)");
 });
 
 test("assistant spend is priced from the pinned family, not the tier", () => {
-  assert.ok(/opus5:\s*\{\s*inputPerM:\s*5,\s*outputPerM:\s*25\s*\}/.test(pricing),
-    "claude-opus-5 pricing ($5/$25 per M, read off the live gateway listing) must be defined");
+  assert.ok(/opus55:\s*\{\s*inputPerM:\s*4,\s*outputPerM:\s*20\s*\}/.test(pricing),
+    "claude-opus-5.5 pricing ($4/$20 per M, read off the live gateway listing) must be defined");
   assert.ok(/export const CHAT_PRICE_FAMILY/.test(pricing), "pricing must export CHAT_PRICE_FAMILY");
   for (const [name, src] of [["web chat", webChat], ["mobile chat", mobileChat]]) {
     assert.ok(/family:\s*CHAT_PRICE_FAMILY/.test(src),

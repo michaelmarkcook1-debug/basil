@@ -36,7 +36,6 @@ import { useDomainSync } from "@/lib/sync/use-domain-sync";
 import { getNow } from "@/lib/datetime";
 
 import type { Briefing } from "@/lib/types/briefing";
-import { SignalSummary } from "@/components/ui/trust-badge";
 
 // Use the browser's local timezone rather than a hardcoded one
 const USER_TZ = typeof Intl !== "undefined"
@@ -809,12 +808,6 @@ export default function BriefingPage() {
               hour: "2-digit",
               minute: "2-digit",
             })}</span>
-            {briefing.sourceAttribution?.connected && briefing.sourceAttribution.connected.length > 0 && (
-              <>
-                <span className="text-border/40">·</span>
-                <span>{briefing.sourceAttribution.connected.join(" · ")}</span>
-              </>
-            )}
             {isStale && (
               <>
                 <span className="text-border/40">·</span>
@@ -879,17 +872,8 @@ export default function BriefingPage() {
                   minute: "2-digit",
                 })}
               </p>
-              {briefing.dataSources && (
-                <SignalSummary counts={briefing.dataSources} />
-              )}
               {briefing.sourceAttribution && (
                 <div className="flex flex-col items-center gap-1.5 pt-1 text-xs text-muted-foreground max-w-xl">
-                  {briefing.sourceAttribution.connected.length > 0 && (
-                    <p>
-                      <span className="font-medium text-foreground/70">Sources: </span>
-                      {briefing.sourceAttribution.connected.join(" · ")}
-                    </p>
-                  )}
                   {briefing.sourceAttribution.unavailable.length > 0 && (
                     <p className="text-signal-warning/80">
                       <span className="font-medium">Not available: </span>

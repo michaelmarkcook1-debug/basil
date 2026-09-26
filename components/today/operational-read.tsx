@@ -11,17 +11,15 @@
  * operationalRead() for why a model call would be the wrong dependency here.
  */
 
-import { ProvenanceIndicator } from "./primitives";
 import type { SourceState } from "@/lib/today/executive";
 
 export function OperationalRead({
-  shape, risk, sources, now, generatedAt,
+  shape, risk, sources, now,
 }: {
   shape: string;
   risk: string | null;
   sources: SourceState[];
   now: Date;
-  generatedAt?: string;
 }) {
   const missing = sources.filter((s) => !s.connected);
   return (
@@ -49,7 +47,6 @@ export function OperationalRead({
 
       {/* Sourcing lives at the foot, quiet — available, never leading. */}
       <div className="mt-4 flex flex-wrap items-center gap-x-4 gap-y-1.5 border-t border-[var(--w-rule)] pt-3">
-        <ProvenanceIndicator provenance="observed" source="your connected accounts" at={generatedAt} />
         {missing.length > 0 && (
           <span className="inline-flex items-center gap-1 text-[0.6875rem] font-medium" style={{ color: "var(--w-manila)" }}>
             {missing.map((m) => m.label).join(", ")} not connected

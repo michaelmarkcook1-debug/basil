@@ -12,7 +12,7 @@
 import { useMemo, useState } from "react";
 import Link from "next/link";
 import { ChevronDown } from "lucide-react";
-import { UrgencyBadge, ProvenanceIndicator, Card } from "./primitives";
+import { UrgencyBadge, Card } from "./primitives";
 import type { Priority } from "@/lib/today/executive";
 
 type Filter = "all" | "relationships" | "meetings" | "commitments" | "projects" | "communications";
@@ -112,7 +112,6 @@ export function Watchlist({ items }: { items: Priority[] }) {
                     )}
                   </div>
                   <p className="mt-0.5 text-[0.875rem] text-[color:var(--w-ink-soft)]">{p.why}</p>
-                  <ProvenanceIndicator className="mt-1" provenance={p.provenance} source={p.source} at={p.occurredAt} />
                 </li>
               ))}
             </ul>

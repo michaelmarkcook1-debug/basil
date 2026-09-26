@@ -974,14 +974,13 @@ function MemoryRow({
           {memory.needsReview && (
             <span
               className="text-[11px] font-medium rounded-full bg-signal-warning-subtle text-signal-warning border border-signal-warning-border px-2 py-0.5"
-              title={`Low-confidence inference${typeof memory.confidence === "number" ? ` (${Math.round(memory.confidence * 100)}%)` : ""} — verify or remove. Basil weights unverified memories lower.`}
+              title="Basil inferred this — keep it or remove it."
             >
               Review
             </span>
           )}
           <span className="text-[12px] font-mono text-muted-foreground ml-auto">
             {age}
-            {memory.source === "chat" ? " · via chat" : memory.source === "inferred" ? " · inferred" : ""}
           </span>
         </div>
         <p className="text-sm text-foreground/90 leading-relaxed">{memory.content}</p>

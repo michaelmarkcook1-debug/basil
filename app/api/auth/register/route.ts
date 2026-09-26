@@ -5,6 +5,22 @@ import { patchSettings } from "@/lib/settings/store";
 import { checkRateLimitDurable, getClientIp } from "@/lib/rate-limit";
 import { forceFlushSnapshot } from "@/lib/storage/persistent";
 
+/** One place decides whether self-registration is open, for GET and POST alike. */
+function registrationOpen(): boolean {
+  const isProd = process.env.VERCEL_ENV === "production" || process.env.NODE_ENV === "production";
+  return !isProd || process.env.ALLOW_REGISTRATION === "true";
+}
+
+/**
+ * GET /api/auth/register → { open }
+ *
+ * The page asks first, so a closed sign-up says so before anyone fills in seven
+ * fields — until 2026-09-26 the 403 arrived only after the form was complete.
+ */
+export async function GET() {
+  return NextResponse.json({ open: registrationOpen() });
+}
+
 export async function POST(req: Request) {
   // Rate limit by IP — 10 attempts per minute, enforced across instances.
   const ip = getClientIp(req);
@@ -21,8 +37,7 @@ export async function POST(req: Request) {
   // cost/abuse vector for a single-owner "Executive OS". Default CLOSED in
   // production; set ALLOW_REGISTRATION=true to open it (or create users via the
   // admin surface). Non-production (local dev) stays open for convenience.
-  const isProd = process.env.VERCEL_ENV === "production" || process.env.NODE_ENV === "production";
-  if (isProd && process.env.ALLOW_REGISTRATION !== "true") {
+  if (!registrationOpen()) {
     return NextResponse.json(
       { error: "Self-registration is disabled. Ask an administrator for an account." },
       { status: 403 }

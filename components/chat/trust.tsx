@@ -30,7 +30,7 @@ export function TrustLine({ tool }: { tool: string }) {
   const { data } = useSWR<TrustResponse | null>("/api/trust", fetcher, { revalidateOnFocus: false });
   const [busy, setBusy] = useState(false);
   const t = data?.summary?.[tool];
-  if (!t || t.approved + t.denied === 0) return null;
+  if (!t) return null;
 
   async function delegate() {
     setBusy(true);
@@ -40,24 +40,19 @@ export function TrustLine({ tool }: { tool: string }) {
     } finally { setBusy(false); }
   }
 
+  // No running tally on the card — only the offer, once it has been earned.
+  if (!t.offer) return null;
   return (
-    <div className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-1.5 border-t border-border/60 pt-2.5 text-xs text-muted-foreground">
-      <span>
-        You&apos;ve approved <span className="font-medium text-foreground">{t.approved}</span> of{" "}
-        <span className="font-medium text-foreground">{t.approved + t.denied}</span> {humanize(tool)} requests
-        {t.streak >= 3 ? ` · ${t.streak} in a row` : ""}
-      </span>
-      {t.offer && (
-        <button
-          onClick={delegate}
-          disabled={busy}
-          className="inline-flex items-center gap-1.5 rounded-md border border-[var(--w-rule)] px-2.5 py-1 text-xs font-semibold text-[color:var(--w-carbon)] hover:bg-[var(--w-carbon-tint)] disabled:opacity-50"
-          title="Basil will do this without asking. Every run is recorded and can be undone, and you can revoke this on the Learning page."
-        >
-          <ShieldCheck className="h-3.5 w-3.5" />
-          {busy ? "…" : "Let Basil do this without asking"}
-        </button>
-      )}
+    <div className="mt-3 border-t border-border/60 pt-2.5">
+      <button
+        onClick={delegate}
+        disabled={busy}
+        className="inline-flex items-center gap-1.5 rounded-md border border-[var(--w-rule)] px-2.5 py-1 text-xs font-semibold text-[color:var(--w-carbon)] hover:bg-[var(--w-carbon-tint)] disabled:opacity-50"
+        title="Basil will do this without asking. You can undo any run, and turn this off on the Learning page."
+      >
+        <ShieldCheck className="h-3.5 w-3.5" />
+        {busy ? "…" : `Let Basil ${humanize(tool)} without asking`}
+      </button>
     </div>
   );
 }

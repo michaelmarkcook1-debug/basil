@@ -22,7 +22,7 @@ import { RESERVE_OUTPUT_TOKENS } from "./model-config";
 
 /** Model families we price. */
 export type PriceFamily =
-  | "opus" | "opus5" | "sonnet" | "haiku" | "gpt5"
+  | "opus" | "opus5" | "opus55" | "sonnet" | "haiku" | "gpt5"
   | "gpt56luna" | "gpt56terra" | "gpt56sol";
 
 /**
@@ -37,6 +37,9 @@ export const FAMILY_PRICING: Record<PriceFamily, { inputPerM: number; outputPerM
   // Rates read straight off the live gateway listing ($5/M in, $25/M out): it is
   // cheaper on output than gpt-5.6-sol ($30) and far cheaper than opus-4.8.
   opus5:  { inputPerM: 5,    outputPerM: 25 },
+  // claude-opus-5.5 — primary for default/long and the assistant from 2026-09-25.
+  // Rates from the live gateway listing: $4/M in, $20/M out.
+  opus55: { inputPerM: 4,    outputPerM: 20 },
   sonnet: { inputPerM: 3,    outputPerM: 15 }, // claude-sonnet-4.x / sonnet-5
   haiku:  { inputPerM: 1,    outputPerM: 5 },  // claude-haiku-4.5
   gpt5:   { inputPerM: 1.25, outputPerM: 10 }, // gpt-5.4 (legacy OpenAI fallback)
@@ -50,7 +53,7 @@ export const FAMILY_PRICING: Record<PriceFamily, { inputPerM: number; outputPerM
  * this INSTEAD of familyForTier(), because the assistant's model is pinned
  * rather than tier-resolved.
  */
-export const CHAT_PRICE_FAMILY: PriceFamily = "opus5";
+export const CHAT_PRICE_FAMILY: PriceFamily = "opus55";
 
 export interface TokenUsage {
   inputTokens?: number;
@@ -85,7 +88,7 @@ export function familyForTier(kind: ModelKind): PriceFamily {
     // Tier assignment is unchanged — only the model the tier resolves to.
     case "balanced": return "haiku";  // categorization (haiku 4.5 @ effort low)
     case "default":
-    case "long": return "opus5";      // contextual + reasoning (opus-5 @ effort high)
+    case "long": return "opus55";     // contextual + reasoning (opus-5.5 @ effort high)
   }
 }
 
@@ -126,7 +129,9 @@ export function worstCaseCostUsd(kind: ModelKind, family: PriceFamily): number {
  * that a 429 during an outage is the right trade; the classifier tiers still
  * fail open so a counter blip cannot take ingestion down.
  */
-const FAIL_CLOSED_OUTPUT_PER_M = 25;
+// 20, not 25: Opus 5.5 ($20 out) is the assistant's model and must fail closed.
+// Still excludes the classifier tiers (haiku $5, terra/sonnet $15).
+const FAIL_CLOSED_OUTPUT_PER_M = 20;
 
 export function failsClosedOnCounterOutage(family: PriceFamily): boolean {
   return FAMILY_PRICING[family].outputPerM >= FAIL_CLOSED_OUTPUT_PER_M;

@@ -147,8 +147,10 @@ export const ANTHROPIC_MODEL_IDS: Record<ModelKind, string> = {
   // ANTHROPIC_MODEL_BALANCED (claude-sonnet-5 ≈ $3/$15, claude-opus-5 ≈ $5/$25)
   // with no deploy if classification quality regresses.
   balanced: process.env.ANTHROPIC_MODEL_BALANCED ?? "claude-haiku-4-5-20251001",
-  default:  process.env.ANTHROPIC_MODEL_DEFAULT  ?? "claude-opus-5",
-  long:     process.env.ANTHROPIC_MODEL_LONG     ?? "claude-opus-5",
+  // 2026-09-25: Opus 5 → Opus 5.5 (owner request). Direct id verified 200
+  // against the production key; $4/$20 per M vs Opus 5's $5/$25.
+  default:  process.env.ANTHROPIC_MODEL_DEFAULT  ?? "claude-opus-5-5",
+  long:     process.env.ANTHROPIC_MODEL_LONG     ?? "claude-opus-5-5",
 };
 
 /**
@@ -178,8 +180,9 @@ const ANTHROPIC_EFFORT: Partial<Record<ModelKind, AnthropicEffort>> = {
   //
   // Top tier is what a human reads: think hard.
   // Top tier is what a human reads: think hard.
-  default:  (process.env.ANTHROPIC_EFFORT_DEFAULT  as AnthropicEffort) ?? "high",
-  long:     (process.env.ANTHROPIC_EFFORT_LONG     as AnthropicEffort) ?? "high",
+  // 2026-09-25: high → medium (owner request) — less reasoning spend per call.
+  default:  (process.env.ANTHROPIC_EFFORT_DEFAULT  as AnthropicEffort) ?? "medium",
+  long:     (process.env.ANTHROPIC_EFFORT_LONG     as AnthropicEffort) ?? "medium",
 };
 
 /**
@@ -359,13 +362,13 @@ export function getTextModel(kind: ModelKind = "default"): LanguageModel {
  * "claude-opus-5". Both verified live against ai-gateway.vercel.sh/v1/models.
  * All three are env-overridable so the model can change without a deploy.
  */
-export const CHAT_MODEL_GATEWAY_ID   = process.env.CHAT_MODEL_GATEWAY   ?? "anthropic/claude-opus-5";
-export const CHAT_MODEL_ANTHROPIC_ID = process.env.CHAT_MODEL_ANTHROPIC ?? "claude-opus-5";
+export const CHAT_MODEL_GATEWAY_ID   = process.env.CHAT_MODEL_GATEWAY   ?? "anthropic/claude-opus-5.5";
+export const CHAT_MODEL_ANTHROPIC_ID = process.env.CHAT_MODEL_ANTHROPIC ?? "claude-opus-5-5";
 /** The assistant's FALLBACK model, used only when the pinned Opus 5 call fails. */
 export const CHAT_MODEL_OPENAI_ID    = process.env.CHAT_MODEL_OPENAI    ?? "gpt-5.6-sol";
 /** Reasoning effort for the pinned assistant model. */
 export const CHAT_EFFORT: AnthropicEffort =
-  (process.env.CHAT_EFFORT as AnthropicEffort) ?? "high";
+  (process.env.CHAT_EFFORT as AnthropicEffort) ?? "medium"; // was "high" until 2026-09-25
 
 /** One-line, readable cause for a failed provider call (AI SDK errors are often
  *  plain objects, so String(err) yields "[object Object]"). */

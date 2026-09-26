@@ -1,8 +1,7 @@
 import { NextResponse } from "next/server";
-import {
-  updateUserContactInStore,
-  deleteUserContactFromStore,
-} from "@/lib/contacts/user-store";
+import { updateUserContactInStore, deleteUserContactFromStore, listUserContacts } from "@/lib/contacts/user-store";
+import { clearOverrideFromStore } from "@/lib/contacts/overrides-store";
+import { suppressContact } from "@/lib/contacts/suppressions";
 import { z } from "zod";
 import { parseBody } from "@/lib/api/respond";
 import { getSessionUser } from "@/lib/auth";
@@ -92,9 +91,20 @@ export async function DELETE(
     const username = await getSessionUser();
     if (!username) return NextResponse.json({ error: "Unauthorised" }, { status: 401 });
     const { id } = await params;
+    // Read who this is BEFORE deleting, so the suppression can name them.
+    const target = (await listUserContacts(username, { fresh: true })).find((c) => c.id === id);
     const deleted = await deleteUserContactFromStore(username, id);
     if (!deleted) {
       return NextResponse.json({ error: "Contact not found" }, { status: 404 });
+    }
+    // A deleted connection takes Basil's notes on them with it — the AI
+    // profile and the tone history live in the overrides store — and is not
+    // offered back as a suggestion on the next inbox scan.
+    await clearOverrideFromStore(username, id).catch((e) =>
+      console.warn(`[contacts/${id}] DELETE: could not clear profile/tone history:`, e instanceof Error ? e.message : e));
+    if (target) {
+      await suppressContact(username, { name: target.name, email: target.email }).catch((e) =>
+        console.warn(`[contacts/${id}] DELETE: could not record suppression:`, e instanceof Error ? e.message : e));
     }
     await invalidateActivityCache(username);
     return new NextResponse(null, { status: 204 });

@@ -33,7 +33,6 @@ import {
   ExtraContextInput,
   buildExtraContextFormData,
 } from "@/components/extra-context-input";
-import { SignalSummary } from "@/components/ui/trust-badge";
 
 interface EventMeta { title: string; time: string; attendees: string[]; dateLabel?: string; date?: string }
 
@@ -541,9 +540,6 @@ export default function MeetingPrepPage() {
                         {d.decidedBy && <span>{d.decidedBy}</span>}
                         {d.date && <span>· {d.date}</span>}
                         {d.source && <span>· {d.source}</span>}
-                        {typeof d.confidence === "number" && (
-                          <span>· {Math.round(d.confidence * 100)}% confidence</span>
-                        )}
                       </p>
                       {d.rationale && (
                         <p className="text-xs text-muted-foreground mt-1 italic">Why: {d.rationale}</p>
@@ -565,9 +561,6 @@ export default function MeetingPrepPage() {
             <p className="text-xs text-muted-foreground">
               Prepared by Basil · {meta?.title} · {prep.generatedAt && new Date(prep.generatedAt).toLocaleString("en-GB", { timeZone: "Europe/London" })}
             </p>
-            {prep.dataSources && (
-              <SignalSummary counts={prep.dataSources} />
-            )}
           </div>
         </div>
       )}

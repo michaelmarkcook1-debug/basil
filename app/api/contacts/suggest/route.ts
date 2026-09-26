@@ -1,3 +1,4 @@
+import { getContactSuppressions, isSuppressed } from "@/lib/contacts/suppressions";
 import { NextResponse } from "next/server";
 import { getRecentEmails } from "@/lib/google/gmail";
 import { getRecentSlackMessages } from "@/lib/slack/client";
@@ -100,6 +101,8 @@ export async function GET() {
     // the original "localStorage-only" caveat no longer applies.
     listUserContacts(username).catch(() => []),
   ]);
+  // People the user deleted are never offered back.
+  const suppressed = await getContactSuppressions(username).catch(() => ({ emails: [], names: [] }));
 
   // Keyed by a stable identity — email when we have it, else slugified name.
   const byKey = new Map<string, ContactSuggestion>();
@@ -148,6 +151,7 @@ export async function GET() {
 
     // Skip if already in contacts (by name or email match)
     if (findContactByName(name, knownContacts)) continue;
+    if (isSuppressed(suppressed, name, email)) continue;
     if (email && findContactByEmail(email, knownContacts)) continue;
 
     const key = email || slugify(name);
@@ -167,6 +171,7 @@ export async function GET() {
     if (isBotIdentity(m.channel)) continue;
 
     if (findContactByName(m.author, knownContacts)) continue;
+    if (isSuppressed(suppressed, m.author)) continue;
 
     const key = slugify(m.author);
     bump(key, {

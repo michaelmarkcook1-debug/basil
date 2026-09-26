@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import Link from "next/link";
 
 // ── Constants ──────────────────────────────────────────────────────────────────
@@ -32,6 +32,14 @@ export default function RegisterPage() {
   });
   const [error,   setError]   = useState("");
   const [loading, setLoading] = useState(false);
+  // null = still asking; false = sign-up is closed on this deployment.
+  const [open, setOpen] = useState<boolean | null>(null);
+  useEffect(() => {
+    fetch("/api/auth/register", { cache: "no-store" })
+      .then((r) => (r.ok ? r.json() : { open: true }))
+      .then((d: { open?: boolean }) => setOpen(d.open !== false))
+      .catch(() => setOpen(true)); // unknown → let the form try; the server still decides
+  }, []);
 
   function set(field: string, value: string) {
     setForm((f) => ({ ...f, [field]: value }));
@@ -116,6 +124,19 @@ export default function RegisterPage() {
           Create your account
         </p>
 
+        {open === false ? (
+          <div className="space-y-4 text-center">
+            <p className="text-[0.9375rem]" style={{ color: "var(--c-auth-text)" }}>
+              New accounts aren&apos;t open right now.
+            </p>
+            <p className="text-[0.8125rem]" style={{ color: "var(--c-auth-muted)" }}>
+              Ask the person who invited you to create your account, then sign in.
+            </p>
+            <Link href="/login" className="inline-block font-medium" style={{ color: "var(--c-auth-gold)" }}>
+              Go to sign in
+            </Link>
+          </div>
+        ) : (
         <form onSubmit={handleSubmit} className="space-y-4">
 
           {/* Name + Surname */}
@@ -212,6 +233,7 @@ export default function RegisterPage() {
             {loading ? "Creating account…" : "Create account"}
           </button>
         </form>
+        )}
 
         <p
           className="text-center text-[0.8125rem] mt-5"

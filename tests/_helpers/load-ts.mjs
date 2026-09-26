@@ -67,13 +67,12 @@ export function makeLock() {
   };
 }
 
-/** The NextResponse surface a route handler uses. */
-export const nextServer = {
-  NextResponse: {
-    json: (body, init = {}) => ({
-      status: init.status ?? 200, body, headers: init.headers ?? {},
-      // Routes clear or set cookies on the response; record, don't act.
-      cookies: { set() {}, delete() {}, get() { return undefined; } },
-    }),
-  },
-};
+/** The NextResponse surface a route handler uses — `NextResponse.json(...)` and `new NextResponse(body, init)`. */
+const fakeResponse = (body, init = {}) => ({
+  status: init.status ?? 200, body, headers: init.headers ?? {},
+  // Routes clear or set cookies on the response; record, don't act.
+  cookies: { set() {}, delete() {}, get() { return undefined; } },
+});
+function NextResponse(body, init) { return fakeResponse(body, init); }
+NextResponse.json = (body, init) => fakeResponse(body, init);
+export const nextServer = { NextResponse };

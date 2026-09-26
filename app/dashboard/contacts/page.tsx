@@ -8,6 +8,7 @@ import {
   getUserContacts,
   loadUserContactsFromServer,
   addUserContact,
+  deleteUserContact,
   updateUserContact,
   patchContactInCache,
   getDismissedSuggestionIds,
@@ -24,7 +25,36 @@ import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { RelationshipOverview } from "@/components/shared/relationship-overview";
 import { ContactAvatar } from "@/components/ui/contact-avatar";
 import { useContactPhotos } from "@/lib/hooks/use-contact-photos";
-import { Search, Mail, MapPin, Users, Brain, CheckSquare, AlertTriangle, Activity, Flame, RefreshCw, Loader2, Wifi, Sparkles, Plus, X, Phone, Briefcase, Home, ArrowRightLeft, MessageCircle, Wand2, Check, ChevronLeft, ChevronDown, ChevronUp, Pencil, ExternalLink } from "lucide-react";
+import {
+  Search,
+  Mail,
+  MapPin,
+  Users,
+  Brain,
+  CheckSquare,
+  AlertTriangle,
+  Activity,
+  Flame,
+  RefreshCw,
+  Loader2,
+  Wifi,
+  Sparkles,
+  Plus,
+  X,
+  Phone,
+  Briefcase,
+  Home,
+  ArrowRightLeft,
+  MessageCircle,
+  Wand2,
+  Check,
+  ChevronLeft,
+  ChevronDown,
+  ChevronUp,
+  Pencil,
+  ExternalLink,
+  Trash2,
+} from "lucide-react";
 // lucide-react dropped brand icons, so LinkedIn is labelled in text with a
 // neutral external-link glyph rather than an inlined third-party logo.
 import { linkedInSearchUrl } from "@/lib/contacts/linkedin-from-signature";
@@ -134,6 +164,7 @@ function ContactDetail({
   canMove,
   isUserContact,
   onMove,
+  onDelete,
   onRename,
   override,
   onSaveOverride,
@@ -151,6 +182,8 @@ function ContactDetail({
   canMove: boolean;
   isUserContact: boolean;
   onMove: (target: ContactDirectory) => void;
+  /** Delete this connection — only offered for the user's own contacts. */
+  onDelete?: () => Promise<void>;
   /** Called after a successful rename so the parent can refresh the list. */
   onRename: (newName: string) => void;
   override?: ProfileOverride;
@@ -159,6 +192,8 @@ function ContactDetail({
   /** Called after canonical Contact fields are updated so the parent can refresh. */
   onContactUpdated: () => void;
 }) {
+  const [confirmingDelete, setConfirmingDelete] = useState(false);
+  const [deleting, setDeleting] = useState(false);
   const daysSince = lastInteraction
     ? Math.floor((Date.now() - new Date(lastInteraction).getTime()) / 86400000)
     : null;
@@ -455,6 +490,35 @@ function ContactDetail({
                   <ArrowRightLeft className="h-3 w-3" />
                   Move to {otherDirectory}
                 </Button>
+              )}
+              {isUserContact && onDelete && (
+                confirmingDelete ? (
+                  <span className="inline-flex items-center gap-1.5">
+                    <span className="text-xs text-signal-critical font-medium">Delete {contact.name.split(" ")[0]} and Basil&apos;s notes on them?</span>
+                    <Button
+                      size="xs"
+                      variant="destructive"
+                      disabled={deleting}
+                      onClick={async () => { setDeleting(true); try { await onDelete(); } finally { setDeleting(false); setConfirmingDelete(false); } }}
+                    >
+                      {deleting ? "Deleting…" : "Delete"}
+                    </Button>
+                    <Button size="xs" variant="outline" disabled={deleting} onClick={() => setConfirmingDelete(false)}>
+                      Cancel
+                    </Button>
+                  </span>
+                ) : (
+                  <Button
+                    size="xs"
+                    variant="outline"
+                    onClick={() => setConfirmingDelete(true)}
+                    className="gap-1 text-signal-critical hover:text-signal-critical"
+                    title="Delete this connection"
+                  >
+                    <Trash2 className="h-3 w-3" />
+                    Delete
+                  </Button>
+                )
               )}
             </div>
           </div>
@@ -1565,6 +1629,13 @@ export default function ContactsPage() {
             canMove={isSelectedUserContact}
             isUserContact={isSelectedUserContact}
             onMove={(target) => handleMoveDirectory(selected.id, target)}
+            onDelete={async () => {
+              await deleteUserContact(selected.id);
+              setUserContacts(getUserContacts());
+              setSelectedId(null);
+              setMobileView("list");
+              notifyContacts();
+            }}
             onRename={(_newName) => {
               setUserContacts(getUserContacts());
               notifyContacts();

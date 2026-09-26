@@ -11,8 +11,7 @@
 import { useState } from "react";
 import Link from "next/link";
 import { ChevronDown } from "lucide-react";
-import { UrgencyBadge, urgencyRule, ProvenanceIndicator, Card } from "./primitives";
-import { ConfidenceMeter } from "@/components/ui/trust-ui";
+import { UrgencyBadge, urgencyRule, Card } from "./primitives";
 import type { Priority } from "@/lib/today/executive";
 
 export function PriorityActionCard({
@@ -38,11 +37,6 @@ export function PriorityActionCard({
     >
       <div className="flex flex-wrap items-center gap-2">
         <UrgencyBadge urgency={p.urgency} />
-        {p.groupedCount && (
-          <span className="rounded border border-[var(--w-rule-strong)] bg-[var(--w-tray)] px-1.5 py-0.5 text-[0.6875rem] font-medium text-[color:var(--w-ink-soft)]">
-            {p.groupedCount} signals grouped
-          </span>
-        )}
       </div>
 
       <h3 className="mt-2 text-[1.0625rem] font-semibold leading-snug text-[color:var(--w-ink)]">
@@ -53,11 +47,6 @@ export function PriorityActionCard({
       </p>
       {p.context && (
         <p className="mt-1.5 text-[0.8125rem] font-medium text-[color:var(--w-carbon)]">{p.context}</p>
-      )}
-      {/* An inferred priority says how sure the inference was — the same meter
-          the Actions page uses, so the number means the same thing everywhere. */}
-      {p.provenance === "inferred" && typeof p.confidence === "number" && (
-        <ConfidenceMeter value={p.confidence} className="mt-2 max-w-[12rem]" />
       )}
 
       <div className="mt-3.5 flex flex-wrap items-center gap-2">
@@ -105,12 +94,7 @@ export function PriorityActionCard({
             No further detail is stored for this signal.
           </p>
         )}
-        <ProvenanceIndicator className="mt-2" provenance={p.provenance} source={p.source} at={p.occurredAt} />
       </div>
-
-      {!open && (
-        <ProvenanceIndicator className="mt-3" provenance={p.provenance} source={p.source} at={p.occurredAt} />
-      )}
     </Card>
   );
 }

@@ -149,7 +149,6 @@ export default function Today() {
           sources={sources}
           now={now}
           timeZone={timeZone}
-          generatedAt={feed?.generatedAt}
         />
 
         {/* 2 — The five counts. Every tile links to what it counts. */}

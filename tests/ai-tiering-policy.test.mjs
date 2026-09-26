@@ -69,7 +69,7 @@ test("price families match the real per-tier model rates", () => {
   assert.ok(/case "fast": return "haiku"/.test(body), "fast prices as haiku");
   // REVISED 2026-07-30 (owner-approved): the mid tier is Haiku, not Opus 5.
   assert.ok(/case "balanced": return "haiku"/.test(body), "balanced prices as haiku");
-  assert.ok(/return "opus5"/.test(body), "default/long still price as opus-5");
+  assert.ok(/return "opus55"/.test(body), "default/long price as opus-5.5 (2026-09-25)");
 });
 
 test("the mid tier does not resolve to a flagship model (cost guard)", () => {

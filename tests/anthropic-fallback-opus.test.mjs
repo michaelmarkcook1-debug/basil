@@ -28,8 +28,8 @@ test("top tiers run Opus 5; mid + data-gathering stay cheap", () => {
   // Top tier — what a human actually reads — stays on Opus 5.
   for (const tier of ["default", "long"]) {
     assert.ok(
-      new RegExp(`${tier}:\\s*process\\.env\\.ANTHROPIC_MODEL_${tier.toUpperCase()}\\s*\\?\\?\\s*"claude-opus-5"`).test(table),
-      `${tier} tier must resolve to claude-opus-5 (direct-API form of anthropic/claude-opus-5)`
+      new RegExp(`${tier}:\\s*process\\.env\\.ANTHROPIC_MODEL_${tier.toUpperCase()}\\s*\\?\\?\\s*"claude-opus-5-5"`).test(table),
+      `${tier} tier must resolve to claude-opus-5-5 (direct-API form of anthropic/claude-opus-5.5)`
     );
   }
   // REVISED 2026-07-30 (owner-approved, cost). The mid tier came OFF Opus 5:
@@ -59,8 +59,8 @@ test("effort is set ONLY for tiers whose model supports it", () => {
   assert.ok(!/\bbalanced:/.test(map),
     "balanced runs Haiku, which rejects `effort` — it must have NO entry here; " +
     "re-add it only if ANTHROPIC_MODEL_BALANCED goes back to an Opus model");
-  assert.ok(/default:.*"high"/.test(map) && /long:.*"high"/.test(map),
-    "top tier is what a human reads — effort high");
+  assert.ok(/default:.*"medium"/.test(map) && /long:.*"medium"/.test(map),
+    "top tier runs at effort medium (owner decision 2026-09-25, was high)");
   assert.ok(!/\bfast:/.test(map),
     "fast must not set effort (it runs Haiku, where the control is meaningless)");
 });

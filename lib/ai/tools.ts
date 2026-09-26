@@ -52,13 +52,13 @@ import { listUserContacts } from "@/lib/contacts/user-store";
  * @param firstName Optional display first name override. Derived from username if omitted.
  */
 /**
- * Fields every approval-required tool carries. `why` is shown to the user on
- * the approval card; `confidence` is the model's own estimate and is labelled
- * as such. Both are optional so an older model that omits them still works.
+ * Field every approval-required tool carries: one sentence to the user on why,
+ * shown on the approval card. Optional, so a model that omits it still works.
+ * (A confidence number was asked for here too until 2026-09-26; removed with
+ * the rest of the confidence read-outs at the owner's request.)
  */
 const APPROVAL_META = {
   why: z.string().optional().describe("One sentence addressed to the user: why this action, and why now. Shown on the approval card."),
-  confidence: z.number().min(0).max(1).optional().describe("Your own estimate, 0–1, that this is exactly what the user wants. Shown on the approval card."),
 };
 
 export function buildAssistantTools(

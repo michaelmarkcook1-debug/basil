@@ -49,7 +49,6 @@ import type { ActionItem, ActionCategory } from "@/lib/types/action";
 import { DataState } from "@/components/ui/data-state";
 import { usePersistentDraft } from "@/lib/hooks/use-persistent-draft";
 import { DraftSavedIndicator } from "@/components/ui/draft-saved-indicator";
-import { EvidencePanel } from "@/components/ui/trust-badge";
 import { TrustReviewPrompt } from "@/components/ui/trust-ui";
 import { ExplorePanel } from "@/components/explore-panel";
 
@@ -90,6 +89,7 @@ function PriorityBadge({ priority }: { priority?: ActionItem["priority"] }) {
   );
 }
 
+
 /**
  * Format a due date for display. Handles both plain "YYYY-MM-DD" dates and
  * full ISO timestamps ("2026-05-23T16:00:00Z") — never shows the raw ISO string.
@@ -127,30 +127,6 @@ function ExpiryBadge({ expiresAt }: { expiresAt?: string }) {
   return (
     <span className={`inline-flex items-center rounded-full border px-2 py-0.5 text-xs font-medium ${urgency}`} title={`Expires at ${new Date(expiresAt).toLocaleString()}`}>
       {label}
-    </span>
-  );
-}
-
-/**
- * How sure Basil is that this commitment is real, stated in words.
- *
- * This was a 6px coloured dot with the number hidden in a `title`, which is
- * uncertainty you can only find by hovering — and on a touch screen, not at
- * all. The desk stamps its copy instead: an unconfirmed item says so on its
- * face. Extraction confidence is a REAL stored field here (unlike the today
- * feed, which carries none), so the number shown is the number recorded.
- */
-function ConfidenceStamp({ confidence }: { confidence?: number }) {
-  if (confidence === undefined) return null;
-  const pct = Math.round(confidence * 100);
-  const kind = pct >= 80 ? "confirmed" : pct >= 60 ? "developing" : "unconfirmed";
-  const label = pct >= 80 ? "confirmed" : pct >= 60 ? "developing" : "unconfirmed";
-  return (
-    <span
-      className={`wire-stamp wire-stamp-${kind}`}
-      title={`Basil extracted this with ${pct}% confidence`}
-    >
-      {label} {pct}%
     </span>
   );
 }
@@ -368,7 +344,6 @@ function ActionCard({
             <PriorityBadge priority={action.priority} />
             <SourceBadge source={action.source} />
             <CategoryChip category={action.category} />
-            <ConfidenceStamp confidence={action.confidence} />
             {action.needsReview && <NeedsReviewBadge />}
 
             {/* Decision needed — click-through to Decisions */}
@@ -384,16 +359,6 @@ function ActionCard({
               </span>
             )}
           </div>
-
-          {/* Evidence panel — "Why am I seeing this?" */}
-          {(action.sourceRef || action.additionalSourceRefs?.length || action.confidence !== undefined) && (
-            <EvidencePanel
-              sourceRef={action.sourceRef}
-              additionalSourceRefs={action.additionalSourceRefs}
-              confidence={action.confidence}
-              context={action.source !== "manual" ? action.source : undefined}
-            />
-          )}
 
           {/* Review prompt — confirm keeps it, dismiss removes it */}
           {action.needsReview && (

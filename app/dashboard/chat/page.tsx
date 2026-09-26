@@ -25,7 +25,6 @@ function resubmitWhen({ messages }: { messages: UIMessage[] }): boolean {
 import { useSearchParams, useRouter } from "next/navigation";
 import { emitChange, type SyncDomain } from "@/lib/sync/channel";
 import { Card } from "@/components/ui/card";
-import { ConfidenceMeter } from "@/components/ui/trust-ui";
 import { TrustLine, UndoTool } from "@/components/chat/trust";
 import useSWR from "swr";
 import { Button } from "@/components/ui/button";
@@ -826,9 +825,6 @@ function ChatPageInner() {
                           sure it is. Both are the model's own claims and are labelled so. */}
                       {typeof toolInput?.why === "string" && toolInput.why.trim() !== "" && (
                         <p className="mb-2 text-sm text-foreground/90">{toolInput.why}</p>
-                      )}
-                      {typeof toolInput?.confidence === "number" && (
-                        <ConfidenceMeter value={toolInput.confidence} className="mb-3 max-w-[14rem]" />
                       )}
                       {toolInput && (
                         <pre className="text-sm bg-background/50 rounded-md p-3 mb-3 whitespace-pre-wrap">
