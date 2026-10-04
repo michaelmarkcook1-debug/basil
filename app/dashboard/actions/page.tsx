@@ -292,6 +292,7 @@ function ActionCard({
                 : action.archivedReason === "reply-sent" ? "you replied"
                 : action.archivedReason === "answered-elsewhere" ? "answered in the thread"
                 : action.archivedReason === "bulk-mail" ? "marketing mail"
+                : action.archivedReason === "calendar-invite" ? "on your calendar"
                 : action.archivedReason === "stale-untouched" ? "untouched 30 days"
                 : action.archivedReason === "stale-overdue" ? "expired overdue"
                 : action.archivedReason === "past-meeting" ? "meeting passed"

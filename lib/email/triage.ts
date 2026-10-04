@@ -52,6 +52,21 @@ const MARKETING_SUBJECT =
 // Trivial subjects that carry no actionable content when the body is empty.
 const TRIVIAL_SUBJECT = /^(re:\s*|fwd:\s*)*(test|testing|ping|hi|hello|hey|hey there|\(no subject\))[\s!.…]*$/i;
 
+// Calendar notification subjects — Google ("Invitation:", "Updated invitation
+// with note:", "Accepted:") and Outlook ("Canceled:", "Tentative:").
+const CALENDAR_INVITE_SUBJECT =
+  /^\s*((updated |new )?invitation( with note)?:|invitation from google calendar|(accepted|declined|tentative|tentatively accepted|canceled|cancelled)( event)?:|updated event:|event canceled:)/i;
+
+/**
+ * A calendar invitation or RSVP notification. The response to one is an RSVP on
+ * the calendar, and the meeting already shows on Today — so it is never a to-do.
+ * Two dozen "Respond to scheduling request … re: Invitation:" actions piled up
+ * between May and September 2026 before this.
+ */
+export function isCalendarInvitation(subject: string | undefined): boolean {
+  return CALENDAR_INVITE_SUBJECT.test(subject ?? "");
+}
+
 export interface EmailTriageInput {
   from: string;
   fromEmail: string;

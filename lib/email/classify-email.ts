@@ -236,7 +236,7 @@ Classification rules — follow these strictly:
    - relationship_signal: significant update about a contact, account, or business relationship
    - scheduling_signal: meeting request, availability question, calendar coordination
    - informational_only: FYI update, no response or action needed
-   - low_value_noise: newsletter, auto-notification, marketing, noreply, OOO, spam
+   - low_value_noise: newsletter, auto-notification, marketing, noreply, OOO, spam — and requests from a company or service ${userFirstName} has no working relationship with: leave a review, take a survey, rate us, register for an event, join or move up a waitlist, finish signing up
 
 2. confidence: 0.3 if sparse/ambiguous, 0.7 if clear signals, 0.9+ if explicit and detailed
 

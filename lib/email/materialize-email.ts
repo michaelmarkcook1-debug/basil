@@ -13,6 +13,7 @@
  */
 
 import { createActionTracked } from "@/lib/actions/store";
+import { isCalendarInvitation } from "./triage";
 import { createDecisionTracked, linkActionToDecision } from "@/lib/decisions/store";
 import { createMemoryTracked } from "@/lib/memory/store";
 import { actionTier, decisionTier, memoryTier, needsReviewFlag } from "@/lib/trust/policy";
@@ -119,7 +120,8 @@ export async function materializeEmailIntelligence(
   const dTier = decisionTier(intel.confidence);
 
   // ── Actions ────────────────────────────────────────────────────────────────
-  if (aTier !== "skip") {
+  // Never from a calendar invitation: answering one is an RSVP, not a task.
+  if (aTier !== "skip" && !isCalendarInvitation(subject)) {
     const isActionCategory = ACTION_CATEGORIES.has(intel.category);
     const isExplicitOnlyCategory = EXPLICIT_ONLY_ACTION_CATEGORIES.has(intel.category);
 

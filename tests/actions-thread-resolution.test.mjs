@@ -134,6 +134,7 @@ function resolver({ actions = [], updates = [] } = {}) {
     "@/lib/ai/generate": { generateTextSafe: async () => ({ text: "I think so, maybe" }) },
     "@/lib/ai/model-config": { getTextModel: () => "mock" },
     "@/lib/ai/parse-json": loadTs("lib/ai/parse-json.ts", { zod }),
+    "@/lib/email/triage": loadTs("lib/email/triage.ts"),
   });
 }
 const view = (later, over = {}) => ({ subject: "Deck", bulk: false, original: { from: "Jane Doe", date: ago(3), text: "Can you send the deck?" }, later, ...over });
@@ -247,4 +248,30 @@ test("Slack group DMs only wait on you when the last message names you", async (
   };
   const res = await detector({ slack: web }).detectPendingFollowups("u2", { staleHours: 24 });
   assert.equal(res.items.map((i) => i.id).sort().join(","), "slack:D1,slack:G2", "G1's last word answers someone else; G2 names you");
+});
+
+// ── Calendar invitations and unsolicited service requests (2026-10-04) ──────
+
+test("calendar invitations are recognised; ordinary mail about meetings is not", () => {
+  const { isCalendarInvitation } = loadTs("lib/email/triage.ts");
+  for (const subj of ["Invitation: AG demo @ Fri 3 Jul", "Updated invitation with note: TG Leadership", "Updated invitation: Weekly sync",
+    "Accepted: Pipeline review", "Declined: QBR", "Tentative: Board prep", "Canceled: Standup", "Invitation from Google Calendar: x"]) {
+    assert.ok(isCalendarInvitation(subj), subj);
+  }
+  for (const subj of ["Can we find time next week?", "Re: invitation to speak at the summit", "Follow-up from the demo", ""]) {
+    assert.ok(!isCalendarInvitation(subj), subj);
+  }
+});
+
+test("open actions from invitations close as 'calendar-invite'; invitation emails create no actions", async () => {
+  const R = resolver();
+  const r = await R.decide({ text: "Respond to scheduling request from Ed" }, view([], { subject: "Updated invitation with note: TG Leadership" }), judgeSays(true), "Fixture");
+  assert.equal(r.kind, "calendar-invite");
+  const src = fs.readFileSync(path.join(ROOT, "lib/email/materialize-email.ts"), "utf8");
+  assert.match(src, /if \(aTier !== "skip" && !isCalendarInvitation\(subject\)\)/);
+});
+
+test("the email classifier treats review, survey, registration and waitlist requests from strangers as noise", () => {
+  const src = fs.readFileSync(path.join(ROOT, "lib/email/classify-email.ts"), "utf8");
+  assert.match(src, /low_value_noise: [^\n]*leave a review, take a survey[^\n]*register for an event[^\n]*waitlist/);
 });

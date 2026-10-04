@@ -9,6 +9,7 @@ import { getSettings } from "@/lib/settings/store";
 import { generateTextSafe } from "@/lib/ai/generate";
 import { getTextModel } from "@/lib/ai/model-config";
 import { parseAndValidate } from "@/lib/ai/parse-json";
+import { isCalendarInvitation } from "@/lib/email/triage";
 
 /**
  * Close actions whose conversation has moved on.
@@ -39,6 +40,7 @@ export const MAX_PER_RUN = 40;
 export type ThreadResolution =
   | { kind: "reply-sent"; at: string; counterpart: string; subject: string }
   | { kind: "bulk-mail" }
+  | { kind: "calendar-invite" }
   | { kind: "answered-elsewhere"; by: string; at: string; reason: string }
   | { kind: "open" };
 
@@ -110,6 +112,7 @@ export async function decide(
   const mine = view.later.find((m) => m.self);
   if (mine) return { kind: "reply-sent", at: mine.date, counterpart: view.original.from, subject: view.subject };
   if (view.bulk) return { kind: "bulk-mail" };
+  if (isCalendarInvitation(view.subject)) return { kind: "calendar-invite" };
   const others = view.later.filter((m) => !m.self && m.text.trim());
   if (others.length === 0) return { kind: "open" };
   const verdict = await judge({ firstName, ask: action.text, view: { ...view, later: others } });
@@ -252,6 +255,7 @@ export async function resolveThreadActions(
     const note =
       r.kind === "reply-sent" ? `Closed: you replied on ${r.at.slice(0, 10)}.`
       : r.kind === "bulk-mail" ? "Closed: this came from marketing or list mail."
+      : r.kind === "calendar-invite" ? "Closed: a calendar invitation — answer it on your calendar."
       : `Closed: ${r.by} replied on ${r.at.slice(0, 10)}${r.reason ? ` — ${r.reason}` : ""}.`;
     updates.push({
       id: action.id,
@@ -259,7 +263,7 @@ export async function resolveThreadActions(
         status: "done",
         archivedReason: r.kind,
         threadCheckedAt: now,
-        lastActivityAt: r.kind === "bulk-mail" ? now : r.at,
+        lastActivityAt: r.kind === "bulk-mail" || r.kind === "calendar-invite" ? now : r.at,
         notes: action.notes ? `${action.notes}\n${note}` : note,
       },
     });

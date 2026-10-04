@@ -31,7 +31,9 @@ export interface ActionItem {
     /** Someone else in the thread answered or handled it (lib/actions/resolve-threads.ts). */
     | "answered-elsewhere"
     /** Came from bulk/marketing mail — never the user's work. */
-    | "bulk-mail";
+    | "bulk-mail"
+    /** Came from a calendar invitation — the answer is an RSVP, and the meeting is on the calendar. */
+    | "calendar-invite";
   /** When resolve-threads last re-read this action's source conversation. */
   threadCheckedAt?: string;
   source: "meeting" | "slack" | "teams" | "email" | "manual" | "chat" | "linear";
