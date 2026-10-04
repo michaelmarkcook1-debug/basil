@@ -458,3 +458,145 @@ export async function getThreadState(username: string, messageId: string): Promi
     return null;
   }
 }
+
+// ── Replying in a thread ───────────────────────────────────────────────────────
+
+export interface Address { name: string; email: string }
+
+/** Split an address header ("A <a@x>, "B, C" <b@x>, c@x") into addresses. Pure. */
+export function parseAddressList(header: string): Address[] {
+  const out: Address[] = [];
+  let cur = "", quoted = false, angle = false;
+  const flush = () => {
+    const part = cur.trim(); cur = "";
+    if (!part) return;
+    const m = part.match(/^\s*"?([^"<]*?)"?\s*<([^>]+)>\s*$/);
+    const email = (m ? m[2] : part).trim().replace(/^mailto:/i, "");
+    if (!email.includes("@")) return;
+    out.push({ name: m ? m[1].trim() : "", email: email.toLowerCase() });
+  };
+  for (const ch of header) {
+    if (ch === '"') quoted = !quoted;
+    if (ch === "<") angle = true;
+    if (ch === ">") angle = false;
+    if (ch === "," && !quoted && !angle) { flush(); continue; }
+    cur += ch;
+  }
+  flush();
+  return out;
+}
+
+export interface ReplyContext {
+  messageId: string;
+  threadId: string;
+  subject: string;
+  date: string;
+  from: Address;
+  /** Original To / Cc, as sent. */
+  to: Address[];
+  cc: Address[];
+  /** Where a plain reply goes (Reply-To, else From; the original To when you wrote it). */
+  replyTo: Address[];
+  /** Extra Cc for reply-all — everyone else on the message, never you. */
+  replyAllCc: Address[];
+  /** RFC 5322 Message-ID and References — what threads the reply in every client. */
+  rfcMessageId: string;
+  references: string;
+  body: string;
+  selfEmails: string[];
+}
+
+/** Pure — exported for tests. */
+export function replyRecipients(
+  h: { from: Address; replyToHeader: Address[]; to: Address[]; cc: Address[] },
+  selfEmails: readonly string[],
+): { replyTo: Address[]; replyAllCc: Address[] } {
+  const self = new Set(selfEmails.map((e) => e.toLowerCase()));
+  const fromSelf = self.has(h.from.email);
+  const replyTo = fromSelf ? h.to : (h.replyToHeader.length ? h.replyToHeader : [h.from]);
+  const taken = new Set(replyTo.map((a) => a.email));
+  const replyAllCc: Address[] = [];
+  for (const a of [...h.to, ...h.cc]) {
+    if (self.has(a.email) || taken.has(a.email)) continue;
+    taken.add(a.email);
+    replyAllCc.push(a);
+  }
+  return { replyTo: replyTo.filter((a) => !self.has(a.email)), replyAllCc };
+}
+
+export async function getReplyContext(username: string, messageId: string): Promise<ReplyContext> {
+  const auth = await getAuthedClient(username);
+  if (!auth) throw new Error("Gmail not connected");
+  const gmail = google.gmail({ version: "v1", auth });
+  const [detail, selfAddress] = await Promise.all([
+    gmail.users.messages.get({ userId: "me", id: messageId, format: "full" }),
+    getGmailAddress(username),
+  ]);
+  const headers = detail.data.payload?.headers ?? [];
+  const h = (n: string) => headers.find((x) => x.name?.toLowerCase() === n.toLowerCase())?.value || "";
+  const from = parseAddressList(h("From"))[0] ?? { name: "", email: "" };
+  const to = parseAddressList(h("To"));
+  const cc = parseAddressList(h("Cc"));
+  const selfEmails = [selfAddress?.toLowerCase()].filter((e): e is string => !!e);
+  const { replyTo, replyAllCc } = replyRecipients({ from, replyToHeader: parseAddressList(h("Reply-To")), to, cc }, selfEmails);
+  return {
+    messageId,
+    threadId: detail.data.threadId || "",
+    subject: h("Subject"),
+    date: new Date(parseInt(detail.data.internalDate || "0", 10)).toISOString(),
+    from, to, cc, replyTo, replyAllCc,
+    rfcMessageId: h("Message-ID") || h("Message-Id"),
+    references: h("References"),
+    body: (detail.data.payload ? extractBody(detail.data.payload) : "") || detail.data.snippet || "",
+    selfEmails,
+  };
+}
+
+const fmtAddress = (a: Address) => a.name ? `"${a.name.replace(/["\\\r\n]/g, "")}" <${a.email}>` : a.email;
+/** RFC 2047 for non-ASCII header text (subjects in other languages, em dashes). */
+const encodeHeader = (s: string) => /^[\x20-\x7e]*$/.test(s) ? s : `=?UTF-8?B?${Buffer.from(s, "utf8").toString("base64")}?=`;
+const headerSafe = (s: string) => s.replace(/[\r\n]+/g, " ").trim();
+
+/**
+ * The reply as a raw RFC 5322 message. In-Reply-To + References + the Gmail
+ * threadId are what make it a reply rather than a new email — without them the
+ * recipient gets a separate conversation. Pure — exported for tests.
+ */
+export function buildReplyMime(ctx: ReplyContext, body: string, opts: { replyAll?: boolean } = {}): { raw: string; to: Address[]; cc: Address[] } {
+  const to = ctx.replyTo;
+  const cc = opts.replyAll ? ctx.replyAllCc : [];
+  if (to.length === 0) throw new Error("No one to reply to on this message.");
+  const subject = /^\s*re:/i.test(ctx.subject) ? ctx.subject : `Re: ${ctx.subject || "(no subject)"}`;
+  const refs = [ctx.references, ctx.rfcMessageId].filter(Boolean).join(" ").trim();
+  const when = new Date(ctx.date).toLocaleString("en-GB", { dateStyle: "medium", timeStyle: "short", timeZone: "Europe/London" });
+  const quoted = ctx.body.trim().slice(0, 3_000).split(/\r?\n/).map((l) => `> ${l}`).join("\n");
+  const text = `${body.trim()}\n\nOn ${when}, ${fmtAddress(ctx.from)} wrote:\n${quoted}\n`;
+  const lines = [
+    `To: ${headerSafe(to.map(fmtAddress).join(", "))}`,
+    ...(cc.length ? [`Cc: ${headerSafe(cc.map(fmtAddress).join(", "))}`] : []),
+    `Subject: ${encodeHeader(headerSafe(subject))}`,
+    ...(ctx.rfcMessageId ? [`In-Reply-To: ${headerSafe(ctx.rfcMessageId)}`] : []),
+    ...(refs ? [`References: ${headerSafe(refs)}`] : []),
+    "MIME-Version: 1.0",
+    "Content-Type: text/plain; charset=utf-8",
+    "Content-Transfer-Encoding: 8bit",
+  ];
+  return { raw: Buffer.from(`${lines.join("\r\n")}\r\n\r\n${text}`, "utf8").toString("base64url"), to, cc };
+}
+
+/** Send a reply in the original Gmail thread. */
+export async function replyToEmail(
+  username: string,
+  messageId: string,
+  body: string,
+  opts: { replyAll?: boolean } = {},
+): Promise<{ id: string; threadId: string; to: Address[]; cc: Address[] }> {
+  if (!body.trim()) throw new Error("The reply is empty.");
+  const ctx = await getReplyContext(username, messageId);
+  const { raw, to, cc } = buildReplyMime(ctx, body, opts);
+  const auth = await getAuthedClient(username);
+  if (!auth) throw new Error("Gmail not connected");
+  const gmail = google.gmail({ version: "v1", auth });
+  const res = await gmail.users.messages.send({ userId: "me", requestBody: { raw, threadId: ctx.threadId || undefined } });
+  return { id: res.data.id || "", threadId: res.data.threadId || ctx.threadId, to, cc };
+}

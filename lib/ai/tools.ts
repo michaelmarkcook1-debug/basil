@@ -3,8 +3,8 @@ import { redactDeep } from "@/lib/security/sensitive";
 import { z } from "zod";
 import { webSearch, fetchPageContent } from "@/lib/web/search";
 import { isGoogleConnected } from "@/lib/google/auth";
-import { getTodayEvents, createCalendarEvent, getEventsForDate, getEventsForDateRange, checkFreeBusy } from "@/lib/google/calendar";
-import { getRecentEmails, searchEmails, createDraft, getEmailBody } from "@/lib/google/gmail";
+import { getTodayEvents, createCalendarEvent, getEventsForDate, getEventsForDateRange, checkFreeBusy, respondToEvent, proposeNewTime } from "@/lib/google/calendar";
+import { getRecentEmails, searchEmails, createDraft, getEmailBody, replyToEmail } from "@/lib/google/gmail";
 import { searchDriveFiles } from "@/lib/google/drive";
 import { isSlackConnected, getRecentSlackMessages, searchSlackMessages, sendSlackMessage as slackSend, getUserProfile } from "@/lib/slack/client";
 import {
@@ -246,6 +246,70 @@ export function buildAssistantTools(
           tags: ["email", "draft"],
         });
         return { status: "draft_created", draftId: result.id, to, subject, preview: body.substring(0, 100) + "..." };
+      },
+    }),
+
+    replyToEmail: tool({
+      description: `Reply to an email IN its original thread — pass the messageId from searchEmails or readEmail. ${name} sees exactly who it goes to and approves before it sends. Use replyAll only when everyone on the thread should see it. For a brand-new email, use draftEmail instead.`,
+      inputSchema: z.object({
+        ...APPROVAL_META,
+        messageId: z.string().describe("Gmail message id of the email being answered"),
+        recipients: z.string().describe("Who this goes to, as shown on the email: the sender's name and address (plus everyone else on it for reply all). Shown on the approval card."),
+        body: z.string().describe("The reply, greeting and sign-off included. Do not quote the original — it is added automatically."),
+        replyAll: z.boolean().optional().describe("Reply to everyone on the message. Default false."),
+      }),
+      // Sending cannot be undone: always approved, never delegated (not in REVERSIBLE_TOOLS).
+      needsApproval: true,
+      execute: async ({ messageId, body, replyAll }) => {
+        if (!(await isGoogleConnected(username))) {
+          return { error: "Gmail not connected. Cannot reply until Google is connected in Settings." };
+        }
+        try {
+          const sent = await replyToEmail(username, messageId, body, { replyAll: !!replyAll });
+          await emitAuditEvent({ username,
+            source: "email",
+            headline: `Replied to ${sent.to.map((a) => a.name || a.email).join(", ")}`,
+            context: body.slice(0, 300),
+            rationale: `${name} approved the reply in chat.`,
+            tags: ["email", "reply"],
+          });
+          return { status: "sent", to: sent.to.map((a) => a.email), cc: sent.cc.map((a) => a.email), threadId: sent.threadId };
+        } catch (e) {
+          return { error: `Reply not sent: ${e instanceof Error ? e.message : String(e)}` };
+        }
+      },
+    }),
+
+    respondToInvite: tool({
+      description: `Answer a calendar invitation for ${name}: accept, decline or maybe (tentative), optionally with a note the organiser sees — or propose a new time. Take eventId from getCalendarEvents, only for events where isOrganizer is false. To propose a new time, pass proposedStart and proposedEnd (ISO 8601 with offset): ${name} is marked Maybe (or declined if response is "declined"), the proposal goes in the invite note, and the organiser is emailed. Check ${name}'s availability before proposing a time.`,
+      inputSchema: z.object({
+        ...APPROVAL_META,
+        eventId: z.string().describe("Calendar event id from getCalendarEvents"),
+        response: z.enum(["accepted", "declined", "tentative"]).describe("accepted = Yes, declined = No, tentative = Maybe"),
+        note: z.string().optional().describe("Optional short note for the organiser"),
+        proposedStart: z.string().optional().describe("Proposed new start, ISO 8601 with offset"),
+        proposedEnd: z.string().optional().describe("Proposed new end, ISO 8601 with offset"),
+      }),
+      // The organiser is notified the moment this runs — always approved, never delegated.
+      needsApproval: true,
+      execute: async ({ eventId, response, note, proposedStart, proposedEnd }) => {
+        if (!(await isGoogleConnected(username))) {
+          return { error: "Google Calendar not connected." };
+        }
+        try {
+          if (proposedStart && proposedEnd) {
+            const out = await proposeNewTime(username, eventId, {
+              start: proposedStart, end: proposedEnd, note,
+              response: response === "declined" ? "declined" : "tentative",
+              emailOrganizer: true, senderName: name, timeZone: timezone,
+            });
+            return { status: "proposed", note: out.comment, emailedTo: out.emailedTo ?? null };
+          }
+          const ev = await respondToEvent(username, eventId, { response, comment: note });
+          return { status: response, event: ev.summary, organiserNotified: true };
+        } catch (e) {
+          return { error: `Response not sent: ${e instanceof Error ? e.message : String(e)}` };
+        }
       },
     }),
 

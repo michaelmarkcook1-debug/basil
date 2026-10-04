@@ -1,6 +1,7 @@
 "use client";
 
 import { preparationReasons } from "@/lib/today/executive";
+import { RsvpControls } from "@/components/calendar/rsvp-controls";
 import { useEffect, useState, useMemo, useCallback } from "react";
 import { DataState } from "@/components/ui/data-state";
 import { NewEventDialog } from "@/app/dashboard/schedule/components/NewEventDialog";
@@ -28,6 +29,14 @@ interface CalEvent {
    *  so RSVP state was invisible on the one page about meetings. */
   myResponseStatus?: "accepted" | "declined" | "tentative" | "needsAction";
   isOrganizer?: boolean;
+  organizerName?: string;
+  organizerEmail?: string;
+}
+
+/** The meeting has already ended — nothing left to answer. */
+function isPast(end: string): boolean {
+  const t = Date.parse(end);
+  return Number.isFinite(t) && t < Date.now();
 }
 
 /**
@@ -794,10 +803,21 @@ export default function MeetingsPage() {
                         </CardContent>
                       </Card>
                     );
-                    return preppable ? (
-                      <Link key={event.id} href={`/dashboard/meetings/${event.id}`}>{CardShell}</Link>
-                    ) : (
-                      <div key={event.id}>{CardShell}</div>
+                    // Answer the invitation right here. Kept OUTSIDE the prep link
+                    // so a click on Yes/No never opens the cheatsheet instead.
+                    const rsvp = !event.isOrganizer && !isPast(event.end) ? (
+                      <div className="-mt-1 mb-3 px-1">
+                        <RsvpControls
+                          compact={event.myResponseStatus !== "needsAction"}
+                          event={{ ...event, myResponseStatus: event.myResponseStatus ?? "needsAction" }}
+                        />
+                      </div>
+                    ) : null;
+                    return (
+                      <div key={event.id}>
+                        {preppable ? <Link href={`/dashboard/meetings/${event.id}`}>{CardShell}</Link> : CardShell}
+                        {rsvp}
+                      </div>
                     );
                   })}
                 </div>

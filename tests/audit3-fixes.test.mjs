@@ -304,10 +304,14 @@ test("calendar reply / forward / RSVP only claim success after the server confir
   const src = read("app/dashboard/schedule/components/DayView.tsx");
   assert.ok((src.match(/if \(!res\.ok\) throw new Error/g) || []).length >= 2,
     "reply and forward must both check res.ok before showing Sent/Forwarded");
-  const rsvp = src.slice(src.indexOf("async function handleRsvp"));
-  const body = rsvp.slice(0, rsvp.indexOf("\n  }"));
-  assert.ok(/catch \(err\)/.test(body) && /finally/.test(body),
-    "handleRsvp had neither catch nor finally — a throw disabled all three buttons forever");
+  // RSVP moved to the shared RsvpControls (2026-10-04); the guarantee moves with it.
+  assert.ok(/<RsvpControls/.test(src), "the Schedule popover answers invitations through RsvpControls");
+  const controls = read("components/calendar/rsvp-controls.tsx");
+  const rsvp = controls.slice(controls.indexOf("async function respond"));
+  const body = rsvp.slice(0, rsvp.indexOf("\n  }\n"));
+  assert.ok(/catch \(e\)/.test(body) && /finally/.test(body),
+    "respond() needs catch and finally — a throw must not disable the buttons forever");
+  assert.ok(/role="alert"/.test(controls), "an RSVP failure must be rendered");
   assert.ok(/role="alert"/.test(src) && /actionError/.test(src),
     "the failure must actually be RENDERED, not just stored in state");
 });

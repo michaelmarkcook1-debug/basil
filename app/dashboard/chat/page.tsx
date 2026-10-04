@@ -85,6 +85,8 @@ const toolIcons: Record<string, typeof Calendar> = {
   searchEmails: Mail,
   searchSlack: Hash,
   draftEmail: Mail,
+  replyToEmail: Mail,
+  respondToInvite: Calendar,
   scheduleMeeting: Calendar,
   sendSlackMessage: Hash,
   searchDrive: FileText,
@@ -117,6 +119,13 @@ function formatToolInput(toolName: string, input: Record<string, unknown>): stri
   switch (toolName) {
     case "draftEmail":
       return `To: ${input.to}\nSubject: ${input.subject}\n\n${input.body}`;
+    case "replyToEmail":
+      return `${input.replyAll ? "Reply all" : "Reply"} — in the original thread\nTo: ${input.recipients ?? "the sender"}\n\n${input.body}`;
+    case "respondToInvite": {
+      const label = input.response === "accepted" ? "Accept" : input.response === "declined" ? "Decline" : "Maybe";
+      const propose = input.proposedStart ? `\nPropose: ${input.proposedStart} → ${input.proposedEnd} (the organiser is emailed)` : "";
+      return `${label} the invitation${propose}${input.note ? `\nNote: ${input.note}` : ""}`;
+    }
     case "scheduleMeeting":
       return `${input.title}\n${input.date} at ${input.startTime} (${input.duration}min)\nAttendees: ${(input.attendees as string[])?.join(", ")}`;
     case "sendSlackMessage":

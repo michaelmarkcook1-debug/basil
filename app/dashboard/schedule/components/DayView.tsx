@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useRef, useCallback, useEffect, useMemo } from "react";
+import { RsvpControls } from "@/components/calendar/rsvp-controls";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -9,7 +10,7 @@ import Link from "next/link";
 import {
   X, Trash2, Video, Users, Save, Loader2, Plus, Pencil,
   MapPin, Clock, ExternalLink, Copy, Check, ChevronDown, ChevronUp,
-  CheckCircle2, XCircle, HelpCircle, Send, Forward, Sparkles,
+  Send, Forward, Sparkles,
   Link as LinkIcon, CalendarSearch,
 } from "lucide-react";
 
@@ -66,6 +67,8 @@ export interface DayEvent {
   videoLink?: string;
   isOrganizer?: boolean;
   myResponseStatus?: "accepted" | "declined" | "tentative" | "needsAction";
+  organizerName?: string;
+  organizerEmail?: string;
 }
 
 interface EditState {
@@ -238,22 +241,21 @@ function EventDetailPopover({
   onClose,
   onEdit,
   onDelete,
-  onRsvp,
+  onResponded,
   deleting,
 }: {
   event: DayEvent;
   onClose: () => void;
   onEdit: () => void;
   onDelete: () => void;
-  onRsvp: (status: "accepted" | "declined" | "tentative") => Promise<void>;
+  /** Called after the user answers the invitation (or proposes a new time). */
+  onResponded: () => void;
   deleting: boolean;
 }) {
   const { startMin, endMin } = parseEventTimes(event);
   const dur = endMin - startMin;
   const [copied, setCopied] = useState(false);
   const [descExpanded, setDescExpanded] = useState(false);
-  const [rsvping, setRsvping] = useState(false);
-  const [rsvpStatus, setRsvpStatus] = useState(event.myResponseStatus ?? "needsAction");
   const isOrganizer = event.isOrganizer ?? true;
 
   // ── Reply state ─────────────────────────────────────────────────────────────
@@ -319,20 +321,7 @@ function EventDetailPopover({
     }
   }
 
-  async function handleRsvp(status: "accepted" | "declined" | "tentative") {
-    setRsvping(true);
-    setActionError("");
-    try {
-      await onRsvp(status);
-      setRsvpStatus(status); // only reflect the new state if the call succeeded
-    } catch (err) {
-      // Previously there was no catch AND no finally: a throw left all three
-      // RSVP buttons permanently disabled, with the organiser none the wiser.
-      setActionError(err instanceof Error ? err.message : "RSVP failed — the organiser was not notified.");
-    } finally {
-      setRsvping(false);
-    }
-  }
+
 
   const provider = event.videoLink ? isVideoProvider(event.videoLink) : null;
   const videoLabel = provider === "zoom" ? "Join Zoom" : provider === "meet" ? "Join Meet" : provider === "teams" ? "Join Teams" : "Join Call";
@@ -421,33 +410,17 @@ function EventDetailPopover({
           {!isOrganizer && (
             <div className="space-y-1.5">
               <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Your response</p>
-              <div className="flex gap-2">
-                {(["accepted", "tentative", "declined"] as const).map((s) => {
-                  const active = rsvpStatus === s;
-                  const cfg = {
-                    accepted:  { label: "Accept",   icon: CheckCircle2, active: "bg-signal-positive text-white border-signal-positive", hover: "hover:bg-signal-positive-subtle hover:border-signal-positive-border hover:text-signal-positive" },
-                    tentative: { label: "Maybe",    icon: HelpCircle,   active: "bg-signal-warning text-white border-signal-warning-border",    hover: "hover:bg-signal-warning-subtle hover:border-signal-warning-border hover:text-signal-warning" },
-                    declined:  { label: "Decline",  icon: XCircle,      active: "bg-signal-critical text-white border-signal-critical",        hover: "hover:bg-signal-critical-subtle hover:border-signal-critical-border hover:text-signal-critical" },
-                  }[s];
-                  const Icon = cfg.icon;
-                  return (
-                    <button
-                      key={s}
-                      disabled={rsvping}
-                      onClick={() => handleRsvp(s)}
-                      className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium border transition-colors disabled:opacity-50
-                        ${active ? cfg.active : `border-border text-muted-foreground ${cfg.hover}`}`}
-                    >
-                      {rsvping && rsvpStatus !== s ? (
-                        <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                      ) : (
-                        <Icon className="h-3.5 w-3.5" />
-                      )}
-                      {cfg.label}
-                    </button>
-                  );
-                })}
-              </div>
+              {/* Shared with Today and Meetings: checks the server's answer
+                  (the old buttons ignored it) and can propose a new time. */}
+              <RsvpControls
+                compact
+                event={{
+                  id: event.id, summary: event.summary, start: event.start, end: event.end,
+                  isAllDay: event.isAllDay, myResponseStatus: event.myResponseStatus, isOrganizer,
+                  organizerName: event.organizerName, organizerEmail: event.organizerEmail,
+                }}
+                onChanged={() => onResponded()}
+              />
             </div>
           )}
 
@@ -1437,14 +1410,7 @@ export function DayView({
           onClose={() => setDetailEvent(null)}
           onEdit={() => openEdit(detailEvent)}
           onDelete={() => handleDelete(detailEvent.id)}
-          onRsvp={async (status) => {
-            await fetch(`/api/calendar/${detailEvent.id}/rsvp`, {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({ status }),
-            });
-            onRefresh();
-          }}
+          onResponded={onRefresh}
           deleting={deleting}
         />
       )}

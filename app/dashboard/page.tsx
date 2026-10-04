@@ -41,6 +41,7 @@ import {
   PanelFrame, SignalProvenance, ThreadsPanel, RelationshipPanel, IntelligencePanel,
 } from "@/components/today/panels";
 import { PriorityActionCard } from "@/components/today/priority-action-card";
+import { InvitationsPanel } from "@/components/today/invitations-panel";
 import { DayTimeline } from "@/components/today/day-timeline";
 import { PressureSection } from "@/components/today/pressure";
 import { Watchlist } from "@/components/today/watchlist";
@@ -213,6 +214,9 @@ export default function Today() {
             </div>
           </aside>
         </div>
+
+        {/* Invitations waiting on an answer — only when there are some */}
+        <InvitationsPanel />
 
         {/* 4 — Signal, threads, relationships, and what Basil did unattended */}
         <div className="mt-6 grid grid-cols-1 gap-5 sm:grid-cols-2 xl:grid-cols-4">

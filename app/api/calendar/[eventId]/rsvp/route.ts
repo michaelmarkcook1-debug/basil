@@ -1,75 +1,53 @@
+/**
+ * POST /api/calendar/[eventId]/rsvp — accept, decline or "maybe" an invitation.
+ * Body: { status: "accepted" | "declined" | "tentative", comment?: string }
+ *
+ * The organiser is notified (sendUpdates:"all"). 409 when the user is not on
+ * the guest list — this used to change nothing and still answer success.
+ */
 import { NextResponse } from "next/server";
-import { isGoogleConnected, getAuthedClient } from "@/lib/google/auth";
+import { isGoogleConnected } from "@/lib/google/auth";
 import { getSessionUser } from "@/lib/auth";
-import { google } from "googleapis";
+import { respondToEvent, NotAnAttendeeError, type RsvpResponse } from "@/lib/google/calendar";
 import { emitAuditEvent } from "@/lib/events/audit";
 
-type RSVPStatus = "accepted" | "declined" | "tentative";
+const LABEL: Record<RsvpResponse, string> = { accepted: "Accepted", declined: "Declined", tentative: "Maybe" };
 
-/**
- * POST /api/calendar/[eventId]/rsvp
- * Body: { status: "accepted" | "declined" | "tentative" }
- *
- * Updates the authenticated user's response status on a calendar event invite.
- */
-export async function POST(
-  req: Request,
-  { params }: { params: Promise<{ eventId: string }> }
-) {
+export async function POST(req: Request, { params }: { params: Promise<{ eventId: string }> }) {
   const username = await getSessionUser();
   if (!username) return NextResponse.json({ error: "Unauthorised" }, { status: 401 });
-
   if (!(await isGoogleConnected(username))) {
     return NextResponse.json({ error: "Google Calendar not connected." }, { status: 401 });
   }
-
   const { eventId } = await params;
   if (!eventId) return NextResponse.json({ error: "Missing eventId" }, { status: 400 });
 
-  let status: RSVPStatus;
+  let status: RsvpResponse, comment: string | undefined;
   try {
-    const body = await req.json();
-    if (!["accepted", "declined", "tentative"].includes(body.status)) {
+    const body = await req.json() as { status?: string; comment?: unknown };
+    if (body.status !== "accepted" && body.status !== "declined" && body.status !== "tentative") {
       return NextResponse.json({ error: "status must be accepted, declined, or tentative" }, { status: 400 });
     }
-    status = body.status as RSVPStatus;
+    status = body.status;
+    comment = typeof body.comment === "string" && body.comment.trim() ? body.comment : undefined;
   } catch {
     return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 });
   }
 
-  const auth = await getAuthedClient(username);
-  if (!auth) return NextResponse.json({ error: "Google auth unavailable" }, { status: 500 });
-
-  const calendar = google.calendar({ version: "v3", auth });
-
   try {
-    // Fetch the event to find the user's attendee entry
-    const existing = await calendar.events.get({ calendarId: "primary", eventId });
-    const ev = existing.data;
-
-    const updatedAttendees = (ev.attendees || []).map((a) => {
-      if (a.self) return { ...a, responseStatus: status };
-      return a;
-    });
-
-    await calendar.events.patch({
-      calendarId: "primary",
-      eventId,
-      requestBody: { attendees: updatedAttendees },
-    });
-
+    const ev = await respondToEvent(username, eventId, { response: status, comment });
     await emitAuditEvent({
       username,
       source: "calendar",
-      headline: `RSVP ${status} for "${ev.summary || eventId}"`,
-      context: `Event: ${ev.summary}\nDate: ${ev.start?.dateTime || ev.start?.date}`,
-      rationale: `User responded ${status} to calendar invite.`,
+      headline: `${LABEL[status]} "${ev.summary}"`,
+      context: `Event: ${ev.summary}\nDate: ${ev.start}${comment ? `\nNote: ${comment}` : ""}`,
+      rationale: `Responded ${status} to the invitation in Basil; the organiser was notified.`,
       tags: ["calendar", "rsvp", status],
     });
-
     return NextResponse.json({ success: true, status });
   } catch (e) {
-    console.error("Calendar RSVP error:", e);
-    return NextResponse.json({ error: "Failed to update RSVP" }, { status: 500 });
+    if (e instanceof NotAnAttendeeError) return NextResponse.json({ error: e.message }, { status: 409 });
+    console.error("[calendar/rsvp] failed:", e instanceof Error ? e.message : e);
+    return NextResponse.json({ error: "Could not send your response to Google Calendar." }, { status: 502 });
   }
 }

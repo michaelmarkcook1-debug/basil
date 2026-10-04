@@ -11,6 +11,8 @@
 
 import useSWR from "swr";
 import Link from "next/link";
+import { useState } from "react";
+import { ReplyButton } from "@/components/email/reply-composer";
 import type { TodayFeedResponse, TodayFollowupItem } from "@/lib/today/types";
 import { Card, Empty, Failed, Loading, Panel, Unavailable } from "@/components/today/primitives";
 
@@ -29,6 +31,8 @@ export default function ThreadsPage() {
     "/api/today?full=1", swrFetch, { revalidateOnFocus: false, dedupingInterval: 30_000 },
   );
   const threads = (data?.items ?? []).filter((i): i is TodayFollowupItem => i.kind === "followup");
+  // Replied from here → off the list now, not at the next refresh.
+  const [replied, setReplied] = useState<Set<string>>(new Set());
   const mailConnected = !!data?.sources.followups.gmail || !!data?.sources.followups.slack;
   const count = data?.totals?.followups ?? threads.length;
 
@@ -57,11 +61,11 @@ export default function ThreadsPage() {
           ) : (
             <Card>
               <ul className="divide-y divide-[var(--w-rule)]">
-                {threads.map((i) => (
-                  <li key={i.id}>
+                {threads.filter((i) => !replied.has(i.id)).map((i) => (
+                  <li key={i.id} className="flex items-center gap-2 pr-2">
                     <Link
                       href={i.href ?? "#"}
-                      className="block min-h-[44px] px-3.5 py-2.5 hover:bg-[var(--w-tray)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2"
+                      className="block min-h-[44px] min-w-0 flex-1 px-3.5 py-2.5 hover:bg-[var(--w-tray)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2"
                     >
                       <p className="truncate text-[0.875rem] font-medium text-[color:var(--w-ink)]">{i.title}</p>
                       <p className="mt-0.5 flex items-center gap-2 text-[0.75rem] text-[color:var(--w-ink-soft)]">
@@ -70,6 +74,12 @@ export default function ThreadsPage() {
                         <span className="wire-data shrink-0 text-[color:var(--w-manila)]">{waiting(i.followup.hoursWaiting)}</span>
                       </p>
                     </Link>
+                    {i.followup.source === "gmail" && (
+                      <ReplyButton
+                        messageId={i.followup.id.replace(/^gmail:/, "")}
+                        onSent={() => setReplied((s) => new Set(s).add(i.id))}
+                      />
+                    )}
                   </li>
                 ))}
               </ul>

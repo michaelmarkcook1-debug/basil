@@ -1,6 +1,7 @@
 import { google } from "googleapis";
 import { getAuthedClient } from "./auth";
 import { getSelfIdentity, stripSelf, type SelfIdentity } from "@/lib/self-identity";
+import { sendEmail } from "./gmail";
 
 export interface CalendarEvent {
   id: string;
@@ -17,6 +18,9 @@ export interface CalendarEvent {
   videoLink?: string;  // extracted meet/zoom/teams join URL
   isOrganizer: boolean;  // true if the authenticated user created/owns this event
   myResponseStatus: "accepted" | "declined" | "tentative" | "needsAction"; // user's RSVP
+  /** Who sent the invitation — addressee for a proposed new time. */
+  organizerName?: string;
+  organizerEmail?: string;
 }
 
 function cleanSummary(summary: string): string {
@@ -92,6 +96,8 @@ function mapEvent(
     videoLink,
     isOrganizer,
     myResponseStatus,
+    organizerName: e.organizer?.displayName || undefined,
+    organizerEmail: e.organizer?.email || undefined,
   };
 }
 
@@ -591,4 +597,126 @@ export async function deleteCalendarEvent(username: string, eventId: string): Pr
   if (!auth) throw new Error("Google Calendar not connected");
   const calendar = google.calendar({ version: "v3", auth });
   await calendar.events.delete({ calendarId: "primary", eventId });
+}
+
+
+// ── Answering invitations ─────────────────────────────────────────────────────
+
+export type RsvpResponse = "accepted" | "declined" | "tentative";
+
+/** The user is not on the event's guest list (e.g. invited through a group). */
+export class NotAnAttendeeError extends Error {
+  constructor() { super("You are not on this event's guest list, so there is no response to change."); }
+}
+
+export interface RespondedEvent {
+  summary: string;
+  start: string;
+  end: string;
+  timeZone: string;
+  organizerName?: string;
+  organizerEmail?: string;
+  organizerIsSelf: boolean;
+}
+
+const oneLine = (s: string, max: number) => s.replace(/[\r\n]+/g, " ").trim().slice(0, max);
+
+/**
+ * Accept, decline or tentatively accept an invitation, optionally with a note
+ * the organiser sees on their copy of the event.
+ *
+ * sendUpdates:"all" is what tells the organiser. The previous RSVP route
+ * patched silently: a Google organiser saw the new status eventually, an
+ * Outlook organiser never heard. And when the user wasn't individually on the
+ * guest list it changed nothing and reported success; that is now an error.
+ */
+export async function respondToEvent(
+  username: string,
+  eventId: string,
+  opts: { response: RsvpResponse; comment?: string },
+): Promise<RespondedEvent> {
+  const auth = await getAuthedClient(username);
+  if (!auth) throw new Error("Google Calendar not connected");
+  const calendar = google.calendar({ version: "v3", auth });
+  const { data: ev } = await calendar.events.get({ calendarId: "primary", eventId });
+  const attendees = ev.attendees ?? [];
+  const idx = attendees.findIndex((a) => a.self);
+  if (idx === -1) throw new NotAnAttendeeError();
+  const updated = attendees.map((a, i) => i !== idx ? a : {
+    ...a,
+    responseStatus: opts.response,
+    ...(opts.comment !== undefined ? { comment: oneLine(opts.comment, 500) } : {}),
+  });
+  await calendar.events.patch({
+    calendarId: "primary",
+    eventId,
+    sendUpdates: "all",
+    requestBody: { attendees: updated },
+  });
+  return {
+    summary: ev.summary || "the meeting",
+    start: ev.start?.dateTime || ev.start?.date || "",
+    end: ev.end?.dateTime || ev.end?.date || "",
+    timeZone: ev.start?.timeZone || "Europe/London",
+    organizerName: ev.organizer?.displayName || undefined,
+    organizerEmail: ev.organizer?.email || undefined,
+    organizerIsSelf: ev.organizer?.self === true,
+  };
+}
+
+/** "Tue 7 Oct, 15:00–15:30 (London)". Pure — exported for tests. */
+export function formatSlot(startIso: string, endIso: string, timeZone: string): string {
+  const s = new Date(startIso), e = new Date(endIso);
+  const day = s.toLocaleDateString("en-GB", { weekday: "short", day: "numeric", month: "short", timeZone });
+  const t = (d: Date) => d.toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit", timeZone });
+  const place = timeZone.split("/").pop()?.replace(/_/g, " ") ?? timeZone;
+  return `${day}, ${t(s)}–${t(e)} (${place})`;
+}
+
+/**
+ * Google Calendar's "Propose a new time" exists only in Google's own UI — the
+ * API has no endpoint for it. So: answer Maybe (or No), put the proposed time
+ * in the response note the organiser sees on the invite, and email the
+ * organiser the proposal so it reaches them whatever calendar they use.
+ */
+export async function proposeNewTime(
+  username: string,
+  eventId: string,
+  opts: {
+    start: string;
+    end: string;
+    response?: "tentative" | "declined";
+    note?: string;
+    emailOrganizer?: boolean;
+    /** Signs the email. */
+    senderName: string;
+    timeZone?: string;
+    now?: number;
+  },
+): Promise<{ emailedTo?: string; comment: string }> {
+  const start = new Date(opts.start), end = new Date(opts.end);
+  if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) throw new RangeError("Pick a valid start and end time.");
+  if (end <= start) throw new RangeError("The proposed end must be after the start.");
+  if (start.getTime() < (opts.now ?? Date.now())) throw new RangeError("The proposed time is in the past.");
+
+  const tz = opts.timeZone || "Europe/London";
+  const slot = formatSlot(opts.start, opts.end, tz);
+  const note = opts.note ? oneLine(opts.note, 300) : "";
+  const comment = `Proposed new time: ${slot}${note ? ` — ${note}` : ""}`;
+  const ev = await respondToEvent(username, eventId, { response: opts.response ?? "tentative", comment });
+
+  if (opts.emailOrganizer === false || !ev.organizerEmail || ev.organizerIsSelf) return { comment };
+  const first = (ev.organizerName ?? "").trim().split(/\s+/)[0];
+  const original = ev.start && ev.end ? formatSlot(ev.start, ev.end, tz) : "the current time";
+  const body = [
+    first ? `Hi ${first},` : "Hi,",
+    "",
+    `I can't make "${ev.summary}" at ${original}. Could we move it to ${slot}?`,
+    ...(note ? ["", note] : []),
+    "",
+    "Thanks,",
+    opts.senderName.split(" ")[0] || opts.senderName,
+  ].join("\n");
+  await sendEmail(username, ev.organizerEmail, `New time for "${oneLine(ev.summary, 120)}"?`, body);
+  return { emailedTo: ev.organizerEmail, comment };
 }

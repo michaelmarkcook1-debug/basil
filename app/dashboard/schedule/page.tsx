@@ -43,6 +43,8 @@ interface CalEvent {
   videoLink?: string;
   isOrganizer?: boolean;
   myResponseStatus?: "accepted" | "declined" | "tentative" | "needsAction";
+  organizerName?: string;
+  organizerEmail?: string;
 }
 
 interface ProposedMeeting {
@@ -78,6 +80,8 @@ function toDay(e: CalEvent): DayEvent {
     videoLink: e.videoLink,
     isOrganizer: e.isOrganizer,
     myResponseStatus: e.myResponseStatus,
+    organizerName: e.organizerName,
+    organizerEmail: e.organizerEmail,
   };
 }
 

@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect, useRef, useCallback, useMemo } from "react";
+import { ReplyButton } from "@/components/email/reply-composer";
 import { useDomainSync } from "@/lib/sync/use-domain-sync";
 // useDraft kept for any legacy callers; actions now uses usePersistentDraft
 import { Card, CardContent } from "@/components/ui/card";
@@ -225,10 +226,13 @@ function ActionCard({
   onConfirmReview,
   onDecisionClick,
   onNotes,
+  onReplied,
   todayStr,
   photos = {},
 }: {
   action: ActionItem;
+  /** After a reply is sent from this card (the server closes the action). */
+  onReplied?: () => void;
   onToggle: (id: string) => void;
   onDelete: (id: string) => void;
   onConfirmReview?: (id: string) => void;
@@ -345,6 +349,10 @@ function ActionCard({
               </span>
             )}
 
+            {/* Reply in the email thread this action came from — sending closes it. */}
+            {action.source === "email" && action.sourceRef?.startsWith("gmail:") && action.status !== "done" && (
+              <ReplyButton messageId={action.sourceRef.slice("gmail:".length)} actionId={action.id} onSent={onReplied} />
+            )}
             <ExpiryBadge expiresAt={action.expiresAt} />
             <PriorityBadge priority={action.priority} />
             <SourceBadge source={action.source} />
@@ -411,9 +419,11 @@ function CollapsibleSection({
   onConfirmReview,
   onDecisionClick,
   onNotes,
+  onReplied,
   todayStr,
   photos = {},
 }: {
+  onReplied?: () => void;
   label: string;
   accent?: string;
   items: ActionItem[];
@@ -475,6 +485,7 @@ function CollapsibleSection({
               onConfirmReview={onConfirmReview}
               onDecisionClick={onDecisionClick}
               onNotes={onNotes}
+              onReplied={onReplied}
               todayStr={todayStr}
               photos={photos}
             />
@@ -1512,6 +1523,7 @@ export default function ActionsPage() {
               items={reviewItems}
               defaultOpen={true}
               onToggle={toggleDone}
+              onReplied={refresh}
               onDelete={handleDelete}
               onNotes={handleNotes}
               onConfirmReview={handleConfirmReview}
@@ -1529,6 +1541,7 @@ export default function ActionsPage() {
               items={decisionNeeded}
               defaultOpen={true}
               onToggle={toggleDone}
+              onReplied={refresh}
               onDelete={handleDelete}
               onNotes={handleNotes}
               onConfirmReview={handleConfirmReview}
@@ -1545,6 +1558,7 @@ export default function ActionsPage() {
             items={critical}
             defaultOpen={true}
             onToggle={toggleDone}
+              onReplied={refresh}
             onDelete={handleDelete}
             onConfirmReview={handleConfirmReview}
             onDecisionClick={handleDecisionClick}
@@ -1558,6 +1572,7 @@ export default function ActionsPage() {
             items={adminActs}
             defaultOpen={true}
             onToggle={toggleDone}
+              onReplied={refresh}
             onDelete={handleDelete}
             onConfirmReview={handleConfirmReview}
             onDecisionClick={handleDecisionClick}
@@ -1571,6 +1586,7 @@ export default function ActionsPage() {
             items={personal}
             defaultOpen={true}
             onToggle={toggleDone}
+              onReplied={refresh}
             onDelete={handleDelete}
             onConfirmReview={handleConfirmReview}
             onDecisionClick={handleDecisionClick}
@@ -1584,6 +1600,7 @@ export default function ActionsPage() {
               items={uncategorized}
               defaultOpen={false}
               onToggle={toggleDone}
+              onReplied={refresh}
               onDelete={handleDelete}
               onNotes={handleNotes}
               onConfirmReview={handleConfirmReview}
@@ -1599,6 +1616,7 @@ export default function ActionsPage() {
             items={done}
             defaultOpen={false}
             onToggle={toggleDone}
+              onReplied={refresh}
             onDelete={handleDelete}
             todayStr={todayStr}
             photos={photos}
@@ -1628,6 +1646,7 @@ export default function ActionsPage() {
               items={reviewItems}
               defaultOpen={true}
               onToggle={toggleDone}
+              onReplied={refresh}
               onDelete={handleDelete}
               onNotes={handleNotes}
               onConfirmReview={handleConfirmReview}
@@ -1658,6 +1677,7 @@ export default function ActionsPage() {
                 items={filtered}
                 defaultOpen={true}
                 onToggle={toggleDone}
+              onReplied={refresh}
                 onDelete={handleDelete}
               onNotes={handleNotes}
                 onConfirmReview={handleConfirmReview}
@@ -1680,6 +1700,7 @@ export default function ActionsPage() {
                         key={a.id}
                         action={a}
                         onToggle={toggleDone}
+              onReplied={refresh}
                         onDelete={handleDelete}
               onNotes={handleNotes}
                         onConfirmReview={handleConfirmReview}
@@ -1702,6 +1723,7 @@ export default function ActionsPage() {
                         key={a.id}
                         action={a}
                         onToggle={toggleDone}
+              onReplied={refresh}
                         onDelete={handleDelete}
               onNotes={handleNotes}
                         onConfirmReview={handleConfirmReview}
@@ -1724,6 +1746,7 @@ export default function ActionsPage() {
                         key={a.id}
                         action={a}
                         onToggle={toggleDone}
+              onReplied={refresh}
                         onDelete={handleDelete}
               onNotes={handleNotes}
                         onConfirmReview={handleConfirmReview}
@@ -1746,6 +1769,7 @@ export default function ActionsPage() {
                         key={a.id}
                         action={a}
                         onToggle={toggleDone}
+              onReplied={refresh}
                         onDelete={handleDelete}
               onNotes={handleNotes}
                         onConfirmReview={handleConfirmReview}
@@ -1767,6 +1791,7 @@ export default function ActionsPage() {
                 note="No due date and no movement for weeks. These are not overdue — they are forgotten. Give one a date or delete it."
                 defaultOpen={false}
                 onToggle={toggleDone}
+              onReplied={refresh}
                 onDelete={handleDelete}
               onNotes={handleNotes}
                 onConfirmReview={handleConfirmReview}
@@ -1783,6 +1808,7 @@ export default function ActionsPage() {
                 note="Completed work, kept for the record."
                 defaultOpen={false}
                 onToggle={toggleDone}
+              onReplied={refresh}
                 onDelete={handleDelete}
               onNotes={handleNotes}
                 todayStr={todayStr}
@@ -1799,6 +1825,7 @@ export default function ActionsPage() {
               key={a.id}
               action={a}
               onToggle={toggleDone}
+              onReplied={refresh}
               onDelete={handleDelete}
               onNotes={handleNotes}
               onConfirmReview={handleConfirmReview}

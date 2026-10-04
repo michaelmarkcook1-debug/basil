@@ -14,6 +14,8 @@ import Link from "next/link";
 import { ArrowUpRight } from "lucide-react";
 import { Card, Empty, Unavailable } from "./primitives";
 import { ContactAvatar } from "@/components/ui/contact-avatar";
+import { useState } from "react";
+import { ReplyButton } from "@/components/email/reply-composer";
 import type { SignalSlice } from "@/lib/today/executive";
 import type { TodayFeedItem } from "@/lib/today/types";
 
@@ -82,19 +84,23 @@ export function SignalProvenance({
 export function ThreadsPanel({
   items, unavailable,
 }: { items: TodayFeedItem[]; unavailable?: string }) {
+  // Replied from here → off the list now, not at the next refresh.
+  const [replied, setReplied] = useState<Set<string>>(new Set());
   if (unavailable) return <Unavailable what="Threads" why={unavailable} />;
-  if (items.length === 0) return <Empty>Nobody is waiting on a reply from you.</Empty>;
+  const visible = items.filter((i) => !replied.has(i.id));
+  if (visible.length === 0) return <Empty>Nobody is waiting on a reply from you.</Empty>;
 
   return (
     <Card className="divide-y divide-[var(--w-rule)]">
       <ul className="divide-y divide-[var(--w-rule)]">
-        {items.slice(0, 4).map((i) => {
+        {visible.slice(0, 4).map((i) => {
           const f = i.kind === "followup" ? i.followup : null;
+          const gmailId = f?.source === "gmail" ? f.id.replace(/^gmail:/, "") : null;
           return (
-            <li key={i.id}>
+            <li key={i.id} className="flex items-center gap-2 pr-2">
               <Link
                 href={i.href ?? "#"}
-                className="block min-h-[44px] px-3.5 py-2.5 hover:bg-[var(--w-tray)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2"
+                className="block min-h-[44px] min-w-0 flex-1 px-3.5 py-2.5 hover:bg-[var(--w-tray)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2"
               >
                 <p className="truncate text-[0.875rem] font-medium text-[color:var(--w-ink)]">{i.title}</p>
                 <p className="mt-0.5 flex items-center gap-2 text-[0.75rem] text-[color:var(--w-ink-soft)]">
@@ -108,6 +114,7 @@ export function ThreadsPanel({
                   )}
                 </p>
               </Link>
+              {gmailId && <ReplyButton messageId={gmailId} onSent={() => setReplied((s) => new Set(s).add(i.id))} />}
             </li>
           );
         })}
