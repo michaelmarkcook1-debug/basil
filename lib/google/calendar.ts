@@ -18,6 +18,11 @@ export interface CalendarEvent {
   videoLink?: string;  // extracted meet/zoom/teams join URL
   isOrganizer: boolean;  // true if the authenticated user created/owns this event
   myResponseStatus: "accepted" | "declined" | "tentative" | "needsAction"; // user's RSVP
+  /**
+   * Everyone else on the invite with their address — for matching people to
+   * contacts by email. Excludes you, rooms/resources, and anyone who declined.
+   */
+  attendeeDetails?: Array<{ name: string; email: string }>;
   /** Who sent the invitation — addressee for a proposed new time. */
   organizerName?: string;
   organizerEmail?: string;
@@ -96,6 +101,9 @@ function mapEvent(
     videoLink,
     isOrganizer,
     myResponseStatus,
+    attendeeDetails: (e.attendees || [])
+      .filter((a: any) => !a.self && !a.resource && a.responseStatus !== "declined" && (a.email || a.displayName)) // eslint-disable-line @typescript-eslint/no-explicit-any
+      .map((a: any) => ({ name: a.displayName || "", email: (a.email || "").toLowerCase() })), // eslint-disable-line @typescript-eslint/no-explicit-any
     organizerName: e.organizer?.displayName || undefined,
     organizerEmail: e.organizer?.email || undefined,
   };

@@ -154,9 +154,33 @@ function toPriority(item: TodayFeedItem): Priority {
   };
 }
 
-/** True for the stakeholder-silence family of change events. */
+/**
+ * True for relationships that need attention: silence, or a cooling tone.
+ * A WARMING tone is good news, not a risk — it used to count here, so a single
+ * "warming" note put someone in "gone quiet".
+ */
 export function isRelationshipRisk(item: TodayFeedItem): boolean {
-  return item.kind === "change" && item.change.category === "relationship";
+  return item.kind === "change" && item.change.category === "relationship" && !isWarming(item);
+}
+
+function isWarming(item: TodayFeedItem): boolean {
+  return item.kind === "change" && item.change.delta?.field === "tone" && item.change.delta?.to === "warming";
+}
+
+function isCooling(item: TodayFeedItem): boolean {
+  return item.kind === "change" && item.change.delta?.field === "tone" && item.change.delta?.to === "cooling";
+}
+
+/** "Cooling: A. No recent contact: B, C." — tone and silence are different problems. Exported for tests. */
+export function relationshipWhy(risks: TodayFeedItem[]): string {
+  const cooling = namesFrom(risks.filter(isCooling));
+  const quiet = namesFrom(risks.filter((i) => !isCooling(i))).filter((n) => !cooling.includes(n));
+  const list = (ns: string[]) => ns.slice(0, 3).join(", ") + (ns.length > 3 ? ` and ${ns.length - 3} more` : "");
+  const parts = [
+    cooling.length ? `Tone cooling with ${list(cooling)}.` : "",
+    quiet.length ? `No recent contact with ${list(quiet)}.` : "",
+  ].filter(Boolean);
+  return parts.join(" ") || "Several stakeholders have gone quiet.";
 }
 
 /**
@@ -241,11 +265,7 @@ export function buildPriorityBoard(items: TodayFeedItem[]): PriorityBoard {
         // Counted by contact, not by signal: a cooling AND a silence on the
         // same person is one relationship needing attention, not two.
         title: `${names.length || risks.length} relationship${(names.length || risks.length) === 1 ? "" : "s"} need${(names.length || risks.length) === 1 ? "s" : ""} attention`,
-        why:
-          names.length > 0
-            ? `No meaningful contact recently with ${names.slice(0, 3).join(", ")}` +
-              (names.length > 3 ? ` and ${names.length - 3} more` : "") + "."
-            : "Several stakeholders have gone quiet.",
+        why: relationshipWhy(risks),
         provenance: "inferred",
         source: "Contacts",
         occurredAt: lead.occurredAt,

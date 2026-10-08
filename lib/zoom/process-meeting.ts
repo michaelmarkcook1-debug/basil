@@ -12,6 +12,7 @@
  */
 
 import { generateTextSafe } from "@/lib/ai/generate";
+import { touchContactsRecency } from "@/lib/contacts/touch-recency";
 import { getTextModel, MAX_TOKENS } from "@/lib/ai/model-config";
 import { parseAndValidate } from "@/lib/ai/parse-json";
 import { MeetingIntelligenceSchema } from "@/lib/ai/schemas";
@@ -111,6 +112,20 @@ export async function processZoomMeeting(
   let memoriesCreated  = 0;
 
   const attendeeNames = participants.map((p) => p.name).filter(Boolean);
+
+  // A Zoom call IS contact with everyone on it. Meetings fetched from Zoom never
+  // updated "last contact" — only recap emails did, and Zoom sends those to the
+  // host — so people you meet with every week were flagged as gone quiet.
+  // Matched by email where Zoom has it. Recency only ever moves forward.
+  const endedAt = meeting.startTime
+    ? new Date(Date.parse(meeting.startTime) + (meeting.duration ?? 0) * 60_000).toISOString()
+    : undefined;
+  if (endedAt && participants.length) {
+    await touchContactsRecency(
+      username,
+      participants.filter((p) => p.name || p.email).map((p) => ({ name: p.name || p.email || "", email: p.email, date: endedAt, source: "zoom" })),
+    ).catch((err) => console.warn("[process-meeting] recency touch failed:", err instanceof Error ? err.message : err));
+  }
 
   // ── Case 1: we have a transcript — full intelligence extraction ──────────────
   if (recording?.transcript && recording.transcript.trim().length > 100) {

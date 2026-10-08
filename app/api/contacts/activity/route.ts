@@ -404,8 +404,15 @@ async function computeContactActivity(username: string): Promise<ActivityPayload
       (a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()
     );
 
-    const lastInteraction =
-      interactions.length > 0 ? interactions[0].date : contact.lastInteraction || null;
+    // The NEWER of what the live scan found and what Basil has stored. The live
+    // scan only sees 30 days of a capped slice of Slack; the stored date also
+    // carries Zoom calls and calendar meetings matched by email. Preferring any
+    // live hit over a newer stored date showed people as quieter than they are.
+    const live = interactions.length > 0 ? interactions[0].date : null;
+    const stored = contact.lastInteraction || null;
+    const lastInteraction = live && stored
+      ? (new Date(live).getTime() >= new Date(stored).getTime() ? live : stored)
+      : live ?? stored;
 
     // ── Zoom meeting cadence ──────────────────────────────────────────────────
     // Count confirmed Zoom meetings (from memory store + calendar video calls)

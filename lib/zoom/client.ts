@@ -127,7 +127,7 @@ export async function getPastMeetings(
 
     // Zoom's report endpoint gives richer data (participant counts, duration)
     // than the basic meetings list.
-    const data = await zoomGet<{
+    type Report = {
       meetings?: Array<{
         id: number;
         uuid: string;
@@ -140,10 +140,15 @@ export async function getPastMeetings(
         participants_count?: number;
         type?: number;
       }>;
-    }>(
+    };
+    const report = (type: string) => zoomGet<Report>(
       username,
-      `/report/users/me/meetings?from=${from}&type=past&page_size=${Math.min(maxResults, 300)}`
+      `/report/users/me/meetings?from=${from}&type=${type}&page_size=${Math.min(maxResults, 300)}`
     );
+    // "pastJoined" also returns meetings you JOINED but didn't host — group calls
+    // someone else ran, which is most of them. "past" (hosted only) is the
+    // fallback if the account's plan or Zoom rejects it (zoomGet returns null).
+    const data = (await report("pastJoined")) ?? (await report("past"));
 
     return (data?.meetings ?? []).slice(0, maxResults).map((m) => ({
       id:               String(m.id),

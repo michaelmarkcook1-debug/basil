@@ -306,8 +306,17 @@ export async function POST(req: Request) {
   const slackRecencyTouches: RecencyTouch[] = [];
 
   for (const m of slacks) {
-    if (isSelf(m.author, selfIdentity)) continue;
     if (isBotChannel(m.channel)) continue;
+    // YOUR message in a DM / group DM is contact with everyone else in it.
+    // These used to be dropped here, before any touch was recorded — so a
+    // conversation where you did the writing never counted, and people you
+    // talk to daily on Slack were listed as "gone quiet".
+    if (isSelf(m.author, selfIdentity)) {
+      for (const member of m.channelMembers ?? []) {
+        slackRecencyTouches.push({ name: member, date: m.date, source: "slack" });
+      }
+      continue;
+    }
     // Suspend ingestion for channels the user muted via the learning prompt —
     // EXCEPT a direct @mention of the user, which always bypasses a mute (a
     // learned mute must never swallow a genuinely high-signal ping).
@@ -379,11 +388,13 @@ export async function POST(req: Request) {
         [now.getFullYear(), now.getMonth()] as const,
         [next.getFullYear(), next.getMonth()] as const,
       ];
-      if (now.getDate() <= 2) {
+      if (now.getDate() <= 14) {
         const prev = new Date(now.getFullYear(), now.getMonth() - 1, 1);
         months.unshift([prev.getFullYear(), prev.getMonth()] as const);
       }
-      const lookbackMs = 48 * 3_600_000;
+      // 14 days, not 48h: a group call last week is still contact this week, and
+      // touches only ever move recency forward, so re-reading them is harmless.
+      const lookbackMs = 14 * 24 * 3_600_000;
       for (const [y, mo] of months) {
         const events = await getEventsForMonth(username, y, mo).catch(() => []);
         windowEvents.push(...events);
@@ -392,16 +403,16 @@ export async function POST(req: Request) {
           const endMs = new Date(ev.end).getTime();
           // Recency: only meetings that ALREADY ENDED (cron runs 05:45).
           if (Number.isNaN(endMs) || endMs > now.getTime() || endMs < now.getTime() - lookbackMs) continue;
-          for (const a of ev.attendees ?? []) {
-            if (!a?.trim()) continue;
-            // mapEvent already strips the user themselves. Attendee strings are
-            // displayName when Google has one, else the raw email.
-            calendarTouches.push({
-              name: a,
-              email: a.includes("@") ? a : undefined,
-              date: ev.end,
-              source: "calendar",
-            });
+          // Match by the attendee's EMAIL where Google has one. The display
+          // name alone ("Matt P.") failed to match the contact "Matthew
+          // Paquette" even though the address was identical, so group calls
+          // with people on your calendar didn't count as contact.
+          const people = ev.attendeeDetails?.length
+            ? ev.attendeeDetails.map((d) => ({ name: d.name || d.email, email: d.email || undefined }))
+            : (ev.attendees ?? []).map((a) => ({ name: a, email: a.includes("@") ? a : undefined }));
+          for (const p of people) {
+            if (!p.name?.trim()) continue;
+            calendarTouches.push({ name: p.name, email: p.email, date: ev.end, source: "calendar" });
           }
         }
       }
