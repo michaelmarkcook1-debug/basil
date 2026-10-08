@@ -3,6 +3,8 @@ import { memoriesForPrompt, type MemoryFocus } from "@/lib/memory/store";
 import { getSettings } from "@/lib/settings/store";
 import { findByUsername } from "@/lib/users";
 import type { Contact } from "@/lib/contacts-data";
+import { getGlossary } from "@/lib/glossary/store";
+import { glossaryLines, sortEntries, termsIn, type GlossaryEntry } from "@/lib/glossary/match";
 
 // ── Why this module is split in three ───────────────────────────────────────
 // Until 2026-09-26 every AI call in Basil — each email classified, each Zoom
@@ -117,10 +119,19 @@ interface PromptBasics {
   firstName: string;
   timezone: string;
   isPrimaryOwner: boolean;
+  /** The user's confirmed shorthand (lib/glossary). */
+  glossary: GlossaryEntry[];
 }
 
 async function loadBasics(username: string, timezoneOverride?: string): Promise<PromptBasics> {
-  const [settings, userRecord] = await Promise.all([getSettings(username), findByUsername(username)]);
+  const [settings, userRecord, glossary] = await Promise.all([
+    getSettings(username),
+    findByUsername(username),
+    getGlossary(username).then((g) => g.entries).catch((err) => {
+      console.warn("[system-prompt] glossary unavailable:", err instanceof Error ? err.message : err);
+      return [] as GlossaryEntry[];
+    }),
+  ]);
   return {
     settings,
     profile: userRecord?.profile,
@@ -132,6 +143,7 @@ async function loadBasics(username: string, timezoneOverride?: string): Promise<
     // account owner. This is the ONLY permitted use of PRIMARY_OWNER_USERNAME —
     // never for data routing, defaults, or owner-specific data.
     isPrimaryOwner: !!process.env.PRIMARY_OWNER_USERNAME && username === process.env.PRIMARY_OWNER_USERNAME, // ci-ok: read-only personalization hint only
+    glossary,
   };
 }
 
@@ -190,6 +202,15 @@ The summaries below are long-term style notes to help you choose TONE when ${fir
 ${personaLines(people).join("\n")}`;
 }
 
+/** Most-used first would churn the cached prompt; a stable sort keeps it byte-identical. */
+const MAX_GLOSSARY_IN_PROMPT = 200;
+
+function glossarySection(firstName: string, entries: readonly GlossaryEntry[]): string {
+  if (entries.length === 0) return "";
+  return `## ${firstName}'s Shorthand — decode before acting
+${glossaryLines(sortEntries(entries).slice(0, MAX_GLOSSARY_IN_PROMPT))}`;
+}
+
 function learnedSection(memories: string): string {
   return memories ? `## What You've Learned — Apply These Every Time\n${memories}` : "";
 }
@@ -238,6 +259,9 @@ Violating these rules is worse than producing a shorter or emptier answer. ${fir
 - You're protective of ${firstName}'s time. Push back gently on things that don't serve their priorities.
 
 ${aboutSection(b)}
+${b.glossary.length ? `\n${glossarySection(firstName, b.glossary)}\n` : ""}
+## Shorthand You Don't Know
+When ${firstName} uses an acronym, nickname or project name you cannot decode from the shorthand list or the conversation, ask once what it means — never guess an expansion — then save the answer with \`rememberTerm\` so you never ask again.
 
 ## Smart Compose — Persona Awareness
 When drafting emails or Slack messages to a known contact, use persona notes to adapt tone only. Match the contact's role archetype:
@@ -379,6 +403,8 @@ export interface TaskPromptOptions {
   personasFor?: string;
   /** Cap on personality notes (named people only — no "recent" padding). */
   maxPersonas?: number;
+  /** Text the task is about (the email body, the transcript); only shorthand it uses is decoded. */
+  glossaryFor?: string;
 }
 
 /**
@@ -402,6 +428,8 @@ export async function getTaskSystemPrompt(
     ? selectPersonaContacts(contacts, opts.personasFor, { named: opts.maxPersonas ?? MAX_NAMED_PERSONAS, recent: 0 })
     : [];
   const { firstName, settings } = b;
+  const glossaryText = [opts.focus?.text, opts.personasFor, opts.glossaryFor].filter(Boolean).join("\n");
+  const usedTerms = termsIn(glossaryText, b.glossary);
 
   return [
     `You are Basil, ${settings.name}'s executive assistant, doing background work for ${firstName}.`,
@@ -412,6 +440,7 @@ export async function getTaskSystemPrompt(
 - Personality notes describe how people communicate — they are not evidence of anything that happened.
 - Empty is an acceptable answer. Shorter and factual beats padded.`,
     aboutSection(b),
+    glossarySection(firstName, usedTerms),
     learnedSection(memories),
     personaSection(firstName, people),
   ].filter(Boolean).join("\n\n");

@@ -308,7 +308,7 @@ Respond with ONLY valid JSON — no markdown fences, no explanation:
       const { serializeContext } = await import("@/core/primitives/intelligence-context");
       const { dispatch } = await import("@/core/dispatch/dispatcher");
 
-      const system = await getTaskSystemPrompt(username, undefined, { memories: 8, focus: { text: `${from} ${subject}` } });
+      const system = await getTaskSystemPrompt(username, undefined, { memories: 8, focus: { text: `${from} ${subject}` }, glossaryFor: bodyClip });
       const ctx = await buildIntelligenceContext({ username, currentSignal: null, flags });
       const ctxText = serializeContext(ctx);
       const enrichedSystem = ctxText
@@ -340,7 +340,7 @@ Respond with ONLY valid JSON — no markdown fences, no explanation:
 
   // ── Legacy path: generateText + optional dispatch_shadow trace ────────────
   try {
-    const system = await getTaskSystemPrompt(username, undefined, { memories: 8, focus: { text: `${from} ${subject}` } });
+    const system = await getTaskSystemPrompt(username, undefined, { memories: 8, focus: { text: `${from} ${subject}` }, glossaryFor: bodyClip });
     const { text } = await generateTextSafe({
       // CATEGORIZATION → mid tier (deciding what an email IS).
       model: getTextModel("balanced"),

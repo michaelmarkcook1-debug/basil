@@ -111,6 +111,7 @@ const TOOL_DOMAIN_MAP: Record<string, SyncDomain> = {
   logDecision:            "decisions",
   supersedeDecision:      "decisions",
   rememberThis:           "memory",
+  rememberTerm:           "memory",
   forgetMemory:           "memory",
   generateContactProfile: "contacts",
 };

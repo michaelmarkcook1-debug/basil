@@ -41,6 +41,7 @@ export type ThreadResolution =
   | { kind: "reply-sent"; at: string; counterpart: string; subject: string }
   | { kind: "bulk-mail" }
   | { kind: "calendar-invite" }
+  | { kind: "promise-kept"; by: string; at: string; reason: string }
   | { kind: "answered-elsewhere"; by: string; at: string; reason: string }
   | { kind: "open" };
 
@@ -66,10 +67,25 @@ export type Judge = (input: {
   firstName: string;
   ask: string;
   view: ConversationView;
+  /** "promise": the item is something the user promised in the original message. */
+  mode?: "ask" | "promise";
 }) => Promise<{ stillNeeded: boolean; answeredBy: string; reason: string }>;
 
-export function judgePrompt(firstName: string, ask: string, view: ConversationView): string {
+export function judgePrompt(firstName: string, ask: string, view: ConversationView, mode: "ask" | "promise" = "ask"): string {
   const clip = (s: string) => s.replace(/\s+/g, " ").trim().slice(0, 500);
+  if (mode === "promise") {
+    return `${firstName} made a promise in the original message below. Later messages in the same conversation follow. Decide whether the promise is STILL outstanding.
+
+Answer stillNeeded=false ONLY when a later message clearly shows ${firstName} delivered it (sent the thing, did the task) or the other person released ${firstName} from it.
+Answer stillNeeded=true if the later messages are about something else, only acknowledge, or if you are unsure.
+
+The promise: ${clip(ask)}
+Original message from ${view.original.from} (${view.original.date.slice(0, 10)}): ${clip(view.original.text)}
+Later messages:
+${view.later.map((m) => `- ${m.self ? `${firstName} (you)` : m.from} (${m.date.slice(0, 10)}): ${clip(m.text)}`).join("\n")}
+
+Respond with JSON only: {"stillNeeded": true or false, "answeredBy": "name or empty", "reason": "one short sentence"}`;
+  }
   return `An item on ${firstName}'s to-do list was created from a message. Later messages in the same conversation follow. Decide whether ${firstName} STILL needs to act on the item.
 
 Answer stillNeeded=false ONLY when a later message clearly shows the item is settled without ${firstName}: someone else answered the question or did the task, the requester withdrew it or said it is sorted, or the thing was decided or scheduled without them.
@@ -84,13 +100,13 @@ Respond with JSON only: {"stillNeeded": true or false, "answeredBy": "name or em
 }
 
 export function makeModelJudge(username: string): Judge {
-  return async ({ firstName, ask, view }) => {
+  return async ({ firstName, ask, view, mode }) => {
     try {
       const { text } = await generateTextSafe({
         model: getTextModel("fast"),
         maxOutputTokens: 200,
         system: "You judge whether a to-do item is still outstanding. Be conservative: when in doubt, it is still needed.",
-        prompt: judgePrompt(firstName, ask, view),
+        prompt: judgePrompt(firstName, ask, view, mode),
       }, "fast", { username, feature: "resolve:thread" });
       const parsed = parseAndValidate(text, VerdictSchema, "[resolve-threads]");
       return parsed.ok ? parsed.data : { stillNeeded: true, answeredBy: "", reason: "" };
@@ -104,11 +120,21 @@ export function makeModelJudge(username: string): Judge {
 
 /** Pure decision over a conversation — exported for tests. */
 export async function decide(
-  action: Pick<ActionItem, "text">,
+  action: Pick<ActionItem, "text" | "commitment">,
   view: ConversationView,
   judge: Judge,
   firstName: string,
 ): Promise<ThreadResolution> {
+  // A promise the user made: a later message from them is NOT proof it was kept
+  // (they may have written about something else) — the judge reads the thread.
+  if (action.commitment) {
+    const later = view.later.filter((m) => m.text.trim());
+    if (later.length === 0) return { kind: "open" };
+    const v = await judge({ firstName, ask: action.text, view: { ...view, later }, mode: "promise" });
+    if (v.stillNeeded) return { kind: "open" };
+    const last = later[later.length - 1];
+    return { kind: "promise-kept", by: v.answeredBy || (last.self ? firstName : last.from), at: last.date, reason: v.reason };
+  }
   const mine = view.later.find((m) => m.self);
   if (mine) return { kind: "reply-sent", at: mine.date, counterpart: view.original.from, subject: view.subject };
   if (view.bulk) return { kind: "bulk-mail" };
@@ -256,6 +282,7 @@ export async function resolveThreadActions(
       r.kind === "reply-sent" ? `Closed: you replied on ${r.at.slice(0, 10)}.`
       : r.kind === "bulk-mail" ? "Closed: this came from marketing or list mail."
       : r.kind === "calendar-invite" ? "Closed: a calendar invitation — answer it on your calendar."
+      : r.kind === "promise-kept" ? `Closed: promise kept (${r.at.slice(0, 10)})${r.reason ? ` — ${r.reason}` : ""}.`
       : `Closed: ${r.by} replied on ${r.at.slice(0, 10)}${r.reason ? ` — ${r.reason}` : ""}.`;
     updates.push({
       id: action.id,

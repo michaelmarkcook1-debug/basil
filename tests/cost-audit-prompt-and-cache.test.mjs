@@ -54,6 +54,8 @@ function systemPromptModule({ memoryCalls = [] } = {}) {
       getSettings: async () => ({ name: "Fixture Owner", timezone: "Europe/London", workStart: "09:00", workEnd: "18:00", videoTool: "Zoom", meetingUrl: "" }),
     },
     "@/lib/users": { findByUsername: async () => ({ profile: { jobTitle: "CEO", company: "Fixture Co" } }) },
+    "@/lib/glossary/store": { getGlossary: async () => ({ entries: [], dismissed: [] }) },
+    "@/lib/glossary/match": loadTs("lib/glossary/match.ts"),
   });
 }
 

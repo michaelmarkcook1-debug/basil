@@ -158,6 +158,7 @@ test("AI-02 scheduleMeeting forwards the resolved timezone to the calendar adapt
   let booked;
   const noop = new Proxy({}, { get: () => async () => ({}) });
   const T = loadTs("lib/ai/tools.ts", {
+    "@/lib/glossary/store": { upsertTerm: async (_u, t) => ({ ...t, id: "g1" }) },
     ai, zod: require("zod"),
     "@/lib/security/sensitive": loadTs("lib/security/sensitive.ts"),
     "@/lib/web/search": noop, "@/lib/google/auth": { isGoogleConnected: async () => true },

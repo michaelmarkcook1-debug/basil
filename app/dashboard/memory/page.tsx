@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { GlossaryPanel } from "@/components/memory/glossary-panel";
 import { useDomainSync } from "@/lib/sync/use-domain-sync";
 import { usePersistentDraft } from "@/lib/hooks/use-persistent-draft";
 import {
@@ -662,6 +663,9 @@ export default function MemoryPage() {
           )}
         </div>
       )}
+
+      {/* Shorthand decoder — read into every prompt */}
+      <GlossaryPanel />
 
       {/* Kind filter tabs */}
       <div className="flex items-center gap-1 border-b border-border">

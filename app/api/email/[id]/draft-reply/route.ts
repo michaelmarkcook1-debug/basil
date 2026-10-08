@@ -34,6 +34,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
       focus: { text: `${ctx.from.name} ${ctx.subject}` },
       personasFor: ctx.from.name,
       maxPersonas: 1,
+      glossaryFor: ctx.body.slice(0, 6_000),
     });
     const original = redactSensitive(ctx.body.slice(0, 6_000)).text;
     const { text } = await generateTextSafe({

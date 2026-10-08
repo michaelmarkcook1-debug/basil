@@ -1,4 +1,5 @@
 import { tool } from "ai";
+import { upsertTerm } from "@/lib/glossary/store";
 import { redactDeep } from "@/lib/security/sensitive";
 import { z } from "zod";
 import { webSearch, fetchPageContent } from "@/lib/web/search";
@@ -530,6 +531,27 @@ export function buildAssistantTools(
     }),
 
     // ── MEMORY TOOLS ──
+
+    rememberTerm: tool({
+      description:
+        `Save what one of ${name}'s shorthand terms means — an acronym, a project codename, a nickname for a person, or internal jargon. `
+        + `Use it right after ${name} tells you what a term means (or confirms your reading of it). `
+        + `Basil decodes the term in every later conversation, email and briefing. Re-saving a term updates it.`,
+      inputSchema: z.object({
+        term: z.string().describe("The shorthand exactly as written, e.g. 'AG', 'AP/TG', 'the migration'"),
+        meaning: z.string().describe("What it stands for, briefly, e.g. 'AnalystGenius — the AR analytics product'"),
+        kind: z.enum(["acronym", "project", "person", "term"]).describe("acronym, project codename, a person's nickname, or other internal term"),
+        aliases: z.array(z.string()).optional().describe("Other spellings meaning the same thing"),
+      }),
+      execute: async ({ term, meaning, kind, aliases }) => {
+        try {
+          const entry = await upsertTerm(username, { term, meaning, kind, aliases });
+          return { saved: true, term: entry.term, meaning: entry.meaning };
+        } catch (e) {
+          return { error: e instanceof Error ? e.message : String(e) };
+        }
+      },
+    }),
 
     rememberThis: tool({
       description:

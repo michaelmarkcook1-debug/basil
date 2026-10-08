@@ -577,6 +577,8 @@ export interface CreateActionInput {
   eventId?: string;
   /** Stable source-system reference, e.g. "gmail:1abc2def". */
   sourceRef?: string;
+  /** A promise the user made in their sent mail (see ActionItem.commitment). */
+  commitment?: ActionItem["commitment"];
   /**
    * Override initial status. Defaults to "open".
    * Use "done" when creating an already-completed record (e.g. an acknowledgment receipt).
@@ -648,6 +650,7 @@ export async function createAction(username: string, rawInput: CreateActionInput
       ...(input.linkedDecisionIds?.length && { linkedDecisionIds: input.linkedDecisionIds }),
       ...(input.followUpDate && { followUpDate: input.followUpDate }),
       ...(input.expiresAt && { expiresAt: input.expiresAt }),
+      ...(input.commitment && { commitment: input.commitment }),
       // Classification
       ...(category         !== undefined && { category }),
       ...(decisionRequired               && { decisionRequired: true }),

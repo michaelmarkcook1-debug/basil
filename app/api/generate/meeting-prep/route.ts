@@ -616,7 +616,7 @@ Return ONLY valid JSON, no markdown code fences:
   try {
     // Attendee profiles and per-attendee memories are already in the prompt
     // body — the system prompt only needs who the user is and a few memories.
-    systemPrompt = await getTaskSystemPrompt(username, tz, { memories: 10, focus: { text: title, entities: attendeeNames } });
+    systemPrompt = await getTaskSystemPrompt(username, tz, { memories: 10, focus: { text: title, entities: attendeeNames }, glossaryFor: promptText });
   } catch (e) {
     const msg = e instanceof Error ? e.message.slice(0, 120) : String(e).slice(0, 120);
     console.error("[mp] systemPrompt fail:", msg);

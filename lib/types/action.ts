@@ -33,9 +33,16 @@ export interface ActionItem {
     /** Came from bulk/marketing mail — never the user's work. */
     | "bulk-mail"
     /** Came from a calendar invitation — the answer is an RSVP, and the meeting is on the calendar. */
-    | "calendar-invite";
+    | "calendar-invite"
+    /** A promise the user made, later shown fulfilled in the same thread. */
+    | "promise-kept";
   /** When resolve-threads last re-read this action's source conversation. */
   threadCheckedAt?: string;
+  /**
+   * Set when this action is a promise the user made in their own sent mail
+   * ("I'll send the deck by Friday") — lib/commitments/capture.ts.
+   */
+  commitment?: { to: string; quote: string; sentAt: string };
   source: "meeting" | "slack" | "teams" | "email" | "manual" | "chat" | "linear";
   createdAt: string;
   updatedAt: string;

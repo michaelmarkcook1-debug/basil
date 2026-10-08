@@ -57,7 +57,7 @@ async function extractMeetingIntelligence(
   date: string
 ): Promise<MeetingIntelligence | null> {
   try {
-    const sysPrompt = await getTaskSystemPrompt(username, undefined, { memories: 8, focus: { text: topic, entities: attendees } }).catch(() => "");
+    const sysPrompt = await getTaskSystemPrompt(username, undefined, { memories: 8, focus: { text: topic, entities: attendees }, glossaryFor: transcript.slice(0, 7_000) }).catch(() => "");
     const { text } = await generateTextSafe({
       // CATEGORIZATION → mid tier.
       model: getTextModel("balanced"),

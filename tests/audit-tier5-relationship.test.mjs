@@ -98,6 +98,7 @@ test("ledger: months bucket approvals, denials, runs and edits — the Month 1 v
 function toolsModule() {
   const noop = new Proxy({}, { get: () => async () => ({}) });
   return loadTs("lib/ai/tools.ts", {
+    "@/lib/glossary/store": { upsertTerm: async (_u, t) => ({ ...t, id: "g1" }) },
     ai, zod: require("zod"),
     "@/lib/security/sensitive": loadTs("lib/security/sensitive.ts"),
     "@/lib/web/search": noop, "@/lib/google/auth": { isGoogleConnected: async () => true },

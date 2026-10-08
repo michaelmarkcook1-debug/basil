@@ -20,6 +20,7 @@ import type { IngestPayload, BasilEvent } from "@/lib/events/types";
 import { getTodayEvents, getEventsForMonth } from "@/lib/google/calendar";
 import { getRecentEmails, searchEmails } from "@/lib/google/gmail";
 import { resolveThreadActions } from "@/lib/actions/resolve-threads";
+import { captureSentPromises } from "@/lib/commitments/capture";
 import { getRecentSlackMessages } from "@/lib/slack/client";
 import { getMutedSourceKeys } from "@/lib/learning/store";
 import { listActions, updateAction, createAction } from "@/lib/actions/store";
@@ -1049,6 +1050,15 @@ export async function POST(req: Request) {
       if (actionsAutoCompleted > 0) await forceFlushSnapshot();
     } catch (err) {
       console.error("[poll-ingest] thread resolution failed:", err);
+    }
+  });
+
+  // ── Promises in your sent mail → actions to confirm ─────────────────────
+  after(async () => {
+    try {
+      await captureSentPromises(username, { force: true });
+    } catch (err) {
+      console.error("[poll-ingest] promise capture failed:", err);
     }
   });
 

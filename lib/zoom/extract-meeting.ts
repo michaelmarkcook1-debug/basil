@@ -218,7 +218,7 @@ Respond with ONLY valid JSON — no markdown fences, no explanation, no preamble
 }`;
 
   try {
-    const system = await getTaskSystemPrompt(username, undefined, { memories: 8, focus: { text: metadata.subject } });
+    const system = await getTaskSystemPrompt(username, undefined, { memories: 8, focus: { text: metadata.subject }, glossaryFor: emailBody.slice(0, 8_000) });
     const { text } = await generateTextSafe(
       {
         // DATA GATHERING → lowest tier. This pulls known fields (actions,

@@ -282,6 +282,14 @@ function ActionCard({
           >
             {action.text}
           </p>
+          {/* A promise you made in writing — shows whom to, when, and your words. */}
+          {action.commitment && (
+            <p className="mt-1 text-[0.75rem] text-muted-foreground">
+              You promised{action.commitment.to ? ` ${action.commitment.to}` : ""}
+              {" · "}{new Date(action.commitment.sentAt).toLocaleDateString("en-GB", { day: "numeric", month: "short" })}
+              {action.commitment.quote ? <span className="italic">{` — “${action.commitment.quote}”`}</span> : null}
+            </p>
+          )}
 
           {/* Meta row */}
           <div className="flex items-center gap-2 mt-1.5 flex-wrap">
@@ -290,13 +298,14 @@ function ActionCard({
                 auto-archived. Neither is conflated with a manual completion. */}
             {action.archivedReason && (() => {
               const signalDriven = action.archivedReason === "rsvp-confirmed" || action.archivedReason === "reply-sent"
-                || action.archivedReason === "answered-elsewhere";
+                || action.archivedReason === "answered-elsewhere" || action.archivedReason === "promise-kept";
               const label =
                 action.archivedReason === "rsvp-confirmed" ? "you responded on your calendar"
                 : action.archivedReason === "reply-sent" ? "you replied"
                 : action.archivedReason === "answered-elsewhere" ? "answered in the thread"
                 : action.archivedReason === "bulk-mail" ? "marketing mail"
                 : action.archivedReason === "calendar-invite" ? "on your calendar"
+                : action.archivedReason === "promise-kept" ? "you followed through"
                 : action.archivedReason === "stale-untouched" ? "untouched 30 days"
                 : action.archivedReason === "stale-overdue" ? "expired overdue"
                 : action.archivedReason === "past-meeting" ? "meeting passed"
@@ -1023,6 +1032,12 @@ export default function ActionsPage() {
         const out = res.ok ? await res.json() as { closed?: number } : null;
         if (out?.closed) await refresh();
       } catch { /* best-effort tidy-up */ }
+      // Promises you made in sent mail → actions to confirm. Server-throttled.
+      try {
+        const res = await fetch("/api/actions/capture-promises", { method: "POST" });
+        const out = res.ok ? await res.json() as { created?: number } : null;
+        if (out?.created) await refresh();
+      } catch { /* best-effort capture */ }
     })();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
