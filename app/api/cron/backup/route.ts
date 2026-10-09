@@ -34,11 +34,18 @@ export async function GET(req: Request) {
     .toISOString()
     .slice(0, 10);
 
+  const started = Date.now();
   try {
-    const { copied, backupPrefix } = await backupAllUsers(todayKey);
-    const pruned = await pruneBackups(cutoffKey);
-    console.info(`[cron/backup] snapshot ${todayKey}: copied=${copied} pruned=${pruned} (retain ${retainDays}d)`);
-    return NextResponse.json({ ok: true, date: todayKey, copied, pruned, backupPrefix });
+    // Leave headroom under maxDuration (300s): back up within 240s, prune only
+    // after a COMPLETE backup, in whatever is left before 285s.
+    const backup = await backupAllUsers(todayKey, { deadline: started + 240_000 });
+    const prune = backup.complete
+      ? await pruneBackups(cutoffKey, { deadline: started + 285_000 })
+      : { deleted: 0, complete: false };
+    const line = `[cron/backup] snapshot ${todayKey}: copied=${backup.copied} failed=${backup.failed} complete=${backup.complete} pruned=${prune.deleted}${prune.complete ? "" : " (prune continues tomorrow)"} (retain ${retainDays}d) in ${Math.round((Date.now() - started) / 1000)}s`;
+    if (backup.complete && backup.failed === 0) console.info(line); else console.error(line);
+    return NextResponse.json({ ok: backup.complete && backup.failed === 0, date: todayKey, ...backup, pruned: prune.deleted, pruneComplete: prune.complete },
+      { status: backup.complete ? 200 : 500 });
   } catch (err) {
     console.error("[cron/backup] failed:", err instanceof Error ? err.message : err);
     return NextResponse.json({ ok: false, error: "backup failed" }, { status: 500 });
