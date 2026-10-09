@@ -298,13 +298,14 @@ export async function getRecentSlackMessages(
       if (channel.is_mpim) {
         channelName = "Group DM";
         try {
-          // Your own token first: you are in every one of your group DMs; the
-          // bot usually isn't, so with it the lookup failed silently and
-          // nobody in the group DM was credited with the conversation.
-          const membersRes = await (userWeb ?? lookupWeb).conversations.members({
-            channel: channel.id,
-            limit: 20,
-          });
+          // Your token first (you are in every one of your group DMs; the bot
+          // usually isn't), the bot's if yours lacks mpim:read. Before, only the
+          // bot was tried and the lookup failed silently, crediting nobody.
+          const listMembers = (client: typeof lookupWeb) =>
+            client.conversations.members({ channel: channel.id!, limit: 20 });
+          const membersRes = userWeb
+            ? await listMembers(userWeb).catch(() => listMembers(lookupWeb))
+            : await listMembers(lookupWeb);
           const ids = (membersRes.members || []).filter(
             (id) => id && id !== selfUserId
           );

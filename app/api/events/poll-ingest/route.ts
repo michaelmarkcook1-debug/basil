@@ -50,6 +50,7 @@ import { isHashUnchanged, recordIngest } from "@/lib/ingest/index";
 import { appendAuditEntries, auditSkipped } from "@/lib/ingest/audit-log";
 import { listUserContacts, updateUserContactInStore } from "@/lib/contacts/user-store";
 import { touchContactsRecency, type RecencyTouch } from "@/lib/contacts/touch-recency";
+import { scanSlackContactRecency } from "@/lib/slack/contact-recency";
 import { resolveAttendanceActions } from "@/lib/actions/resolve-calendar";
 import { extractFollowUpRules, applyFollowUpRules } from "@/lib/actions/follow-up-rules";
 import { listMemories } from "@/lib/memory/store";
@@ -417,7 +418,13 @@ export async function POST(req: Request) {
         }
       }
     } catch { /* calendar unavailable — Slack touches still apply */ }
-    await touchContactsRecency(username, [...slackRecencyTouches, ...calendarTouches]).catch(() => 0);
+    // Per-contact Slack recency (DMs, group DMs, threads, both directions) —
+    // the ingest sample above misses most conversations.
+    const slackScan = await scanSlackContactRecency(username).catch((err) => {
+      console.warn("[poll-ingest] slack contact recency scan failed:", err instanceof Error ? err.message : err);
+      return { touches: [] as RecencyTouch[] };
+    });
+    await touchContactsRecency(username, [...slackRecencyTouches, ...calendarTouches, ...slackScan.touches]).catch(() => 0);
 
     // ── Calendar-RSVP commitment resolution ──────────────────────────────────
     // Close "Confirm attendance / Expect invite" commitments the user has

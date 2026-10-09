@@ -104,7 +104,7 @@ test("calendar attendance counts toward contact recency (gone-quiet accuracy)", 
     "poll-ingest must emit calendar attendance touches");
   assert.ok(/endMs > now\.getTime\(\)/.test(poll),
     "only meetings that already ENDED may touch recency (cron runs at 05:45, before the day's meetings)");
-  assert.ok(/\[\.\.\.slackRecencyTouches, \.\.\.calendarTouches\]/.test(poll),
+  assert.ok(/\[\.\.\.slackRecencyTouches, \.\.\.calendarTouches(, \.\.\.slackScan\.touches)?\]/.test(poll),
     "calendar touches must flow through the same touchContactsRecency batch");
 });
 

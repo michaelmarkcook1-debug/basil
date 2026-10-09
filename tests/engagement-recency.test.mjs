@@ -73,8 +73,8 @@ test("your own Slack DM / group-DM messages count as contact with the others in 
   assert.match(selfBranch, /for \(const member of m\.channelMembers \?\? \[\]\)[\s\S]*slackRecencyTouches\.push/,
     "self messages record touches for the DM's members before skipping ingestion");
   assert.doesNotMatch(loop, /if \(isSelf\(m\.author, selfIdentity\)\) continue;/, "the old early drop is gone");
-  assert.match(src("lib/slack/client.ts"), /await \(userWeb \?\? lookupWeb\)\.conversations\.members\(/,
-    "group-DM members are read with your token — the bot usually isn't in your group DMs");
+  assert.match(src("lib/slack/client.ts"), /await listMembers\(userWeb\)\.catch\(\(\) => listMembers\(lookupWeb\)\)/,
+    "group-DM members: your token first (the bot usually isn't in your group DMs), then the bot's");
 });
 
 // ── Zoom ─────────────────────────────────────────────────────────────────────
@@ -126,4 +126,89 @@ test("a warming tone is good news, not a risk; cooling and silence are named sep
 test("the People page shows the newer of the live scan and the stored date", () => {
   const s = src("app/api/contacts/activity/route.ts");
   assert.match(s, /const lastInteraction = live && stored\s*\? \(new Date\(live\)\.getTime\(\) >= new Date\(stored\)\.getTime\(\) \? live : stored\)\s*: live \?\? stored;/);
+});
+
+// ── Per-contact Slack recency (widened scan) ─────────────────────────────────
+
+const R = loadTs("lib/slack/contact-recency.ts", {
+  "@/lib/slack/client": {}, "@/lib/contacts/user-store": {},
+});
+const SELF = "UME00001";
+const members = [
+  { id: SELF, name: "fixture", real_name: "Fixture Owner", profile: { email: "me@fixture.invalid" } },
+  { id: "UMAT0001", name: "matt.p", real_name: "Matt P.", profile: { email: "matthew@partner.invalid" } },
+  { id: "UPRI0001", name: "priya", real_name: "Priya Nandakumar", profile: {} },
+  { id: "USAM0001", name: "sam1", real_name: "Sam Patel" }, { id: "USAM0002", name: "sam2", real_name: "Sam Patel" },
+  { id: "UBOT0001", name: "bot", real_name: "Priya Nandakumar", is_bot: true },
+];
+const contacts = [
+  { id: "c1", name: "Matthew Paquette", email: "matthew@partner.invalid", lastInteraction: "2026-09-01T00:00:00Z" },
+  { id: "c2", name: "Priya Nandakumar", lastInteraction: "2026-08-01T00:00:00Z" },
+  { id: "c3", name: "Sam Patel" },
+  { id: "c4", name: "Ed Baum" },
+];
+
+test("contacts match Slack users by email, else a unique full name — never a bot, never an ambiguous name", () => {
+  const m = R.matchContactsToSlack(contacts, members);
+  assert.equal(JSON.stringify([...m]), JSON.stringify([["c1", "UMAT0001"], ["c2", "UPRI0001"]]));
+});
+
+test("what counts as talking WITH you, and who your own messages were to", () => {
+  assert.ok(R.countsAsContactWithYou({ channel: { is_im: true } }, SELF));
+  assert.ok(R.countsAsContactWithYou({ channel: { is_mpim: true } }, SELF));
+  assert.ok(R.countsAsContactWithYou({ channel: { name: "general" }, permalink: "https://x.slack.com/archives/C1/p1?thread_ts=1.2&cid=C1" }, SELF), "a thread reply");
+  assert.ok(R.countsAsContactWithYou({ channel: { name: "general" }, text: `ping <@${SELF}>` }, SELF), "a mention of you");
+  assert.ok(!R.countsAsContactWithYou({ channel: { name: "general" }, text: "deploy done" }, SELF), "a broadcast post is not contact");
+  const byUser = new Map(members.map((x) => [x.name, x.id]));
+  assert.equal(R.counterpartsOf({ channel: { is_im: true, name: "UMAT0001" } }, SELF, byUser).join(), "UMAT0001");
+  assert.equal(R.counterpartsOf({ channel: { is_mpim: true, name: "mpdm-fixture--matt.p--priya-1" } }, SELF, byUser).sort().join(), "UMAT0001,UPRI0001");
+  assert.equal(R.counterpartsOf({ channel: { name: "general" }, text: "thanks <@UPRI0001|priya>" }, SELF, byUser).join(), "UPRI0001");
+});
+
+function fakeSlack(searchResults, { rateLimitAfter = Infinity } = {}) {
+  const queries = [];
+  const user = {
+    auth: { test: async () => ({ user_id: SELF }) },
+    users: { list: async () => ({ members }) },
+    search: { messages: async ({ query, page }) => {
+      queries.push(`${query}#${page}`);
+      if (queries.length > rateLimitAfter) { const e = new Error("rate limited"); e.code = "slack_webapi_rate_limited_error"; throw e; }
+      return { messages: { matches: searchResults(query, page) } };
+    } },
+  };
+  return { user, queries };
+}
+
+test("the scan credits DMs and threads in both directions — newest wins, no message text kept", async () => {
+  const ts = (iso) => String(Date.parse(iso) / 1000);
+  const slack = fakeSlack((q) => {
+    if (q.startsWith("from:me")) return [
+      { ts: ts("2026-10-07T09:00:00Z"), channel: { is_im: true, name: "UMAT0001" }, text: "see you at 3" },
+      { ts: ts("2026-10-05T09:00:00Z"), channel: { is_mpim: true, name: "mpdm-fixture--priya--matt.p-1" }, text: "agenda attached" },
+    ];
+    if (q.startsWith("from:<@UPRI0001>")) return [
+      { ts: ts("2026-10-08T10:00:00Z"), channel: { name: "announcements" }, text: "launch is live" },
+      { ts: ts("2026-10-06T10:00:00Z"), channel: { name: "general" }, permalink: "https://x/p1?thread_ts=1.1", text: "agreed" },
+    ];
+    return [];
+  });
+  const out = await R.scanSlackContactRecency("u", { paceMs: 0, now: Date.parse("2026-10-09T05:45:00Z") }, { user: slack.user, bot: null, contacts });
+  assert.equal(JSON.stringify(out.touches), JSON.stringify([
+    { name: "Matthew Paquette", email: "matthew@partner.invalid", date: "2026-10-07T09:00:00.000Z", source: "slack" },
+    { name: "Priya Nandakumar", date: "2026-10-06T10:00:00.000Z", source: "slack" },
+  ]), "Priya's broadcast post on the 8th doesn't count; her thread reply on the 6th does");
+  assert.equal(out.matchedContacts, 2);
+  assert.match(slack.queries[0], /^from:me after:2026-09-09#1$/);
+  assert.equal(slack.queries.slice(1).join(), "from:<@UPRI0001> after:2026-09-09#1,from:<@UMAT0001> after:2026-09-09#1", "stalest contact first");
+});
+
+test("the scan stops on a rate limit and keeps what it found; no user token means no scan", async () => {
+  const ts = String(Date.parse("2026-10-07T09:00:00Z") / 1000);
+  const slack = fakeSlack((q) => q.startsWith("from:me") ? [{ ts, channel: { is_im: true, name: "UMAT0001" } }] : [], { rateLimitAfter: 1 });
+  const out = await R.scanSlackContactRecency("u", { paceMs: 0 }, { user: slack.user, bot: null, contacts });
+  assert.equal(out.stoppedEarly, true);
+  assert.equal(out.touches.length, 1);
+  const none = await R.scanSlackContactRecency("u", { paceMs: 0 }, { user: null, bot: null, contacts });
+  assert.equal(none.touches.length, 0);
+  assert.match(src("app/api/events/poll-ingest/route.ts"), /\.\.\.slackScan\.touches\]/);
 });
