@@ -101,24 +101,43 @@ function ContactList({
   selected,
   onSelect,
   photos = {},
+  picking = false,
+  picked,
+  onTogglePick,
 }: {
   contacts: Contact[];
   selected: string | null;
   onSelect: (id: string) => void;
   photos?: Record<string, string>;
+  /** Select mode: a tap ticks the contact instead of opening it. */
+  picking?: boolean;
+  picked?: ReadonlySet<string>;
+  onTogglePick?: (id: string) => void;
 }) {
   return (
     <div className="space-y-1">
-      {list.map((c) => (
+      {list.map((c) => {
+        const canPick = picking && !c._isSeedData;
+        const isPicked = canPick && !!picked?.has(c.id);
+        return (
         <button
           key={c.id}
-          onClick={() => onSelect(c.id)}
+          onClick={() => (canPick ? onTogglePick?.(c.id) : onSelect(c.id))}
+          aria-pressed={canPick ? isPicked : undefined}
           className={`w-full flex items-center gap-3 rounded-lg px-3 py-2.5 text-left transition-colors ${
-            selected === c.id
+            isPicked || (!picking && selected === c.id)
               ? "bg-[var(--w-carbon-tint)] border border-[var(--w-rule)]"
               : "hover:bg-accent/50 border border-transparent"
           }`}
         >
+          {canPick && (
+            <span
+              aria-hidden
+              className={`flex h-4 w-4 shrink-0 items-center justify-center rounded border ${isPicked ? "border-signal-critical bg-signal-critical text-white" : "border-border"}`}
+            >
+              {isPicked && <Check className="h-3 w-3" />}
+            </span>
+          )}
           <ContactAvatar
             initials={c.initials}
             color={c.color}
@@ -148,7 +167,8 @@ function ContactList({
             {c.type === "internal" ? "internal" : "external"}
           </Badge>
         </button>
-      ))}
+        );
+      })}
     </div>
   );
 }
@@ -420,8 +440,10 @@ function ContactDetail({
           fallbackClassName="text-lg font-semibold"
         />
         <div className="flex-1 min-w-0">
-          <div className="flex items-start justify-between gap-3">
-            <div>
+          {/* Stacks on narrow screens: in one row, the buttons (Delete included)
+              were pushed off the right edge of a phone. */}
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+            <div className="min-w-0">
               {/* Inline name edit — only for user-added contacts */}
               {editingName ? (
                 <div className="flex items-center gap-1.5">
@@ -467,7 +489,7 @@ function ContactDetail({
                 </p>
               )}
             </div>
-            <div className="flex items-center gap-2 shrink-0">
+            <div className="flex flex-wrap items-center gap-2 sm:shrink-0">
               <Badge
                 variant="outline"
                 className="text-[12px] gap-1 border-[var(--w-rule)] text-[color:var(--w-carbon)]"
@@ -973,6 +995,34 @@ interface ContactActivityItem {
 export default function ContactsPage() {
   const [search, setSearch] = useState("");
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  // Multi-select delete from the list.
+  const [picking, setPicking] = useState(false);
+  const [picked, setPicked] = useState<Set<string>>(new Set());
+  const [confirmBulk, setConfirmBulk] = useState(false);
+  const [bulkDeleting, setBulkDeleting] = useState(false);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
+
+  /** Delete every ticked contact. Each goes through the server delete, so the
+   *  deletion is recorded and no browser re-uploads them. */
+  async function bulkDelete() {
+    setBulkDeleting(true); setDeleteError(null);
+    const ids = [...picked];
+    const failed: string[] = [];
+    for (const id of ids) {
+      try { await deleteUserContact(id); } catch { failed.push(id); }
+    }
+    const fresh = getUserContacts();
+    setUserContacts(fresh);
+    if (selectedId && picked.has(selectedId)) setSelectedId(null);
+    setBulkDeleting(false); setConfirmBulk(false);
+    if (failed.length) {
+      setPicked(new Set(failed));
+      setDeleteError(`${failed.length} of ${ids.length} couldn't be deleted on the server — they're still selected; try again.`);
+    } else {
+      setPicked(new Set()); setPicking(false);
+    }
+    notifyContacts();
+  }
   const [mobileView, setMobileView] = useState<"list" | "detail">("list");
   const [tagFilter, setTagFilter] = useState<string>("all");
   const [activeDirectory, setActiveDirectory] = useState<ContactDirectory>("work");
@@ -1379,10 +1429,39 @@ export default function ContactsPage() {
               ))}
             </select>
           )}
-          <p className="text-xs text-muted-foreground">
-            {filtered.length} of {directoryContacts.length} {activeDirectory} contact
-            {directoryContacts.length === 1 ? "" : "s"}
-          </p>
+          <div className="flex items-center justify-between gap-2">
+            <p className="text-xs text-muted-foreground">
+              {picking
+                ? `${picked.size} selected`
+                : `${filtered.length} of ${directoryContacts.length} ${activeDirectory} contact${directoryContacts.length === 1 ? "" : "s"}`}
+            </p>
+            {userContacts.length > 0 && (
+              picking ? (
+                <span className="flex items-center gap-1.5">
+                  <Button size="xs" variant="ghost" onClick={() => setPicked(new Set(filtered.filter((c) => !c._isSeedData).map((c) => c.id)))}>
+                    All
+                  </Button>
+                  {confirmBulk ? (
+                    <Button size="xs" variant="destructive" disabled={bulkDeleting || picked.size === 0} onClick={bulkDelete}>
+                      {bulkDeleting ? "Deleting…" : `Delete ${picked.size} and Basil's notes?`}
+                    </Button>
+                  ) : (
+                    <Button size="xs" variant="outline" className="text-signal-critical" disabled={picked.size === 0} onClick={() => setConfirmBulk(true)}>
+                      <Trash2 className="h-3 w-3" /> Delete{picked.size ? ` ${picked.size}` : ""}
+                    </Button>
+                  )}
+                  <Button size="xs" variant="ghost" disabled={bulkDeleting} onClick={() => { setPicking(false); setPicked(new Set()); setConfirmBulk(false); }}>
+                    Cancel
+                  </Button>
+                </span>
+              ) : (
+                <Button size="xs" variant="ghost" onClick={() => { setPicking(true); setDeleteError(null); }}>
+                  Select
+                </Button>
+              )
+            )}
+          </div>
+          {deleteError && <p role="alert" className="text-xs text-signal-critical">{deleteError}</p>}
         </div>
         {/* Scrollable area: relationship health + suggestions + contact list */}
         <div className="flex-1 overflow-y-auto min-h-0">
@@ -1592,7 +1671,11 @@ export default function ContactsPage() {
         )}
 
         <div className="p-2">
-          <ContactList contacts={filtered} selected={selectedId} onSelect={handleMobileSelect} photos={photos} />
+          <ContactList
+            contacts={filtered} selected={selectedId} onSelect={handleMobileSelect} photos={photos}
+            picking={picking} picked={picked}
+            onTogglePick={(id) => { setConfirmBulk(false); setPicked((p) => { const n = new Set(p); if (n.has(id)) n.delete(id); else n.add(id); return n; }); }}
+          />
         </div>
         </div>{/* end scrollable area */}
       </div>
@@ -1630,7 +1713,12 @@ export default function ContactsPage() {
             isUserContact={isSelectedUserContact}
             onMove={(target) => handleMoveDirectory(selected.id, target)}
             onDelete={async () => {
-              await deleteUserContact(selected.id);
+              setDeleteError(null);
+              try {
+                await deleteUserContact(selected.id);
+              } catch {
+                setDeleteError(`${selected.name} is hidden here, but Basil couldn't delete them on the server — try again.`);
+              }
               setUserContacts(getUserContacts());
               setSelectedId(null);
               setMobileView("list");

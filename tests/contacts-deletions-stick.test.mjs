@@ -9,6 +9,7 @@
  */
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import fs from "node:fs";
 import { loadTs, makeLock, nextServer } from "./_helpers/load-ts.mjs";
 
 const plain = (v) => structuredClone(v);
@@ -106,4 +107,35 @@ test("the browser replays 26-vs-401: it drops server deletions instead of re-upl
   await new Promise((r) => setImmediate(r));
   assert.equal(posts.length, 1);
   assert.deepEqual(posts[0].import.map((c) => c.id), ["stranded"]);
+});
+
+// ── Deleting from the People page (2026-10-09) ───────────────────────────────
+
+function clientWith(status) {
+  const ls = new Map([["sage-user-contacts", JSON.stringify([...work, ...wa])], ["sage-user-contacts-migrated-v1", "1"]]);
+  const localStorage = { getItem: (k) => ls.get(k) ?? null, setItem: (k, v) => ls.set(k, String(v)), removeItem: (k) => ls.delete(k) };
+  const calls = [];
+  const fetch = async (url, init) => { calls.push(`${init?.method ?? "GET"} ${url}`); return new Response(null, { status }); };
+  const C = loadTs("lib/user-contacts.ts", { "./sync/channel": { emitChange: () => {} } }, {}, { window: {}, localStorage, fetch });
+  return { C, ls, calls };
+}
+
+test("a delete the server refuses is reported, not swallowed — and stays hidden here meanwhile", async () => {
+  const bad = clientWith(500);
+  await assert.rejects(() => bad.C.deleteUserContact("w1"), /Delete failed \(500\)/);
+  assert.ok(JSON.parse(bad.ls.get("sage-user-contacts-deleted")).includes("w1"), "the tombstone still hides it locally");
+  assert.equal(bad.calls.join(), "DELETE /api/contacts/user/w1");
+  const gone = clientWith(404);
+  await gone.C.deleteUserContact("w1"); // already deleted elsewhere — fine
+  const ok = clientWith(204);
+  await ok.C.deleteUserContact("w1");
+  assert.ok(!JSON.parse(ok.ls.get("sage-user-contacts")).some((c) => c.id === "w1"));
+});
+
+test("People page: Delete stays on-screen on a phone, and several contacts can be deleted at once", () => {
+  const src = fs.readFileSync(new URL("../app/dashboard/contacts/page.tsx", import.meta.url), "utf8");
+  assert.match(src, /flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between/, "the header stacks on narrow screens");
+  assert.match(src, /flex flex-wrap items-center gap-2 sm:shrink-0/, "its buttons wrap instead of running off the edge");
+  assert.match(src, /for \(const id of ids\) \{\s*try \{ await deleteUserContact\(id\); \} catch \{ failed\.push\(id\); \}/, "bulk delete goes through the server delete, one by one");
+  assert.match(src, /couldn't be deleted on the server/);
 });

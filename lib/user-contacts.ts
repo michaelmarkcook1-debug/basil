@@ -370,10 +370,12 @@ export async function deleteUserContact(id: string): Promise<void> {
     USER_CONTACTS_KEY,
     JSON.stringify(existing.filter((c) => c.id !== id))
   );
-  try {
-    await fetch(`/api/contacts/user/${id}`, { method: "DELETE" });
-    emitChange("contacts");
-  } catch { /* cache already updated; the tombstone keeps it hidden */ }
+  // The tombstone keeps it hidden here either way, but a delete the SERVER
+  // refused leaves the person in Basil — Ask Basil and briefings still see
+  // them — so say so instead of pretending. 404 means already gone.
+  const res = await fetch(`/api/contacts/user/${encodeURIComponent(id)}`, { method: "DELETE" });
+  if (!res.ok && res.status !== 404) throw new Error(`Delete failed (${res.status})`);
+  emitChange("contacts");
 }
 
 // ── Dismissed suggestions — local-only UX state ──────────────────────────────
