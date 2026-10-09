@@ -1,6 +1,7 @@
 import { WebClient, LogLevel } from "@slack/web-api";
 import { getIntegrationToken, saveIntegrationToken, deleteIntegrationToken } from "@/lib/storage/secure-token-store";
 import { renderSlackText } from "@/lib/slack/render";
+import { isEnvCredentialOwner } from "@/lib/auth/env-credential-owner";
 
 export interface SlackConfig {
   botToken?:  string;
@@ -25,10 +26,12 @@ export interface SlackConfig {
 export async function getSlackConfig(username: string): Promise<SlackConfig> {
   const stored = await getIntegrationToken<SlackConfig>(username, "slack");
 
-  // Fall back to env-var tokens when no stored OAuth config exists.
-  // This lets SLACK_BOT_TOKEN / SLACK_USER_TOKEN work without a full OAuth flow.
-  const botToken   = stored?.botToken   ?? process.env.SLACK_BOT_TOKEN;
-  const userToken  = stored?.userToken  ?? process.env.SLACK_USER_TOKEN;
+  // Fall back to env-var tokens when no stored OAuth config exists — for the
+  // deployment owner only. These tokens are the owner's Slack; any other login
+  // falling back to them would read the owner's DMs.
+  const envOk      = isEnvCredentialOwner(username);
+  const botToken   = stored?.botToken   ?? (envOk ? process.env.SLACK_BOT_TOKEN : undefined);
+  const userToken  = stored?.userToken  ?? (envOk ? process.env.SLACK_USER_TOKEN : undefined);
 
   return {
     botToken,

@@ -1,6 +1,7 @@
 import { google } from "googleapis";
 import { getIntegrationToken, saveIntegrationToken } from "@/lib/storage/secure-token-store";
 import type { IntegrationStatus } from "@/lib/integrations/types";
+import { isEnvCredentialOwner } from "@/lib/auth/env-credential-owner";
 
 const SCOPES = [
   "https://www.googleapis.com/auth/calendar",
@@ -90,9 +91,11 @@ export async function getStoredTokens(username: string): Promise<GoogleTokens | 
   const tokens = await getIntegrationToken<GoogleTokens>(username, "google");
   if (tokens?.refresh_token) return tokens;
 
-  // Fall back to GOOGLE_TOKENS env var (JSON-encoded token object).
-  // Allows pre-configured tokens to work without a full OAuth flow.
-  const envRaw = process.env.GOOGLE_TOKENS;
+  // Fall back to GOOGLE_TOKENS env var (JSON-encoded token object) — for the
+  // deployment owner only. It is the owner's Google account; any other login
+  // falling back to it would read the owner's mail and calendar (and a token
+  // refresh would then copy it into that login's own storage).
+  const envRaw = isEnvCredentialOwner(username) ? process.env.GOOGLE_TOKENS : undefined;
   if (envRaw) {
     try {
       const parsed = JSON.parse(envRaw) as GoogleTokens;
