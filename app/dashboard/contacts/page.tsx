@@ -24,6 +24,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { RelationshipOverview } from "@/components/shared/relationship-overview";
 import { ContactAvatar } from "@/components/ui/contact-avatar";
+import { RelationshipToneCard, TONE, toneLine, type RelationshipSentiment } from "@/components/contacts/relationship-tone";
 import { useContactPhotos } from "@/lib/hooks/use-contact-photos";
 import {
   Search,
@@ -104,6 +105,9 @@ function ContactList({
   picking = false,
   picked,
   onTogglePick,
+  hovered = null,
+  onHover,
+  tones = {},
 }: {
   contacts: Contact[];
   selected: string | null;
@@ -113,6 +117,11 @@ function ContactList({
   picking?: boolean;
   picked?: ReadonlySet<string>;
   onTogglePick?: (id: string) => void;
+  /** The contact under the pointer here OR on the health bubbles — they light each other up. */
+  hovered?: string | null;
+  onHover?: (id: string | null) => void;
+  /** Relationship tone per contact (lib/contacts/sentiment.ts), when Basil has read it. */
+  tones?: Record<string, RelationshipSentiment>;
 }) {
   return (
     <div className="space-y-1">
@@ -123,11 +132,17 @@ function ContactList({
         <button
           key={c.id}
           onClick={() => (canPick ? onTogglePick?.(c.id) : onSelect(c.id))}
+          onMouseEnter={() => onHover?.(c.id)}
+          onMouseLeave={() => onHover?.(null)}
+          onFocus={() => onHover?.(c.id)}
+          onBlur={() => onHover?.(null)}
           aria-pressed={canPick ? isPicked : undefined}
           className={`w-full flex items-center gap-3 rounded-lg px-3 py-2.5 text-left transition-colors ${
             isPicked || (!picking && selected === c.id)
               ? "bg-[var(--w-carbon-tint)] border border-[var(--w-rule)]"
-              : "hover:bg-accent/50 border border-transparent"
+              : hovered === c.id
+                ? "bg-accent/50 border border-transparent"
+                : "hover:bg-accent/50 border border-transparent"
           }`}
         >
           {canPick && (
@@ -148,6 +163,13 @@ function ContactList({
           <div className="flex-1 min-w-0">
             <div className="flex items-center gap-1.5 min-w-0">
               <p className="text-sm font-medium truncate">{c.name}</p>
+              {tones[c.id] && (
+                <span
+                  className={`h-2 w-2 shrink-0 rounded-full ${TONE[tones[c.id].tone].dot}`}
+                  title={`Tone: ${toneLine(tones[c.id])}`}
+                  aria-label={`Tone: ${toneLine(tones[c.id])}`}
+                />
+              )}
               {c._isSeedData && (
                 <span className="shrink-0 rounded px-1 py-0.5 text-xs font-semibold uppercase tracking-wide bg-muted text-muted-foreground border border-border/60">
                   SAMPLE
@@ -823,6 +845,8 @@ function ContactDetail({
         </TabsList>
 
         <TabsContent value="profile" className="space-y-4 mt-4">
+          <RelationshipToneCard key={contact.id} contactId={contact.id} name={contact.name} shifts={override?.toneHistory ?? []} />
+
           <Card>
             <CardHeader className="pb-2">
               <CardTitle className="text-xs font-semibold tracking-widest uppercase text-[color:var(--w-carbon)]">
@@ -919,47 +943,6 @@ function ContactDetail({
             </Card>
           )}
 
-          {/* Tone / attitude history — AI-detected shifts from email & Slack. */}
-          {override?.toneHistory && override.toneHistory.length > 0 && (
-            <Card className="border-l border-l-[var(--w-carbon)]">
-              <CardHeader className="pb-2">
-                <CardTitle className="text-xs font-semibold tracking-widest uppercase text-signal-info flex items-center gap-1.5">
-                  <MessageCircle className="h-3.5 w-3.5" /> Tone &amp; Attitude
-                </CardTitle>
-              </CardHeader>
-              <CardContent>
-                <ul className="space-y-2.5">
-                  {[...override.toneHistory].reverse().map((obs, i) => (
-                    <li key={i} className="flex items-start gap-2 text-sm">
-                      <span className={`mt-1 h-2 w-2 rounded-full shrink-0 ${
-                        obs.direction === "warming"
-                          ? "bg-signal-positive"
-                          : obs.direction === "cooling"
-                          ? "bg-signal-warning"
-                          : "bg-slate-400"
-                      }`} />
-                      <div className="min-w-0">
-                        <span className={`inline-block text-xs font-semibold rounded px-1.5 py-0.5 mr-2 ${
-                          obs.direction === "warming"
-                            ? "bg-signal-positive-subtle text-signal-positive"
-                            : obs.direction === "cooling"
-                            ? "bg-signal-warning-subtle text-signal-warning"
-                            : "bg-muted/50 text-muted-foreground"
-                        }`}>
-                          {obs.direction === "warming" ? "↑ Warming" : obs.direction === "cooling" ? "↓ Cooling" : "→ Neutral"}
-                        </span>
-                        <span className="text-foreground/90">{obs.summary}</span>
-                        <span className="block text-xs text-muted-foreground mt-0.5">
-                          {obs.date} · via {obs.source}
-                        </span>
-                      </div>
-                    </li>
-                  ))}
-                </ul>
-              </CardContent>
-            </Card>
-          )}
-
           {/* Hardcoded narrative — context for what was happening last time the
               persona was authored. Shown as a historical note alongside live data. */}
           <Card>
@@ -995,6 +978,17 @@ interface ContactActivityItem {
 export default function ContactsPage() {
   const [search, setSearch] = useState("");
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [hoveredId, setHoveredId] = useState<string | null>(null);
+  // Relationship tone for the list dots and bubble tooltips; stale reads refresh server-side.
+  const [tones, setTones] = useState<Record<string, RelationshipSentiment>>({});
+  useEffect(() => {
+    let live = true;
+    fetch("/api/contacts/sentiment", { cache: "no-store" })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((j: { sentiment?: Record<string, RelationshipSentiment> } | null) => { if (live && j?.sentiment) setTones(j.sentiment); })
+      .catch(() => { /* tone dots are optional — the page works without them */ });
+    return () => { live = false; };
+  }, []);
   // Multi-select delete from the list.
   const [picking, setPicking] = useState(false);
   const [picked, setPicked] = useState<Set<string>>(new Set());
@@ -1539,7 +1533,12 @@ export default function ContactsPage() {
                     <TooltipTrigger asChild>
                       <button
                         onClick={() => setSelectedId(c.id)}
-                        className={`ring-[3px] ring-offset-1 ring-offset-transparent ${ringColor} rounded-full transition-transform hover:scale-110`}
+                        onMouseEnter={() => setHoveredId(c.id)}
+                        onMouseLeave={() => setHoveredId(null)}
+                        aria-label={c.name}
+                        className={`ring-[3px] ring-offset-1 ring-offset-transparent ${ringColor} rounded-full transition-transform motion-safe:duration-150 hover:scale-110 ${
+                          hoveredId === c.id ? "relative z-10 scale-125 outline outline-2 outline-offset-[5px] outline-[var(--w-carbon)]" : ""
+                        }`}
                       >
                         <ContactAvatar
                           initials={c.initials}
@@ -1552,6 +1551,7 @@ export default function ContactsPage() {
                     </TooltipTrigger>
                     <TooltipContent side="bottom" className="text-xs max-w-52">
                       <p className="font-medium">{c.name}</p>
+                      {tones[c.id] && <p className="text-muted-foreground">Tone: {toneLine(tones[c.id])}</p>}
                       <p className="text-muted-foreground">
                         {days === 999 ? "No interaction data" : `${days}d ago`}
                         {liveSources.length > 0 ? ` (${liveSources.join(", ")})` : ""}
@@ -1675,6 +1675,7 @@ export default function ContactsPage() {
             contacts={filtered} selected={selectedId} onSelect={handleMobileSelect} photos={photos}
             picking={picking} picked={picked}
             onTogglePick={(id) => { setConfirmBulk(false); setPicked((p) => { const n = new Set(p); if (n.has(id)) n.delete(id); else n.add(id); return n; }); }}
+            hovered={hoveredId} onHover={setHoveredId} tones={tones}
           />
         </div>
         </div>{/* end scrollable area */}
