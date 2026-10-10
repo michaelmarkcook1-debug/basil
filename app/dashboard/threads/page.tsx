@@ -11,8 +11,9 @@
 
 import useSWR from "swr";
 import Link from "next/link";
-import { useState } from "react";
-import { ReplyButton } from "@/components/email/reply-composer";
+import { useEffect, useState } from "react";
+import { EmailPanel } from "@/components/email/email-panel";
+import { gmailIdOf, preloadEmails } from "@/components/email/use-email";
 import type { TodayFeedResponse, TodayFollowupItem } from "@/lib/today/types";
 import { Card, Empty, Failed, Loading, Panel, Unavailable } from "@/components/today/primitives";
 
@@ -35,6 +36,16 @@ export default function ThreadsPage() {
   const [replied, setReplied] = useState<Set<string>>(new Set());
   const mailConnected = !!data?.sources.followups.gmail || !!data?.sources.followups.slack;
   const count = data?.totals?.followups ?? threads.length;
+  // Emails open in place. ?open=gmail:<id> (the link Today's feed carries) opens one on arrival.
+  const [openId, setOpenId] = useState<string | null>(null);
+  useEffect(() => {
+    const wanted = new URLSearchParams(window.location.search).get("open");
+    if (wanted) setOpenId(wanted);
+  }, []);
+  const emailIds = threads.flatMap((t) => gmailIdOf(t.followup.id) ?? []).slice(0, 12).join(",");
+  useEffect(() => {
+    if (emailIds) preloadEmails(emailIds.split(","));
+  }, [emailIds]);
 
   return (
     <div className="wire min-h-full">
@@ -61,27 +72,40 @@ export default function ThreadsPage() {
           ) : (
             <Card>
               <ul className="divide-y divide-[var(--w-rule)]">
-                {threads.filter((i) => !replied.has(i.id)).map((i) => (
-                  <li key={i.id} className="flex items-center gap-2 pr-2">
-                    <Link
-                      href={i.href ?? "#"}
-                      className="block min-h-[44px] min-w-0 flex-1 px-3.5 py-2.5 hover:bg-[var(--w-tray)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2"
-                    >
+                {threads.filter((i) => !replied.has(i.id)).map((i) => {
+                  const messageId = gmailIdOf(i.followup.id);
+                  const reading = openId === i.followup.id;
+                  const row = (
+                    <>
                       <p className="truncate text-[0.875rem] font-medium text-[color:var(--w-ink)]">{i.title}</p>
                       <p className="mt-0.5 flex items-center gap-2 text-[0.75rem] text-[color:var(--w-ink-soft)]">
                         <span className="truncate">{i.followup.fromName}</span>
                         <span className="truncate">{i.followup.subject}</span>
                         <span className="wire-data shrink-0 text-[color:var(--w-manila)]">{waiting(i.followup.hoursWaiting)}</span>
                       </p>
-                    </Link>
-                    {i.followup.source === "gmail" && (
-                      <ReplyButton
-                        messageId={i.followup.id.replace(/^gmail:/, "")}
-                        onSent={() => setReplied((s) => new Set(s).add(i.id))}
-                      />
-                    )}
-                  </li>
-                ))}
+                    </>
+                  );
+                  const rowClass = "block min-h-[44px] w-full min-w-0 px-3.5 py-2.5 text-left hover:bg-[var(--w-tray)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2";
+                  return (
+                    <li key={i.id}>
+                      {messageId ? (
+                        <button type="button" className={rowClass} aria-expanded={reading} onClick={() => setOpenId(reading ? null : i.followup.id)}>
+                          {row}
+                        </button>
+                      ) : (
+                        <Link href={i.href ?? "#"} className={rowClass}>{row}</Link>
+                      )}
+                      {messageId && reading && (
+                        <div className="border-t border-[var(--w-rule)] px-3.5 py-3">
+                          <EmailPanel
+                            messageId={messageId}
+                            onSent={() => { setReplied((s) => new Set(s).add(i.id)); setOpenId(null); }}
+                          />
+                        </div>
+                      )}
+                    </li>
+                  );
+                })}
               </ul>
             </Card>
           )}

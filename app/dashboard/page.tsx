@@ -41,6 +41,7 @@ import {
   PanelFrame, SignalProvenance, ThreadsPanel, RelationshipPanel, IntelligencePanel,
 } from "@/components/today/panels";
 import { PriorityActionCard } from "@/components/today/priority-action-card";
+import { gmailIdOf, preloadEmails } from "@/components/email/use-email";
 import { InvitationsPanel } from "@/components/today/invitations-panel";
 import { DayTimeline } from "@/components/today/day-timeline";
 import { PressureSection } from "@/components/today/pressure";
@@ -92,6 +93,14 @@ export default function Today() {
   const timeZone = settings?.timezone ?? Intl.DateTimeFormat().resolvedOptions().timeZone;
 
   const board = useMemo(() => buildPriorityBoard(feed?.items ?? []), [feed]);
+  // Every email card on this page opens in place — load them now, not on click.
+  const emailIds = useMemo(
+    () => (feed?.items ?? []).flatMap((i) => gmailIdOf(i.id) ?? []).slice(0, 12).join(","),
+    [feed],
+  );
+  useEffect(() => {
+    if (emailIds) preloadEmails(emailIds.split(","));
+  }, [emailIds]);
   const day = useMemo(() => buildDayShape(cal?.events ?? [], clock, timeZone), [cal, clock, timeZone]);
   const buckets = useMemo(
     () => (actions?.actions ? bucketCommitments(actions.actions, clock, timeZone) : null),

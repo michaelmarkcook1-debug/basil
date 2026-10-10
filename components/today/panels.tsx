@@ -15,7 +15,7 @@ import { ArrowUpRight } from "lucide-react";
 import { Card, Empty, Unavailable } from "./primitives";
 import { ContactAvatar } from "@/components/ui/contact-avatar";
 import { useState } from "react";
-import { ReplyButton } from "@/components/email/reply-composer";
+import { EmailPanel } from "@/components/email/email-panel";
 import type { SignalSlice } from "@/lib/today/executive";
 import type { TodayFeedItem } from "@/lib/today/types";
 
@@ -86,6 +86,8 @@ export function ThreadsPanel({
 }: { items: TodayFeedItem[]; unavailable?: string }) {
   // Replied from here → off the list now, not at the next refresh.
   const [replied, setReplied] = useState<Set<string>>(new Set());
+  // Emails open in place, never in Gmail.
+  const [openId, setOpenId] = useState<string | null>(null);
   if (unavailable) return <Unavailable what="Threads" why={unavailable} />;
   const visible = items.filter((i) => !replied.has(i.id));
   if (visible.length === 0) return <Empty>Nobody is waiting on a reply from you.</Empty>;
@@ -96,25 +98,40 @@ export function ThreadsPanel({
         {visible.slice(0, 4).map((i) => {
           const f = i.kind === "followup" ? i.followup : null;
           const gmailId = f?.source === "gmail" ? f.id.replace(/^gmail:/, "") : null;
+          const reading = openId === i.id;
+          const row = (
+            <>
+              <p className="truncate text-[0.875rem] font-medium text-[color:var(--w-ink)]">{i.title}</p>
+              <p className="mt-0.5 flex items-center gap-2 text-[0.75rem] text-[color:var(--w-ink-soft)]">
+                {f && <span className="truncate">{f.fromName}</span>}
+                {f && (
+                  <span className="wire-data shrink-0 text-[color:var(--w-manila)]">
+                    {f.hoursWaiting >= 24
+                      ? `${Math.floor(f.hoursWaiting / 24)}d waiting`
+                      : `${f.hoursWaiting}h waiting`}
+                  </span>
+                )}
+              </p>
+            </>
+          );
+          const rowClass = "block min-h-[44px] w-full min-w-0 px-3.5 py-2.5 text-left hover:bg-[var(--w-tray)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2";
           return (
-            <li key={i.id} className="flex items-center gap-2 pr-2">
-              <Link
-                href={i.href ?? "#"}
-                className="block min-h-[44px] min-w-0 flex-1 px-3.5 py-2.5 hover:bg-[var(--w-tray)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2"
-              >
-                <p className="truncate text-[0.875rem] font-medium text-[color:var(--w-ink)]">{i.title}</p>
-                <p className="mt-0.5 flex items-center gap-2 text-[0.75rem] text-[color:var(--w-ink-soft)]">
-                  {f && <span className="truncate">{f.fromName}</span>}
-                  {f && (
-                    <span className="wire-data shrink-0 text-[color:var(--w-manila)]">
-                      {f.hoursWaiting >= 24
-                        ? `${Math.floor(f.hoursWaiting / 24)}d waiting`
-                        : `${f.hoursWaiting}h waiting`}
-                    </span>
-                  )}
-                </p>
-              </Link>
-              {gmailId && <ReplyButton messageId={gmailId} onSent={() => setReplied((s) => new Set(s).add(i.id))} />}
+            <li key={i.id}>
+              {gmailId ? (
+                <button type="button" className={rowClass} aria-expanded={reading} onClick={() => setOpenId(reading ? null : i.id)}>
+                  {row}
+                </button>
+              ) : (
+                <Link href={i.href ?? "#"} className={rowClass}>{row}</Link>
+              )}
+              {gmailId && reading && (
+                <div className="border-t border-[var(--w-rule)] px-3.5 py-3">
+                  <EmailPanel
+                    messageId={gmailId}
+                    onSent={() => { setReplied((s) => new Set(s).add(i.id)); setOpenId(null); }}
+                  />
+                </div>
+              )}
             </li>
           );
         })}

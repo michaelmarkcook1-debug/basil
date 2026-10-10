@@ -198,6 +198,8 @@ test("poll-ingest uses the resolver instead of the old 10-item, creation-anchore
 
 function detector({ inbox = [], threads = {}, slack = null } = {}) {
   return loadTs("lib/followups/detect.ts", {
+    "@/lib/email/needs-reply": { filterNoReplyNeeded: async () => new Map() },
+    "@/lib/email/view-cache": { decodeEntities: (s) => s },
     "@/lib/google/gmail": {
       getRecentEmails: async () => structuredClone(inbox),
       getGmailAddress: async () => "me@fixture.invalid",

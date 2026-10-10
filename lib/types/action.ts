@@ -35,7 +35,9 @@ export interface ActionItem {
     /** Came from a calendar invitation — the answer is an RSVP, and the meeting is on the calendar. */
     | "calendar-invite"
     /** A promise the user made, later shown fulfilled in the same thread. */
-    | "promise-kept";
+    | "promise-kept"
+    /** Came from a system notification that only reported something (signed, confirmed) — nothing to do. */
+    | "notification";
   /** When resolve-threads last re-read this action's source conversation. */
   threadCheckedAt?: string;
   /**

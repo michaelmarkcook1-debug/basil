@@ -9,6 +9,7 @@ import {
 import { getSessionUser } from "@/lib/auth";
 import { computeTodayFeed, presentFeed } from "@/lib/today/feed";
 import type { TodayFeedResponse } from "@/lib/today/types";
+import { warmEmailViews } from "@/lib/email/view-cache";
 // after() background refreshes run on the same invocation, so the budget must
 // cover a full fan-out recompute — mirrors contacts/activity.
 export const maxDuration = 120;
@@ -25,6 +26,25 @@ export const maxDuration = 120;
  *   stale cache  → serve INSTANTLY, recompute in the background via after()
  *   no cache     → compute once, then it's warm
  */
+/** Gmail message ids behind the feed's email cards, in rank order. */
+function emailIdsOf(feed: TodayFeedResponse): string[] {
+  return (feed.items ?? []).flatMap((i) =>
+    i.kind === "followup" && i.followup.source === "gmail" ? [i.followup.id.replace(/^gmail:/, "")] : []);
+}
+
+/** Pre-fetch those emails so opening one on Today is instant. After the response. */
+function warmEmails(username: string, feed: TodayFeedResponse): void {
+  const ids = emailIdsOf(feed);
+  if (ids.length === 0) return;
+  after(async () => {
+    try {
+      await warmEmailViews(username, ids);
+    } catch (e) {
+      console.warn("[today] email warm-up failed:", e instanceof Error ? e.message : e);
+    }
+  });
+}
+
 export async function GET(req: NextRequest) {
   const username = await getSessionUser();
   // ?full=1 — the whole queue, for /dashboard/threads. The cache holds the
@@ -39,6 +59,7 @@ export async function GET(req: NextRequest) {
 
     if (cached?.content) {
       if (isCacheValid(cached)) {
+        warmEmails(username, cached.content);
         return NextResponse.json({ ...presentFeed(cached.content, { full }), cache: "hit" });
       }
       // Stale: hand back what we have immediately, refresh after the response.
@@ -49,6 +70,7 @@ export async function GET(req: NextRequest) {
             inputHash: computeInputHash(username, fresh.generatedAt),
             ttlMs: TODAY_FEED_TTL_MS,
           });
+          await warmEmailViews(username, emailIdsOf(fresh));
         } catch (e) {
           console.error("[today] background refresh failed:", e instanceof Error ? e.message : e);
         }
@@ -62,6 +84,7 @@ export async function GET(req: NextRequest) {
       inputHash: computeInputHash(username, fresh.generatedAt),
       ttlMs: TODAY_FEED_TTL_MS,
     }).catch((e) => console.error("[today] cache write failed:", e));
+    warmEmails(username, fresh);
     return NextResponse.json({ ...presentFeed(fresh, { full }), cache: "miss" });
   } catch (err) {
     console.error("[today]", err);

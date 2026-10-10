@@ -14,6 +14,8 @@ const plain = (v) => structuredClone(v);
 
 function detector({ gmailThrows = false, slackThrows = false, googleConnected = true, slackConnected = true } = {}) {
   return loadTs("lib/followups/detect.ts", {
+    "@/lib/email/needs-reply": { filterNoReplyNeeded: async () => new Map() },
+    "@/lib/email/view-cache": { decodeEntities: (s) => s },
     "@/lib/google/gmail": {
       getRecentEmails: async () => { if (gmailThrows) throw new Error("429 rate limited"); return []; },
       getGmailAddress: async () => "fixture@example.invalid", getThreadState: async () => ({ later: [] }),

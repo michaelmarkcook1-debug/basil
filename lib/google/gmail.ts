@@ -562,9 +562,20 @@ const headerSafe = (s: string) => s.replace(/[\r\n]+/g, " ").trim();
  * threadId are what make it a reply rather than a new email — without them the
  * recipient gets a separate conversation. Pure — exported for tests.
  */
-export function buildReplyMime(ctx: ReplyContext, body: string, opts: { replyAll?: boolean } = {}): { raw: string; to: Address[]; cc: Address[] } {
-  const to = ctx.replyTo;
-  const cc = opts.replyAll ? ctx.replyAllCc : [];
+export interface ReplyOptions {
+  replyAll?: boolean;
+  /** Recipients the user edited. Each overrides the default for its field. */
+  to?: Address[];
+  cc?: Address[];
+  bcc?: Address[];
+}
+
+export function buildReplyMime(ctx: ReplyContext, body: string, opts: ReplyOptions = {}): { raw: string; to: Address[]; cc: Address[]; bcc: Address[] } {
+  const to = opts.to ?? ctx.replyTo;
+  const cc = opts.cc ?? (opts.replyAll ? ctx.replyAllCc : []);
+  // Gmail delivers to a Bcc header in a raw message and strips it from every
+  // copy the other recipients receive.
+  const bcc = opts.bcc ?? [];
   if (to.length === 0) throw new Error("No one to reply to on this message.");
   const subject = /^\s*re:/i.test(ctx.subject) ? ctx.subject : `Re: ${ctx.subject || "(no subject)"}`;
   const refs = [ctx.references, ctx.rfcMessageId].filter(Boolean).join(" ").trim();
@@ -574,6 +585,7 @@ export function buildReplyMime(ctx: ReplyContext, body: string, opts: { replyAll
   const lines = [
     `To: ${headerSafe(to.map(fmtAddress).join(", "))}`,
     ...(cc.length ? [`Cc: ${headerSafe(cc.map(fmtAddress).join(", "))}`] : []),
+    ...(bcc.length ? [`Bcc: ${headerSafe(bcc.map(fmtAddress).join(", "))}`] : []),
     `Subject: ${encodeHeader(headerSafe(subject))}`,
     ...(ctx.rfcMessageId ? [`In-Reply-To: ${headerSafe(ctx.rfcMessageId)}`] : []),
     ...(refs ? [`References: ${headerSafe(refs)}`] : []),
@@ -581,7 +593,7 @@ export function buildReplyMime(ctx: ReplyContext, body: string, opts: { replyAll
     "Content-Type: text/plain; charset=utf-8",
     "Content-Transfer-Encoding: 8bit",
   ];
-  return { raw: Buffer.from(`${lines.join("\r\n")}\r\n\r\n${text}`, "utf8").toString("base64url"), to, cc };
+  return { raw: Buffer.from(`${lines.join("\r\n")}\r\n\r\n${text}`, "utf8").toString("base64url"), to, cc, bcc };
 }
 
 /** Send a reply in the original Gmail thread. */
@@ -589,14 +601,14 @@ export async function replyToEmail(
   username: string,
   messageId: string,
   body: string,
-  opts: { replyAll?: boolean } = {},
-): Promise<{ id: string; threadId: string; to: Address[]; cc: Address[] }> {
+  opts: ReplyOptions = {},
+): Promise<{ id: string; threadId: string; to: Address[]; cc: Address[]; bcc: Address[] }> {
   if (!body.trim()) throw new Error("The reply is empty.");
   const ctx = await getReplyContext(username, messageId);
-  const { raw, to, cc } = buildReplyMime(ctx, body, opts);
+  const { raw, to, cc, bcc } = buildReplyMime(ctx, body, opts);
   const auth = await getAuthedClient(username);
   if (!auth) throw new Error("Gmail not connected");
   const gmail = google.gmail({ version: "v1", auth });
   const res = await gmail.users.messages.send({ userId: "me", requestBody: { raw, threadId: ctx.threadId || undefined } });
-  return { id: res.data.id || "", threadId: res.data.threadId || ctx.threadId, to, cc };
+  return { id: res.data.id || "", threadId: res.data.threadId || ctx.threadId, to, cc, bcc };
 }

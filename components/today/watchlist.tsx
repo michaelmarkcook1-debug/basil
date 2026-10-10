@@ -14,6 +14,8 @@ import Link from "next/link";
 import { ChevronDown } from "lucide-react";
 import { UrgencyBadge, Card } from "./primitives";
 import type { Priority } from "@/lib/today/executive";
+import { EmailPanel } from "@/components/email/email-panel";
+import { gmailIdOf } from "@/components/email/use-email";
 
 type Filter = "all" | "relationships" | "meetings" | "commitments" | "projects" | "communications";
 
@@ -42,6 +44,7 @@ function bucketOf(p: Priority): Filter {
 export function Watchlist({ items }: { items: Priority[] }) {
   const [open, setOpen] = useState(false);
   const [filter, setFilter] = useState<Filter>("all");
+  const [openEmail, setOpenEmail] = useState<string | null>(null);
 
   const counts = useMemo(() => {
     const c: Partial<Record<Filter, number>> = { all: items.length };
@@ -99,21 +102,39 @@ export function Watchlist({ items }: { items: Priority[] }) {
         ) : (
           <Card className="mt-2 divide-y divide-[var(--w-rule)]">
             <ul className="divide-y divide-[var(--w-rule)]">
-              {shown.map((p) => (
-                <li key={p.id} className="px-4 py-3">
-                  <div className="flex flex-wrap items-center gap-2">
-                    <UrgencyBadge urgency={p.urgency} />
-                    {p.href ? (
-                      <Link href={p.href} className="text-[0.9375rem] font-medium text-[color:var(--w-ink)] underline-offset-2 hover:underline">
-                        {p.title}
-                      </Link>
-                    ) : (
-                      <span className="text-[0.9375rem] font-medium text-[color:var(--w-ink)]">{p.title}</span>
+              {shown.map((p) => {
+                const messageId = gmailIdOf(p.id);
+                const reading = openEmail === p.id;
+                return (
+                  <li key={p.id} className="px-4 py-3">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <UrgencyBadge urgency={p.urgency} />
+                      {messageId ? (
+                        <button
+                          type="button"
+                          onClick={() => setOpenEmail(reading ? null : p.id)}
+                          aria-expanded={reading}
+                          className="text-left text-[0.9375rem] font-medium text-[color:var(--w-ink)] underline-offset-2 hover:underline"
+                        >
+                          {p.title}
+                        </button>
+                      ) : p.href ? (
+                        <Link href={p.href} className="text-[0.9375rem] font-medium text-[color:var(--w-ink)] underline-offset-2 hover:underline">
+                          {p.title}
+                        </Link>
+                      ) : (
+                        <span className="text-[0.9375rem] font-medium text-[color:var(--w-ink)]">{p.title}</span>
+                      )}
+                    </div>
+                    <p className="mt-0.5 text-[0.875rem] text-[color:var(--w-ink-soft)]">{p.why}</p>
+                    {messageId && reading && (
+                      <div className="mt-3 border-t border-[var(--w-rule)] pt-3">
+                        <EmailPanel messageId={messageId} onSent={() => setOpenEmail(null)} />
+                      </div>
                     )}
-                  </div>
-                  <p className="mt-0.5 text-[0.875rem] text-[color:var(--w-ink-soft)]">{p.why}</p>
-                </li>
-              ))}
+                  </li>
+                );
+              })}
             </ul>
           </Card>
         )}

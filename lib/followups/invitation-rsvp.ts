@@ -127,6 +127,17 @@ export function findAnsweringCalendarEvent(
   email: InvitationEmail,
   events: InviteCalendarEvent[],
 ): InviteCalendarEvent | null {
+  // An Outlook / Bookings invite carries no invitation wording at all — its
+  // subject is simply the meeting's title. A subject that IS the title of a
+  // meeting you have answered is that meeting's invite. Exact title only (a
+  // "RE: <title>" thread is people talking about the meeting, so it stays), and
+  // only distinctive titles, so a generic "Catch-up" can never hide mail.
+  const subject = normTitle(email.subject || "");
+  if (subject.length >= 12) {
+    const exact = events.find((e) => ANSWERED.has(e.myResponseStatus ?? "needsAction") && normTitle(e.summary) === subject);
+    if (exact) return exact;
+  }
+
   if (!isMeetingInvitationEmail(email)) return null;
 
   const emailTokens = distinctiveTokens(
@@ -140,4 +151,8 @@ export function findAnsweringCalendarEvent(
     return event;
   }
   return null;
+}
+
+function normTitle(t: string): string {
+  return t.toLowerCase().replace(/\s+/g, " ").trim();
 }

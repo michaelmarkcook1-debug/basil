@@ -11,6 +11,8 @@ import { loadTs, nextServer } from "./_helpers/load-ts.mjs";
 
 const ROOT = path.resolve(path.dirname(new URL(import.meta.url).pathname), "..");
 const src = (f) => fs.readFileSync(path.join(ROOT, f), "utf8");
+// The real address parser, for routes that are otherwise run against mocks.
+const gmailParse = loadTs("lib/google/gmail.ts", { googleapis: { google: {} }, "./auth": {} }).parseAddressList;
 const decode = (raw) => Buffer.from(raw, "base64url").toString("utf8");
 const headersOf = (mime) => mime.split("\r\n\r\n")[0].split("\r\n");
 
@@ -231,8 +233,10 @@ test("reply route: sends only with a body, and closes the action that asked for 
     "@/lib/auth": { getSessionUser: async () => "u" },
     "@/lib/google/gmail": {
       getReplyContext: async () => ({}),
-      replyToEmail: async (_u, id, body, opts) => { sends.push({ id, body, opts }); return { id: "s", threadId: "t", to: [{ name: "Jane", email: "jane@partner.invalid" }], cc: [] }; },
+      replyToEmail: async (_u, id, body, opts) => { sends.push({ id, body, opts }); return { id: "s", threadId: "t", to: [{ name: "Jane", email: "jane@partner.invalid" }], cc: opts.cc ?? [], bcc: opts.bcc ?? [] }; },
     },
+    "@/lib/email/recipients": loadTs("lib/email/recipients.ts", { "@/lib/google/gmail": { parseAddressList: gmailParse } }),
+    "@/lib/email/view-cache": { loadEmailView: async () => ({}) },
     "@/lib/actions/store": { updateAction: async (_u, id, patch) => { updates.push({ id, patch }); return {}; } },
     "@/lib/events/audit": { emitAuditEvent: async () => null },
     "@/lib/rate-limit": { checkRateLimitDurable: async () => ({ allowed: true }) },
@@ -243,6 +247,19 @@ test("reply route: sends only with a body, and closes the action that asked for 
   assert.equal(res.status, 200);
   assert.equal(sends[0].opts.replyAll, true);
   assert.equal(JSON.stringify(updates), JSON.stringify([{ id: "a1", patch: { status: "done", archivedReason: "reply-sent" } }]));
+
+  // Recipients the user edited (To / Cc / Bcc) reach the sender as addresses.
+  const edited = await route.POST(req({ body: "Looping in Ann", cc: "Ann Lee <Ann@partner.invalid>", bcc: ["boss@home.invalid"] }), params({ id: "m1" }));
+  assert.equal(edited.status, 200);
+  assert.equal(JSON.stringify(sends[1].opts.cc), JSON.stringify([{ name: "Ann Lee", email: "ann@partner.invalid" }]));
+  assert.equal(JSON.stringify(sends[1].opts.bcc), JSON.stringify([{ name: "", email: "boss@home.invalid" }]));
+  assert.equal(sends[1].opts.to, undefined, "an untouched To keeps the default recipients");
+  // A typo is an error, never a recipient silently dropped.
+  const typo = await route.POST(req({ body: "hi", cc: "ann@partner.invalid, bob" }), params({ id: "m1" }));
+  assert.equal(typo.status, 400);
+  assert.match(typo.body.error, /bob/);
+  assert.equal((await route.POST(req({ body: "hi", to: "" }), params({ id: "m1" }))).status, 400, "an emptied To is refused");
+  assert.equal(sends.length, 2);
 });
 
 // ── Ask Basil: always approved, never delegated ──────────────────────────────
@@ -283,7 +300,9 @@ test("Today's invitations panel lists only unanswered invitations from others th
 });
 
 test("Reply appears on 'Awaiting your reply' (Today and Threads) and on email-based actions", () => {
-  assert.match(src("components/today/panels.tsx"), /<ReplyButton messageId=\{gmailId\}/);
-  assert.match(src("app/dashboard/threads/page.tsx"), /<ReplyButton/);
+  // Today and Threads open the email in place (with Reply / Reply all), never Gmail.
+  assert.match(src("components/today/panels.tsx"), /<EmailPanel\s+messageId=\{gmailId\}/);
+  assert.match(src("app/dashboard/threads/page.tsx"), /<EmailPanel/);
+  assert.match(src("components/email/email-panel.tsx"), /<ReplyForm/);
   assert.match(src("app/dashboard/actions/page.tsx"), /<ReplyButton messageId=\{action\.sourceRef\.slice\("gmail:"\.length\)\} actionId=\{action\.id\}/);
 });

@@ -10,9 +10,11 @@
 
 import { useState } from "react";
 import Link from "next/link";
-import { ChevronDown } from "lucide-react";
+import { ChevronDown, Mail } from "lucide-react";
 import { UrgencyBadge, urgencyRule, Card } from "./primitives";
 import type { Priority } from "@/lib/today/executive";
+import { EmailPanel } from "@/components/email/email-panel";
+import { gmailIdOf } from "@/components/email/use-email";
 
 export function PriorityActionCard({
   priority: p, primaryLabel = "Open", onBrief,
@@ -23,6 +25,11 @@ export function PriorityActionCard({
 }) {
   const [open, setOpen] = useState(false);
   const detailId = `why-${p.id.replace(/[^a-z0-9]/gi, "-")}`;
+  // An email card opens the email right here — never in Gmail.
+  const messageId = gmailIdOf(p.id);
+  const [reading, setReading] = useState(false);
+  const [replied, setReplied] = useState(false);
+  const emailId = `email-${p.id.replace(/[^a-z0-9]/gi, "-")}`;
 
   return (
     /* No side-tab. A thick coloured left border is the most recognisable tell of
@@ -50,7 +57,23 @@ export function PriorityActionCard({
       )}
 
       <div className="mt-3.5 flex flex-wrap items-center gap-2">
-        {p.href && (
+        {messageId ? (
+          replied ? (
+            <span className="text-[0.875rem] font-medium text-signal-positive">Replied</span>
+          ) : (
+            <button
+              type="button"
+              onClick={() => setReading((v) => !v)}
+              aria-expanded={reading}
+              aria-controls={emailId}
+              className="inline-flex min-h-[44px] sm:min-h-[36px] items-center gap-1.5 rounded-md px-3.5 text-[0.875rem] font-semibold focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2"
+              style={{ background: "var(--w-carbon)", color: "var(--w-on-accent)" }}
+            >
+              <Mail className="h-4 w-4" aria-hidden />
+              {reading ? "Close email" : "Open email"}
+            </button>
+          )
+        ) : p.href && (
           <Link
             href={p.href}
             className="inline-flex min-h-[44px] sm:min-h-[36px] items-center rounded-md px-3.5 text-[0.875rem] font-semibold focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2"
@@ -70,6 +93,12 @@ export function PriorityActionCard({
           <ChevronDown className={`h-4 w-4 motion-safe:transition-transform ${open ? "rotate-180" : ""}`} aria-hidden />
         </button>
       </div>
+
+      {messageId && reading && !replied && (
+        <div id={emailId} className="mt-3 border-t border-[var(--w-rule)] pt-3">
+          <EmailPanel messageId={messageId} onSent={() => { setReplied(true); setReading(false); }} />
+        </div>
+      )}
 
       <div id={detailId} hidden={!open} className="mt-3 border-t border-[var(--w-rule)] pt-3">
         {p.members && p.members.length > 0 ? (

@@ -28,6 +28,8 @@ import { getSlackUserClientForUser, isSlackConnected } from "@/lib/slack/client"
 import { isGoogleConnected } from "@/lib/google/auth";
 import { getSelfIdentity, isSelf } from "@/lib/self-identity";
 import type { PendingFollowup, DetectFollowupsResult } from "@/lib/followups/types";
+import { filterNoReplyNeeded } from "@/lib/email/needs-reply";
+import { decodeEntities } from "@/lib/email/view-cache";
 
 const DEFAULT_MAX_AGE_DAYS = 7;
 const DEFAULT_STALE_HOURS = 24;
@@ -72,6 +74,23 @@ const AUTOMATED_SUBJECT_HINTS = [
   "invitation:", "accepted:", "declined:", "tentative:", "updated invitation",
   "canceled:", "cancelled:", "new invitation", "rsvp", "this event has been",
 ];
+
+// Booking / scheduling confirmations. Sent by a person's booking page (Microsoft
+// Bookings, Calendly, …) so the sender looks human and the subject is just the
+// meeting title — "MICHAEL COOK - 2. Research interview with Lusher Advisory"
+// sat on Today as "Reply to Carter Lusher" for days. Matched on the body.
+const BOOKING_CONFIRMATION_HINTS: RegExp[] = [
+  /\bscheduled from the bookings? page\b/i,
+  /\breschedule or cancel (this|your) (meeting|appointment|booking|event)\b/i,
+  /\ba new event has been scheduled\b/i,
+  /\b(this|your) (meeting|appointment|booking|event) (has been|was|is) (scheduled|booked|confirmed)\b/i,
+  /\bbooking (is )?confirmed\b/i,
+];
+
+/** True when the body reads as an automatic booking/scheduling confirmation. Exported for tests. */
+export function isBookingConfirmation(text: string): boolean {
+  return BOOKING_CONFIRMATION_HINTS.some((p) => p.test(text || ""));
+}
 
 /**
  * True when an inbound email is from an automated/no-reply/newsletter sender —
@@ -172,6 +191,7 @@ async function detectGmail(
   const addressed = inbound.filter((m) => {
     if (new Date(m.date).getTime() >= cutoff) return false;
     if (isAutomatedSender(m.from, m.fromEmail, m.subject)) return false;
+    if (isBookingConfirmation(m.snippet || "")) return false;
     // List / marketing mail, by its own headers or Gmail's tabs — unless a
     // known correspondent sent it. Nobody is waiting on a reply to a blast.
     const promo = (m.labels ?? []).some((l) => l === "CATEGORY_PROMOTIONS" || l === "CATEGORY_SOCIAL");
@@ -246,15 +266,37 @@ async function detectGmail(
       fromName: m.from,
       fromEmail: m.fromEmail,
       subject: m.subject || "(no subject)",
-      preview: (m.snippet || "").slice(0, PREVIEW_LEN),
+      preview: decodeEntities(m.snippet || "").slice(0, PREVIEW_LEN),
       lastInboundAt: m.date,
       hoursWaiting: hoursSince(m.date),
-      href: `https://mail.google.com/mail/u/0/#inbox/${m.id}`,
+      // Opens inside Basil (the threads page expands it in place), never Gmail.
+      href: `/dashboard/threads?open=${encodeURIComponent(`gmail:${m.id}`)}`,
     };
     return followup;
   });
 
-  return { items: results.filter((r): r is PendingFollowup => r !== null), connected: true };
+  const awaiting = results.filter((r): r is PendingFollowup => r !== null);
+
+  // Still the last word, from a person, addressed to you — but does it ask
+  // anything of you? "I'll take a look" and "will keep you posted" do not.
+  const firstName = identity.names[0]?.trim().split(/\s+/)[0] || "the user";
+  const noReply = await filterNoReplyNeeded(
+    username, firstName,
+    awaiting.map((f) => {
+      const id = f.id.replace(/^gmail:/, "");
+      const full = candidates.find((m) => m.id === id)?.snippet;
+      return { id, from: f.fromName, subject: f.subject, text: full ? decodeEntities(full) : f.preview };
+    }),
+  ).catch((e) => {
+    console.warn("[followups] needs-reply check failed, keeping every card:", e instanceof Error ? e.message : e);
+    return new Map<string, { reason: string }>();
+  });
+  for (const [id, v] of noReply) {
+    const f = awaiting.find((x) => x.id === `gmail:${id}`);
+    console.log(`[followups] suppressed "${(f?.subject || "").slice(0, 60)}" — no reply needed (${v.reason})`);
+  }
+
+  return { items: awaiting.filter((f) => !noReply.has(f.id.replace(/^gmail:/, ""))), connected: true };
 }
 
 async function detectSlack(

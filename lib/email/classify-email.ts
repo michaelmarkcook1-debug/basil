@@ -237,6 +237,7 @@ Classification rules — follow these strictly:
    - scheduling_signal: meeting request, availability question, calendar coordination
    - informational_only: FYI update, no response or action needed
    - low_value_noise: newsletter, auto-notification, marketing, noreply, OOO, spam — and requests from a company or service ${userFirstName} has no working relationship with: leave a review, take a survey, rate us, register for an event, join or move up a waitlist, finish signing up
+   System notifications that only REPORT something happened — a document was signed or countersigned, an agreement is now active, your copy is attached, a booking or meeting is confirmed, an account was created — are informational_only or low_value_noise, never action_required, even when they come from a product ${userFirstName} works on. Anything marked as a test or sandbox workspace is low_value_noise.
 
 2. confidence: 0.3 if sparse/ambiguous, 0.7 if clear signals, 0.9+ if explicit and detailed
 
@@ -246,6 +247,7 @@ Classification rules — follow these strictly:
    - low: no urgency or purely informational
 
 4. actions: only explicitly assigned or implied tasks for ${userFirstName} — not vague suggestions.
+   Write each as an instruction to ${userFirstName} that starts with a verb ("Countersign the NDA…", "Send Sam the deck…"). A statement of fact is never an action: "Agreement is now binding", "Accessible via the NDA tab" → no action.
    Each action: text (required), dueDate, priority ("high"/"medium"/"low" — high if urgent/deadline-driven, low if no urgency)
    dueDate: format YYYY-MM-DD. ACTIVELY infer it whenever the ask is tied to ANY resolvable date:
    - an explicit deadline ("by 1 Dec", "EOD Friday" → resolve relative to the email DATE ${date})

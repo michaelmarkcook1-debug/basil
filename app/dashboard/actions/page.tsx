@@ -306,6 +306,7 @@ function ActionCard({
                 : action.archivedReason === "bulk-mail" ? "marketing mail"
                 : action.archivedReason === "calendar-invite" ? "on your calendar"
                 : action.archivedReason === "promise-kept" ? "you followed through"
+                : action.archivedReason === "notification" ? "automatic notification"
                 : action.archivedReason === "stale-untouched" ? "untouched 30 days"
                 : action.archivedReason === "stale-overdue" ? "expired overdue"
                 : action.archivedReason === "past-meeting" ? "meeting passed"
