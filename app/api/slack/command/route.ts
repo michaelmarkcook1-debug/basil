@@ -19,7 +19,7 @@ export async function GET() {
   }
 
   try {
-    const data = await buildSlackCommandCentre(username, 80);
+    const data = await buildSlackCommandCentre(username, 300);
     return NextResponse.json(data);
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);

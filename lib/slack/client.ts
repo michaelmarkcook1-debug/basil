@@ -208,9 +208,107 @@ function isRateLimited(err: unknown): boolean {
     || e?.data?.error === "ratelimited";
 }
 
+// ── What counts as a message ──
+
+/**
+ * Calendar apps post agendas and event updates into Slack ("*Today* – Friday…",
+ * "Event starting in 10 minutes"). The calendar is already a source of its own,
+ * and these are never a person talking to you — they filled the Slack views.
+ */
+const CALENDAR_APP = /\b(google|outlook|microsoft) calendar\b/i;
+
+export function isCalendarAppPost(m: { username?: string; bot_profile?: { name?: string } | null }): boolean {
+  return CALENDAR_APP.test(m.bot_profile?.name ?? "") || CALENDAR_APP.test(m.username ?? "");
+}
+
+/** Subtypes that are still a person's message (a file with a comment, a thread reply sent to the channel). */
+const PERSON_SUBTYPES = new Set(["file_share", "thread_broadcast", "me_message"]);
+
+type SlackApiMessage = {
+  ts?: string; text?: string; user?: string; username?: string; subtype?: string;
+  bot_profile?: { name?: string } | null;
+};
+
+/** Exported for tests. */
+export function isPersonMessage(msg: SlackApiMessage): boolean {
+  if (!msg.text) return false;
+  if (msg.subtype && !PERSON_SUBTYPES.has(msg.subtype)) return false;
+  return !isCalendarAppPost(msg);
+}
+
+// ── Which conversations ──
+
+type Convo = { id: string; kind: "channel" | "im" | "mpim"; name?: string; user?: string };
+
+const MAX_CONVERSATIONS = 40;
+const HISTORY_PER_CONVERSATION = 30;
+
+/**
+ * Every conversation the user is in — every page, not the first. Until
+ * 2026-10-10 this read one page per type (30 channels, 20 DMs, 10 group DMs)
+ * and kept 15 / 20 / 5 of them, in Slack's arbitrary order: with 26 DMs and 25
+ * group DMs, most group DMs never appeared at all.
+ */
+async function listMemberConversations(web: WebClient): Promise<Map<string, Convo>> {
+  const all = async (types: string) => {
+    const out: Array<{ id?: string; name?: string; user?: string; is_member?: boolean }> = [];
+    let cursor: string | undefined;
+    for (let page = 0; page < 5; page++) {
+      const res = await web.conversations.list({ types, limit: 200, exclude_archived: true, cursor });
+      out.push(...(res.channels ?? []));
+      cursor = res.response_metadata?.next_cursor || undefined;
+      if (!cursor) break;
+    }
+    return out;
+  };
+  const [channels, ims, mpims] = await Promise.all([
+    all("public_channel,private_channel"),
+    all("im").catch(() => []),
+    all("mpim").catch(() => []),
+  ]);
+  const convos = new Map<string, Convo>();
+  // RELEVANCE: channels only when the user is a member — this is what stops
+  // signals leaking from channels they never joined. DMs / group DMs are theirs.
+  for (const c of channels.filter((c) => !!c.id && c.is_member === true)) convos.set(c.id!, { id: c.id!, kind: "channel", name: c.name });
+  for (const c of ims) if (c.id) convos.set(c.id, { id: c.id, kind: "im", user: c.user });
+  for (const c of mpims) if (c.id) convos.set(c.id, { id: c.id, kind: "mpim", name: c.name });
+  return convos;
+}
+
+type SearchHit = { channelId: string; ts: string; user?: string; username?: string; text: string };
+
+/**
+ * Everything said in the window, newest first, via search — one call per 100
+ * messages instead of one per conversation, and it includes thread replies,
+ * which conversations.history never returns. Null when search is unavailable,
+ * so the caller reads conversations directly instead.
+ */
+async function searchRecent(web: WebClient, cutoffMs: number): Promise<SearchHit[] | null> {
+  // after: excludes the named day, so ask from the day before the cutoff.
+  const after = new Date(cutoffMs - 86_400_000).toISOString().slice(0, 10);
+  const hits: SearchHit[] = [];
+  try {
+    for (let page = 1; page <= 5; page++) {
+      const res = await web.search.messages({ query: `after:${after}`, sort: "timestamp", sort_dir: "desc", count: 100, page });
+      const matches = (res.messages?.matches ?? []) as Array<SearchHit & { channel?: { id?: string } }>;
+      for (const m of matches) {
+        if (m.channel?.id && m.ts) hits.push({ channelId: m.channel.id, ts: m.ts, user: m.user, username: m.username, text: m.text ?? "" });
+      }
+      const last = matches[matches.length - 1]?.ts;
+      if (page >= (res.messages?.paging?.pages ?? 1) || (last && parseFloat(last) * 1000 < cutoffMs)) break;
+    }
+    return hits;
+  } catch (err) {
+    if (isRateLimited(err)) throw err;
+    console.warn("[slack] search unavailable — reading conversations directly:", err instanceof Error ? err.message : err);
+    return null;
+  }
+}
+
 // ── Read recent messages across all conversation types ──
-// Fetches channels AND DMs separately to ensure DMs aren't crowded out.
-// Filters out messages older than `maxAgeDays` to keep results fresh.
+// Every conversation the user is in; the ones with activity in the window are
+// read in full (history + thread replies from search). Filters out messages
+// older than `maxAgeDays`.
 export async function getRecentSlackMessages(
   username:   string,
   limit      = 10,
@@ -232,89 +330,58 @@ export async function getRecentSlackMessages(
   const cutoff = Date.now() - maxAgeDays * 86400000;
 
   try {
-    const hasUserToken = !!userWeb;
     const lookupWeb = botWeb || web;
+    const [convos, selfUserId] = await Promise.all([listMemberConversations(web), resolveSelfUserId(web)]);
 
-    // Fetch channels and DMs in separate calls to ensure both are represented
-    const [channelsRes, dmsRes, groupDmsRes] = await Promise.all([
-      web.conversations.list({
-        types: hasUserToken
-          ? "public_channel,private_channel"
-          : "public_channel,private_channel",
-        limit: 30,
-        exclude_archived: true,
-      }),
-      web.conversations.list({
-        types: "im",
-        limit: 20,
-      }).catch(() => ({ channels: [] })),
-      hasUserToken
-        ? web.conversations.list({
-            types: "mpim",
-            limit: 10,
-          }).catch(() => ({ channels: [] }))
-        : Promise.resolve({ channels: [] }),
-    ]);
+    // Search needs the user's own token (a bot cannot search).
+    const hits = userWeb ? await searchRecent(userWeb, cutoff) : null;
+    const hitsByConvo = new Map<string, SearchHit[]>();
+    for (const h of hits ?? []) {
+      if (!convos.has(h.channelId) || parseFloat(h.ts) * 1000 < cutoff) continue;
+      hitsByConvo.set(h.channelId, [...(hitsByConvo.get(h.channelId) ?? []), h]);
+    }
 
-    // Process channels and DMs with separate caps to guarantee both get slots.
-    // RELEVANCE: public/private channels are kept ONLY when the user is a member
-    // (`is_member`). This is what stops signals/actions/decisions leaking from
-    // channels the user never joined. DMs and Group DMs come from the dedicated
-    // `im`/`mpim` calls and are inherently the user's, so they're always kept.
-    // `is_member` reflects the active token's identity (user token preferred), so
-    // the filter is per-user with no hardcoded identity.
-    const channelConvos = (channelsRes.channels || [])
-      .filter((c) => !!c.id && c.is_member === true)
-      .slice(0, 15);
-    const dmConvos = (dmsRes.channels || []).filter((c) => !!c.id).slice(0, 20);
-    const groupDmConvos = (groupDmsRes.channels || []).filter((c) => !!c.id).slice(0, 5);
-
-    // Deduplicate across all three
-    const seen = new Set<string>();
-    const uniqueChannels = [...channelConvos, ...dmConvos, ...groupDmConvos].filter((ch) => {
-      if (!ch.id || seen.has(ch.id)) return false;
-      seen.add(ch.id);
-      return true;
-    });
+    // Conversations to read: with search, the ones active in the window, most
+    // recent first; without it, every conversation with channels and DMs both
+    // represented.
+    let active: Convo[];
+    if (hits) {
+      active = [...hitsByConvo.entries()]
+        .sort((a, b) => Math.max(...b[1].map((h) => parseFloat(h.ts))) - Math.max(...a[1].map((h) => parseFloat(h.ts))))
+        .map(([id]) => convos.get(id)!);
+    } else {
+      const all = [...convos.values()];
+      active = [
+        ...all.filter((c) => c.kind === "channel").slice(0, 15),
+        ...all.filter((c) => c.kind === "im").slice(0, 20),
+        ...all.filter((c) => c.kind === "mpim").slice(0, 10),
+      ];
+    }
 
     const messages: SlackMessage[] = [];
 
-    // Resolve self user id once — used to exclude self from member lists AND to
-    // detect @-mentions of the user (mentionsSelf).
-    const selfUserId = await resolveSelfUserId(web);
-
-    for (const channel of uniqueChannels) {
-      if (!channel.id) continue;
-
-      // DMs / Group DMs are inherently the user's; channels reached here passed
-      // the is_member filter above — so every emitted message is member-relevant.
-      const isMember =
-        channel.is_im === true || channel.is_mpim === true || channel.is_member === true;
-
-      let channelName = channel.name ? `#${channel.name}` : "DM";
+    for (const convo of active.slice(0, MAX_CONVERSATIONS)) {
+      let channelName = convo.name ? `#${convo.name}` : "DM";
       let channelMembers: string[] | undefined;
-      if (channel.is_im && channel.user) {
-        const other = await resolveUserName(lookupWeb, channel.user);
+      if (convo.kind === "im" && convo.user) {
+        const other = await resolveUserName(lookupWeb, convo.user);
+        // A DM with a calendar app is the app's daily agenda, not a conversation.
+        if (CALENDAR_APP.test(other)) continue;
         channelName = `DM: ${other}`;
         channelMembers = [other.split(" ")[0].toLowerCase()];
       }
-      if (channel.is_mpim) {
+      if (convo.kind === "mpim") {
         channelName = "Group DM";
         try {
           // Your token first (you are in every one of your group DMs; the bot
-          // usually isn't), the bot's if yours lacks mpim:read. Before, only the
-          // bot was tried and the lookup failed silently, crediting nobody.
+          // usually isn't), the bot's if yours lacks mpim:read.
           const listMembers = (client: typeof lookupWeb) =>
-            client.conversations.members({ channel: channel.id!, limit: 20 });
+            client.conversations.members({ channel: convo.id, limit: 20 });
           const membersRes = userWeb
             ? await listMembers(userWeb).catch(() => listMembers(lookupWeb))
             : await listMembers(lookupWeb);
-          const ids = (membersRes.members || []).filter(
-            (id) => id && id !== selfUserId
-          );
-          const names = await Promise.all(
-            ids.map((id) => resolveUserName(lookupWeb, id))
-          );
+          const ids = (membersRes.members || []).filter((id) => id && id !== selfUserId);
+          const names = await Promise.all(ids.map((id) => resolveUserName(lookupWeb, id)));
           channelMembers = names.map((n) => n.split(" ")[0].toLowerCase());
           if (channelMembers.length > 0) {
             channelName = `Group DM: ${channelMembers
@@ -326,47 +393,47 @@ export async function getRecentSlackMessages(
         }
       }
 
+      // The conversation's messages: its history (authoritative and current —
+      // search can lag a few minutes) plus search's hits (thread replies, and
+      // the only way into private channels this token cannot read history for).
+      const raw: SlackApiMessage[] = [];
       try {
-        // Only fetch messages newer than cutoff (Slack ts = epoch seconds)
-        const oldest = String(cutoff / 1000);
         const history = await web.conversations.history({
-          channel: channel.id,
-          limit: 5,
-          oldest,
+          channel: convo.id,
+          limit: HISTORY_PER_CONVERSATION,
+          oldest: String(cutoff / 1000),
         });
-
-        for (const msg of history.messages || []) {
-          if (!msg.text || msg.subtype) continue;
-
-          const msgTime = msg.ts ? parseFloat(msg.ts) * 1000 : 0;
-          if (msgTime < cutoff) continue; // belt-and-suspenders staleness filter
-
-          const authorName = msg.user
-            ? await resolveUserName(lookupWeb, msg.user)
-            : "Unknown";
-
-          messages.push({
-            id: msg.ts || String(Date.now()),
-            channel: channelName,
-            channelId: channel.id,
-            channelMembers,
-            author: authorName,
-            text: cleanSlackText(msg.text || ""),
-            date: msg.ts
-              ? new Date(parseFloat(msg.ts) * 1000).toISOString()
-              : new Date().toISOString(),
-            isMention: mentionsSelf(msg.text, selfUserId),
-            fromSelf: !!selfUserId && msg.user === selfUserId,
-            isMember,
-          });
-        }
+        raw.push(...((history.messages || []) as SlackApiMessage[]));
       } catch (err) {
-        // A 429 rate-limit means TRUNCATED data. Re-throw so the whole fetch is
-        // marked failed (or serves the complete stale cache) instead of silently
-        // recording a partial poll as a successful "quiet" inbox. Genuine
-        // access errors (channel we can't read) are still skipped below.
+        // A 429 means TRUNCATED data: fail the whole fetch (or serve the complete
+        // stale cache) rather than record a partial poll as a quiet inbox.
         if (isRateLimited(err)) throw err;
-        /* skip channels we can't access */
+        /* no history access (e.g. a private channel) — search's hits stand alone */
+      }
+      const seenTs = new Set(raw.map((m) => m.ts));
+      for (const h of hitsByConvo.get(convo.id) ?? []) if (!seenTs.has(h.ts)) raw.push(h);
+
+      for (const msg of raw) {
+        if (!isPersonMessage(msg)) continue;
+        const msgTime = msg.ts ? parseFloat(msg.ts) * 1000 : 0;
+        if (msgTime < cutoff) continue;
+
+        const authorName = msg.user
+          ? await resolveUserName(lookupWeb, msg.user)
+          : msg.username || "Unknown";
+
+        messages.push({
+          id: msg.ts || String(Date.now()),
+          channel: channelName,
+          channelId: convo.id,
+          channelMembers,
+          author: authorName,
+          text: cleanSlackText(msg.text || ""),
+          date: new Date(msgTime).toISOString(),
+          isMention: mentionsSelf(msg.text, selfUserId),
+          fromSelf: !!selfUserId && msg.user === selfUserId,
+          isMember: true,
+        });
       }
     }
 
@@ -431,7 +498,7 @@ export async function getChannelHistory(
 
     const out: SlackMessage[] = [];
     for (const msg of history.messages || []) {
-      if (!msg.text || msg.subtype) continue;
+      if (!isPersonMessage(msg as SlackApiMessage)) continue;
       const authorName = msg.user
         ? await resolveUserName(lookupWeb, msg.user)
         : "Unknown";

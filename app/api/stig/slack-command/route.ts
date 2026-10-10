@@ -45,7 +45,7 @@ export async function GET(req: Request) {
       setTimeout(() => reject(new Error("Slack command timeout after 25s")), TIMEOUT_MS)
     );
     const [data, slackConfig] = await Promise.all([
-      Promise.race([buildSlackCommandCentre(username, 80), timeoutPromise]),
+      Promise.race([buildSlackCommandCentre(username, 300), timeoutPromise]),
       getSlackConfig(username).catch(() => ({ teamId: undefined } as Awaited<ReturnType<typeof getSlackConfig>>)),
     ]) as [SlackCommandData, Awaited<ReturnType<typeof getSlackConfig>>];
     const windowEnd = now;

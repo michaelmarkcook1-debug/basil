@@ -27,7 +27,7 @@ function ageHours(iso: string): number {
   return (Date.now() - new Date(iso).getTime()) / 3_600_000;
 }
 
-export async function buildSlackCommandCentre(username: string, limit = 80): Promise<SlackCommandData> {
+export async function buildSlackCommandCentre(username: string, limit = 300): Promise<SlackCommandData> {
   const [allMessages, mutedKeys] = await Promise.all([
     getRecentSlackMessages(username, limit),
     getMutedSourceKeys(username).catch(() => new Set<string>()),
