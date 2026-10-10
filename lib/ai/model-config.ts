@@ -548,16 +548,20 @@ export function getDirectAnthropicModel(kind: ModelKind = "default"): LanguageMo
   const _ak = ["ANTHROPIC", "API", "KEY"].join("_");
   const key = process.env.BASIL_LLM_KEY ?? process.env[_ak];
   if (!key) return null;
-  const model = createAnthropic({ apiKey: key })(ANTHROPIC_MODEL_IDS[kind]);
+  const modelId = ANTHROPIC_MODEL_IDS[kind];
+  const model = createAnthropic({ apiKey: key })(modelId);
 
   // Apply reasoning EFFORT where configured. Baked into the model itself so it
   // applies at EVERY call site — generateTextSafe, and the chat middleware's
   // fallback.doStream(params) — without each caller passing providerOptions.
+  const middleware: LanguageModelMiddleware[] = [];
   const effort = ANTHROPIC_EFFORT[kind];
-  if (!effort) return model;
+  if (effort) middleware.push(anthropicEffortMiddleware(effort));
+  if (needsNativeStructuredOutput(modelId)) middleware.push(nativeStructuredOutputMiddleware());
+  if (middleware.length === 0) return model;
   return wrapLanguageModel({
     model: model as LanguageModelV3,
-    middleware: anthropicEffortMiddleware(effort),
+    middleware,
   });
 }
 
@@ -570,6 +574,32 @@ function anthropicEffortMiddleware(effort: AnthropicEffort): LanguageModelMiddle
       providerOptions: {
         ...params.providerOptions,
         anthropic: { ...(params.providerOptions?.anthropic ?? {}), effort },
+      },
+    }),
+  };
+}
+
+/**
+ * Claude 5-family models reject a forced tool call (`tool_choice` "tool"/"any").
+ * @ai-sdk/anthropic 3.0.69 predates them, so for structured output (Output.object)
+ * it falls back to exactly that — a forced "json" tool — and the call fails
+ * ("tool_choice: type "tool" and "any" are not supported for this model"; every
+ * contact-profile draft 500'd, 2026-10-10). Models the SDK already knows keep
+ * its own choice.
+ */
+export function needsNativeStructuredOutput(modelId: string): boolean {
+  return /^claude-(opus|sonnet|haiku)-([5-9]|\d{2,})(-|$)/.test(modelId);
+}
+
+/** Middleware that pins native structured output (`output_config.format`) on every call. */
+function nativeStructuredOutputMiddleware(): LanguageModelMiddleware {
+  return {
+    specificationVersion: "v3",
+    transformParams: async ({ params }) => ({
+      ...params,
+      providerOptions: {
+        ...params.providerOptions,
+        anthropic: { ...(params.providerOptions?.anthropic ?? {}), structuredOutputMode: "outputFormat" },
       },
     }),
   };
