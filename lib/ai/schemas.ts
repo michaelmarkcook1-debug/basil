@@ -307,8 +307,10 @@ export const MeetingPrepOutputSchema = z.object({
   })).default([]),
   topicsToRaise: z.array(z.object({
     title:    z.string(),
-    context:  z.string(),
-    priority: z.string(),
+    context:  z.string().default(""),
+    // A display label only — a topic without one must not sink the whole prep
+    // (every prep failed on a missing label 2026-10-13).
+    priority: z.string().default(""),
   })).default([]),
   suggestedQuestions: z.array(z.string()).default([]),
   thingsToLand:       z.array(z.string()).default([]),

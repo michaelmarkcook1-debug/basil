@@ -41,6 +41,40 @@ function extractJson(text: string): string {
 // ── Legacy (unvalidated) ───────────────────────────────────────────────────────
 
 /**
+ * Near-JSON → JSON: bare Python literals (None / True / False / NaN) and
+ * trailing commas, outside string values only. Models occasionally emit them —
+ * '"implication": None' failed every meeting prep on 2026-10-13. Text inside
+ * quotes is never touched. Pure — exported for tests.
+ */
+export function repairJsonLiterals(raw: string): string {
+  const LITERALS: Record<string, string> = { None: "null", True: "true", False: "false", NaN: "null" };
+  let out = "";
+  let inString = false;
+  for (let i = 0; i < raw.length; i++) {
+    const ch = raw[i];
+    if (inString) {
+      out += ch;
+      if (ch === "\\") { out += raw[++i] ?? ""; continue; }
+      if (ch === '"') inString = false;
+      continue;
+    }
+    if (ch === '"') { inString = true; out += ch; continue; }
+    const word = /^[A-Za-z]+/.exec(raw.slice(i))?.[0];
+    if (word) {
+      out += LITERALS[word] ?? word;
+      i += word.length - 1;
+      continue;
+    }
+    if (ch === ",") {
+      const rest = raw.slice(i + 1).match(/^\s*([}\]])/);
+      if (rest) continue; // trailing comma
+    }
+    out += ch;
+  }
+  return out;
+}
+
+/**
  * Strip fences and JSON.parse. The TypeScript generic `<T>` is a cast only —
  * there is no runtime validation. Prefer `parseAndValidate` for new code.
  */
@@ -83,13 +117,20 @@ export function parseAndValidate<T>(
     parsed = JSON.parse(raw);
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
-    console.error(`${tag} JSON.parse failed: ${msg}`, { excerpt: raw.slice(0, 200) });
-    return {
-      ok: false,
-      error: `JSON parse error: ${msg}`,
-      excerpt: raw.slice(0, 200),
-      fieldErrors: [],
-    };
+    try {
+      // One repair pass for near-JSON (Python literals, trailing commas) before
+      // throwing away a whole — already paid for — answer.
+      parsed = JSON.parse(repairJsonLiterals(raw));
+      console.warn(`${tag} repaired near-JSON output (${msg})`);
+    } catch {
+      console.error(`${tag} JSON.parse failed: ${msg}`, { excerpt: raw.slice(0, 200) });
+      return {
+        ok: false,
+        error: `JSON parse error: ${msg}`,
+        excerpt: raw.slice(0, 200),
+        fieldErrors: [],
+      };
+    }
   }
 
   const result = schema.safeParse(parsed);

@@ -45,6 +45,14 @@ import type { UIMessage } from "ai";
  * 2026-07-30: meetings approved in chat silently never reached Google Calendar
  * — the assistant had said it scheduled them, and no error surfaced anywhere.
  * A settled state is one with a RESULT, never merely one the user has touched.
+ *
+ * BUT pending only makes sense in the LATEST message. The approval round-trip
+ * always resends the assistant message it is answering as the final message;
+ * once the user has typed something new after it, nothing will ever answer that
+ * call. Seen 2026-10-13: an approval left unanswered, then a new question —
+ * Claude rejected every later turn ("tool_use ids were found without
+ * tool_result blocks") and the OpenAI fallback failed the same way. Pending
+ * states in any earlier message are closed as "not run".
  */
 
 /** Tool-part states that are already settled — a result exists. */
@@ -81,15 +89,29 @@ export function repairOrphanedToolCalls(
 ): { messages: UIMessage[]; repaired: number } {
   let repaired = 0;
 
-  const out = messages.map((message) => {
+  const out = messages.map((message, index) => {
     const parts = (message as { parts?: unknown }).parts;
     if (!Array.isArray(parts)) return message;
+    // Only the final assistant message can still be waiting on the user.
+    const canStillBeAnswered = index === messages.length - 1 && message.role === "assistant";
 
     let touched = false;
     const nextParts = parts.map((part) => {
       if (!isToolPart(part)) return part;
       const state = typeof part.state === "string" ? part.state : "";
-      if (TERMINAL_STATES.has(state) || AWAITING_USER_STATES.has(state)) return part;
+      if (TERMINAL_STATES.has(state)) return part;
+      if (AWAITING_USER_STATES.has(state)) {
+        if (canStillBeAnswered) return part;
+        touched = true;
+        repaired++;
+        return {
+          ...part,
+          state: "output-error",
+          errorText: state === "approval-requested"
+            ? "Not run: the user did not approve this action and moved on to a new message. Ask again if it is still wanted."
+            : "Not run: the approval arrived together with a new message, so the action was not carried out. Ask again if it is still wanted.",
+        };
+      }
 
       // input-streaming / input-available / anything unrecognised: the call was
       // issued but never answered.
