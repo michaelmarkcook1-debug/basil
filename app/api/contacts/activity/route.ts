@@ -1,4 +1,5 @@
 import { NextResponse, after } from "next/server";
+import { channelMix, weeklyCounts, type ChannelMix } from "@/lib/contacts/activity-shape";
 import {
   readGenerateCache,
   writeGenerateCache,
@@ -38,6 +39,10 @@ interface ContactActivity {
   zoomCadence: string | null;
   /** Total interactions across all sources in the last 30 days. */
   totalInteractionCount: number;
+  /** The same 30 days by channel (email, Slack, meetings = calendar + Zoom). */
+  bySource: ChannelMix;
+  /** Interactions per week over the last 5 weeks, oldest first. */
+  weekly: number[];
 }
 
 // ── Nickname lookup ────────────────────────────────────────────────────────────
@@ -443,6 +448,8 @@ async function computeContactActivity(username: string): Promise<ActivityPayload
       zoomMeetingCount,
       zoomCadence,
       totalInteractionCount,
+      bySource: channelMix(interactions),
+      weekly: weeklyCounts(interactions, new Date()),
     };
   });
 

@@ -144,7 +144,7 @@ interface AppDef {
 
 function StateBadge({ state, mode }: { state?: IntegrationState | "loading"; mode?: "manual" | "planned" }) {
   if (mode === "manual") return <Badge className="bg-muted/50 text-muted-foreground border-border text-xs">Manual</Badge>;
-  if (mode === "planned") return <Badge className="bg-muted/40 text-muted-foreground/80 border-border text-xs">Planned</Badge>;
+  if (mode === "planned") return <Badge className="bg-muted/40 text-muted-foreground border-border text-xs">Planned</Badge>;
   if (!state || state === "loading") {
     return <Badge variant="secondary" className="gap-1 text-xs"><Loader2 className="h-3 w-3 animate-spin" />Checking</Badge>;
   }

@@ -533,6 +533,16 @@ export interface SpendSummary {
 }
 
 /** Month-to-date spend summary for the admin panel. */
+/**
+ * One user's AI spend today against their daily cap — the figure the per-user
+ * guard enforces, for the user's own spend gauge. Never another user's.
+ */
+export async function getUserSpendToday(username: string): Promise<{ usd: number; capUsd: number | null; day: string }> {
+  const day = currentDay();
+  const usd = await getCounter(userDailyKey(username, day)).catch(() => 0);
+  return { usd, capUsd: perUserDailyCapUsd(), day };
+}
+
 export async function getSpendSummary(usernames: string[]): Promise<SpendSummary> {
   const period = currentPeriod();
   const globalUsd = await getCounter(globalKey(period)).catch(() => 0);

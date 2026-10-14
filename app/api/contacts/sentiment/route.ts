@@ -32,6 +32,9 @@ export async function GET(req: Request) {
   if (id) return one(username, id, false);
 
   const sentiment = await listSentiment(username);
+  // ?cached=1: stored verdicts only. Today's orbit reads tone on every visit and
+  // must never be what triggers a round of AI re-reads.
+  if (new URL(req.url).searchParams.get("cached") === "1") return NextResponse.json({ sentiment });
   after(async () => {
     try {
       const n = await refreshStaleSentiment(username);

@@ -92,7 +92,7 @@ export default function DashboardLayout({
 
         {/* Mobile top bar */}
         {!isStandalone && (
-          <header className="lg:hidden flex items-center h-14 px-4 bg-sidebar border-b border-sidebar-border shrink-0 pt-[env(safe-area-inset-top)]">
+          <header className="basil-chrome lg:hidden flex items-center h-14 px-4 bg-sidebar border-b border-sidebar-border shrink-0 pt-[env(safe-area-inset-top)]">
             <button
               onClick={() => setMobileOpen(true)}
               className="rounded-md p-2 -ml-2 text-sidebar-foreground/60 hover:text-sidebar-foreground hover:bg-sidebar-accent transition-colors"
@@ -101,8 +101,10 @@ export default function DashboardLayout({
               <Menu className="h-5 w-5" />
             </button>
             <div className="flex items-center gap-2 ml-2">
-              <img src="/brand/basil-mark.png" alt="Basil" className="h-7 w-7 rounded-lg" />
-              <p className="basil-display text-base text-[color:var(--w-carbon)]">Basil</p>
+              <span className="flex h-8 w-8 items-center justify-center overflow-hidden rounded-lg bg-[#07111F]">
+                <img src="/brand/basil-logo-compass.png" alt="Basil" className="h-12 w-12 max-w-none" />
+              </span>
+              <p className="text-[15px] font-semibold tracking-[0.18em] text-[color:var(--w-nav-accent)]">BASIL</p>
             </div>
           </header>
         )}

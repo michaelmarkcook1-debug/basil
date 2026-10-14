@@ -26,6 +26,12 @@ export interface RelationshipSentiment {
   computedAt: string;
 }
 
+/** "13 Oct" from an ISO timestamp or a plain date; anything else as given. */
+function dayOf(d: string): string {
+  const t = Date.parse(d);
+  return Number.isFinite(t) ? new Date(t).toLocaleDateString("en-GB", { day: "numeric", month: "short" }) : d;
+}
+
 export const TONE: Record<Tone, { label: string; chip: string; dot: string }> = {
   warm:     { label: "Warm",     chip: "bg-signal-positive-subtle text-signal-positive", dot: "bg-signal-positive" },
   positive: { label: "Positive", chip: "bg-signal-positive-subtle text-signal-positive", dot: "bg-signal-positive/70" },
@@ -41,7 +47,7 @@ export const TREND: Record<Trend, { label: string; chip: string }> = {
 
 /** "Warm · warming" — for tooltips and list dots. */
 export function toneLine(s: RelationshipSentiment): string {
-  return `${TONE[s.tone].label} · ${TREND[s.trend].label.slice(2).toLowerCase()}`;
+  return `${TONE[s.tone]?.label ?? s.tone} · ${TREND[s.trend]?.label.slice(2).toLowerCase() ?? s.trend}`;
 }
 
 interface OneResponse { sentiment: RelationshipSentiment | null; interactions: number; minInteractions: number; error?: string }
@@ -109,15 +115,16 @@ export function RelationshipToneCard({
         ) : (
           <>
             <div className="flex flex-wrap items-center gap-2">
-              <span className={`rounded px-2 py-0.5 text-xs font-semibold ${TONE[s.tone].chip}`}>{TONE[s.tone].label}</span>
-              <span className={`rounded px-2 py-0.5 text-xs font-semibold ${TREND[s.trend].chip}`}>{TREND[s.trend].label}</span>
+              {/* A record from an older shape must not take the whole People page down. */}
+              {TONE[s.tone] && <span className={`rounded px-2 py-0.5 text-xs font-semibold ${TONE[s.tone].chip}`}>{TONE[s.tone].label}</span>}
+              {TREND[s.trend] && <span className={`rounded px-2 py-0.5 text-xs font-semibold ${TREND[s.trend].chip}`}>{TREND[s.trend].label}</span>}
             </div>
             <p className="text-sm leading-relaxed">{s.summary}</p>
             {s.evidence.length > 0 && (
               <ul className="space-y-1.5">
                 {s.evidence.map((e, i) => (
                   <li key={i} className="text-[0.8125rem] text-foreground/90">
-                    <span className="text-muted-foreground">{e.date} · {e.source} — </span>{e.note}
+                    <span className="text-muted-foreground">{dayOf(e.date)} · {e.source} — </span>{e.note}
                   </li>
                 ))}
               </ul>
@@ -139,7 +146,7 @@ export function RelationshipToneCard({
                   }`} />
                   <div className="min-w-0">
                     <span className="text-foreground/90">{obs.summary}</span>
-                    <span className="mt-0.5 block text-xs text-muted-foreground">{obs.date} · via {obs.source}</span>
+                    <span className="mt-0.5 block text-xs text-muted-foreground">{dayOf(obs.date)} · via {obs.source}</span>
                   </div>
                 </li>
               ))}

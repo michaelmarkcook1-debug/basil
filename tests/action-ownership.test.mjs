@@ -44,7 +44,12 @@ test("recap, Slack and email notes only become actions when they name someone", 
 
 test("Today and the Actions page count only the user's actions; others' are 'Waiting on others'", () => {
   assert.match(src("lib/today/feed.ts"), /const actions = allActions\.filter\(\(a\) => !isWaitingOnOthers\(a, identity\.names\)\);/);
-  assert.match(src("app/dashboard/page.tsx"), /bucketCommitments\(actions\.actions\.filter\(\(a\) => !isWaitingOnOthers\(/);
+  // Today (redesigned 2026-10-14): your open actions exclude others', and only
+  // those are bucketed; others' open actions feed "Waiting on others".
+  const today = src("app/dashboard/page.tsx");
+  assert.match(today, /const mine = useMemo\(\(\) => all\.filter\(\(a\) => a\.status !== "done" && !isWaitingOnOthers\(a, selfNames\)\)/);
+  assert.match(today, /bucketCommitments\(mine, clock, timeZone\)/);
+  assert.match(today, /const waiting = useMemo\(\(\) => all\.filter\(\(a\) => a\.status !== "done" && isWaitingOnOthers\(a, selfNames\)\)/);
   const page = src("app/dashboard/actions/page.tsx");
   assert.match(page, /if \(statusFilter === "waiting"\) return matchesSearch && a\.status !== "done" && isTheirs\(a\);\s*if \(isTheirs\(a\)\) return false;/);
   assert.match(page, /Waiting on others \(\{waitingCount\}\)/);

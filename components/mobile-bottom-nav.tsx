@@ -40,6 +40,7 @@ export function MobileBottomNav({ onMoreClick }: MobileBottomNavProps) {
     <nav
       aria-label="Main navigation"
       className={cn(
+        "basil-chrome",
         "lg:hidden fixed bottom-0 inset-x-0 z-50",
         "bg-sidebar/96 backdrop-blur-md",
         "border-t border-sidebar-border/50",

@@ -650,7 +650,7 @@ export function ModeSwitcherTrigger({
         className={cn(
           "group relative flex items-center gap-3 rounded-md px-3 py-2.5 text-sm w-full transition-all",
           isDefault
-            ? "text-sidebar-foreground/50 hover:text-sidebar-foreground hover:bg-sidebar-accent/40"
+            ? "text-sidebar-foreground/70 hover:text-sidebar-foreground hover:bg-sidebar-accent"
             : cn(
                 mode.colorClass,
                 mode.bgClass,

@@ -112,8 +112,12 @@ test("People page: tone card leads the Profile tab; hover links names and bubble
   assert.match(profile, /<RelationshipToneCard /);
   assert.doesNotMatch(page, /Tone &amp; Attitude/, "the old card hidden on the Activity tab is gone");
   assert.match(page, /onMouseEnter=\{\(\) => onHover\?\.\(c\.id\)\}/, "list rows report hover");
-  assert.match(page, /onMouseEnter=\{\(\) => setHoveredId\(c\.id\)\}/, "bubbles report hover");
-  assert.match(page, /hoveredId === c\.id \? "relative z-10 scale-125/, "the hovered contact's bubble is highlighted");
+  // Since 2026-10-14 the bubbles are the drift strip ("time since you last
+  // spoke"): it reports hover up and highlights the hovered/selected person.
+  assert.match(page, /<DriftStrip[\s\S]*?hoveredId=\{hoveredId\}[\s\S]*?onHover=\{setHoveredId\}/, "bubbles report hover");
+  const strip = src("components/contacts/drift-strip.tsx");
+  assert.match(strip, /onMouseEnter=\{\(\) => onHover\(p\.id\)\}/);
+  assert.match(strip, /const lit = p\.id === hoveredId \|\| p\.id === selectedId;/, "the hovered contact's bubble is highlighted");
   assert.match(page, /hovered=\{hoveredId\} onHover=\{setHoveredId\}/);
 });
 

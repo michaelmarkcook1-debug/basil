@@ -67,7 +67,7 @@ function StateChip({ state }: { state: { name: string; type: string } }) {
       : state.type === "started"
       ? "text-signal-info bg-signal-info-subtle border-signal-info-border"
       : state.type === "cancelled"
-      ? "text-muted-foreground/70 bg-muted/40 border-border"
+      ? "text-muted-foreground bg-muted/40 border-border"
       : state.type === "triage"
       ? "text-signal-info bg-signal-info-subtle border-signal-info-border"
       : "text-muted-foreground bg-muted/50 border-border";

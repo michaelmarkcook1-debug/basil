@@ -49,7 +49,7 @@ export default function ErrorBoundary({ error, reset }: ErrorPageProps) {
         <div className="flex flex-col sm:flex-row gap-3 justify-center">
           <button
             onClick={reset}
-            className="px-5 py-2.5 rounded-lg bg-gold hover:bg-gold-muted text-[#07111F] text-sm font-semibold transition-colors"
+            className="px-5 py-2.5 rounded-lg bg-gold hover:bg-gold-muted text-[color:var(--w-on-accent)] text-sm font-semibold transition-colors"
           >
             Try again
           </button>

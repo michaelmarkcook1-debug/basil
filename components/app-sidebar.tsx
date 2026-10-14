@@ -77,7 +77,7 @@ function NavItem({ href, label, icon: Icon, active, expanded, onNavigate }: NavI
         "group relative flex items-center gap-3 rounded-lg px-3 py-2.5 transition-all duration-150",
         active
           ? "text-[color:var(--w-carbon)] bg-[var(--w-carbon-tint)] ring-1 ring-inset ring-[var(--w-rule)]"
-          : "text-sidebar-foreground/70 hover:text-sidebar-foreground hover:bg-white/[0.04]"
+          : "text-sidebar-foreground/70 hover:text-sidebar-foreground hover:bg-sidebar-accent"
       )}
     >
       {/* Active indicator — gold left rail */}
@@ -153,7 +153,7 @@ export function AppSidebar({
   return (
     <aside
       className={cn(
-        "relative flex flex-col bg-sidebar py-4",
+        "basil-chrome relative flex flex-col bg-sidebar py-4 overflow-hidden",
         "border-r border-sidebar-border/60",
         expanded ? "w-full h-full border-r-0" : "w-[52px] lg:w-[220px]"
       )}
@@ -167,12 +167,9 @@ export function AppSidebar({
 
       {/* ── Logo ────────────────────────────────────────────────────────── */}
       <div className="relative mb-4 flex items-center gap-2.5 px-4">
-        <img
-          src="/brand/basil-mark.png"
-          alt="Basil"
-          className="h-8 w-8 shrink-0 rounded-xl"
-          style={{ objectFit: "cover" }}
-        />
+        <span className="flex h-10 w-10 shrink-0 items-center justify-center overflow-hidden rounded-xl bg-[#07111F] shadow-[0_0_0_1px_rgba(212,185,120,0.35),0_8px_24px_-8px_rgba(212,185,120,0.5)]">
+          <img src="/brand/basil-logo-compass.png" alt="Basil" className="h-[60px] w-[60px] max-w-none" />
+        </span>
         <div className={cn(expanded ? "block" : "hidden lg:block")}>
           <p
             className="text-[15px] font-semibold leading-none tracking-[0.18em] text-[color:var(--w-carbon)]"
@@ -220,7 +217,7 @@ export function AppSidebar({
         <button
           type="button"
           onClick={() => window.dispatchEvent(new Event("basil:open-command-palette"))}
-          className="flex items-center gap-2.5 w-full rounded-lg px-3 py-2 text-sidebar-foreground/70 hover:text-sidebar-foreground hover:bg-white/[0.04] border border-sidebar-border/40 transition-all"
+          className="flex items-center gap-2.5 w-full rounded-lg px-3 py-2 text-sidebar-foreground/70 hover:text-sidebar-foreground hover:bg-sidebar-accent border border-sidebar-border/40 transition-all"
         >
           <Search size={14} strokeWidth={1.8} className="shrink-0" />
           <span className="text-sm leading-none">Search</span>
@@ -249,7 +246,7 @@ export function AppSidebar({
           onClick={() => setShowMore((v) => !v)}
           title="More"
           className={cn(
-            "group flex items-center gap-3 rounded-lg px-3 py-2.5 text-sidebar-foreground/60 hover:text-sidebar-foreground hover:bg-white/[0.04] transition-all",
+            "group flex items-center gap-3 rounded-lg px-3 py-2.5 text-sidebar-foreground/60 hover:text-sidebar-foreground hover:bg-sidebar-accent transition-all",
             expanded ? "" : "lg:px-3"
           )}
         >
@@ -275,6 +272,9 @@ export function AppSidebar({
             />
           ))}
       </nav>
+
+      {/* ── AI spend today — the user's own, against their daily cap ─────── */}
+      <SpendGauge expanded={!!expanded} />
 
       {/* ── Footer — settings + admin ───────────────────────────────────── */}
       <div className="relative mt-2 px-2">
@@ -306,7 +306,7 @@ export function AppSidebar({
           <Link
             href="/dashboard/settings"
             onClick={onNavigate}
-            className="flex items-center gap-2.5 px-3 py-2 rounded-lg hover:bg-white/[0.04] transition-colors group"
+            className="flex items-center gap-2.5 px-3 py-2 rounded-lg hover:bg-sidebar-accent transition-colors group"
           >
             <div className="shrink-0 h-7 w-7 rounded-full bg-[var(--w-carbon)]/15 border border-[var(--w-rule)] flex items-center justify-center">
               <span className="text-xs font-bold text-[color:var(--w-carbon)]">{userInitials}</span>
@@ -319,5 +319,46 @@ export function AppSidebar({
         </div>
       )}
     </aside>
+  );
+}
+
+/**
+ * Today's AI spend as a half-ring gauge. Fills on load; reads the user's own
+ * counter (/api/ai/spend-today). Hidden when no cap is configured or the
+ * figure can't be read — never a made-up number.
+ */
+function SpendGauge({ expanded }: { expanded: boolean }) {
+  const [spend, setSpend] = useState<{ usd: number; capUsd: number | null } | null>(null);
+  const [filled, setFilled] = useState(false);
+  useEffect(() => {
+    let live = true;
+    fetch("/api/ai/spend-today", { cache: "no-store" })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => { if (live && d && typeof d.usd === "number") setSpend(d); })
+      .catch((e: unknown) => console.warn("[sidebar] AI spend unavailable:", e instanceof Error ? e.message : e));
+    const t = setTimeout(() => setFilled(true), 300);
+    return () => { live = false; clearTimeout(t); };
+  }, []);
+  if (!spend || !spend.capUsd) return null;
+  const frac = Math.max(0, Math.min(1, spend.usd / spend.capUsd));
+  const LEN = 113.1;
+  const over = frac >= 0.85;
+  return (
+    <div className={cn("relative mx-3 mt-auto mb-2 rounded-xl border border-[var(--w-rule)] bg-[#07111F]/40 p-3", expanded ? "block" : "hidden lg:block")}>
+      <div className="flex items-center gap-3">
+        <svg width="72" height="42" viewBox="0 0 88 50" role="img" aria-label={`AI spend today: $${spend.usd.toFixed(2)} of a $${spend.capUsd.toFixed(2)} daily cap`} className="shrink-0">
+          <path d="M 8 44 A 36 36 0 0 1 80 44" fill="none" stroke="rgba(237,230,214,.14)" strokeWidth="8" strokeLinecap="round" />
+          <path
+            d="M 8 44 A 36 36 0 0 1 80 44" fill="none" stroke={over ? "#FF8A3D" : "#D4B978"} strokeWidth="8" strokeLinecap="round"
+            strokeDasharray={LEN} strokeDashoffset={filled ? LEN * (1 - frac) : LEN}
+            style={{ transition: "stroke-dashoffset 1.4s cubic-bezier(.2,.7,.2,1)" }}
+          />
+        </svg>
+        <span className="flex flex-col">
+          <span className="basil-mono text-[16px] font-medium text-[#F6F1E7]">${spend.usd.toFixed(2)}</span>
+          <span className="text-[11px] text-sidebar-foreground/65">of ${spend.capUsd.toFixed(2)} AI today</span>
+        </span>
+      </div>
+    </div>
   );
 }

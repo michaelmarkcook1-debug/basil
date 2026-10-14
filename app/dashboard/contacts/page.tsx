@@ -25,6 +25,9 @@ import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { RelationshipOverview } from "@/components/shared/relationship-overview";
 import { ContactAvatar } from "@/components/ui/contact-avatar";
 import { RelationshipToneCard, TONE, toneLine, type RelationshipSentiment } from "@/components/contacts/relationship-tone";
+import { DriftStrip } from "@/components/contacts/drift-strip";
+import { ConversationShape, type ChannelMixLite } from "@/components/contacts/conversation-shape";
+import { orbitTone } from "@/components/today/v2/orbit";
 import { useContactPhotos } from "@/lib/hooks/use-contact-photos";
 import {
   Search,
@@ -35,7 +38,6 @@ import {
   CheckSquare,
   AlertTriangle,
   Activity,
-  Flame,
   RefreshCw,
   Loader2,
   Wifi,
@@ -50,8 +52,6 @@ import {
   Wand2,
   Check,
   ChevronLeft,
-  ChevronDown,
-  ChevronUp,
   Pencil,
   ExternalLink,
   Trash2,
@@ -59,7 +59,6 @@ import {
 // lucide-react dropped brand icons, so LinkedIn is labelled in text with a
 // neutral external-link glyph rather than an inlined third-party logo.
 import { linkedInSearchUrl } from "@/lib/contacts/linkedin-from-signature";
-import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { Textarea } from "@/components/ui/textarea";
 import {
   getAllOverrides,
@@ -223,6 +222,8 @@ function ContactList({
 function ContactDetail({
   contact,
   photoUrl,
+  mix,
+  weekly,
   liveItems,
   liveSources,
   lastInteraction,
@@ -238,6 +239,8 @@ function ContactDetail({
   onClearOverride,
   onContactUpdated,
 }: {
+  mix?: ChannelMixLite;
+  weekly?: number[];
   contact: Contact;
   photoUrl?: string;
   liveItems: string[];
@@ -510,7 +513,7 @@ function ContactDetail({
                 </div>
               ) : (
                 <div className="flex items-center gap-2 group">
-                  <h2 className="text-xl font-semibold">{contact.name}</h2>
+                  <h2 className="basil-serif text-[34px] leading-tight text-[#10213F]">{contact.name}</h2>
                   {contact._isSeedData && (
                     <span className="rounded px-1.5 py-0.5 text-xs font-semibold uppercase tracking-wide bg-muted text-muted-foreground border border-border/60">
                       SAMPLE
@@ -881,6 +884,7 @@ function ContactDetail({
 
         <TabsContent value="profile" className="space-y-4 mt-4">
           <RelationshipToneCard key={contact.id} contactId={contact.id} name={contact.name} shifts={override?.toneHistory ?? []} />
+          <ConversationShape name={contact.name.split(" ")[0]} mix={mix} weekly={weekly} />
 
           <Card>
             <CardHeader className="pb-2">
@@ -1008,6 +1012,8 @@ interface ContactActivityItem {
   zoomMeetingCount?: number;
   zoomCadence?: string | null;
   totalInteractionCount?: number;
+  bySource?: ChannelMixLite;
+  weekly?: number[];
 }
 
 export default function ContactsPage() {
@@ -1060,17 +1066,12 @@ export default function ContactsPage() {
   const [selfEmailDomain, setSelfEmailDomain] = useState("");
   const [liveActivity, setLiveActivity] = useState<ContactActivityItem[]>([]);
   const [activityLoading, setActivityLoading] = useState(false);
-  const [isLive, setIsLive] = useState(false);
   const [activityFetchedAt, setActivityFetchedAt] = useState<string | null>(null);
   const [suggestions, setSuggestions] = useState<ContactSuggestion[]>([]);
   const [suggestLoading, setSuggestLoading] = useState(false);
   const [dismissedIds, setDismissedIds] = useState<string[]>([]);
   const [userContacts, setUserContacts] = useState<Contact[]>([]);
   const [overrides, setOverrides] = useState<Record<string, ProfileOverride>>({});
-  const [healthCollapsed, setHealthCollapsed] = useState<boolean>(() => {
-    if (typeof window === "undefined") return false;
-    try { return localStorage.getItem("sage-health-collapsed") === "true"; } catch { return false; }
-  });
 
   // The effective "all contacts" list. Sample contacts are off by default
   // (sampleContacts() returns [] unless a demo flag is set), so a real user
@@ -1125,7 +1126,6 @@ export default function ContactsPage() {
       if (!res.ok) throw new Error("Failed");
       const data = await res.json();
       setLiveActivity(data.activity || []);
-      setIsLive(true);
       setActivityFetchedAt(data.fetchedAt ?? new Date().toISOString());
       localStorage.setItem(scopedKey("contact-activity"), JSON.stringify(data));
     } catch (e) {
@@ -1154,7 +1154,6 @@ export default function ContactsPage() {
       try {
         const parsed = JSON.parse(cached);
         setLiveActivity(parsed.activity || []);
-        setIsLive(true);
         if (parsed.fetchedAt) {
           setActivityFetchedAt(parsed.fetchedAt);
           const age = Date.now() - new Date(parsed.fetchedAt).getTime();
@@ -1494,117 +1493,8 @@ export default function ContactsPage() {
         </div>
         {/* Scrollable area: relationship health + suggestions + contact list */}
         <div className="flex-1 overflow-y-auto min-h-0">
-        {/* Relationship Heat Map */}
-        <div className="px-4 py-3 border-b border-border">
-          <div className="flex items-center justify-between mb-2">
-            <button
-              onClick={() => {
-                const next = !healthCollapsed;
-                setHealthCollapsed(next);
-                try { localStorage.setItem("sage-health-collapsed", String(next)); } catch { /* ignore */ }
-              }}
-              className="text-[12px] font-semibold tracking-widest uppercase text-muted-foreground flex items-center gap-1 hover:text-foreground transition-colors"
-            >
-              <Flame className="h-3 w-3" /> Relationship Health
-              {isLive && !healthCollapsed && (
-                <Badge className="bg-signal-positive-subtle text-signal-positive border-signal-positive/30 text-[12px] ml-1 py-0 px-1 gap-0.5">
-                  <Wifi className="h-2 w-2" /> Live
-                </Badge>
-              )}
-              {healthCollapsed
-                ? <ChevronDown className="h-3 w-3 ml-1 text-muted-foreground/60" />
-                : <ChevronUp className="h-3 w-3 ml-1 text-muted-foreground/60" />}
-            </button>
-            {!healthCollapsed && (
-              <button
-                onClick={refreshActivity}
-                disabled={activityLoading}
-                className="text-muted-foreground/50 hover:text-[color:var(--w-carbon)] transition-colors"
-                title="Refresh from Calendar, Gmail & Slack"
-                aria-label="Refresh activity from Calendar, Gmail & Slack"
-              >
-                {activityLoading ? (
-                  <Loader2 className="h-3 w-3 animate-spin" />
-                ) : (
-                  <RefreshCw className="h-3 w-3" />
-                )}
-              </button>
-            )}
-          </div>
-          {!healthCollapsed && <div className="flex flex-wrap gap-1.5">
-            {[...directoryContacts]
-              .sort((a, b) => {
-                const ia = getLastInteraction(a.id, a.lastInteraction);
-                const ib = getLastInteraction(b.id, b.lastInteraction);
-                const da = ia ? new Date(ia).getTime() : 0;
-                const db = ib ? new Date(ib).getTime() : 0;
-                return da - db; // stale first
-              })
-              .map((c) => {
-                const interaction = getLastInteraction(c.id, c.lastInteraction);
-                const days = interaction
-                  ? (() => {
-                      // Count only weekdays (Mon–Fri) between lastInteraction and now
-                      const start = new Date(interaction);
-                      const end = new Date();
-                      let weekdays = 0;
-                      const cur = new Date(start);
-                      cur.setHours(0, 0, 0, 0);
-                      const endDay = new Date(end);
-                      endDay.setHours(0, 0, 0, 0);
-                      while (cur < endDay) {
-                        const dow = cur.getDay();
-                        if (dow !== 0 && dow !== 6) weekdays++;
-                        cur.setDate(cur.getDate() + 1);
-                      }
-                      return weekdays;
-                    })()
-                  : 999;
-                const ringColor = days <= 5 ? "ring-signal-positive" : days <= 10 ? "ring-signal-warning" : "ring-signal-critical";
-                const liveSources = getLiveSources(c.id);
-                const liveItems = getLiveItems(c.id);
-                return (
-                  <Tooltip key={c.id}>
-                    <TooltipTrigger asChild>
-                      <button
-                        onClick={() => setSelectedId(c.id)}
-                        onMouseEnter={() => setHoveredId(c.id)}
-                        onMouseLeave={() => setHoveredId(null)}
-                        aria-label={c.name}
-                        className={`ring-[3px] ring-offset-1 ring-offset-transparent ${ringColor} rounded-full transition-transform motion-safe:duration-150 hover:scale-110 ${
-                          hoveredId === c.id ? "relative z-10 scale-125 outline outline-2 outline-offset-[5px] outline-[var(--w-carbon)]" : ""
-                        }`}
-                      >
-                        <ContactAvatar
-                          initials={c.initials}
-                          color={c.color}
-                          photoUrl={photos[c.email?.toLowerCase() ?? ""]}
-                          className="h-7 w-7"
-                          fallbackClassName="text-[12px]"
-                        />
-                      </button>
-                    </TooltipTrigger>
-                    <TooltipContent side="bottom" className="text-xs max-w-52">
-                      <p className="font-medium">{c.name}</p>
-                      {tones[c.id] && <p className="text-muted-foreground">Tone: {toneLine(tones[c.id])}</p>}
-                      <p className="text-muted-foreground">
-                        {days === 999 ? "No interaction data" : `${days}d ago`}
-                        {liveSources.length > 0 ? ` (${liveSources.join(", ")})` : ""}
-                      </p>
-                      {getZoomCadence(c.id) && (
-                        <p className="text-signal-info mt-0.5">
-                          Zoom: {getZoomCadence(c.id)} ({getZoomMeetingCount(c.id)} meetings/30d)
-                        </p>
-                      )}
-                      {liveItems[0] && (
-                        <p className="text-muted-foreground mt-0.5 truncate">{liveItems[0]}</p>
-                      )}
-                    </TooltipContent>
-                  </Tooltip>
-                );
-              })}
-          </div>}
-        </div>
+        {/* The relationship heat strip lived here; the drift strip above the
+            detail pane replaced it (2026-10-14 redesign). */}
         {/* Suggested contacts — people with real email/Slack signal not yet
             tracked. Only shown in the Work directory because the signal sources
             are Gmail + Slack. */}
@@ -1737,10 +1627,30 @@ export default function ContactsPage() {
             All contacts
           </button>
         )}
+        <DriftStrip
+          people={directoryContacts.map((c) => {
+            const last = getLastInteraction(c.id, c.lastInteraction);
+            const days = last ? Math.max(0, (Date.now() - new Date(last).getTime()) / 86_400_000) : null;
+            return {
+              id: c.id,
+              name: c.name,
+              initials: c.initials,
+              days,
+              volume: liveActivity.find((a) => a.contactId === c.id)?.totalInteractionCount ?? 0,
+              tone: orbitTone(tones[c.id], days ?? 99),
+            };
+          })}
+          hoveredId={hoveredId}
+          selectedId={selectedId}
+          onHover={setHoveredId}
+          onSelect={(id) => setSelectedId(id)}
+        />
         {selected ? (
           <ContactDetail
             contact={selected}
             photoUrl={photos[selected.email?.toLowerCase() ?? ""]}
+            mix={liveActivity.find((a) => a.contactId === selected.id)?.bySource}
+            weekly={liveActivity.find((a) => a.contactId === selected.id)?.weekly}
             liveItems={getLiveItems(selected.id)}
             liveSources={getLiveSources(selected.id)}
             lastInteraction={getLastInteraction(selected.id, selected.lastInteraction)}

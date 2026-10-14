@@ -1,287 +1,295 @@
 "use client";
 
 /**
- * Today — the executive operational read.
+ * Today — Basil's understanding of you, your colleagues and your work, for the
+ * day ahead. (Redesigned 2026-10-14: cream canvas, navy chrome, live data
+ * graphics.)
  *
- * WHAT THIS REPLACED: a single "Running copy" column that listed the ranked
- * feed and stopped there. Eight similarly-weighted alerts, three of which were
- * the same stakeholder-silence signal wearing different names, and the day's
- * schedule below all of it. It was a faithful view of the databases and no help
- * at all in deciding what to do.
+ * Top to bottom: a read of the day (the cached morning briefing, or Basil's own
+ * no-AI read of the calendar and feed); your orbit (who you're close to right
+ * now, how they sound, how to land things with them); the shape of the day;
+ * what needs you, with how to approach each person; then your work, what
+ * others owe you and the days ahead.
  *
- * The order here answers, top to bottom: what changed, what matters most, what
- * to do now, which meetings need preparation, where the day is overloaded, and
- * what can wait.
+ * COST: nothing here triggers an AI call. Tone is read with ?cached=1, the
+ * briefing is the cache-only route, and approach hints are stored profile text.
  *
- * MOBILE ORDER is deliberately different from desktop and is enforced with
- * `order-*` utilities rather than duplicated markup: read, then the single most
- * important action, then the timeline, then the other two priorities. Nobody
- * should have to scroll an alert queue to find out when their first meeting is.
- *
- * DATA HONESTY: every number is counted from a store. Where a question has no
- * backing field — how important a person is to you — the surface shows the real
- * observed quantity under its real name, or says it cannot answer.
+ * DATA HONESTY: every figure is counted from a store or the calendar. Where a
+ * source is missing or failed, the panel says so rather than showing a calm
+ * empty state.
  */
 
 import useSWR from "swr";
-import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import type { TodayFeedResponse } from "@/lib/today/types";
+import { useEffect, useMemo, useState } from "react";
+import type { TodayFeedResponse, TodayFeedItem } from "@/lib/today/types";
 import type { CalendarEvent } from "@/lib/google/calendar";
 import type { ActionItem } from "@/lib/types/action";
 import {
-  buildPriorityBoard, buildDayShape, bucketCommitments,
-  sourceStates, disconnected, operationalRead, emptyBoardMessage, localDate,
-  buildStatRow, signalBreakdown, isRelationshipRisk, provenanceOf,
-  type FeedState,
+  buildPriorityBoard, bucketCommitments, disconnected, operationalRead, emptyBoardMessage,
+  buildDayShape, sourceStates,
 } from "@/lib/today/executive";
-import { Hero } from "@/components/today/hero";
-import { StatRow } from "@/components/today/stat-row";
-import {
-  PanelFrame, SignalProvenance, ThreadsPanel, RelationshipPanel, IntelligencePanel,
-} from "@/components/today/panels";
-import { PriorityActionCard } from "@/components/today/priority-action-card";
 import { gmailIdOf, preloadEmails } from "@/components/email/use-email";
 import { isWaitingOnOthers } from "@/lib/actions/utils";
 import { InvitationsPanel } from "@/components/today/invitations-panel";
-import { DayTimeline } from "@/components/today/day-timeline";
-import { PressureSection } from "@/components/today/pressure";
-import { Watchlist } from "@/components/today/watchlist";
-import { Panel, Loading, Failed, Empty } from "@/components/today/primitives";
+import { DayRibbon, buildBlocks, localHours } from "@/components/today/v2/day-ribbon";
+import { NeedsYouCard } from "@/components/today/v2/needs-you-card";
+import { Orbit, TONE, orbitTone, type OrbitPerson, type SentimentRow } from "@/components/today/v2/orbit";
+import { WaitingPanel, NextDaysPanel } from "@/components/today/v2/side-panels";
+import { WorkPanel, type ProjectLite } from "@/components/today/v2/work-panel";
+import { ReadOfTheDay } from "@/components/today/v2/read-of-the-day";
 
-/**
- * Throws on a bad status. Without this SWR never errors, `isLoading` goes false
- * with an empty list, and the page reports a calm day during an outage — the
- * single worst thing this surface can do.
- */
 async function swrFetch(url: string) {
   const r = await fetch(url, { cache: "no-store" });
   if (!r.ok) throw new Error(`${url} → ${r.status}`);
   return r.json();
 }
-
 const SWR_OPTS = { revalidateOnFocus: false, dedupingInterval: 30_000 };
+const SLOW_OPTS = { revalidateOnFocus: false, dedupingInterval: 600_000 };
+
+interface ActivityRow { contactId: string; name: string; lastInteraction: string | null; totalInteractionCount: number }
+
+const DAY = 86_400_000;
+
+function lastLabel(days: number): string {
+  if (days < 1) return "today";
+  if (days < 2) return "yesterday";
+  if (days < 14) return `${Math.floor(days)} days ago`;
+  return `${Math.floor(days / 7)} weeks ago`;
+}
+
+function personOf(item: TodayFeedItem | undefined): string | undefined {
+  if (!item) return undefined;
+  if (item.kind === "followup") return item.followup.fromName || undefined;
+  return undefined;
+}
 
 export default function Today() {
-  const { data: feed, isLoading: feedLoading, error: feedError } =
-    useSWR<TodayFeedResponse>("/api/today", swrFetch, SWR_OPTS);
-  const { data: cal, error: calError } =
-    useSWR<{ connected: boolean; events?: CalendarEvent[] }>("/api/calendar/upcoming", swrFetch, SWR_OPTS);
-  const { data: actions, isLoading: actionsLoading, error: actionsError } =
-    useSWR<{ actions?: ActionItem[] }>("/api/actions", swrFetch, SWR_OPTS);
-  // The greeting needs a name. Failing to load one is not worth an error state —
-  // it degrades to a greeting without a name, which still reads correctly.
-  const { data: settings } = useSWR<{ name?: string; timezone?: string }>("/api/settings", swrFetch, SWR_OPTS);
+  const { data: feed, isLoading: feedLoading, error: feedError } = useSWR<TodayFeedResponse>("/api/today", swrFetch, SWR_OPTS);
+  const { data: cal, error: calError } = useSWR<{ connected: boolean; events?: CalendarEvent[] }>("/api/calendar/upcoming", swrFetch, SWR_OPTS);
+  const { data: actions, error: actionsError } = useSWR<{ actions?: ActionItem[] }>("/api/actions", swrFetch, SWR_OPTS);
+  const { data: settings } = useSWR<{ name?: string; timezone?: string; workStart?: string; workEnd?: string }>("/api/settings", swrFetch, SWR_OPTS);
+  const { data: briefing } = useSWR<{ criticalToday?: string | null; generatedAt?: string } | null>("/api/generate/briefing?type=morning", swrFetch, SLOW_OPTS);
+  const { data: activity } = useSWR<{ activity?: ActivityRow[] }>("/api/contacts/activity", swrFetch, SLOW_OPTS);
+  const { data: tones } = useSWR<{ sentiment?: Record<string, SentimentRow> }>("/api/contacts/sentiment?cached=1", swrFetch, SLOW_OPTS);
+  const { data: projects, error: projectsError } = useSWR<{ projects?: ProjectLite[] }>("/api/projects", swrFetch, SLOW_OPTS);
 
-  // One `now` per render so the timeline marker and the header clock agree.
-  // It starts NULL: the page is statically generated, and a Date created
-  // during render is the build's date on the server and today's in the
-  // browser — hydration error 418 and a first frame showing the wrong day.
-  // The browser sets it after mount, then it ticks so a tab left open across
-  // midnight stops showing yesterday.
+  // `now` starts null (static render) and ticks each minute.
   const [now, setNow] = useState<Date | null>(null);
   useEffect(() => {
     setNow(new Date());
     const t = setInterval(() => setNow(new Date()), 60_000);
     return () => clearInterval(t);
   }, []);
-  // Derived data needs a Date; before the clock exists none of its inputs
-  // (all SWR-fetched, all absent during SSR) exist either. Memoised so the
-  // placeholder is one object, not a new one per render.
   const clock = useMemo(() => now ?? new Date(0), [now]);
-  // The user's day, not UTC's. Settings first; the browser's zone is where the
-  // user actually is when nothing is configured.
   const timeZone = settings?.timezone ?? Intl.DateTimeFormat().resolvedOptions().timeZone;
-
-  const board = useMemo(() => buildPriorityBoard(feed?.items ?? []), [feed]);
-  // Every email card on this page opens in place — load them now, not on click.
-  const emailIds = useMemo(
-    () => (feed?.items ?? []).flatMap((i) => gmailIdOf(i.id) ?? []).slice(0, 12).join(","),
-    [feed],
-  );
-  useEffect(() => {
-    if (emailIds) preloadEmails(emailIds.split(","));
-  }, [emailIds]);
-  const day = useMemo(() => buildDayShape(cal?.events ?? [], clock, timeZone), [cal, clock, timeZone]);
-  // Your commitments only — someone else's ("Carter to send…") is waiting-on.
   const selfName = settings?.name;
-  const buckets = useMemo(
-    () => (actions?.actions
-      ? bucketCommitments(actions.actions.filter((a) => !isWaitingOnOthers(a, selfName ? [selfName] : [])), clock, timeZone)
-      : null),
-    [actions, clock, timeZone, selfName],
-  );
-
-  const sources = useMemo(() => sourceStates(feed?.sources ?? {
-    changes: false, followups: { gmail: false, slack: false }, linear: false,
-  }), [feed]);
-  const missing = useMemo(() => (feed ? disconnected(feed.sources) : []), [feed]);
-  // Connected but failed this pass — must never read as "reporting".
-  const degraded = useMemo(() => feed?.degraded ?? [], [feed]);
-  const calConnected = !!cal?.connected && !calError;
-  const read = useMemo(
-    () => operationalRead(board, day, missing, calConnected, degraded),
-    [board, day, missing, calConnected, degraded],
-  );
+  const firstName = (selfName ?? "").split(" ")[0] || "there";
 
   const items = useMemo(() => feed?.items ?? [], [feed]);
-  // Passed through as a state, not collapsed to []: a failed feed used to
-  // reach buildStatRow as an empty one and "Act now" read 0 during an outage.
-  const feedState: FeedState = feedError ? "failed" : feedLoading ? "loading" : "ready";
-  const stats = useMemo(
-    () => buildStatRow(feed, feedState, day, buckets, calConnected),
-    [feed, feedState, day, buckets, calConnected],
-  );
-  const slices = useMemo(() => signalBreakdown(items), [items]);
-  const threads = useMemo(() => items.filter((i) => i.kind === "followup"), [items]);
-  const quiet = useMemo(() => items.filter(isRelationshipRisk), [items]);
-  const inferredCount = useMemo(
-    () => items.filter((i) => provenanceOf(i) === "inferred").length,
-    [items],
-  );
-  // Closed TODAY, counted from the store — not a figure Basil narrates about itself.
-  const closedToday = useMemo(() => {
-    const d = localDate(clock, timeZone);
-    return (actions?.actions ?? []).filter((a) => {
-      const u = (a as { updatedAt?: string }).updatedAt;
-      return a.status === "done" && !!u && localDate(new Date(u), timeZone) === d;
-    }).length;
-  }, [actions, clock, timeZone]);
-  const firstName = (settings?.name ?? "").split(" ")[0] || "there";
-  const feedUnavailable = feedError ? "The feed could not be read." : undefined;
+  const board = useMemo(() => buildPriorityBoard(items), [items]);
+  const byId = useMemo(() => new Map(items.map((i) => [i.id, i])), [items]);
 
-  const [first, ...rest] = board.top;
+  const emailIds = useMemo(() => items.flatMap((i) => gmailIdOf(i.id) ?? []).slice(0, 12).join(","), [items]);
+  useEffect(() => { if (emailIds) preloadEmails(emailIds.split(",")); }, [emailIds]);
+
+  const events = useMemo(() => cal?.events ?? [], [cal]);
+  const calConnected = !!cal?.connected && !calError;
+  const day = useMemo(() => buildDayShape(events, clock, timeZone), [events, clock, timeZone]);
+  const missing = useMemo(() => (feed ? disconnected(feed.sources) : []), [feed]);
+  const degraded = useMemo(() => feed?.degraded ?? [], [feed]);
+  const sources = useMemo(() => sourceStates(feed?.sources ?? { changes: false, followups: { gmail: false, slack: false }, linear: false }), [feed]);
+  const read = useMemo(() => operationalRead(board, day, missing, calConnected, degraded), [board, day, missing, calConnected, degraded]);
+
+  const blocks = useMemo(() => (now ? buildBlocks(events, clock, timeZone) : []), [events, clock, timeZone, now]);
+  // Free time still ahead today (a stretch that has passed is not free any more).
+  const nowH = useMemo(() => (now ? localHours(clock.toISOString(), timeZone) : 0), [now, clock, timeZone]);
+  const freeHours = useMemo(() => blocks.filter((b) => b.kind === "free").reduce((n, b) => n + Math.max(0, b.end - Math.max(b.start, nowH)), 0), [blocks, nowH]);
+  const declinedCount = blocks.filter((b) => b.kind === "declined").length;
+  const meetingCount = blocks.filter((b) => b.kind === "meeting").length;
+
+  const all = useMemo(() => actions?.actions ?? [], [actions]);
+  const selfNames = useMemo(() => (selfName ? [selfName] : []), [selfName]);
+  const mine = useMemo(() => all.filter((a) => a.status !== "done" && !isWaitingOnOthers(a, selfNames)), [all, selfNames]);
+  const waiting = useMemo(() => all.filter((a) => a.status !== "done" && isWaitingOnOthers(a, selfNames)), [all, selfNames]);
+  const buckets = useMemo(() => (actions ? bucketCommitments(mine, clock, timeZone) : null), [actions, mine, clock, timeZone]);
+  const promised = useMemo(() => (buckets ? [
+    ...buckets.overdue.map((a) => ({ a, due: "Overdue", color: "#8E2A20" })),
+    ...buckets.today.map((a) => ({ a, due: "Due today", color: "#8F3F0E" })),
+    ...buckets.next7.map((a) => ({ a, due: a.dueDate ? `Due ${new Date(a.dueDate).toLocaleDateString("en-GB", { weekday: "short", day: "numeric", month: "short" })}` : "This week", color: "#4B5568" })),
+  ].slice(0, 4) : []), [buckets]);
+
+  // ── People: the orbit, and who each card is about ─────────────────────────
+  const selfLower = (selfName ?? "").toLowerCase();
+  const orbitPeople: OrbitPerson[] = useMemo(() => {
+    const rows = (activity?.activity ?? [])
+      .filter((r) => r.lastInteraction && r.name && r.name.toLowerCase() !== selfLower)
+      .map((r) => {
+        const days = Math.max(0, (clock.getTime() - Date.parse(r.lastInteraction as string)) / DAY);
+        return { r, days };
+      })
+      .filter(({ days }) => days <= 30);
+    const active = rows.filter((x) => x.days <= 14).sort((a, b) => b.r.totalInteractionCount - a.r.totalInteractionCount).slice(0, 10);
+    const quiet = rows.filter((x) => x.days > 14).sort((a, b) => b.r.totalInteractionCount - a.r.totalInteractionCount).slice(0, 2);
+    return [...active, ...quiet].map(({ r, days }) => ({
+      name: r.name,
+      days,
+      volume: r.totalInteractionCount,
+      tone: orbitTone(tones?.sentiment?.[r.contactId], days),
+      lastLabel: lastLabel(days),
+      href: `/dashboard/contacts?id=${encodeURIComponent(r.contactId)}`,
+    }));
+  }, [activity, tones, clock, selfLower]);
+
+  const cardPeople = useMemo(() => board.top.map((p) => personOf(byId.get(p.id))).filter((n): n is string => !!n), [board, byId]);
+  const hintNames = useMemo(() => Array.from(new Set([...orbitPeople.map((p) => p.name), ...cardPeople])).slice(0, 25), [orbitPeople, cardPeople]);
+  const { data: hints } = useSWR<{ hints?: { name: string; hint: string }[] }>(
+    hintNames.length ? `/api/contacts/approach?names=${encodeURIComponent(hintNames.join(","))}` : null, swrFetch, SLOW_OPTS);
+  const hintOf = useMemo(() => {
+    const m = new Map<string, string>();
+    for (const h of hints?.hints ?? []) if (h.hint) m.set(h.name.toLowerCase(), h.hint);
+    return (name?: string) => (name ? m.get(name.toLowerCase()) : undefined);
+  }, [hints]);
+  const orbitWithHints = useMemo(() => orbitPeople.map((p) => ({ ...p, howTo: hintOf(p.name) })), [orbitPeople, hintOf]);
+  const toneOf = useMemo(() => {
+    const m = new Map(orbitPeople.map((p) => [p.name.toLowerCase(), TONE[p.tone].color]));
+    return (name?: string) => (name ? m.get(name.toLowerCase()) : undefined);
+  }, [orbitPeople]);
+
+  const [focus, setFocus] = useState<string | null>(null);
+
+  const readText = useMemo(() => {
+    const prose = (briefing?.criticalToday ?? "").replace(/[#*_>`]/g, "").replace(/^\s*[-•]\s*/gm, "").replace(/\s+/g, " ").trim();
+    if (prose.length > 40) {
+      const sentences = prose.match(/[^.!?]+[.!?]+/g) ?? [prose];
+      return sentences.slice(0, 3).join(" ").trim();
+    }
+    return [read.shape, read.risk].filter(Boolean).join(" ");
+  }, [briefing, read]);
+
+  const needsCount = board.top.length;
+  const dateLine = now
+    ? new Intl.DateTimeFormat("en-GB", { timeZone, weekday: "short", day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" }).format(now)
+    : "";
+  const greeting = now ? (() => {
+    const h = Number(new Intl.DateTimeFormat("en-GB", { timeZone, hour: "2-digit", hourCycle: "h23" }).format(now));
+    return h < 12 ? "Good morning" : h < 18 ? "Good afternoon" : "Good evening";
+  })() : "Hello";
 
   return (
-    <div className="wire min-h-full">
-      <div className="mx-auto w-full max-w-[80rem] px-4 sm:px-6 py-4 sm:py-6">
+    <div className="wire basil-dots relative min-h-full overflow-hidden">
+      <span aria-hidden className="pointer-events-none absolute -right-40 -top-56 h-[560px] w-[760px] rounded-full" style={{ background: "radial-gradient(closest-side, rgba(212,185,120,.32), transparent 72%)" }} />
+      <div className="relative mx-auto flex w-full max-w-[78rem] flex-col gap-7 px-4 py-6 sm:px-8 sm:py-10">
 
-        {/* 1 — Hero: greeting, the read, the mark */}
-        <Hero
-          name={firstName}
-          shape={read.shape}
-          risk={read.risk}
-          sources={sources}
-          now={now}
-          timeZone={timeZone}
-        />
-
-        {/* 2 — The five counts. Every tile links to what it counts. */}
-        <div className="mt-4">
-          <h2 className="sr-only">Today at a glance</h2>
-          <StatRow stats={stats} />
+        {/* 1 — The read, beside your orbit */}
+        <div className="flex flex-wrap items-stretch gap-7">
+          <ReadOfTheDay
+            greeting={greeting}
+            name={firstName}
+            dateLine={dateLine}
+            timeZone={timeZone}
+            text={readText}
+            fromBriefing={!!briefing?.criticalToday}
+            people={orbitPeople.map((p) => p.name)}
+            focus={focus}
+            onFocus={setFocus}
+            stats={[
+              { value: calConnected ? String(meetingCount) : "—", label: calConnected ? `meeting${meetingCount === 1 ? "" : "s"}${declinedCount ? ` (${declinedCount} declined)` : ""}` : "calendar not connected" },
+              { value: calConnected ? `${Math.floor(freeHours)}${freeHours % 1 >= 0.5 ? "½" : ""}` : "—", unit: " h", label: "free to think, from now" },
+              { value: feedError ? "—" : String(needsCount), label: needsCount === 1 ? "thing needs you" : "things need you", dark: true },
+            ]}
+            sources={sources}
+          />
+          <div className="min-w-0 flex-[1_1_440px]">
+            <Orbit people={orbitWithHints} focus={focus} onFocus={setFocus} />
+          </div>
         </div>
 
-        {/* 3 — Priorities beside the day. On mobile `order` puts the single most
-            important action first, then the schedule, then the rest: nobody
-            should scroll an alert queue to find their first meeting. */}
-        <div className="mt-5 grid grid-cols-1 gap-5 lg:grid-cols-12">
-          <div className="contents lg:col-span-8 lg:block">
-            <div className="order-1 lg:order-none">
-              <Panel title="Top priorities" id="prio-h">
-                {feedError ? (
-                  <Failed what="Your priorities" onRetry={() => location.reload()} />
-                ) : feedLoading ? (
-                  <Loading label="Reading your priorities…" rows={3} />
-                ) : board.top.length === 0 ? (
-                  missing.length === sources.length ? (
-                    <Failed what="Every source" />
-                  ) : (
-                    <Empty>
-                      Nothing needs a decision right now.{" "}
-                      {emptyBoardMessage(missing, degraded)}
-                    </Empty>
-                  )
-                ) : (
-                  <div className="space-y-3">
-                    {first && <PriorityActionCard priority={first} />}
-                  </div>
-                )}
-              </Panel>
-            </div>
+        {/* 2 — The shape of the day */}
+        <section aria-labelledby="day-h" className="basil-rise flex flex-col gap-4 rounded-[24px] border border-[var(--w-rule)] bg-[var(--w-flimsy)] p-5 sm:p-6" style={{ animationDelay: "220ms" }}>
+          <div className="flex flex-wrap items-baseline justify-between gap-2.5">
+            <h2 id="day-h" className="basil-serif text-[30px] text-[#10213F]">The shape of your day</h2>
+            <span className="flex flex-wrap gap-4 text-[12px] text-[color:var(--w-ink-soft)]">
+              <span className="inline-flex items-center gap-1.5"><span className="h-2.5 w-3.5 rounded-[3px] bg-[#10213F]" />Meeting</span>
+              <span className="inline-flex items-center gap-1.5"><span className="h-2.5 w-3.5 rounded-[3px] border border-[#C8A96B]" style={{ background: "repeating-linear-gradient(135deg, rgba(200,169,107,.6) 0 3px, rgba(200,169,107,.25) 3px 6px)" }} />Free to think</span>
+              <span className="inline-flex items-center gap-1.5"><span className="h-2.5 w-3.5 rounded-[3px] border-[1.5px] border-dashed border-[#8A8F99]" />Declined</span>
+            </span>
+          </div>
+          {now && (
+            <DayRibbon events={events} now={clock} timeZone={timeZone} connected={calConnected} workStart={settings?.workStart} workEnd={settings?.workEnd} />
+          )}
+        </section>
 
-            {rest.length > 0 && (
-              <div className="order-3 lg:order-none space-y-3 lg:mt-3">
-                {rest.map((p) => <PriorityActionCard key={p.id} priority={p} />)}
-              </div>
+        {/* 3 — What needs you, beside your work and the days ahead */}
+        <div className="flex flex-wrap items-start gap-7">
+          <div className="flex min-w-0 flex-[3_1_560px] flex-col gap-5">
+            <div className="flex items-baseline justify-between gap-2.5 px-1">
+              <h2 className="basil-serif text-[30px] text-[#10213F]">Needs you</h2>
+              <span className="text-[13px] text-[color:var(--w-ink-soft)]">still waiting on you · still valid</span>
+            </div>
+            {feedError ? (
+              <p className="rounded-2xl border border-[var(--w-rule)] bg-[var(--w-flimsy)] p-5 text-[15px] text-[color:var(--w-stamp)]">Your priorities could not be read just now. <button type="button" className="underline" onClick={() => location.reload()}>Try again</button></p>
+            ) : feedLoading ? (
+              <p className="rounded-2xl border border-[var(--w-rule)] bg-[var(--w-flimsy)] p-5 text-[15px] text-[color:var(--w-ink-soft)]">Reading your priorities…</p>
+            ) : board.top.length === 0 ? (
+              <p className="rounded-2xl border border-[var(--w-rule)] bg-[var(--w-flimsy)] p-5 text-[15px] text-[color:var(--w-ink-soft)]">Nothing needs a decision right now. {emptyBoardMessage(missing, degraded)}</p>
+            ) : (
+              board.top.map((p, i) => {
+                const person = personOf(byId.get(p.id));
+                return (
+                  <NeedsYouCard
+                    key={p.id}
+                    priority={p}
+                    person={person}
+                    howTo={hintOf(person)}
+                    toneColor={toneOf(person)}
+                    delay={300 + i * 70}
+                    onFocusPerson={setFocus}
+                  />
+                );
+              })
             )}
+            {board.watchlist.length > 0 && (
+              <p className="px-1 text-[13px] text-[color:var(--w-ink-soft)]">
+                {board.watchlist.length} more on the watchlist. <Link href="/dashboard/threads" className="font-medium underline underline-offset-2" style={{ color: "var(--w-carbon)" }}>See everything</Link>
+              </p>
+            )}
+
+            <InvitationsPanel />
+
+            <section aria-labelledby="promised-h" className="basil-rise flex flex-col gap-1 rounded-[20px] border border-[var(--w-rule)] bg-[var(--w-flimsy)] p-[22px]" style={{ animationDelay: "480ms" }}>
+              <div className="flex items-baseline justify-between gap-2.5 pb-2">
+                <h2 id="promised-h" className="basil-serif text-[26px] text-[#10213F]">You promised</h2>
+                <Link href="/dashboard/actions" className="text-[14px] font-medium no-underline" style={{ color: "var(--w-carbon)" }}>All {mine.length} →</Link>
+              </div>
+              {actionsError ? (
+                <p className="text-[14px] text-[color:var(--w-stamp)]">Commitments could not be read.</p>
+              ) : promised.length === 0 ? (
+                <p className="text-[14px] text-[color:var(--w-ink-soft)]">Nothing due this week.</p>
+              ) : promised.map(({ a, due, color }) => (
+                <Link key={a.id} href="/dashboard/actions" className="flex items-start gap-3.5 border-t border-[var(--w-tray)] py-3 text-[color:var(--w-ink)] no-underline">
+                  <span className="mt-1.5 h-2 w-2 shrink-0 rounded-full" style={{ background: color }} />
+                  <span className="flex flex-col gap-1">
+                    <span className="text-[15px] leading-snug">{a.text}</span>
+                    <span className="text-[13px] text-[color:var(--w-ink-soft)]"><span className="font-semibold" style={{ color }}>{due}</span> · from {a.source}</span>
+                  </span>
+                </Link>
+              ))}
+            </section>
           </div>
 
-          <aside className="order-2 lg:order-none lg:col-span-4" aria-labelledby="shape-h">
-            <div className="lg:sticky lg:top-4">
-              <Panel
-                title="Today's shape"
-                id="shape-h"
-                as="aside"
-                action={
-                  day.meetingCount > 0 ? (
-                    <span className="wire-data text-[0.75rem] text-[color:var(--w-ink-soft)]">
-                      {day.meetingCount} meeting{day.meetingCount === 1 ? "" : "s"}
-                    </span>
-                  ) : undefined
-                }
-              >
-                {calError
-                  ? <Failed what="Your calendar" onRetry={() => location.reload()} />
-                  : <DayTimeline day={day} connected={calConnected} now={clock} />}
-              </Panel>
-            </div>
-          </aside>
+          <div className="flex min-w-0 flex-[2_1_360px] flex-col gap-5">
+            <WorkPanel projects={projects?.projects} failed={!!projectsError} now={clock} delay={340} />
+            <WaitingPanel items={waiting} now={clock} delay={400} />
+            {calConnected && now && (
+              <NextDaysPanel events={events} now={clock} timeZone={timeZone} delay={460} />
+            )}
+          </div>
         </div>
 
-        {/* Invitations waiting on an answer — only when there are some */}
-        <InvitationsPanel />
-
-        {/* 4 — Signal, threads, relationships, and what Basil did unattended */}
-        <div className="mt-6 grid grid-cols-1 gap-5 sm:grid-cols-2 xl:grid-cols-4">
-          <PanelFrame title="Signal today">
-            {feedLoading ? <Loading label="Reading signal…" rows={1} />
-              : <SignalProvenance slices={slices} total={items.length} unavailable={feedUnavailable} />}
-          </PanelFrame>
-
-          <PanelFrame
-            title="Awaiting your reply"
-            href="/dashboard/threads"
-            cta={feed?.totals ? `All threads (${feed.totals.followups})` : "All threads"}
-          >
-            {feedLoading ? <Loading label="Reading threads…" rows={1} />
-              : <ThreadsPanel items={threads} unavailable={feedUnavailable} />}
-          </PanelFrame>
-
-          <PanelFrame title="Relationships" href="/dashboard/contacts" cta="All people">
-            {feedLoading ? <Loading label="Reading relationships…" rows={1} />
-              : <RelationshipPanel items={quiet} unavailable={feedUnavailable} />}
-          </PanelFrame>
-
-          <PanelFrame title="Basil this morning" href="/dashboard/briefing" cta="Full briefing">
-            {feedLoading || actionsLoading ? <Loading label="Reading activity…" rows={1} />
-              : <IntelligencePanel
-                  completedToday={closedToday}
-                  inferred={inferredCount}
-                  unavailable={actionsError ? "Commitments could not be read." : feedUnavailable}
-                />}
-          </PanelFrame>
-        </div>
-
-        {/* 4 — Pressure and momentum, full width */}
-        <div className="mt-6">
-          <PressureSection
-            day={day}
-            calendarConnected={calConnected}
-            buckets={buckets}
-            commitmentsLoading={actionsLoading}
-            commitmentsFailed={!!actionsError}
-          />
-        </div>
-
-        {/* 5 — Watchlist */}
-        <Watchlist items={board.watchlist} />
-
-        <p className="mt-8 text-[0.8125rem] text-[color:var(--w-ink-soft)]">
-          <Link href="/dashboard/briefing" className="font-semibold underline underline-offset-2" style={{ color: "var(--w-carbon)" }}>
-            Full briefing
-          </Link>{" "}
-          — the long-form explanation behind this read.
+        <p className="text-[13px] text-[color:var(--w-ink-soft)]">
+          <Link href="/dashboard/briefing" className="font-semibold underline underline-offset-2" style={{ color: "var(--w-carbon)" }}>Full briefing</Link>
+          {" "}— the long-form explanation behind this read.
         </p>
       </div>
     </div>

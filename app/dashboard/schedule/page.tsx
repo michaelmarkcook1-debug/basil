@@ -508,7 +508,7 @@ export default function SchedulePage() {
       <div className="flex flex-col md:flex-row flex-1 min-h-0 overflow-y-auto md:overflow-hidden">
 
         {/* ── Left sidebar ─────────────────────────────────────────────── */}
-        <aside className="w-full md:w-60 border-b md:border-b-0 md:border-r border-border/40 flex flex-col overflow-hidden shrink-0 bg-sidebar/20">
+        <aside className="w-full md:w-60 border-b md:border-b-0 md:border-r border-border/40 flex flex-col overflow-hidden shrink-0 bg-[var(--w-flimsy)]">
 
           {/* Mini calendar */}
           <div className="p-3 shrink-0">
@@ -566,7 +566,7 @@ export default function SchedulePage() {
           <div className="flex-1 min-h-0 overflow-y-auto px-3 pb-2">
             {selectedDay ? (
               <>
-                <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-1.5 sticky top-0 bg-sidebar/20 py-1">
+                <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-1.5 sticky top-0 bg-[var(--w-flimsy)] py-1">
                   {selectedDateLabel}
                 </p>
                 {selectedEvents.filter((e) => !e.isAllDay).length === 0 ? (

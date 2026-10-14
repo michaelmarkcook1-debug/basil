@@ -16,7 +16,7 @@
    ─────────────────────────────────────────────────────────────────────────── */
 
 .wire {
-  /* ── Dark ground, white and gold ──────────────────────────────────────────
+  /* ── (Historic) dark ground, white and gold — superseded 2026-10-14 by the cream + navy identity below ──────────────────────────────────────────
      Basil's own identity, and the resolution of the split this file used to
      carry: a light desk sitting inside dark navigation chrome, which was never
      a decision anyone made — it was two worlds overlapping. The whole surface
@@ -31,54 +31,47 @@
   /* Ground. Navy rather than neutral black: black backgrounds make gold read as
      yellow, and warm white on true black produces the halation that makes long
      reading tiring. */
-  --w-paper:        #0E1724;  /* canvas */
-  --w-flimsy:       #18222F;  /* raised surface — cards, sheets */
-  --w-tray:         #131C2A;  /* sunk surface — archived, deferred */
-  --w-rule:         #24314553;
-  --w-rule-strong:  #3A4A61;
+  --w-paper:        #F6F1E7;  /* canvas — warm cream */
+  --w-flimsy:       #FFFDF8;  /* raised surface — cards, sheets */
+  --w-tray:         #EFE7D6;  /* sunk surface — archived, deferred */
+  --w-rule:         #E2D6BE;
+  --w-rule-strong:  #CDBF9F;
 
-  /* Ink. Warm white, not pure #FFF — paired with gold, a cold white reads as
-     two unrelated decisions rather than one palette. */
-  --w-ink:          #F4F1EA;  /* primary */
-  --w-ink-soft:     #A9B4C4;  /* secondary, still ≥4.5:1 on the canvas */
+  /* Ink. Deep navy rather than black, so ink and the navy chrome are one
+     palette. */
+  --w-ink:          #14213A;  /* primary — 14:1 on the canvas */
+  --w-ink-soft:     #4B5568;  /* secondary — 6.8:1 on the canvas */
 
-  /* Gold is the accent: structure, attribution, sourcing, primary controls.
-     Reserved the way carbon was — it marks where the system is speaking, never
-     used decoratively, or it stops meaning anything. */
-  --w-carbon:       #C8A96B;
-  /* Text that sits ON the accent. Gold is a LIGHT colour, so white on gold is
-     unreadable; anything painting a gold surface must use this, not #fff. */
-  --w-on-accent:    #0E1724;
+  /* Gold is the accent: structure, attribution, sourcing. On cream the brand
+     gold (#C8A96B) is only 2:1, so accent TEXT and controls use this bronze
+     (7.5:1, and ΔE 24 from warning under deuteranopia); the bright gold is kept for fills, rings and the navy chrome. */
+  --w-carbon:       #5E4A1F;
+  /* Text that sits ON the accent. */
+  --w-on-accent:    #FFFDF8;
 
-  /* Status. Lifted from the light-ground values, which were chosen to sit on
-     paper and are far too dark to read on navy. */
-  --w-stamp:        #FF8A80;  /* danger — Act now, corrections, kills. Reserved. */
-  /* Warning is ORANGE, not amber. #F5B96B sat only ΔE 17.4 from the gold accent
-     — the same hue family separated by lightness — so "this is a link, Basil is
-     speaking" and "this is at risk" looked alike, and under deuteranopia they
-     were nearly identical (ΔE 15.8). #FF8A3D is ΔE 42.4 apart in normal vision
-     and 27.2 under deuteranopia, and takes the whole status set to ZERO
-     confusable pairs. */
-  --w-manila:       #FF8A3D;  /* warning — deferred / awaiting / at risk */
-  --w-filed:        #6EE7A0;  /* success — confirmed, settled, filed */
+  /* Status, re-stepped for a light ground (each ≥4.5:1 on cream). The set was
+     validated for colour-blind separation (scripts: dataviz validator). */
+  --w-stamp:        #B4372A;  /* danger — Act now, corrections, kills. Reserved. */
+  --w-manila:       #9C4A10;  /* warning — deferred / awaiting / at risk */
+  --w-filed:        #1A6E58;  /* success — confirmed, settled, filed */
 
-  /* Status surfaces: the same hue at low alpha over the ground, so a fill reads
-     as a tint of its own state rather than an unrelated block of colour. */
-  --w-carbon-tint:  #C8A96B1F;
-  --w-stamp-tint:   #FF8A801F;
-  --w-manila-tint:  #FF8A3D1F;
-  --w-filed-tint:   #6EE7A01F;
+  /* Status surfaces: the same hue at low alpha over the ground. */
+  --w-carbon-tint:  #C8A96B2E;
+  --w-stamp-tint:   #B4372A17;
+  --w-manila-tint:  #9C4A101A;
+  --w-filed-tint:   #1F8A701A;
 
-  /* Information is a fifth state, distinct from the accent, so a sourcing mark
-     and an info state are never the same colour. */
-  --w-info:         #7FB4FF;
-  --w-info-tint:    #7FB4FF1F;
+  /* Information is a fifth state, distinct from the accent. */
+  --w-info:         #2F5FA8;
+  --w-info-tint:    #2F5FA81A;
 
-  /* Navigation chrome — now the same family as the canvas rather than a
-     separate dark theme showing through. */
-  --w-nav:          #0B131F;
+  /* Navigation chrome: navy blue, the brand's dark half (2026-10-14 redesign:
+     cream canvas, navy menu, gold marks). */
+  --w-nav:          #10213F;
+  /* The accent ON the navy chrome — bright gold (8:1 on --w-nav). */
+  --w-nav-accent:   #D4B978;
 
-  --w-radius:       10px;  /* the dark identity is panelled, not cut paper */
+  --w-radius:       16px;
   --w-rule-w:       1px;
 
   /* ── The inherited semantic layer, restated in the dark world ────────────
@@ -154,21 +147,21 @@
      this world" was the right one. */
   --surface-0:      var(--w-paper);   /* canvas */
   --surface-1:      var(--w-flimsy);  /* raised — cards */
-  --surface-2:      #1E2A3A;          /* raised further — dialogs, panels */
+  --surface-2:      #FFFFFF;          /* raised further — dialogs, panels */
   --surface-3:      var(--w-tray);    /* sunk — archived, deferred */
   --surface-border: var(--w-rule);
 
   --gold:        var(--w-carbon);
-  --gold-muted:  #B08F4F;
+  --gold-muted:  #C8A96B;
   --gold-subtle: var(--w-carbon-tint);
 
-  /* Chart hues lifted for a dark ground — the light-theme values were chosen to
-     sit on paper and are far too dark to read against navy. */
-  --chart-1: #7FB4FF;
-  --chart-2: #C8A96B;
-  --chart-3: #6EE7A0;
-  --chart-4: #FF8A3D;
-  --chart-5: #A9B4C4;
+  /* Chart hues for the cream ground — validated as a set (lightness band,
+     chroma floor, colour-blind separation) with the dataviz validator. */
+  --chart-1: #2F5FA8;
+  --chart-2: #1F8A70;
+  --chart-3: #D9661F;
+  --chart-4: #8A6A2E;
+  --chart-5: #6B7280;
 
   color-scheme: light;
   background: var(--w-paper);
@@ -200,12 +193,12 @@
 }
 
 .wire-slug {
-  font-family: var(--font-archivo-narrow), "Arial Narrow", sans-serif;
+  font-family: var(--font-geist-sans), ui-sans-serif, sans-serif;
   font-weight: 600;
-  letter-spacing: -0.01em;
+  letter-spacing: 0.02em;
 }
 .wire-data {
-  font-family: var(--font-courier-prime), ui-monospace, monospace;
+  font-family: var(--font-geist-mono), ui-monospace, monospace;
   font-variant-numeric: tabular-nums;
   letter-spacing: 0;
 }
@@ -325,4 +318,57 @@
 }
 @media (prefers-reduced-motion: reduce) {
   .wire-arrives { animation: none; }
+}
+
+
+/* ── The navy chrome ─────────────────────────────────────────────────────────
+   The sidebar and mobile bar sit INSIDE `.wire`, so they inherit the cream
+   world's tokens — bronze accent, navy ink — which vanish on navy. The chrome
+   restates the accent and rules for its own ground. */
+.basil-chrome {
+  --w-carbon:      var(--w-nav-accent);
+  --w-carbon-tint: #D4B9782E;
+  --w-rule:        #D4B97838;
+  --w-ink:         #F6F1E7;
+  --w-ink-soft:    #EDE6D6B3;
+  --w-on-accent:   #10213F;
+}
+
+/* ── Motion ──────────────────────────────────────────────────────────────────
+   One orchestrated reveal on load, lift on hover, and slow ambient motion in
+   the data graphics. All of it stops for prefers-reduced-motion. */
+@keyframes basil-rise   { from { opacity: 0; transform: translateY(16px); } to { opacity: 1; transform: none; } }
+@keyframes basil-grow   { from { transform: scaleX(0); } to { transform: scaleX(1); } }
+@keyframes basil-grow-up{ from { transform: scaleY(0); } to { transform: scaleY(1); } }
+@keyframes basil-orbit  { to { transform: rotate(360deg); } }
+@keyframes basil-ping   { 0% { transform: scale(1); opacity: .55; } 100% { transform: scale(2.7); opacity: 0; } }
+@keyframes basil-twinkle{ 0%, 100% { opacity: .25; } 50% { opacity: .9; } }
+@keyframes basil-draw   { from { stroke-dashoffset: 1400; } to { stroke-dashoffset: 0; } }
+@keyframes basil-pop    { from { opacity: 0; scale: .3; } to { opacity: 1; scale: 1; } }
+
+.basil-rise   { animation: basil-rise .8s cubic-bezier(.2,.7,.2,1) both; }
+.basil-lift   { transition: transform .28s cubic-bezier(.2,.7,.2,1), box-shadow .28s ease, border-color .28s ease; }
+.basil-lift:hover { transform: translateY(-3px); box-shadow: 0 22px 40px -22px rgba(16,33,63,.45); border-color: #C8A96B; }
+.basil-grow   { transform-origin: left center; animation: basil-grow .9s cubic-bezier(.2,.7,.2,1) both; }
+.basil-col    { transform-origin: bottom center; animation: basil-grow-up .8s cubic-bezier(.2,.7,.2,1) both; }
+.basil-ping   { animation: basil-ping 2.4s ease-out infinite; }
+.basil-star   { animation: basil-twinkle 4s ease-in-out infinite; }
+.basil-draw   { stroke-dasharray: 1400; animation: basil-draw 1.6s cubic-bezier(.3,.7,.2,1) both; }
+.basil-pop    { animation: basil-pop .7s cubic-bezier(.2,.9,.3,1.2) both; }
+.basil-sky .basil-orbit   { animation: basil-orbit 150s linear infinite; }
+.basil-sky .basil-counter { animation: basil-orbit 150s linear infinite reverse; }
+.basil-sky:hover .basil-orbit, .basil-sky:hover .basil-counter { animation-play-state: paused; }
+.basil-soft   { opacity: .72; transition: opacity .2s ease; }
+.basil-reveal:hover .basil-soft, .basil-reveal:focus-within .basil-soft { opacity: 1; }
+.basil-dots {
+  background-image: radial-gradient(rgba(16, 33, 63, 0.07) 1px, transparent 1px);
+  background-size: 22px 22px;
+}
+.basil-serif { font-family: var(--font-instrument-serif), ui-serif, Georgia, serif; font-weight: 400; }
+.basil-mono  { font-family: var(--font-geist-mono), ui-monospace, monospace; font-variant-numeric: tabular-nums; }
+
+@media (prefers-reduced-motion: reduce) {
+  .basil-rise, .basil-grow, .basil-col, .basil-ping, .basil-star, .basil-draw, .basil-pop,
+  .basil-sky .basil-orbit, .basil-sky .basil-counter { animation: none !important; }
+  .basil-lift, .basil-soft { transition: none !important; }
 }
