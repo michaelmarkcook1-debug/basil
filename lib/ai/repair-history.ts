@@ -84,6 +84,33 @@ function isToolPart(part: unknown): part is LooseToolPart {
  *          conversation needed rescuing (silence here would hide a real
  *          reliability problem behind a working chat).
  */
+/**
+ * A tool step restored from History (lib/chat/receipts.ts toUIMessage) is a
+ * display stub — no toolCallId, no output, states like "archived-pending".
+ * Sent back to the model as a tool call it fails the SDK's message schema
+ * ("The messages do not match the ModelMessage[] schema"), so EVERY reopened
+ * conversation that had used a tool broke on its next message (seen
+ * 2026-10-14). The model gets it as a line of text instead: context kept, no
+ * fake call.
+ */
+const RESTORED_OUTCOME: Record<string, string> = {
+  "output-available": "done",
+  "output-denied": "declined by the user",
+  "output-error": "failed",
+  "archived-pending": "not completed — it was never approved",
+  "archived-unknown": "outcome unknown",
+};
+
+function isRestoredStub(part: LooseToolPart): boolean {
+  return typeof part.toolCallId !== "string" || !part.toolCallId;
+}
+
+function stubAsText(part: LooseToolPart): { type: "text"; text: string } {
+  const tool = part.type.replace(/^tool-/, "").replace(/([a-z])([A-Z])/g, "$1 $2").toLowerCase();
+  const outcome = RESTORED_OUTCOME[typeof part.state === "string" ? part.state : ""] ?? "outcome unknown";
+  return { type: "text", text: `[earlier step: ${tool} — ${outcome}]` };
+}
+
 export function repairOrphanedToolCalls(
   messages: UIMessage[]
 ): { messages: UIMessage[]; repaired: number } {
@@ -98,6 +125,11 @@ export function repairOrphanedToolCalls(
     let touched = false;
     const nextParts = parts.map((part) => {
       if (!isToolPart(part)) return part;
+      if (isRestoredStub(part)) {
+        touched = true;
+        repaired++;
+        return stubAsText(part);
+      }
       const state = typeof part.state === "string" ? part.state : "";
       if (TERMINAL_STATES.has(state)) return part;
       if (AWAITING_USER_STATES.has(state)) {

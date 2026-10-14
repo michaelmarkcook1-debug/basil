@@ -91,3 +91,25 @@ test("near-JSON repair never touches text inside quotes", () => {
   const bad = P.parseAndValidate("not json at all", MeetingPrepOutputSchema, "[test]");
   assert.equal(bad.ok, false, "genuinely broken output still fails");
 });
+
+test("a conversation reopened from History can be continued (restored tool steps become text)", async () => {
+  // The stored format (lib/chat/receipts.ts), rebuilt exactly as the History view does.
+  const { toUIMessage } = loadTs("lib/chat/receipts.ts");
+  const stored = [
+    { id: "u1", role: "user", content: "Book this zoom meeting pls", createdAt: "2026-10-13T19:00:00Z" },
+    { id: "a1", role: "assistant", content: "", createdAt: "2026-10-13T19:00:05Z", toolReceipts: [
+      { toolName: "checkAttendeeAvailability", state: "output-available", outcome: "success", input: { emails: ["x@y.invalid"] } },
+      { toolName: "getCalendarEvents", state: "output-available", outcome: "success" },
+      { toolName: "scheduleMeeting", state: "approval-requested", outcome: "pending", input: { title: "Zoom" } },
+    ] },
+  ];
+  const restored = stored.map((m) => { const { content: _content, createdAt: _createdAt, ...ui } = toUIMessage(m); return ui; });
+  const ask = { id: "u2", role: "user", parts: [{ type: "text", text: "What's my first meeting today?" }] };
+  const { messages, repaired } = repairOrphanedToolCalls([...restored, ask]);
+  assert.equal(repaired, 3);
+  const texts = messages[1].parts.map((p) => p.text);
+  assert.ok(texts.includes("[earlier step: schedule meeting — not completed — it was never approved]"));
+  assert.ok(texts.includes("[earlier step: check attendee availability — done]"));
+  const model = await ai.convertToModelMessages(messages);
+  for (const m of model) assert.equal(ai.modelMessageSchema.safeParse(m).success, true, `${m.role} must pass the SDK's schema`);
+});
