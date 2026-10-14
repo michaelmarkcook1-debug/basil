@@ -29,6 +29,19 @@ test("ownerOfMeetingNote: the user's, a named person's, or nobody's (stays a not
   assert.equal(own("Follow up: AI technology stack insights tool final version expected next week"), null);
   assert.equal(own("Blocker: Technology stack insights tool cannot provide 100% accurate representations"), null);
   assert.equal(own("Blocker: Roger's endpoint setup progress is unknown"), null, "a status, not anyone's task");
+  // 2026-10-14: a mention is not ownership — the user named as recipient or context.
+  assert.equal(own("Follow up: Matthew to send screenshots of Vendor View progress to Michael Cook by tomorrow"), "Matthew");
+  assert.equal(own("Follow up: Sentiment index materials to launch November 1st while Michael Cook is on honeymoon"), null);
+  assert.equal(own("Follow up: Michael will chase the Kimra podcast edit"), "michael cook");
+});
+
+test("invitation threads never become commitments; triage still sees human replies", () => {
+  const T = loadTs("lib/email/triage.ts");
+  assert.equal(T.isCalendarThread("Re: Updated invitation: AnalystGenius Catch-Up @ Tue 20 Oct"), true);
+  assert.equal(T.isCalendarThread("Fwd: Invitation: Board prep"), true);
+  assert.equal(T.isCalendarThread("Re: Pricing for the pilot"), false);
+  assert.equal(T.isCalendarInvitation("Re: Updated invitation: AnalystGenius Catch-Up"), false, "triage does not hide replies");
+  assert.match(src("lib/email/materialize-email.ts"), /if \(aTier !== "skip" && !isCalendarThread\(subject\)\)/);
 });
 
 test("recap, Slack and email notes only become actions when they name someone", () => {

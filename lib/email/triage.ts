@@ -63,6 +63,16 @@ const CALENDAR_INVITE_SUBJECT =
  * Two dozen "Respond to scheduling request … re: Invitation:" actions piled up
  * between May and September 2026 before this.
  */
+/**
+ * An invitation or any reply/forward in its thread ("Re: Updated invitation: …").
+ * For ACTION creation only: the event is answered on the calendar, and a human
+ * reply that needs an answer still reaches Needs you through the follow-up
+ * detector. Triage keeps using isCalendarInvitation, so replies aren't hidden.
+ */
+export function isCalendarThread(subject: string | undefined): boolean {
+  return isCalendarInvitation((subject ?? "").replace(/^\s*((re|fwd?|aw|sv)\s*:\s*)+/i, ""));
+}
+
 export function isCalendarInvitation(subject: string | undefined): boolean {
   return CALENDAR_INVITE_SUBJECT.test(subject ?? "");
 }

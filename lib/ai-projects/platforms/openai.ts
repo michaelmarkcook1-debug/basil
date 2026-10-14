@@ -76,7 +76,12 @@ export async function fetchOpenAIProjects(apiKey: string): Promise<AIProject[]> 
       };
     });
   } catch (err) {
-    console.error("[openai] fetchOpenAIProjects error:", err instanceof Error ? err.message : String(err));
+    const msg = err instanceof Error ? err.message : String(err);
+    // OpenAI retired the Assistants API in 2026: the endpoint now answers 404
+    // for every key. That is "no assistants to show", not an error to log on
+    // every page load (it was the AI Tools page's only error since September).
+    if (msg.startsWith("OpenAI API 404")) return [];
+    console.error("[openai] fetchOpenAIProjects error:", msg);
     return [];
   }
 }

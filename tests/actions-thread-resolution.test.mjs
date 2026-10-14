@@ -270,7 +270,8 @@ test("open actions from invitations close as 'calendar-invite'; invitation email
   const r = await R.decide({ text: "Respond to scheduling request from Ed" }, view([], { subject: "Updated invitation with note: TG Leadership" }), judgeSays(true), "Fixture");
   assert.equal(r.kind, "calendar-invite");
   const src = fs.readFileSync(path.join(ROOT, "lib/email/materialize-email.ts"), "utf8");
-  assert.match(src, /if \(aTier !== "skip" && !isCalendarInvitation\(subject\)\)/);
+  // Since 2026-10-14 the whole invitation thread (Re:/Fwd:) is excluded too.
+  assert.match(src, /if \(aTier !== "skip" && !isCalendarThread\(subject\)\)/);
 });
 
 test("the email classifier treats review, survey, registration and waitlist requests from strangers as noise", () => {

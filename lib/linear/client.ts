@@ -369,7 +369,7 @@ export interface LinearContactActivity {
 }
 
 const RECENT_TEAM_ISSUES_QUERY = `
-  query RecentTeamIssues($updatedAfter: DateTime!) {
+  query RecentTeamIssues($updatedAfter: DateTimeOrDuration!) {
     issues(
       filter: { updatedAt: { gte: $updatedAfter } }
       orderBy: updatedAt

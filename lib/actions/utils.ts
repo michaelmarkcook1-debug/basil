@@ -203,11 +203,19 @@ export function isWaitingOnOthers(action: { owner?: string }, selfNames: readonl
  */
 export function ownerOfMeetingNote(text: string, selfNames: readonly string[]): { owner: string } | null {
   const body = text.replace(/^\s*(follow[- ]?up|blocker)\s*:\s*/i, "");
+  // Ownership is the note's SUBJECT doing something — "<Name> to/will …" or
+  // "Michael owns this" — never a mention. "Matthew to send screenshots to
+  // Michael Cook" is Matthew's; it used to be filed as the user's because the
+  // user's name appeared anywhere in it (seen 2026-10-14).
+  const VERB = "(?:to|will|'ll|should|must|needs to|has to|is to|owns)";
   const firsts = selfNames.map((n) => n.trim().split(/\s+/)[0]).filter(Boolean);
+  const isSelf = (name: string) => firsts.some((f) => f.toLowerCase() === name.split(/\s+/)[0].toLowerCase());
+  const named = new RegExp(`^\\s*([A-Z][a-z]+(?:\\s+[A-Z][a-z]+)?)\\s+${VERB}\\b`).exec(body);
+  if (named) return isSelf(named[1]) ? { owner: selfNames[0] ?? named[1] } : { owner: named[1] };
   for (const f of firsts) {
-    if (new RegExp(`\\b${f.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\b`, "i").test(body)) return { owner: selfNames[0] ?? f };
+    const esc = f.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    if (new RegExp(`\\b${esc}(?:\\s+[A-Z][a-z]+)?\\s+${VERB}\\b`, "i").test(body)) return { owner: selfNames[0] ?? f };
   }
-  if (/^\s*you\b/i.test(body)) return { owner: selfNames[0] ?? "me" };
-  const named = /^\s*([A-Z][a-z]+(?:\s+[A-Z][a-z]+)?)\s+(?:to|will|should|needs to|is to)\b/.exec(body);
-  return named ? { owner: named[1] } : null;
+  if (/^\s*(you|i)\b/i.test(body)) return { owner: selfNames[0] ?? "me" };
+  return null;
 }
