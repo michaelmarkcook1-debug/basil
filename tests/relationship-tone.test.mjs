@@ -125,3 +125,11 @@ test("a read from the last day is returned without gathering Slack/Gmail", async
   assert.equal(r.interactions, 12);
   assert.equal(fetches.slack, 0, "no 30-day Slack fetch for a read already on file");
 });
+
+test("People page shows how old each personality profile is (card + list), flagging stale ones", () => {
+  const page = src("app/dashboard/contacts/page.tsx");
+  assert.match(page, /Updated \{d === 0 \? "today" : `\$\{d\} day\$\{d === 1 \? "" : "s"\} ago`\}/);
+  assert.match(page, /stale \? " — due a refresh" : ""/);
+  assert.match(page, /\{d === null \? "no profile" : `profile \$\{d\}d`\}/);
+  assert.match(page, /profileDates=\{Object\.fromEntries\(Object\.entries\(overrides\)/);
+});
