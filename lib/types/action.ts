@@ -37,7 +37,9 @@ export interface ActionItem {
     /** A promise the user made, later shown fulfilled in the same thread. */
     | "promise-kept"
     /** Came from a system notification that only reported something (signed, confirmed) — nothing to do. */
-    | "notification";
+    | "notification"
+    /** A meeting note ("Follow up: …", "Blocker: …") that named nobody — kept in the recap, not a task. */
+    | "meeting-note";
   /** When resolve-threads last re-read this action's source conversation. */
   threadCheckedAt?: string;
   /**
