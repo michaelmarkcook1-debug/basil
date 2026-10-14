@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import { usePersistentDraft } from "@/lib/hooks/use-persistent-draft";
 import { scopedKey } from "@/lib/session-user";
 import { Button } from "@/components/ui/button";
@@ -26,6 +26,7 @@ import {
   Clock,
   Brain,
   Radio,
+  RefreshCw,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import {
@@ -290,18 +291,21 @@ export default function BriefingPage() {
   // was last generated — prompts the user to regenerate for fresh data.
   const [isStale, setIsStale] = useState(false);
   // ── STIG live operational read ─────────────────────────────────────────────
-  const [stigRead, setStigRead] = useState<{ briefing: string; generatedAt: string } | null>(null);
+  const [stigRead, setStigRead] = useState<{ briefing: string; generatedAt: string; cached?: boolean } | null>(null);
   const [stigLoading, setStigLoading] = useState(true);
   const [stigExpanded, setStigExpanded] = useState(true);
 
-  useEffect(() => {
+  // The read is stored server-side and reused (a rebuild is a paid model call);
+  // Refresh asks for a new one.
+  const loadStigRead = useCallback((refresh = false) => {
     setStigLoading(true);
-    fetch("/api/stig/briefing", { cache: "no-store" })
+    fetch(`/api/stig/briefing${refresh ? "?refresh=1" : ""}`, { cache: "no-store" })
       .then((r) => r.ok ? r.json() : null)
       .then((data) => { if (data?.briefing) setStigRead(data); })
       .catch((e: unknown) => { console.warn("[stig] operational read failed:", e); })
       .finally(() => setStigLoading(false));
   }, []);
+  useEffect(() => { loadStigRead(); }, [loadStigRead]);
   // ───────────────────────────────────────────────────────────────────────────
 
   // Ref so domain sync callbacks always see the latest briefing value
@@ -682,8 +686,8 @@ export default function BriefingPage() {
                 <span className="text-xs text-muted-foreground/50">scanning sources…</span>
               )}
               {stigRead && !stigLoading && (
-                <span className="text-xs text-muted-foreground/40 font-mono">
-                  {new Date(stigRead.generatedAt).toLocaleTimeString("en-GB", {
+                <span className="text-xs text-muted-foreground/60 font-mono">
+                  as of {new Date(stigRead.generatedAt).toLocaleTimeString("en-GB", {
                     hour: "2-digit",
                     minute: "2-digit",
                   })}
@@ -694,6 +698,17 @@ export default function BriefingPage() {
               {stigExpanded ? <ChevronUp className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}
             </span>
           </button>
+          {stigRead && !stigLoading && (
+            <div className="flex justify-end px-5 -mt-1">
+              <button
+                type="button"
+                onClick={() => loadStigRead(true)}
+                className="inline-flex items-center gap-1 text-xs text-muted-foreground underline-offset-2 hover:underline"
+              >
+                <RefreshCw className="h-3 w-3" aria-hidden /> Refresh read
+              </button>
+            </div>
+          )}
 
           {/* Body */}
           {stigExpanded && (

@@ -10,7 +10,9 @@ async function handleRequest(req: Request) {
   if (!user) return NextResponse.json({ error: "Unauthorised" }, { status: 401 });
 
   try {
-    const result = await runStigBriefing(user.username, user.authMode);
+    // ?refresh=1 — the page's Refresh button: rebuild instead of reusing the stored read.
+    const refresh = new URL(req.url).searchParams.get("refresh") === "1";
+    const result = await runStigBriefing(user.username, user.authMode, { refresh });
     return NextResponse.json(result);
   } catch (err) {
     const msg = (err instanceof Error ? err.message : String(err))

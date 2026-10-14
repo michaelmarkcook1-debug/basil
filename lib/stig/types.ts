@@ -56,4 +56,6 @@ export interface StigBriefingResult {
   briefing: string;
   generatedAt: string;
   sources: StigSourceStatus[];
+  /** True when this is a stored read rather than one built for this request. */
+  cached?: boolean;
 }

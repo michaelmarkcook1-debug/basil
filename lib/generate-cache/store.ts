@@ -52,7 +52,9 @@ export type CacheType =
   // a Gmail + Slack + Linear + delta fan-out that ran inline on every home load
   // (~5s). The 90s per-instance memo inside detectPendingFollowups almost never
   // hit in prod — each lambda instance has its own memory.
-  | "today-feed";
+  | "today-feed"
+  // The Briefing page's operational read (lib/stig/engine.ts runStigBriefing).
+  | "stig-briefing";
 
 /**
  * Envelope stored in Blob for every cache entry.
