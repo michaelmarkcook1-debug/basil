@@ -128,7 +128,7 @@ function formatToolInput(toolName: string, input: Record<string, unknown>): stri
       return `${label} the invitation${propose}${input.note ? `\nNote: ${input.note}` : ""}`;
     }
     case "scheduleMeeting":
-      return `${input.title}\n${input.date} at ${input.startTime} (${input.duration}min)\nAttendees: ${(input.attendees as string[])?.join(", ")}`;
+      return `${input.title}\n${input.date} at ${input.startTime} (${input.duration}min)\nAttendees: ${(input.attendees as string[])?.join(", ")}\nVideo: ${input.meetingLink ? String(input.meetingLink) : "your meeting link from Settings, if one is saved"}`;
     case "sendSlackMessage":
       return `Channel: ${input.channel}\n\n${input.message}`;
     default: {

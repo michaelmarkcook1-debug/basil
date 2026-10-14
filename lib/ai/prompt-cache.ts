@@ -43,35 +43,44 @@ function markMessage<M extends ModelMessage>(m: M): M {
 /**
  * Add breakpoints 2 and 3 and attach this turn's context after them.
  *
- * When the latest message is the user's, the context becomes an extra text part
- * on it and the breakpoint goes on the user's own last part — so next turn,
- * when the same message is resent WITHOUT the context, the prefix still matches.
- * When the latest message is a tool result (an approval continuation), the
- * context follows as its own user message.
+ * The context always rides on the latest USER message, as an extra text part
+ * after the breakpoint on the user's own last part — so next turn, when the
+ * same message is resent WITHOUT the context, the prefix still matches.
+ *
+ * On an approval continuation the latest message is the tool message carrying
+ * the user's approve/deny, and it MUST stay last: streamText only runs approved
+ * tools when the final message is that tool message (collectToolApprovals in
+ * ai@6). This used to push the context after it as a new user message, so from
+ * 2026-09-26 every approved action — booking, sending, RSVP — silently never
+ * ran, and Claude then rejected the history ("tool_use ids were found without
+ * tool_result blocks"), as did the OpenAI fallback. Seen 2026-10-14.
  */
 export function withTurnContext(messages: ModelMessage[], turnContext: string): ModelMessage[] {
   if (messages.length === 0) return messages;
   const out = messages.slice();
   const lastIdx = out.length - 1;
+  let userIdx = -1;
+  for (let i = lastIdx; i >= 0; i--) {
+    if (out[i].role === "user") { userIdx = i; break; }
+  }
 
-  // Breakpoint 2: the user message before the latest one.
-  for (let i = lastIdx - 1; i >= 0; i--) {
+  // Breakpoint 2: the user message before the one carrying the context.
+  for (let i = userIdx - 1; i >= 0; i--) {
     if (out[i].role === "user") { out[i] = markMessage(out[i]); break; }
   }
 
   const block = { type: "text" as const, text: `<basil_context>\n${turnContext}\n</basil_context>` };
-  const last = out[lastIdx];
-  if (last.role === "user") {
-    const parts = typeof last.content === "string"
-      ? [{ type: "text" as const, text: last.content }]
-      : [...last.content];
+  if (userIdx >= 0) {
+    const user = out[userIdx] as Extract<ModelMessage, { role: "user" }>;
+    const parts = typeof user.content === "string"
+      ? [{ type: "text" as const, text: user.content }]
+      : [...user.content];
     const i = parts.length - 1;
     parts[i] = { ...parts[i], providerOptions: withBreakpoint(parts[i].providerOptions) };
-    out[lastIdx] = { ...last, content: [...parts, ...(turnContext ? [block] : [])] };
-  } else {
-    out[lastIdx] = markMessage(last);
-    if (turnContext) out.push({ role: "user", content: [block] });
+    out[userIdx] = { ...user, content: [...parts, ...(turnContext ? [block] : [])] };
   }
+  // Breakpoint 3 for a continuation: the newest message (tool results).
+  if (userIdx !== lastIdx) out[lastIdx] = markMessage(out[lastIdx]);
   return out;
 }
 

@@ -167,10 +167,17 @@ test("AI-02 scheduleMeeting forwards the resolved timezone to the calendar adapt
     "@/lib/memory/store": noop, "@/lib/actions/store": noop, "@/lib/decisions/store": noop,
     "@/lib/events/audit": { emitAuditEvent: async () => {} }, "@/lib/linear/sync-actions": noop, "@/lib/linear/client": noop,
     "@/lib/contacts-lookup": { findContactByName: () => undefined, timezoneFromLocation: () => undefined }, "@/lib/contacts/user-store": noop,
+    "@/lib/settings/store": { getSettings: async () => ({ meetingUrl: "https://zoom.example.invalid/j/123" }) },
   });
   const tools = T.buildAssistantTools("fixture", "Fixture", "America/New_York");
-  await tools.scheduleMeeting.execute({ title: "Test", attendees: ["a@example.invalid"], date: "2026-09-16", startTime: "09:00", duration: 30 }, { toolCallId: "tc", messages: [] });
+  const result = await tools.scheduleMeeting.execute({ title: "Test", attendees: ["a@example.invalid"], date: "2026-09-16", startTime: "09:00", duration: 30 }, { toolCallId: "tc", messages: [] });
   assert.equal(booked.timezone, "America/New_York", "09:00 must mean 09:00 in New York, not London");
+  // Every invite carries the user's saved meeting room (2026-10-14: it never did).
+  assert.equal(booked.zoomLink, "https://zoom.example.invalid/j/123");
+  assert.equal(result.meetingLink, "https://zoom.example.invalid/j/123");
+  // A link the user gave for this meeting wins over the saved one.
+  await tools.scheduleMeeting.execute({ title: "Test", attendees: ["a@example.invalid"], date: "2026-09-16", startTime: "09:00", duration: 30, meetingLink: "https://zoom.example.invalid/j/other" }, { toolCallId: "tc2", messages: [] });
+  assert.equal(booked.zoomLink, "https://zoom.example.invalid/j/other");
 });
 
 // ── AI-04: mobile approvals travel both ways ─────────────────────────────────

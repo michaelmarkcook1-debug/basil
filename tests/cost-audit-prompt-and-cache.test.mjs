@@ -198,18 +198,25 @@ test("turn context rides after the breakpoint, so the next turn's prefix still m
   assert.ok(countBreakpoints(turn2) + 1 /* system */ + 1 /* step */ <= 4, "never more than Anthropic's 4");
 });
 
-test("an approval continuation (tool result last) gets the context as its own user message", () => {
+test("an approval continuation keeps the tool message last; the context rides on the user's message", () => {
+  // streamText only runs approved tools when the tool message is last — a user
+  // message after it meant approved actions never ran (2026-10-14).
   const msgs = [
+    { role: "user", content: "earlier" },
+    { role: "assistant", content: "ok" },
     { role: "user", content: "add a task" },
     { role: "assistant", content: [{ type: "tool-call", toolCallId: "t1", toolName: "addAction", input: {} }] },
     { role: "tool", content: [{ type: "tool-result", toolCallId: "t1", toolName: "addAction", output: { type: "text", value: "ok" } }] },
   ];
   const out = cache.withTurnContext(msgs, "ctx");
-  assert.equal(out.length, 4);
-  assert.ok(bp(out[2]), "breakpoint on the tool result");
-  assert.equal(out[3].role, "user");
-  assert.match(out[3].content[0].text, /<basil_context>/);
-  assert.equal(msgs.length, 3, "input is not mutated");
+  assert.equal(out.length, 5, "no message is added");
+  assert.equal(out[4].role, "tool", "the tool message stays last");
+  assert.ok(bp(out[4]), "breakpoint on the tool result");
+  assert.ok(bp(out[2].content[0]), "breakpoint on the user's own text");
+  assert.match(out[2].content[1].text, /<basil_context>/);
+  assert.ok(bp(out[0]), "breakpoint on the user message before");
+  assert.ok(countBreakpoints(out) + 1 /* system */ <= 4, "never more than Anthropic's 4");
+  assert.equal(msgs.length, 5, "input is not mutated");
 });
 
 test("each tool-loop step caches up to its newest message", () => {

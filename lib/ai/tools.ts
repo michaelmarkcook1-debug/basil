@@ -4,6 +4,7 @@ import { redactDeep } from "@/lib/security/sensitive";
 import { z } from "zod";
 import { webSearch, fetchPageContent } from "@/lib/web/search";
 import { isGoogleConnected } from "@/lib/google/auth";
+import { getSettings } from "@/lib/settings/store";
 import { getTodayEvents, createCalendarEvent, getEventsForDate, getEventsForDateRange, checkFreeBusy, respondToEvent, proposeNewTime } from "@/lib/google/calendar";
 import { getRecentEmails, searchEmails, createDraft, getEmailBody, replyToEmail } from "@/lib/google/gmail";
 import { searchDriveFiles } from "@/lib/google/drive";
@@ -495,17 +496,23 @@ export function buildAssistantTools(
         date: z.string().describe("Date in YYYY-MM-DD format"),
         startTime: z.string().describe(`Start time in HH:MM 24h format in ${name}'s local timezone (${timezone})`),
         duration: z.number().describe("Duration in minutes").default(30),
+        meetingLink: z.string().optional().describe(`The video link for the invite: ${name}'s saved meeting room from "About ${name}" unless ${name} gave a different link for this meeting. Shown on the approval card. If omitted, the saved room is added anyway.`),
       }),
       needsApproval: !delegated.has("scheduleMeeting"),
-      execute: async ({ title, attendees, date, startTime, duration }) => {
+      execute: async ({ title, attendees, date, startTime, duration, meetingLink }) => {
         if (!(await isGoogleConnected(username))) {
           return { error: "Google Calendar not connected. Cannot schedule until Google is connected in Settings." };
         }
         try {
+          // Every invite carries the user's own meeting room (Settings → meeting
+          // link). The link existed and the prompt mentioned it, but bookings
+          // never attached it, so Basil went searching mail for "my zoom url"
+          // (2026-10-14).
+          const room = meetingLink?.trim() || (await getSettings(username)).meetingUrl?.trim() || undefined;
           // The model was told to give the time in the user's local zone; the
           // adapter defaulted to London when none was passed. 09:00 New York
           // booked as 09:00 London — five hours early.
-          const result = await createCalendarEvent(username, { title, attendees, date, startTime, duration, timezone });
+          const result = await createCalendarEvent(username, { title, attendees, date, startTime, duration, timezone, ...(room ? { zoomLink: room } : {}) });
           await emitAuditEvent({ username,
             source: "calendar",
             headline: `Scheduled "${title}" on ${date} ${startTime}`,
@@ -523,6 +530,7 @@ export function buildAssistantTools(
             date,
             time: startTime,
             duration,
+            meetingLink: room ?? null,
           };
         } catch (e) {
           return { error: `Failed to create event: ${e instanceof Error ? e.message : "Unknown error"}` };

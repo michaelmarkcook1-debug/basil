@@ -170,7 +170,7 @@ function aboutSection(b: PromptBasics): string {
   const { settings, profile, firstName, timezone, isPrimaryOwner } = b;
   const workHours = `${settings.workStart}–${settings.workEnd} ${timezone.replace("Europe/", "")} time`;
   const videoNote = settings.meetingUrl
-    ? `${settings.videoTool} only (never Google Meet). Room: ${settings.meetingUrl}`
+    ? `${settings.videoTool} only (never Google Meet). Room: ${settings.meetingUrl} — put on every invite you book (scheduleMeeting adds it); never search for it.`
     : `${settings.videoTool} only (never Google Meet).`;
 
   // ── Org context (fully data-driven for every user) ──
