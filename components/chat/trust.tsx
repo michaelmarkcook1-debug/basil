@@ -43,14 +43,16 @@ export function TrustLine({ tool }: { tool: string }) {
   // No running tally on the card — only the offer, once it has been earned.
   if (!t.offer) return null;
   return (
-    <div className="mt-3 border-t border-border/60 pt-2.5">
+    // Renders inside the navy approval panel (app/dashboard/chat), so it is
+    // drawn gold-on-navy with its own navy fill.
+    <div className="border-t border-[#6C7FA3] pt-3">
       <button
         onClick={delegate}
         disabled={busy}
-        className="inline-flex items-center gap-1.5 rounded-md border border-[var(--w-rule)] px-2.5 py-1 text-xs font-semibold text-[color:var(--w-carbon)] hover:bg-[var(--w-carbon-tint)] disabled:opacity-50"
+        className="inline-flex min-h-[44px] items-center gap-1.5 rounded-xl border border-[#D4B978] bg-[#10213F] px-3.5 text-[13px] font-semibold text-[#D4B978] transition-colors hover:bg-[#1A2D50] disabled:opacity-50"
         title="Basil will do this without asking. You can undo any run, and turn this off on the Learning page."
       >
-        <ShieldCheck className="h-3.5 w-3.5" />
+        <ShieldCheck className="h-3.5 w-3.5" aria-hidden />
         {busy ? "…" : `Let Basil ${humanize(tool)} without asking`}
       </button>
     </div>
@@ -99,9 +101,9 @@ export function UndoTool({ toolName, output }: { toolName: string; output: unkno
       onClick={undo}
       disabled={state === "busy"}
       title={inv.label}
-      className="inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-[11px] font-medium text-muted-foreground hover:text-foreground hover:bg-muted disabled:opacity-50"
+      className="inline-flex min-h-[44px] items-center gap-1 rounded-xl px-2.5 text-[12px] font-medium text-[color:var(--w-carbon)] transition-colors hover:bg-[var(--w-tray)] disabled:opacity-50"
     >
-      <Undo2 className="h-3 w-3" />
+      <Undo2 className="h-3.5 w-3.5" aria-hidden />
       {state === "busy" ? "…" : state === "failed" ? "Undo failed — try the page" : "Undo"}
     </button>
   );

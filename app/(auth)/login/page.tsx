@@ -122,7 +122,7 @@ export default function LoginPage() {
       {/* ── Logo + wordmark ── */}
       <div className="auth-animate flex flex-col items-center gap-3.5 mb-9">
         <img
-          src="/brand/basil-mark.png"
+          src="/brand/basil-logo-compass.png"
           alt="Basil"
           className="h-[72px] w-[72px] rounded-2xl"
           style={{ filter: "drop-shadow(0 0 20px rgba(200,169,107,0.3))" }}

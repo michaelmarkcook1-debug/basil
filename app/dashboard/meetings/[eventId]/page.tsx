@@ -1,30 +1,31 @@
 "use client";
 
+/**
+ * Meeting prep for one event (restyled 2026-10-14 — see
+ * docs/design/visual-system.md): a serif hero with the meeting title, an
+ * at-a-glance strip (time, duration, attendees, video link), the attendees as
+ * person chips, then the prep Basil generated in cream section cards with its
+ * prose set in Instrument Serif.
+ *
+ * Presentation only: the fetches, the generate handler, the prep cache key and
+ * the draft state are unchanged.
+ */
+
 import { redactDeep } from "@/lib/security/sensitive";
 import { useState, useEffect } from "react";
 import { useParams } from "next/navigation";
 import { usePersistentDraft } from "@/lib/hooks/use-persistent-draft";
 import { scopedKey } from "@/lib/session-user";
-import { Card, CardContent } from "@/components/ui/card";
-import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
-import { Separator } from "@/components/ui/separator";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
   ArrowLeft,
-  Phone,
-  UserCircle,
-  CircleDot,
-  CheckSquare,
+  Check,
   AlertTriangle,
   Zap,
   Loader2,
-  Clock,
   Video,
-  HelpCircle,
   ShieldAlert,
-  ListChecks,
-  BookOpen,
+  ExternalLink,
 } from "lucide-react";
 import Link from "next/link";
 import { formatTime } from "@/lib/utils";
@@ -33,8 +34,19 @@ import {
   ExtraContextInput,
   buildExtraContextFormData,
 } from "@/components/extra-context-input";
+import { PageHero, SectionCard, BTN_PRIMARY } from "@/components/basil/page-hero";
 
-interface EventMeta { title: string; time: string; attendees: string[]; dateLabel?: string; date?: string }
+interface EventMeta {
+  title: string;
+  time: string;
+  attendees: string[];
+  dateLabel?: string;
+  date?: string;
+  /** Presentation only (the at-a-glance strip) — read from the same calendar response. */
+  minutes?: number;
+  hasVideo?: boolean;
+  videoLink?: string;
+}
 
 interface OpenAction {
   id: string;
@@ -86,32 +98,70 @@ interface PrepData {
   };
 }
 
-// Map free-form priority labels to visual styles. Labels are open-ended
+// Map free-form priority labels to a text colour + outline. Labels are open-ended
 // (e.g. "Higher priority TG", "Watch during TG", "Respond today", "Verify before TG")
-// so we match on keyword rather than exact equality.
-function priorityStyle(priority: string): { border: string; badge: string } {
+// so we match on keyword rather than exact equality. The label itself is always
+// shown, so the colour never carries the meaning alone.
+function priorityStyle(priority: string): { color: string; border: string } {
   const p = (priority || "").toLowerCase();
   if (/respond today|higher priority|urgent|critical|blocker|today/.test(p)) {
-    return { border: "border-l-red-500", badge: "border-signal-critical-border text-signal-critical bg-signal-critical-subtle" };
+    return { color: "var(--w-stamp)", border: "var(--w-stamp)" };
   }
   if (/verify|watch|alert|important|pending|awaiting|responding/.test(p)) {
-    return { border: "border-l-amber-500", badge: "border-signal-warning-border text-signal-warning bg-signal-warning-subtle" };
+    return { color: "var(--w-manila)", border: "var(--w-manila)" };
   }
   if (/park|low|fyi|note|backlog|defer/.test(p)) {
-    return { border: "border-l-slate-400", badge: "border-border text-muted-foreground bg-muted/30" };
+    return { color: "var(--w-ink-soft)", border: "var(--w-rule-strong)" };
   }
-  return { border: "border-l-gold", badge: "border-[var(--w-rule)] text-[color:var(--w-carbon)] bg-[var(--w-carbon-tint)]" };
+  return { color: "var(--w-carbon)", border: "#C8A96B" };
 }
 
-function SectionHeader({ icon: Icon, label, color }: { icon: typeof Phone; label: string; color: string }) {
+function initials(name: string): string {
+  const base = name.includes("@") ? name.split("@")[0].replace(/[._-]+/g, " ") : name;
+  const parts = base.trim().split(/\s+/).filter(Boolean);
+  if (parts.length === 0) return "?";
+  return (parts.length === 1 ? parts[0].slice(0, 2) : parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
+}
+
+function PersonChip({ name }: { name: string }) {
   return (
-    <div className="flex items-center gap-2 mb-3">
-      <Icon className={`h-4 w-4 ${color}`} />
-      <span className={`text-xs font-semibold tracking-widest uppercase ${color}`}>{label}</span>
-      <Separator className="flex-1" />
+    <span className="inline-flex min-h-[36px] items-center gap-2 rounded-full border border-[var(--w-rule)] bg-[var(--w-flimsy)] py-0.5 pl-0.5 pr-3 text-[13px] font-medium text-[color:var(--w-ink)]">
+      <span aria-hidden className="flex h-8 w-8 items-center justify-center rounded-full bg-[#10213F] text-[11px] font-semibold text-[#F6F1E7]">{initials(name)}</span>
+      {name}
+    </span>
+  );
+}
+
+function fmtDuration(m?: number): string {
+  if (!m || m <= 0) return "—";
+  const h = Math.floor(m / 60), r = m % 60;
+  if (h === 0) return `${r} min`;
+  return r ? `${h} h ${r} min` : `${h} h`;
+}
+
+/** Which call it is, from the join link. */
+function callName(link: string): string {
+  const l = link.toLowerCase();
+  if (l.includes("zoom")) return "Zoom";
+  if (l.includes("meet.google")) return "Google Meet";
+  if (l.includes("teams.microsoft")) return "Teams";
+  return "Video call";
+}
+
+/** One cream tile in the at-a-glance strip. */
+function GlanceTile({ label, children, delay }: { label: string; children: React.ReactNode; delay: number }) {
+  return (
+    <div
+      className="basil-rise flex min-w-0 flex-col gap-1.5 rounded-2xl border border-[var(--w-rule)] bg-[var(--w-flimsy)] px-4 py-3.5"
+      style={{ animationDelay: `${delay}ms` }}
+    >
+      <span className="basil-mono text-[11px] uppercase tracking-[0.14em] text-[color:var(--w-ink-soft)]">{label}</span>
+      {children}
     </div>
   );
 }
+
+const PROSE = "basil-serif text-[20px] leading-snug text-[color:var(--w-ink)]";
 
 export default function MeetingPrepPage() {
   const params = useParams();
@@ -194,6 +244,10 @@ export default function MeetingPrepPage() {
             attendees: event.attendees || [],
             dateLabel: event.dateLabel,
             date: typeof event.start === "string" ? event.start.slice(0, 10) : undefined,
+            // Display only — the at-a-glance strip.
+            minutes: event.isAllDay ? undefined : Math.max(0, Math.round((Date.parse(event.end) - Date.parse(event.start)) / 60_000)) || undefined,
+            hasVideo: !!event.hasVideo,
+            videoLink: typeof event.videoLink === "string" ? event.videoLink : undefined,
           });
         } else {
           setMeta({ title: `Meeting`, time: "", attendees: [] });
@@ -263,316 +317,372 @@ export default function MeetingPrepPage() {
   }
 
   if (loadingMeta) {
-    return <div className="p-6 lg:p-8 max-w-3xl"><Skeleton className="h-6 w-48 mb-4" /><Skeleton className="h-8 w-64 mb-2" /><Skeleton className="h-4 w-40" /></div>;
+    return (
+      <div className="wire basil-dots relative min-h-full">
+        <div className="mx-auto flex w-full max-w-[64rem] flex-col gap-4 px-4 py-6 sm:px-8 sm:py-10">
+          <Skeleton className="h-4 w-40" />
+          <Skeleton className="h-14 w-2/3" />
+          <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+            {[0, 1, 2, 3].map((i) => <Skeleton key={i} className="h-[78px] rounded-2xl" />)}
+          </div>
+        </div>
+      </div>
+    );
   }
 
-  return (
-    <div className="p-4 sm:p-6 lg:p-8 space-y-6 max-w-3xl pb-8">
-      <Link href="/dashboard/meetings" className="flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground">
-        <ArrowLeft className="h-4 w-4" /> Back to meetings
-      </Link>
+  const attendees = meta?.attendees ?? [];
+  const safeVideo = meta?.videoLink && /^https:\/\//i.test(meta.videoLink) ? meta.videoLink : undefined;
+  const hasReference = (prep?.openActions?.length ?? 0) > 0 || (prep?.priorDecisions?.length ?? 0) > 0;
 
-      {/* Header — matches Mike's format */}
-      <header className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3">
-        <div className="space-y-1 min-w-0">
-          <p className="text-xs font-semibold tracking-widest uppercase text-[color:var(--w-carbon)]">
-            Meeting Prep
-          </p>
-          <h1 className="text-xl font-semibold break-words">{meta?.title}</h1>
-          <div className="flex items-center gap-2 text-sm text-[color:var(--w-carbon)] flex-wrap">
-            {meta?.dateLabel && <span>{meta.dateLabel}</span>}
-            {meta?.dateLabel && meta?.time && <span>·</span>}
-            {meta?.time && <><Clock className="h-3.5 w-3.5" />{meta.time} UK</>}
-            <span>·</span>
-            <Video className="h-3.5 w-3.5" /> Zoom
-          </div>
+  return (
+    <div className="wire basil-dots relative min-h-full overflow-hidden">
+      <span aria-hidden className="pointer-events-none absolute -right-40 -top-56 h-[560px] w-[760px] rounded-full" style={{ background: "radial-gradient(closest-side, rgba(212,185,120,.32), transparent 72%)" }} />
+      <div className="relative mx-auto flex w-full max-w-[64rem] flex-col gap-6 px-4 py-6 sm:px-8 sm:py-10">
+        <Link
+          href="/dashboard/meetings"
+          className="inline-flex min-h-[44px] items-center gap-1.5 self-start text-[14px] font-medium text-[color:var(--w-carbon)] no-underline hover:underline"
+        >
+          <ArrowLeft className="h-4 w-4" aria-hidden /> Back to meetings
+        </Link>
+
+        {/* Header — the meeting, then who's in it */}
+        <PageHero
+          className="-mt-2 [&_h1]:[overflow-wrap:anywhere]"
+          eyebrow={`Meeting prep${meta?.dateLabel ? ` · ${meta.dateLabel}` : ""}`}
+          title={meta?.title || "Meeting"}
+          actions={
+            <button type="button" onClick={generate} disabled={loading} className={`${BTN_PRIMARY} shrink-0`}>
+              {loading ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden /> : <Zap className="h-4 w-4 text-[#D4B978]" aria-hidden />}
+              {loading ? "Generating..." : prep ? "Regenerate" : "Generate Prep"}
+            </button>
+          }
+        >
+          {attendees.length > 0 && (
+            <div className="mt-1 flex flex-wrap gap-2" aria-label="Attendees">
+              {attendees.map((name, i) => <PersonChip key={`${name}-${i}`} name={name} />)}
+            </div>
+          )}
           {/* Influence layer, ambient: how to approach each attendee Basil knows —
               available instantly from stored intelligence, before prep generates. */}
-          {meta?.attendees && meta.attendees.length > 0 && (
-            <ApproachChips names={meta.attendees} className="mt-2" />
+          {attendees.length > 0 && (
+            <ApproachChips names={attendees} className="mt-1" />
           )}
+        </PageHero>
+
+        {/* At a glance */}
+        <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+          <GlanceTile label="When" delay={80}>
+            <span className="basil-mono text-[18px] font-medium text-[color:var(--w-ink)]">{meta?.time || "—"}</span>
+            <span className="text-[13px] text-[color:var(--w-ink-soft)]">
+              {[meta?.dateLabel, meta?.time && meta.time !== "All day" ? "UK time" : ""].filter(Boolean).join(" · ") || "Not found on your calendar"}
+            </span>
+          </GlanceTile>
+          <GlanceTile label="Duration" delay={140}>
+            <span className="basil-mono text-[18px] font-medium text-[color:var(--w-ink)]">
+              {meta?.time === "All day" ? "All day" : fmtDuration(meta?.minutes)}
+            </span>
+          </GlanceTile>
+          <GlanceTile label="Attendees" delay={200}>
+            <span className="flex items-center gap-2.5">
+              <span className="basil-mono text-[18px] font-medium text-[color:var(--w-ink)]">{attendees.length}</span>
+              {attendees.length > 0 && (
+                <span className="flex items-center" aria-hidden>
+                  {attendees.slice(0, 4).map((n, i) => (
+                    <span key={`${n}-${i}`} className={`flex h-7 w-7 items-center justify-center rounded-full bg-[#10213F] text-[10px] font-semibold text-[#F6F1E7] ring-2 ring-[var(--w-flimsy)] ${i > 0 ? "-ml-2" : ""}`}>
+                      {initials(n)}
+                    </span>
+                  ))}
+                  {attendees.length > 4 && (
+                    <span className="basil-mono -ml-2 flex h-7 min-w-7 items-center justify-center rounded-full bg-[var(--w-tray)] px-1 text-[10px] font-semibold text-[color:var(--w-ink)] ring-2 ring-[var(--w-flimsy)]">
+                      +{attendees.length - 4}
+                    </span>
+                  )}
+                </span>
+              )}
+            </span>
+            <span className="text-[13px] text-[color:var(--w-ink-soft)]">{attendees.length === 0 ? "Just you" : attendees.length === 1 ? "person on the invite" : "people on the invite"}</span>
+          </GlanceTile>
+          <GlanceTile label="Video" delay={260}>
+            {safeVideo ? (
+              <a
+                href={safeVideo}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-flex min-h-[44px] items-center gap-1.5 self-start text-[15px] font-semibold text-[color:var(--w-carbon)] underline underline-offset-2"
+              >
+                <Video className="h-4 w-4" aria-hidden /> Join {callName(safeVideo)}
+                <ExternalLink className="h-3.5 w-3.5" aria-hidden />
+              </a>
+            ) : (
+              <span className="text-[15px] text-[color:var(--w-ink)]">{meta?.hasVideo ? "Video call" : "No video link"}</span>
+            )}
+            {!safeVideo && meta?.hasVideo && (
+              <span className="text-[13px] text-[color:var(--w-ink-soft)]">The link is in the invite.</span>
+            )}
+          </GlanceTile>
         </div>
-        <Button
-          onClick={generate}
-          disabled={loading}
-          className="bg-[var(--w-carbon)] text-white hover:bg-[oklch(0.78_0.12_85)] gap-1.5 shrink-0 self-start"
-        >
-          {loading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Zap className="h-3.5 w-3.5" />}
-          {loading ? "Generating..." : prep ? "Regenerate" : "Generate Prep"}
-        </Button>
-      </header>
 
-      <ExtraContextInput
-        label="Add context for this meeting"
-        placeholder="e.g. 'Read this email thread', 'Here's the deck we're walking them through', 'My open questions for Sam'…"
-        notes={extraNotes}
-        onNotesChange={setExtraNotes}
-        files={extraFiles}
-        onFilesChange={setExtraFiles}
-        urls={extraUrls}
-        onUrlsChange={setExtraUrls}
-        disabled={loading}
-      />
-
-      {error && <Card className="border-destructive/30"><CardContent className="py-4 text-sm text-destructive">{error}</CardContent></Card>}
-
-      {loading && (
-        <div
-          className="space-y-4"
-          role="status"
-          aria-live="polite"
-          aria-label="Generating meeting prep"
-        >
-          <span className="sr-only">
-            Basil is generating your meeting prep. This usually takes 10–20 seconds.
-          </span>
-          {Array.from({ length: 4 }).map((_, i) => (
-            <Card key={i}><CardContent className="p-4 space-y-2"><Skeleton className="h-4 w-1/3" /><Skeleton className="h-3 w-full" /><Skeleton className="h-3 w-2/3" /></CardContent></Card>
-          ))}
+        <div className="basil-rise rounded-[20px] border border-[var(--w-rule)] bg-[var(--w-flimsy)] p-5 sm:p-6" style={{ animationDelay: "300ms" }}>
+          <ExtraContextInput
+            label="Add context for this meeting"
+            placeholder="e.g. 'Read this email thread', 'Here's the deck we're walking them through', 'My open questions for Sam'…"
+            notes={extraNotes}
+            onNotesChange={setExtraNotes}
+            files={extraFiles}
+            onFilesChange={setExtraFiles}
+            urls={extraUrls}
+            onUrlsChange={setExtraUrls}
+            disabled={loading}
+          />
         </div>
-      )}
 
-      {!loading && prep && (
-        <div className="space-y-6">
-          {/* From Today's Calls — amber card */}
-          {prep.fromTodaysCalls && prep.fromTodaysCalls.length > 0 && (
-            <div>
-              <SectionHeader
-                icon={Phone}
-                label={`From Today's Calls — ${prep.fromTodaysCalls.map(c => c.title.split(" — ")[0]).join(" & ")}`}
-                color="text-signal-warning"
-              />
-              <Card className="border-l border-l-[var(--w-manila)] border-t-0 border-r-0 border-b-0 bg-signal-warning-subtle/60">
-                <CardContent className="p-4 space-y-3">
+        {error && (
+          <p role="alert" className="rounded-[20px] border border-[var(--w-stamp)] bg-[var(--w-flimsy)] p-5 text-[15px] text-[color:var(--w-stamp)]">
+            {error}
+          </p>
+        )}
+
+        {loading && (
+          <div
+            className="flex flex-col gap-4"
+            role="status"
+            aria-live="polite"
+            aria-label="Generating meeting prep"
+          >
+            <span className="sr-only">
+              Basil is generating your meeting prep. This usually takes 10–20 seconds.
+            </span>
+            {Array.from({ length: 4 }).map((_, i) => (
+              <div key={i} className="space-y-2.5 rounded-[20px] border border-[var(--w-rule)] bg-[var(--w-flimsy)] p-5 sm:p-6">
+                <Skeleton className="h-6 w-1/3" />
+                <Skeleton className="h-3.5 w-full" />
+                <Skeleton className="h-3.5 w-2/3" />
+              </div>
+            ))}
+          </div>
+        )}
+
+        {!loading && prep && (
+          <div className="flex flex-col gap-5">
+            {/* From today's calls */}
+            {prep.fromTodaysCalls && prep.fromTodaysCalls.length > 0 && (
+              <SectionCard id="calls-h" title="From today's calls" delay={60}>
+                <div className="flex flex-col gap-4">
                   {prep.fromTodaysCalls.map((c, i) => (
-                    <div key={i}>
-                      <p className="text-sm font-semibold mb-1">{c.title}</p>
-                      <p className="text-sm leading-relaxed text-foreground/90">{c.summary}</p>
+                    <div key={i} className={`flex flex-col gap-1.5 ${i > 0 ? "border-t border-[var(--w-tray)] pt-4" : ""}`}>
+                      <p className="text-[14px] font-semibold text-[color:var(--w-ink)]">{c.title}</p>
+                      <p className={PROSE}>{c.summary}</p>
                     </div>
                   ))}
-                </CardContent>
-              </Card>
-            </div>
-          )}
+                </div>
+              </SectionCard>
+            )}
 
-          {/* Context — navy-tinted card (kept for backward-compat with any existing data) */}
-          {prep.contextNote && (
-            <div>
-              <SectionHeader icon={Phone} label="Context" color="text-[color:var(--w-carbon)]" />
-              <Card className="bg-[oklch(0.28_0.06_250)]/5 border-[oklch(0.28_0.06_250)]/20">
-                <CardContent className="p-4">
-                  <p className="text-sm leading-relaxed">{prep.contextNote}</p>
-                </CardContent>
-              </Card>
-            </div>
-          )}
+            {/* Context */}
+            {prep.contextNote && (
+              <SectionCard id="context-h" title="Context" delay={120}>
+                <p className="basil-serif text-[22px] leading-snug text-[color:var(--w-ink)]">{prep.contextNote}</p>
+              </SectionCard>
+            )}
 
-          {/* Attendee Insights — navy-tinted */}
-          {prep.attendeeInsights && prep.attendeeInsights.length > 0 && (
-            <div>
-              <SectionHeader icon={UserCircle} label="Quick Profile" color="text-[color:var(--w-carbon)]" />
-              <div className="space-y-2">
-                {prep.attendeeInsights.map((a, i) => (
-                  <Card key={i} className="bg-[oklch(0.28_0.06_250)]/5 border-[oklch(0.28_0.06_250)]/20">
-                    <CardContent className="p-4 space-y-1">
-                      <p className="text-sm font-semibold">{a.name} <span className="text-muted-foreground font-normal">— {a.role}</span></p>
-                      <p className="text-sm leading-relaxed text-foreground/90">{a.style}</p>
-                    </CardContent>
-                  </Card>
-                ))}
-              </div>
-            </div>
-          )}
+            {/* Attendee insights */}
+            {prep.attendeeInsights && prep.attendeeInsights.length > 0 && (
+              <SectionCard id="profile-h" title="Quick profile" delay={180}>
+                <div className="flex flex-col gap-4">
+                  {prep.attendeeInsights.map((a, i) => (
+                    <div key={i} className={`flex items-start gap-3.5 ${i > 0 ? "border-t border-[var(--w-tray)] pt-4" : ""}`}>
+                      <span aria-hidden className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-[#10213F] text-[13px] font-semibold text-[#F6F1E7]">
+                        {initials(a.name)}
+                      </span>
+                      <div className="flex min-w-0 flex-col gap-1">
+                        <p className="text-[15px] font-semibold text-[color:var(--w-ink)]">
+                          {a.name} <span className="font-normal text-[color:var(--w-ink-soft)]">— {a.role}</span>
+                        </p>
+                        <p className={PROSE}>{a.style}</p>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </SectionCard>
+            )}
 
-          {/* Topics to Raise — amber header, gold left-borders, colored priority tags */}
-          {prep.topicsToRaise && prep.topicsToRaise.length > 0 && (
-            <div>
-              <SectionHeader icon={CircleDot} label="Topics to Raise" color="text-signal-warning" />
-              <div className="space-y-3">
-                {prep.topicsToRaise.map((topic, i) => {
-                  const style = priorityStyle(topic.priority);
-                  return (
-                    <Card key={i} className={`border-l ${style.border} border-t-0 border-r-0 border-b-0`}>
-                      <CardContent className="p-4">
-                        <div className="flex items-start justify-between gap-3 mb-1.5">
-                          <h3 className="font-semibold text-sm">{topic.title}</h3>
+            {/* Topics to raise */}
+            {prep.topicsToRaise && prep.topicsToRaise.length > 0 && (
+              <SectionCard id="topics-h" title="Topics to raise" delay={240}>
+                <div className="flex flex-col gap-3">
+                  {prep.topicsToRaise.map((topic, i) => {
+                    const style = priorityStyle(topic.priority);
+                    return (
+                      <div key={i} className="flex flex-col gap-2 rounded-2xl border border-[var(--w-rule)] bg-[var(--w-paper)] p-4">
+                        <div className="flex flex-wrap items-start justify-between gap-3">
+                          <h3 className="text-[16px] font-semibold leading-snug text-[color:var(--w-ink)]">{topic.title}</h3>
                           {topic.priority && (
-                            <Badge variant="outline" className={`text-[12px] shrink-0 ${style.badge}`}>
+                            <span
+                              className="shrink-0 rounded-full border bg-[var(--w-flimsy)] px-2.5 py-0.5 text-[12px] font-semibold"
+                              style={{ color: style.color, borderColor: style.border }}
+                            >
                               {topic.priority}
-                            </Badge>
+                            </span>
                           )}
                         </div>
-                        <p className="text-sm text-foreground/85 leading-relaxed whitespace-pre-line">{topic.context}</p>
-                      </CardContent>
-                    </Card>
-                  );
-                })}
-              </div>
-            </div>
-          )}
+                        <p className={`${PROSE} whitespace-pre-line`}>{topic.context}</p>
+                      </div>
+                    );
+                  })}
+                </div>
+              </SectionCard>
+            )}
 
-          {/* Suggested Questions — blue */}
-          {prep.suggestedQuestions && prep.suggestedQuestions.length > 0 && (
-            <div>
-              <SectionHeader icon={HelpCircle} label="Questions to Ask" color="text-signal-info" />
-              <Card className="border-l border-l-[var(--w-carbon)] border-t-0 border-r-0 border-b-0 bg-signal-info-subtle/60">
-                <CardContent className="p-4">
-                  <ul className="space-y-1.5 text-sm">
-                    {prep.suggestedQuestions.map((q, i) => (
-                      <li key={i} className="flex gap-2">
-                        <span className="text-signal-info shrink-0">?</span>
-                        <span>{q}</span>
-                      </li>
-                    ))}
-                  </ul>
-                </CardContent>
-              </Card>
-            </div>
-          )}
+            {/* Questions to ask */}
+            {prep.suggestedQuestions && prep.suggestedQuestions.length > 0 && (
+              <SectionCard id="questions-h" title="Questions to ask" delay={300}>
+                <ol className="flex flex-col gap-3">
+                  {prep.suggestedQuestions.map((q, i) => (
+                    <li key={i} className="flex items-start gap-3">
+                      <span className="basil-mono mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-[var(--w-tray)] text-[12px] font-medium text-[color:var(--w-ink)]">
+                        {i + 1}
+                      </span>
+                      <span className={PROSE}>{q}</span>
+                    </li>
+                  ))}
+                </ol>
+              </SectionCard>
+            )}
 
-          {/* Things to Land — green */}
-          {prep.thingsToLand && prep.thingsToLand.length > 0 && (
-            <div>
-              <SectionHeader icon={CheckSquare} label="Things to Land" color="text-signal-positive" />
-              <Card className="border-l border-l-[var(--w-filed)] border-t-0 border-r-0 border-b-0 bg-signal-positive-subtle">
-                <CardContent className="p-4">
-                  <ul className="space-y-1.5 text-sm">
-                    {prep.thingsToLand.map((item, i) => (
-                      <li key={i} className="flex gap-2"><span className="text-signal-positive">•</span> {item}</li>
-                    ))}
-                  </ul>
-                </CardContent>
-              </Card>
-            </div>
-          )}
+            {/* Things to land */}
+            {prep.thingsToLand && prep.thingsToLand.length > 0 && (
+              <SectionCard id="land-h" title="Things to land" delay={360}>
+                <ul className="flex flex-col gap-3">
+                  {prep.thingsToLand.map((item, i) => (
+                    <li key={i} className="flex items-start gap-3">
+                      <span aria-hidden className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-full border border-[var(--w-filed)] bg-[var(--w-flimsy)] text-[color:var(--w-filed)]">
+                        <Check className="h-4 w-4" />
+                      </span>
+                      <span className={PROSE}>{item}</span>
+                    </li>
+                  ))}
+                </ul>
+              </SectionCard>
+            )}
 
-          {/* Watch Outs — amber/red */}
-          {prep.watchOuts && prep.watchOuts.length > 0 && (
-            <div>
-              <SectionHeader icon={AlertTriangle} label="Watch Outs" color="text-signal-warning" />
-              <Card className="border-l border-l-[var(--w-manila)] border-t-0 border-r-0 border-b-0 bg-signal-warning-subtle">
-                <CardContent className="p-4">
-                  <ul className="space-y-1.5 text-sm">
-                    {prep.watchOuts.map((item, i) => (
-                      <li key={i} className="flex gap-2"><span className="text-signal-warning">•</span> {item}</li>
-                    ))}
-                  </ul>
-                </CardContent>
-              </Card>
-            </div>
-          )}
+            {/* Watch outs */}
+            {prep.watchOuts && prep.watchOuts.length > 0 && (
+              <SectionCard id="watch-h" title="Watch outs" delay={420}>
+                <ul className="flex flex-col gap-3">
+                  {prep.watchOuts.map((item, i) => (
+                    <li key={i} className="flex items-start gap-3">
+                      <span aria-hidden className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-full border border-[var(--w-manila)] bg-[var(--w-flimsy)] text-[color:var(--w-manila)]">
+                        <AlertTriangle className="h-4 w-4" />
+                      </span>
+                      <span className={PROSE}>{item}</span>
+                    </li>
+                  ))}
+                </ul>
+              </SectionCard>
+            )}
 
-          {/* Unresolved Risks — explicitly source-backed risks */}
-          {prep.unresolvedRisks && prep.unresolvedRisks.length > 0 && (
-            <div>
-              <SectionHeader icon={ShieldAlert} label="Unresolved Risks" color="text-signal-critical" />
-              <Card className="border-l border-l-[var(--w-stamp)] border-t-0 border-r-0 border-b-0 bg-signal-critical-subtle">
-                <CardContent className="p-4">
-                  <ul className="space-y-2.5 text-sm">
-                    {prep.unresolvedRisks.map((r, i) => (
-                      <li key={i} className="space-y-0.5">
-                        <p className="text-foreground/90">{r.risk}</p>
-                        <p className="text-xs text-muted-foreground">
+            {/* Unresolved risks — explicitly source-backed risks */}
+            {prep.unresolvedRisks && prep.unresolvedRisks.length > 0 && (
+              <SectionCard id="risks-h" title="Unresolved risks" delay={480}>
+                <ul className="flex flex-col gap-4">
+                  {prep.unresolvedRisks.map((r, i) => (
+                    <li key={i} className="flex items-start gap-3">
+                      <span aria-hidden className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-full border border-[var(--w-stamp)] bg-[var(--w-flimsy)] text-[color:var(--w-stamp)]">
+                        <ShieldAlert className="h-4 w-4" />
+                      </span>
+                      <div className="flex min-w-0 flex-col gap-1">
+                        <p className={PROSE}>{r.risk}</p>
+                        <p className="basil-mono text-[12px] text-[color:var(--w-ink-soft)]">
                           {r.source}
                           {r.raisedDate && ` · ${r.raisedDate}`}
                         </p>
-                      </li>
-                    ))}
-                  </ul>
-                </CardContent>
-              </Card>
-            </div>
-          )}
+                      </div>
+                    </li>
+                  ))}
+                </ul>
+              </SectionCard>
+            )}
 
-          {/* Reference Data divider */}
-          {((prep.openActions && prep.openActions.length > 0) ||
-            (prep.priorDecisions && prep.priorDecisions.length > 0)) && (
-            <div className="flex items-center gap-3 pt-2">
-              <Separator className="flex-1" />
-              <span className="text-xs font-semibold tracking-widest uppercase text-muted-foreground whitespace-nowrap">Reference Data</span>
-              <Separator className="flex-1" />
-            </div>
-          )}
+            {/* Reference data divider */}
+            {hasReference && (
+              <div className="flex items-center gap-3 pt-2">
+                <span aria-hidden className="h-px flex-1 bg-[var(--w-rule)]" />
+                <span className="basil-mono whitespace-nowrap text-[12px] uppercase tracking-[0.14em] text-[color:var(--w-ink-soft)]">Reference data</span>
+                <span aria-hidden className="h-px flex-1 bg-[var(--w-rule)]" />
+              </div>
+            )}
 
-          {/* Open Actions — tracked actions relevant to this meeting */}
-          {prep.openActions && prep.openActions.length > 0 && (
-            <div>
-              <SectionHeader icon={ListChecks} label="Tracked Actions" color="text-muted-foreground" />
-              <div className="space-y-1.5">
-                {prep.openActions.map((a) => {
-                  const todayLocal = new Date().toISOString().split("T")[0];
-                  const isOverdue =
-                    a.status === "overdue" ||
-                    (a.status === "open" && !!a.dueDate && a.dueDate < todayLocal);
-                  return (
-                    <Card key={a.id} className={`border-l border-t-0 border-r-0 border-b-0 ${isOverdue ? "border-l-[var(--w-stamp)] bg-signal-critical-subtle" : a.priority === "high" ? "border-l-[var(--w-manila)] bg-signal-warning-subtle" : "border-l-[var(--w-rule)] bg-muted/20"}`}>
-                      <CardContent className="py-2.5 px-4 flex items-start gap-2">
-                        <div className="flex-1 min-w-0">
-                          <p className="text-sm text-foreground/90">{a.text}</p>
-                          <p className="text-xs text-muted-foreground mt-0.5 flex items-center gap-1.5">
-                            {isOverdue && <span className="text-signal-critical font-medium">OVERDUE</span>}
-                            {!isOverdue && a.dueDate && <span>due {a.dueDate}</span>}
-                            {a.priority === "high" && !isOverdue && <span className="text-signal-warning font-medium">high priority</span>}
+            {/* Open actions — tracked actions relevant to this meeting */}
+            {prep.openActions && prep.openActions.length > 0 && (
+              <SectionCard id="actions-h" title="Tracked actions" delay={540}>
+                <ul className="flex flex-col">
+                  {prep.openActions.map((a, i) => {
+                    const todayLocal = new Date().toISOString().split("T")[0];
+                    const isOverdue =
+                      a.status === "overdue" ||
+                      (a.status === "open" && !!a.dueDate && a.dueDate < todayLocal);
+                    const dot = isOverdue ? "var(--w-stamp)" : a.priority === "high" ? "var(--w-manila)" : "var(--w-rule-strong)";
+                    return (
+                      <li key={a.id} className={`flex items-start gap-3 py-3 ${i > 0 ? "border-t border-[var(--w-tray)]" : "pt-0"}`}>
+                        <span aria-hidden className="mt-2 h-2 w-2 shrink-0 rounded-full" style={{ background: dot }} />
+                        <div className="flex min-w-0 flex-1 flex-col gap-1">
+                          <p className="text-[15px] leading-snug text-[color:var(--w-ink)]">{a.text}</p>
+                          <p className="flex flex-wrap items-center gap-1.5 text-[13px] text-[color:var(--w-ink-soft)]">
+                            {isOverdue && <span className="font-semibold text-[color:var(--w-stamp)]">OVERDUE</span>}
+                            {!isOverdue && a.dueDate && <span>due <span className="basil-mono">{a.dueDate}</span></span>}
+                            {a.priority === "high" && !isOverdue && <span className="font-semibold text-[color:var(--w-manila)]">high priority</span>}
                             {a.owner && a.owner !== selfName && <span>· {a.owner}</span>}
                           </p>
                         </div>
-                      </CardContent>
-                    </Card>
-                  );
-                })}
-              </div>
-            </div>
-          )}
+                      </li>
+                    );
+                  })}
+                </ul>
+              </SectionCard>
+            )}
 
-          {/* Prior Decisions — decisions already made relevant to this meeting */}
-          {prep.priorDecisions && prep.priorDecisions.length > 0 && (
-            <div>
-              <SectionHeader icon={BookOpen} label="Prior Decisions" color="text-indigo-500" />
-              <div className="space-y-2">
-                {prep.priorDecisions.map((d) => (
-                  <Card key={d.id} className="border-l border-l-[var(--w-carbon)] border-t-0 border-r-0 border-b-0 bg-indigo-50/20 dark:bg-indigo-500/5">
-                    <CardContent className="py-3 px-4">
-                      <p className="text-sm font-medium text-foreground/90">
+            {/* Prior decisions — decisions already made relevant to this meeting */}
+            {prep.priorDecisions && prep.priorDecisions.length > 0 && (
+              <SectionCard id="decisions-h" title="Prior decisions" delay={600}>
+                <ul className="flex flex-col">
+                  {prep.priorDecisions.map((d, i) => (
+                    <li key={d.id} className={`flex flex-col gap-1 py-3 ${i > 0 ? "border-t border-[var(--w-tray)]" : "pt-0"}`}>
+                      <p className="text-[15px] font-semibold leading-snug text-[color:var(--w-ink)]">
                         {d.title || d.text}
                       </p>
-                      {d.title && <p className="text-sm text-foreground/75 mt-0.5">{d.text}</p>}
-                      <p className="text-xs text-muted-foreground mt-1 flex items-center gap-1.5 flex-wrap">
+                      {d.title && <p className="text-[14px] leading-relaxed text-[color:var(--w-ink-soft)]">{d.text}</p>}
+                      <p className="basil-mono flex flex-wrap items-center gap-1.5 text-[12px] text-[color:var(--w-ink-soft)]">
                         {d.decidedBy && <span>{d.decidedBy}</span>}
                         {d.date && <span>· {d.date}</span>}
                         {d.source && <span>· {d.source}</span>}
                       </p>
                       {d.rationale && (
-                        <p className="text-xs text-muted-foreground mt-1 italic">Why: {d.rationale}</p>
+                        <p className="basil-serif text-[18px] italic leading-snug text-[color:var(--w-carbon)]">Why: {d.rationale}</p>
                       )}
                       {d.consequences && d.consequences.length > 0 && (
-                        <p className="text-xs text-muted-foreground mt-1">
+                        <p className="text-[13px] text-[color:var(--w-ink-soft)]">
                           Follow-ups: {d.consequences.join(" · ")}
                         </p>
                       )}
-                    </CardContent>
-                  </Card>
-                ))}
-              </div>
-            </div>
-          )}
+                    </li>
+                  ))}
+                </ul>
+              </SectionCard>
+            )}
 
-          <Separator />
-          <div className="flex flex-col items-center gap-1 text-center">
-            <p className="text-xs text-muted-foreground">
-              Prepared by Basil · {meta?.title} · {prep.generatedAt && new Date(prep.generatedAt).toLocaleString("en-GB", { timeZone: "Europe/London" })}
+            <p className="border-t border-[var(--w-rule)] pt-4 text-center text-[13px] text-[color:var(--w-ink-soft)]">
+              Prepared by Basil · {meta?.title} · <span className="basil-mono">{prep.generatedAt && new Date(prep.generatedAt).toLocaleString("en-GB", { timeZone: "Europe/London" })}</span>
             </p>
           </div>
-        </div>
-      )}
+        )}
 
-      {!loading && !prep && !error && (
-        <Card className="border-[var(--w-rule)]">
-          <CardContent className="py-12 text-center">
-            <p className="font-medium">Click &quot;Generate Prep&quot; to get your cheatsheet</p>
-            <p className="text-sm text-muted-foreground mt-1">Basil will pull context from contact profiles and generate strategic talking points.</p>
-          </CardContent>
-        </Card>
-      )}
+        {!loading && !prep && !error && (
+          <div className="basil-rise flex flex-col items-center gap-2 rounded-[20px] border border-[var(--w-rule)] bg-[var(--w-flimsy)] px-5 py-12 text-center" style={{ animationDelay: "360ms" }}>
+            <p className="basil-serif text-[26px] leading-tight text-[#10213F]">Click &quot;Generate Prep&quot; to get your cheatsheet</p>
+            <p className="text-[14px] text-[color:var(--w-ink-soft)]">Basil will pull context from contact profiles and generate strategic talking points.</p>
+          </div>
+        )}
+      </div>
     </div>
   );
 }

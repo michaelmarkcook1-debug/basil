@@ -1,20 +1,26 @@
 "use client";
 
-import { useState, useEffect, useRef, useCallback, useMemo } from "react";
+/**
+ * Commitments — what you have promised, and what others owe you.
+ *
+ * Restyled 2026-10-14 to the Basil identity (docs/design/visual-system.md):
+ * cream cards, navy chrome, Instrument Serif headings, and one graphic, "Your
+ * load", counted from the actions this page already holds. Data fetching,
+ * handlers, filters and what marking done / deleting sends are unchanged.
+ */
+
+import { Fragment, useState, useEffect, useRef, useCallback, useMemo } from "react";
 import { ReplyButton } from "@/components/email/reply-composer";
 import { useDomainSync } from "@/lib/sync/use-domain-sync";
 // useDraft kept for any legacy callers; actions now uses usePersistentDraft
-import { Card, CardContent } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Button } from "@/components/ui/button";
-import { NeedsAttention } from "@/components/shared/needs-attention";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
+import { PageHero, BTN_PRIMARY, BTN_SECONDARY } from "@/components/basil/page-hero";
 
 import { ContactAvatar } from "@/components/ui/contact-avatar";
 import { useContactPhotos } from "@/lib/hooks/use-contact-photos";
 import {
-  ListChecks,
   Plus,
   Trash2,
   Check,
@@ -24,7 +30,6 @@ import {
   ChevronDown,
   ChevronRight,
   ShieldQuestion,
-  ThumbsUp,
   X,
   Briefcase,
   ClipboardList,
@@ -40,6 +45,8 @@ import {
   ArrowRight,
   Minus,
   Loader2,
+  AlertTriangle,
+  Info,
 } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { findContactByName } from "@/lib/contacts-lookup";
@@ -52,6 +59,7 @@ import { usePersistentDraft } from "@/lib/hooks/use-persistent-draft";
 import { DraftSavedIndicator } from "@/components/ui/draft-saved-indicator";
 import { TrustReviewPrompt } from "@/components/ui/trust-ui";
 import { ExplorePanel } from "@/components/explore-panel";
+import { daysSince } from "@/lib/today/visual-data";
 
 const LEGACY_STORAGE_KEY = "sage-actions";
 
@@ -72,20 +80,64 @@ const ACTION_DRAFT_DEFAULT: ActionFormDraft = {
   priority: "medium",
 };
 
+// ── Palette (exactly the validated chart colours from the visual system) ──────
+
+/** "Your load" states. Later is the palest step of the sequential ramp, outlined. */
+const LOAD_COLOR = { overdue: "#D9661F", today: "#2F5FA8", week: "#1F8A70", later: "#A9B4CC" } as const;
+/** Channel colours, shown as a dot beside ink text (never as text colour). */
+const CHANNEL_DOT: Partial<Record<ActionItem["source"], string>> = {
+  email: "#5865C2",
+  slack: "#0E9E8A",
+  meeting: "#BE7A2A",
+  chat: "#C8A96B",
+};
+const SOURCE_LABEL: Record<ActionItem["source"], string> = {
+  meeting: "Meeting",
+  slack: "Slack",
+  teams: "Teams",
+  email: "Email",
+  manual: "Manual",
+  chat: "Chat",
+  linear: "Linear",
+};
+
+/** A swatch for a chart colour: the palest one gets a rule border so it never vanishes on cream. */
+function swatchStyle(color: string): React.CSSProperties {
+  return color === LOAD_COLOR.later
+    ? { background: color, border: "1px solid var(--w-rule)" }
+    : { background: color };
+}
+
+/** A small outlined chip. Opaque cream ground, so whatever text sits on it keeps AA. */
+const CHIP = "inline-flex items-center gap-1 rounded-full border bg-[var(--w-flimsy)] px-2 py-0.5 text-[12px] font-medium";
+
 // ── Visual helpers ─────────────────────────────────────────────────────────────
+
+function CountChip({ n }: { n: number }) {
+  return (
+    <span className="basil-mono inline-flex min-w-[28px] items-center justify-center rounded-full border border-[var(--w-rule)] bg-[var(--w-tray)] px-2 py-0.5 text-[12px] text-[color:var(--w-ink)]">
+      {n}
+    </span>
+  );
+}
+
+function initialsOf(name: string): string {
+  const parts = name.trim().split(/\s+/).filter(Boolean);
+  const first = parts[0]?.[0] ?? "";
+  const last = parts.length > 1 ? parts[parts.length - 1][0] : "";
+  return (first + last).toUpperCase() || "?";
+}
 
 function PriorityBadge({ priority }: { priority?: ActionItem["priority"] }) {
   if (!priority) return null;
   const styles: Record<NonNullable<ActionItem["priority"]>, string> = {
-    high: "bg-signal-critical-subtle text-signal-critical border-signal-critical-border",
-    medium: "bg-signal-warning-subtle text-signal-warning border-signal-warning-border",
-    low: "bg-muted/50 text-muted-foreground border-border",
+    high: "border-[var(--w-stamp)] text-[color:var(--w-stamp)]",
+    medium: "border-[var(--w-rule-strong)] text-[color:var(--w-manila)]",
+    low: "border-[var(--w-rule)] text-[color:var(--w-ink-soft)]",
   };
   return (
-    <span
-      className={`inline-flex items-center rounded-full border px-2 py-0.5 text-xs font-medium ${styles[priority]}`}
-    >
-      {priority}
+    <span className={`${CHIP} ${styles[priority]}`}>
+      {priority[0].toUpperCase() + priority.slice(1)}
     </span>
   );
 }
@@ -120,45 +172,43 @@ function ExpiryBadge({ expiresAt }: { expiresAt?: string }) {
   const minLeft = Math.floor(msLeft / 60_000);
   const label =
     minLeft < 60
-      ? `⏱ ${minLeft}m`
+      ? `${minLeft}m left`
       : minLeft < 240
-        ? `⏱ ${Math.floor(minLeft / 60)}h ${minLeft % 60}m`
-        : `⏱ expires ${new Date(expiresAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}`;
-  const urgency = minLeft < 30 ? "bg-signal-critical-subtle text-signal-critical border-signal-critical-border" : minLeft < 120 ? "bg-signal-warning-subtle text-signal-warning border-signal-warning-border" : "bg-muted/50 text-muted-foreground border-border";
+        ? `${Math.floor(minLeft / 60)}h ${minLeft % 60}m left`
+        : `expires ${new Date(expiresAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}`;
+  const urgency = minLeft < 30
+    ? "border-[var(--w-stamp)] text-[color:var(--w-stamp)]"
+    : minLeft < 120
+      ? "border-[var(--w-manila)] text-[color:var(--w-manila)]"
+      : "border-[var(--w-rule)] text-[color:var(--w-ink-soft)]";
   return (
-    <span className={`inline-flex items-center rounded-full border px-2 py-0.5 text-xs font-medium ${urgency}`} title={`Expires at ${new Date(expiresAt).toLocaleString()}`}>
-      {label}
+    <span className={`${CHIP} ${urgency}`} title={`Expires at ${new Date(expiresAt).toLocaleString()}`}>
+      <Clock className="h-3 w-3" aria-hidden />
+      <span className="basil-mono">{label}</span>
     </span>
   );
 }
 
+/** Where it came from: a channel-coloured dot beside ink text (the safe way to use a hue). */
 function SourceBadge({ source }: { source: ActionItem["source"] }) {
-  const styles: Record<ActionItem["source"], string> = {
-    meeting: "bg-signal-info-subtle text-signal-info",
-    slack:   "bg-signal-positive-subtle text-signal-positive",
-    teams:   "bg-muted/50 text-muted-foreground",
-    email:   "bg-signal-info-subtle text-signal-info",
-    manual:  "bg-muted/50 text-muted-foreground",
-    // Was bg-indigo-100/text-indigo-700 — a light-theme leftover that read as an
-    // unreadable pale chip on the dark theme. Ask-Basil-sourced items now use the
-    // app's own assistant accent (gold), consistent with the sidebar/chat UI.
-    chat:    "bg-[var(--w-carbon-tint)] text-[color:var(--w-carbon)]",
-    linear:  "bg-signal-info-subtle text-signal-info",
-  };
+  const dot = CHANNEL_DOT[source];
   return (
-    <span
-      className={`inline-flex items-center rounded px-2 py-0.5 text-xs font-medium ${styles[source]}`}
-    >
-      {source}
+    <span className={`${CHIP} border-[var(--w-rule)] text-[color:var(--w-ink)]`}>
+      <span
+        aria-hidden
+        className="h-2 w-2 shrink-0 rounded-full"
+        style={dot ? { background: dot } : { border: "1.5px solid var(--w-rule-strong)" }}
+      />
+      {SOURCE_LABEL[source] ?? source}
     </span>
   );
 }
 
-/** Amber pill shown on actions that need user confirmation before being trusted. */
+/** Shown on actions that need user confirmation before being trusted. */
 function NeedsReviewBadge() {
   return (
-    <span className="inline-flex items-center gap-1 rounded-full border border-signal-warning-border bg-signal-warning-subtle px-2 py-0.5 text-xs font-medium text-signal-warning">
-      <ShieldQuestion className="h-2.5 w-2.5" />
+    <span className={`${CHIP} border-[var(--w-manila)] text-[color:var(--w-manila)]`}>
+      <ShieldQuestion className="h-3 w-3" aria-hidden />
       Review
     </span>
   );
@@ -168,14 +218,14 @@ function NeedsReviewBadge() {
 function CategoryChip({ category }: { category?: ActionCategory }) {
   if (!category) return null;
   const styles: Record<ActionCategory, { cls: string; label: string; Icon: React.ComponentType<{ className?: string }> }> = {
-    critical: { cls: "bg-signal-critical-subtle text-signal-critical border-signal-critical-border",    label: "Critical", Icon: Briefcase },
-    admin:    { cls: "bg-signal-info-subtle  text-signal-info  border-signal-info-border",   label: "Admin",    Icon: ClipboardList },
-    personal: { cls: "bg-signal-positive-subtle text-signal-positive border-signal-positive-border", label: "Personal", Icon: User },
+    critical: { cls: "text-[color:var(--w-stamp)]", label: "Critical", Icon: Briefcase },
+    admin:    { cls: "text-[color:var(--w-info)]",  label: "Admin",    Icon: ClipboardList },
+    personal: { cls: "text-[color:var(--w-filed)]", label: "Personal", Icon: User },
   };
   const { cls, label, Icon } = styles[category];
   return (
-    <span className={`inline-flex items-center gap-1 rounded border px-2 py-0.5 text-xs font-medium ${cls}`}>
-      <Icon className="h-2.5 w-2.5" />
+    <span className={`${CHIP} border-[var(--w-rule)] ${cls}`}>
+      <Icon className="h-3 w-3" />
       {label}
     </span>
   );
@@ -185,11 +235,12 @@ function CategoryChip({ category }: { category?: ActionCategory }) {
 function DecisionRequiredBadge({ onClick }: { onClick?: () => void }) {
   return (
     <button
+      type="button"
       onClick={onClick}
-      className="inline-flex items-center gap-1 rounded-full border border-signal-info-border bg-signal-info-subtle px-2 py-0.5 text-xs font-medium text-signal-info hover:bg-signal-info-subtle transition-colors cursor-pointer"
+      className={`${CHIP} cursor-pointer border-[var(--w-info)] text-[color:var(--w-info)] transition-colors hover:border-[#10213F]`}
       title="A decision needs to be made — click to log it"
     >
-      <GitBranch className="h-2.5 w-2.5" />
+      <GitBranch className="h-3 w-3" aria-hidden />
       Decision needed
     </button>
   );
@@ -197,23 +248,55 @@ function DecisionRequiredBadge({ onClick }: { onClick?: () => void }) {
 
 // ── Section headings ───────────────────────────────────────────────────────────
 
+/** Group heading: serif title, an optional swatch tying it to "Your load", and a count chip. */
 function SectionHeading({
+  id,
   label,
   count,
-  accent,
+  dot,
 }: {
+  id?: string;
   label: string;
   count: number;
-  accent?: string;
+  dot?: string;
 }) {
   return (
-    <div className="flex items-center gap-2 mb-2">
-      <span className={`text-xs font-semibold uppercase tracking-wider ${accent ?? "text-muted-foreground"}`}>
+    <div className="flex items-center gap-2.5 pb-1">
+      {dot && <span aria-hidden className="h-3 w-3 shrink-0 rounded-[3px]" style={swatchStyle(dot)} />}
+      <h3 id={id} className="basil-serif text-[22px] leading-tight text-[#10213F]">
         {label}
-      </span>
-      <span className="text-xs text-muted-foreground">({count})</span>
-      <div className="flex-1 border-t border-border/50" />
+      </h3>
+      <CountChip n={count} />
     </div>
+  );
+}
+
+/** A timeline group: one cream card, its rows sharing a rule inside it. */
+function GroupCard({
+  id,
+  label,
+  count,
+  dot,
+  delay = 0,
+  children,
+}: {
+  id: string;
+  label: string;
+  count: number;
+  dot?: string;
+  delay?: number;
+  children: React.ReactNode;
+}) {
+  return (
+    <section
+      id={id}
+      aria-labelledby={`${id}-h`}
+      className="basil-rise scroll-mt-6 rounded-[20px] border border-[var(--w-rule)] bg-[var(--w-flimsy)] px-4 pb-1.5 pt-4 sm:px-6"
+      style={{ animationDelay: `${delay}ms` }}
+    >
+      <SectionHeading id={`${id}-h`} label={label} count={count} dot={dot} />
+      <div>{children}</div>
+    </section>
   );
 }
 
@@ -248,170 +331,167 @@ function ActionCard({
     (action.status === "open" && action.dueDate && action.dueDate < todayStr);
   const isDueToday = action.status === "open" && action.dueDate === todayStr;
   const stalled = isActionStalled(action);
+  const isDone = action.status === "done";
 
   return (
-    // A filed commitment, not a card. Rows share one rule so the queue stays
-    // dense enough to work down; a stack of cards spends most of its height on
-    // its own edges. Done items stay legible rather than dimmed to 55% — a
-    // completed commitment is evidence you acted, and this app has a standing
-    // problem with outbound work being invisible.
-    <article
-      className={`wire-dispatch !grid-cols-[auto_minmax(0,1fr)] ${
-        action.status === "done" ? "opacity-80" : ""
-      }`}
-    >
-      <div className="contents">
-        {/* Checkbox */}
-        <button
-          onClick={() => onToggle(action.id)}
-          className={`mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded border transition-colors ${
-            action.status === "done"
-              ? "bg-signal-positive border-signal-positive text-white"
-              : "border-border hover:border-[var(--w-carbon)]"
+    // A filed commitment: a row inside its group's card, sharing one rule with
+    // its neighbours so the queue stays dense enough to work down. Done items
+    // stay legible (struck through, never faded) — a completed commitment is
+    // evidence you acted, and this app has a standing problem with outbound
+    // work being invisible.
+    <article className="grid grid-cols-[auto_minmax(0,1fr)_auto] gap-x-3 border-t border-[var(--w-rule)] py-3.5 first:border-t-0">
+      {/* Checkbox */}
+      <label className="-ml-1.5 flex h-8 w-8 cursor-pointer items-start justify-center pt-[3px]">
+        <input
+          type="checkbox"
+          checked={isDone}
+          onChange={() => onToggle(action.id)}
+          aria-label={isDone ? `Mark "${action.text.slice(0, 60)}" as not done` : `Mark "${action.text.slice(0, 60)}" done`}
+          className="h-[18px] w-[18px] cursor-pointer accent-[#10213F]"
+        />
+      </label>
+
+      {/* Body */}
+      <div className="min-w-0">
+        <p
+          className={`text-[15px] leading-snug ${
+            isDone ? "text-[color:var(--w-ink-soft)] line-through" : "text-[color:var(--w-ink)]"
           }`}
         >
-          {action.status === "done" && <Check className="h-3 w-3" />}
-        </button>
-
-        {/* Body */}
-        <div className="flex-1 min-w-0">
-          <p
-            className={`text-sm leading-snug ${
-              action.status === "done" ? "line-through text-muted-foreground" : ""
-            }`}
-          >
-            {action.text}
+          {action.text}
+        </p>
+        {/* A promise you made in writing — shows whom to, when, and your words. */}
+        {action.commitment && (
+          <p className="mt-1 text-[13px] text-[color:var(--w-ink-soft)]">
+            You promised{action.commitment.to ? ` ${action.commitment.to}` : ""}
+            {" · "}<span className="basil-mono">{new Date(action.commitment.sentAt).toLocaleDateString("en-GB", { day: "numeric", month: "short" })}</span>
+            {action.commitment.quote ? <span className="italic">{` — “${action.commitment.quote}”`}</span> : null}
           </p>
-          {/* A promise you made in writing — shows whom to, when, and your words. */}
-          {action.commitment && (
-            <p className="mt-1 text-[0.75rem] text-muted-foreground">
-              You promised{action.commitment.to ? ` ${action.commitment.to}` : ""}
-              {" · "}{new Date(action.commitment.sentAt).toLocaleDateString("en-GB", { day: "numeric", month: "short" })}
-              {action.commitment.quote ? <span className="italic">{` — “${action.commitment.quote}”`}</span> : null}
-            </p>
+        )}
+
+        {/* Meta row */}
+        <div className="mt-2 flex flex-wrap items-center gap-x-2.5 gap-y-1.5">
+          {/* Resolution marker. Signal-driven closes (you accepted an invite /
+              sent a reply) read as what you DID; lifecycle sweeps read as
+              auto-archived. Neither is conflated with a manual completion. */}
+          {action.archivedReason && (() => {
+            const signalDriven = action.archivedReason === "rsvp-confirmed" || action.archivedReason === "reply-sent"
+              || action.archivedReason === "answered-elsewhere" || action.archivedReason === "promise-kept";
+            const label =
+              action.archivedReason === "rsvp-confirmed" ? "you responded on your calendar"
+              : action.archivedReason === "reply-sent" ? "you replied"
+              : action.archivedReason === "answered-elsewhere" ? "answered in the thread"
+              : action.archivedReason === "bulk-mail" ? "marketing mail"
+              : action.archivedReason === "calendar-invite" ? "on your calendar"
+              : action.archivedReason === "promise-kept" ? "you followed through"
+              : action.archivedReason === "notification" ? "automatic notification"
+              : action.archivedReason === "meeting-note" ? "meeting note, not a task"
+              : action.archivedReason === "stale-untouched" ? "untouched 30 days"
+              : action.archivedReason === "stale-overdue" ? "expired overdue"
+              : action.archivedReason === "past-meeting" ? "meeting passed"
+              : "time-boxed";
+            return (
+              <span className={cn(
+                CHIP,
+                "text-[11px] uppercase tracking-wide",
+                signalDriven
+                  ? "border-[var(--w-filed)] text-[color:var(--w-filed)]"
+                  : "border-[var(--w-rule)] text-[color:var(--w-ink-soft)]"
+              )}>
+                {signalDriven ? "" : "Auto-archived · "}{label}
+              </span>
+            );
+          })()}
+          {/* Owner — a small initials chip (their headshot when Basil has one) */}
+          {action.owner && (
+            <span className="inline-flex items-center gap-1.5 text-[13px] text-[color:var(--w-ink-soft)]">
+              <ContactAvatar
+                initials={contact?.initials ?? initialsOf(action.owner)}
+                color="bg-[#10213F]"
+                photoUrl={contact ? photos[contact.email?.toLowerCase() ?? ""] : undefined}
+                className="h-6 w-6"
+                fallbackClassName="text-[10px] font-semibold"
+              />
+              {action.owner}
+            </span>
           )}
 
-          {/* Meta row */}
-          <div className="flex items-center gap-2 mt-1.5 flex-wrap">
-            {/* Resolution marker. Signal-driven closes (you accepted an invite /
-                sent a reply) read as what you DID; lifecycle sweeps read as
-                auto-archived. Neither is conflated with a manual completion. */}
-            {action.archivedReason && (() => {
-              const signalDriven = action.archivedReason === "rsvp-confirmed" || action.archivedReason === "reply-sent"
-                || action.archivedReason === "answered-elsewhere" || action.archivedReason === "promise-kept";
-              const label =
-                action.archivedReason === "rsvp-confirmed" ? "you responded on your calendar"
-                : action.archivedReason === "reply-sent" ? "you replied"
-                : action.archivedReason === "answered-elsewhere" ? "answered in the thread"
-                : action.archivedReason === "bulk-mail" ? "marketing mail"
-                : action.archivedReason === "calendar-invite" ? "on your calendar"
-                : action.archivedReason === "promise-kept" ? "you followed through"
-                : action.archivedReason === "notification" ? "automatic notification"
-                : action.archivedReason === "meeting-note" ? "meeting note, not a task"
-                : action.archivedReason === "stale-untouched" ? "untouched 30 days"
-                : action.archivedReason === "stale-overdue" ? "expired overdue"
-                : action.archivedReason === "past-meeting" ? "meeting passed"
-                : "time-boxed";
-              return (
-                <span className={cn(
-                  "inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide",
-                  signalDriven
-                    ? "border-signal-positive-border bg-signal-positive-subtle text-signal-positive"
-                    : "border-border bg-muted/40 text-muted-foreground"
-                )}>
-                  {signalDriven ? "" : "Auto-archived · "}{label}
-                </span>
-              );
-            })()}
-            {/* Owner */}
-            <div className="flex items-center gap-1.5">
-              {contact && (
-                <ContactAvatar
-                  initials={contact.initials}
-                  color={contact.color}
-                  photoUrl={photos[contact.email?.toLowerCase() ?? ""]}
-                  className="h-4 w-4"
-                  fallbackClassName="text-xs"
-                />
-              )}
-              <span className="text-xs text-muted-foreground">{action.owner}</span>
-            </div>
-
-            {/* Due date */}
-            {action.dueDate && (
-              <span
-                className={`text-xs font-medium ${
-                  isOverdue
-                    ? "text-signal-critical"
-                    : isDueToday
-                    ? "text-signal-warning"
-                    : "text-muted-foreground"
-                }`}
-              >
-                Due {formatDueDate(action.dueDate)}
-              </span>
-            )}
-
-            {/* Stalled indicator */}
-            {stalled && (
-              <span className="inline-flex items-center gap-1 text-xs text-signal-warning font-medium">
-                <Clock className="h-3 w-3" />
-                Stalled
-              </span>
-            )}
-
-            {/* Reply in the email thread this action came from — sending closes it. */}
-            {action.source === "email" && action.sourceRef?.startsWith("gmail:") && action.status !== "done" && (
-              <ReplyButton messageId={action.sourceRef.slice("gmail:".length)} actionId={action.id} onSent={onReplied} />
-            )}
-            <ExpiryBadge expiresAt={action.expiresAt} />
-            <PriorityBadge priority={action.priority} />
-            <SourceBadge source={action.source} />
-            <CategoryChip category={action.category} />
-            {action.needsReview && <NeedsReviewBadge />}
-
-            {/* Decision needed — click-through to Decisions */}
-            {action.decisionRequired && !action.linkedDecisionId && (
-              <DecisionRequiredBadge onClick={() => onDecisionClick?.(action)} />
-            )}
-
-            {/* Linked decisions */}
-            {action.linkedDecisionIds && action.linkedDecisionIds.length > 0 && (
-              <span className="inline-flex items-center gap-0.5 text-xs text-muted-foreground">
-                <Link2 className="h-3 w-3" />
-                {action.linkedDecisionIds.length}
-              </span>
-            )}
-          </div>
-
-          {/* Review prompt — confirm keeps it, dismiss removes it */}
-          {action.needsReview && (
-            <TrustReviewPrompt
-              artifactType="action"
-              onConfirm={() => onConfirmReview?.(action.id)}
-              onDismiss={() => onDelete(action.id)}
-              className="mt-2"
-            />
+          {/* Due date */}
+          {action.dueDate && (
+            <span
+              className={`basil-mono text-[12px] font-medium ${
+                isOverdue
+                  ? "text-[color:var(--w-stamp)]"
+                  : isDueToday
+                  ? "text-[color:var(--w-manila)]"
+                  : "text-[color:var(--w-ink-soft)]"
+              }`}
+            >
+              {isOverdue ? "Overdue · " : ""}{isDueToday ? "Due today" : `Due ${formatDueDate(action.dueDate)}`}
+            </span>
           )}
 
-          {/* Explore further — inline notes */}
-          {onNotes && action.status !== "done" && (
-            <ExplorePanel
-              notes={action.notes}
-              onSave={(notes) => onNotes(action.id, notes)}
-            />
+          {/* Stalled indicator */}
+          {stalled && (
+            <span className="inline-flex items-center gap-1 text-[12px] font-medium text-[color:var(--w-manila)]">
+              <Clock className="h-3 w-3" aria-hidden />
+              Stalled
+            </span>
+          )}
+
+          {/* Reply in the email thread this action came from — sending closes it. */}
+          {action.source === "email" && action.sourceRef?.startsWith("gmail:") && action.status !== "done" && (
+            <ReplyButton messageId={action.sourceRef.slice("gmail:".length)} actionId={action.id} onSent={onReplied} />
+          )}
+          <ExpiryBadge expiresAt={action.expiresAt} />
+          <PriorityBadge priority={action.priority} />
+          <SourceBadge source={action.source} />
+          <CategoryChip category={action.category} />
+          {action.needsReview && <NeedsReviewBadge />}
+
+          {/* Decision needed — click-through to Decisions */}
+          {action.decisionRequired && !action.linkedDecisionId && (
+            <DecisionRequiredBadge onClick={() => onDecisionClick?.(action)} />
+          )}
+
+          {/* Linked decisions */}
+          {action.linkedDecisionIds && action.linkedDecisionIds.length > 0 && (
+            <span className="inline-flex items-center gap-1 text-[12px] text-[color:var(--w-ink-soft)]" title="Linked decisions">
+              <Link2 className="h-3 w-3" aria-hidden />
+              <span className="basil-mono">{action.linkedDecisionIds.length}</span>
+            </span>
           )}
         </div>
 
-        {/* Delete — single click, undo toast gives 5 s to recover */}
-        <button
-          onClick={() => onDelete(action.id)}
-          className="text-muted-foreground/50 hover:text-destructive transition-colors shrink-0"
-          title="Delete action"
-        >
-          <Trash2 className="h-3.5 w-3.5" />
-        </button>
+        {/* Review prompt — confirm keeps it, dismiss removes it */}
+        {action.needsReview && (
+          <TrustReviewPrompt
+            artifactType="action"
+            onConfirm={() => onConfirmReview?.(action.id)}
+            onDismiss={() => onDelete(action.id)}
+            className="mt-2"
+          />
+        )}
+
+        {/* Explore further — inline notes */}
+        {onNotes && action.status !== "done" && (
+          <ExplorePanel
+            notes={action.notes}
+            onSave={(notes) => onNotes(action.id, notes)}
+          />
+        )}
       </div>
+
+      {/* Delete — single click, undo toast gives 5 s to recover */}
+      <button
+        type="button"
+        onClick={() => onDelete(action.id)}
+        className="-mr-2 -mt-1.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-[color:var(--w-ink-soft)] transition-colors hover:bg-[var(--w-tray)] hover:text-[color:var(--w-stamp)]"
+        title="Delete action"
+        aria-label="Delete action"
+      >
+        <Trash2 className="h-4 w-4" />
+      </button>
     </article>
   );
 }
@@ -419,12 +499,14 @@ function ActionCard({
 // ── Collapsible section wrapper ────────────────────────────────────────────────
 
 function CollapsibleSection({
+  id,
   label,
-  accent,
+  dot,
   items,
   note,
   archive = false,
   defaultOpen = true,
+  delay = 0,
   onToggle,
   onDelete,
   onConfirmReview,
@@ -434,9 +516,11 @@ function CollapsibleSection({
   todayStr,
   photos = {},
 }: {
+  id?: string;
   onReplied?: () => void;
   label: string;
-  accent?: string;
+  /** Swatch colour tying the group to a chart state. */
+  dot?: string;
   items: ActionItem[];
   /** One line explaining what this group IS, shown when opened. */
   note?: string;
@@ -448,6 +532,7 @@ function CollapsibleSection({
    */
   archive?: boolean;
   defaultOpen?: boolean;
+  delay?: number;
   onToggle: (id: string) => void;
   onDelete: (id: string) => void;
   onConfirmReview?: (id: string) => void;
@@ -460,33 +545,40 @@ function CollapsibleSection({
   if (items.length === 0) return null;
 
   return (
-    <div className={archive ? "mt-6 rounded-lg border border-[var(--w-rule)] bg-[var(--w-tray)] p-3" : ""}>
+    <section
+      id={id}
+      className={`basil-rise scroll-mt-6 rounded-[20px] border border-[var(--w-rule)] px-4 pb-1.5 pt-2 sm:px-6 ${
+        archive ? "bg-[var(--w-tray)]" : "bg-[var(--w-flimsy)]"
+      }`}
+      style={{ animationDelay: `${delay}ms` }}
+    >
       {archive && (
-        <p className="mb-1.5 text-[0.6875rem] font-semibold uppercase tracking-[0.08em] text-[color:var(--w-ink-soft)]">
+        <p className="basil-mono pt-2 text-[11px] uppercase tracking-[0.14em] text-[color:var(--w-ink-soft)]">
           Archive
         </p>
       )}
       <button
-        className="flex items-center gap-2 w-full mb-2 group min-h-[44px] sm:min-h-0 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2"
+        type="button"
+        className="flex min-h-[44px] w-full items-center gap-2.5 rounded-lg text-left focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#10213F]"
         onClick={() => setOpen((o) => !o)}
         aria-expanded={open}
       >
         {open ? (
-          <ChevronDown className="h-3.5 w-3.5 text-muted-foreground" aria-hidden />
+          <ChevronDown className="h-4 w-4 shrink-0 text-[color:var(--w-ink-soft)]" aria-hidden />
         ) : (
-          <ChevronRight className="h-3.5 w-3.5 text-muted-foreground" aria-hidden />
+          <ChevronRight className="h-4 w-4 shrink-0 text-[color:var(--w-ink-soft)]" aria-hidden />
         )}
-        <span className={`text-[0.8125rem] font-semibold ${accent ?? "text-[color:var(--w-ink)]"}`}>
+        {dot && <span aria-hidden className="h-3 w-3 shrink-0 rounded-[3px]" style={swatchStyle(dot)} />}
+        <span className={`basil-serif leading-tight text-[#10213F] ${archive ? "text-[20px]" : "text-[22px]"}`}>
           {label}
         </span>
-        <span className="wire-data text-xs text-muted-foreground">({items.length})</span>
-        <div className="flex-1 border-t border-border/50" />
+        <CountChip n={items.length} />
       </button>
       {open && note && (
-        <p className="mb-2 text-[0.8125rem] text-[color:var(--w-ink-soft)]">{note}</p>
+        <p className="pb-2 text-[13px] leading-relaxed text-[color:var(--w-ink-soft)]">{note}</p>
       )}
       {open && (
-        <div className="space-y-2">
+        <div>
           {items.map((a) => (
             <ActionCard
               key={a.id}
@@ -503,7 +595,250 @@ function CollapsibleSection({
           ))}
         </div>
       )}
-    </div>
+    </section>
+  );
+}
+
+// ── Your load (the graphic under the header) ──────────────────────────────────
+
+type LoadKey = "overdue" | "today" | "week" | "later";
+
+interface LoadCounts {
+  overdue: number;
+  today: number;
+  week: number;
+  /** Dated beyond this week. */
+  laterDated: number;
+  /** No due date (includes stalled). */
+  noDate: number;
+  stalled: number;
+}
+
+/**
+ * Your open commitments by when they are due, counted with the same rules the
+ * groups below use (Overdue, Due Today, Upcoming split at seven days, Open +
+ * Stalled), so with no search or filter the graphic and the list agree.
+ */
+function countLoad(list: ActionItem[], todayStr: string, weekEndStr: string): LoadCounts {
+  const out: LoadCounts = { overdue: 0, today: 0, week: 0, laterDated: 0, noDate: 0, stalled: 0 };
+  for (const a of list) {
+    if (a.status === "done") continue;
+    const due = a.dueDate ?? "";
+    if (a.status === "overdue" || (due && due < todayStr)) out.overdue++;
+    else if (due === todayStr) out.today++;
+    else if (due && due.slice(0, 10) <= weekEndStr) out.week++;
+    else if (due) out.laterDated++;
+    else {
+      out.noDate++;
+      if (isActionStalled(a)) out.stalled++;
+    }
+  }
+  return out;
+}
+
+const LOAD_SEGMENTS: Array<{ key: LoadKey; label: string; color: string; hint: string }> = [
+  { key: "overdue", label: "Overdue", color: LOAD_COLOR.overdue, hint: "past their due date" },
+  { key: "today", label: "Due today", color: LOAD_COLOR.today, hint: "due before the day is out" },
+  { key: "week", label: "This week", color: LOAD_COLOR.week, hint: "due in the next seven days" },
+  { key: "later", label: "Later or no date", color: LOAD_COLOR.later, hint: "due after this week, or with no date set" },
+];
+
+const FILTER_LABEL: Record<string, string> = {
+  open: "open commitments only",
+  done: "done only",
+  overdue: "overdue only",
+  waiting: "what others owe you",
+  review: "items to review",
+};
+
+function LoadPanel({
+  counts,
+  review,
+  waiting,
+  longestWait,
+  failed,
+  loading,
+  activeFilter,
+  onSegment,
+  onWaiting,
+  onReview,
+  onClearFilter,
+  delay = 0,
+}: {
+  counts: LoadCounts;
+  review: number;
+  waiting: number;
+  longestWait: number;
+  failed: boolean;
+  loading: boolean;
+  activeFilter: string;
+  onSegment: (key: LoadKey) => void;
+  onWaiting: () => void;
+  onReview: () => void;
+  onClearFilter: () => void;
+  delay?: number;
+}) {
+  const [hover, setHover] = useState<LoadKey | null>(null);
+  const value = (k: LoadKey) => (k === "later" ? counts.laterDated + counts.noDate : counts[k]);
+  const total = counts.overdue + counts.today + counts.week + counts.laterDated + counts.noDate;
+  const attention = counts.overdue + counts.today + review;
+  const verb = (k: LoadKey) => (k === "overdue" ? "Show only these" : "Jump to them");
+  const focus = hover ? LOAD_SEGMENTS.find((s) => s.key === hover) : undefined;
+
+  // The lead the page used to open with ("N need attention"), kept as the
+  // caption. Counts arrive derived; an outage is never reported as all clear.
+  const summary = attention > 0
+    ? `${attention} need${attention === 1 ? "s" : ""} attention: ${counts.overdue} overdue, ${counts.today} due today${review > 0 ? `, ${review} to review` : ""}.`
+    : total > 0
+      ? `Nothing overdue or due today. ${total} commitment${total === 1 ? "" : "s"} open further out.`
+      : "No open commitments.";
+  const detail = focus
+    ? `${value(focus.key)} ${focus.label.toLowerCase()} — ${focus.hint}. ${verb(focus.key)}.`
+    : summary;
+
+  return (
+    <section
+      aria-labelledby="load-h"
+      className="basil-rise flex flex-col gap-4 rounded-[20px] border border-[var(--w-rule)] bg-[var(--w-flimsy)] p-5 sm:p-6"
+      style={{ animationDelay: `${delay}ms` }}
+    >
+      <div className="flex flex-wrap items-baseline justify-between gap-2.5">
+        <h2 id="load-h" className="basil-serif text-[26px] leading-tight text-[#10213F]">Your load</h2>
+        {!failed && !loading && (
+          <span className="text-[13px] text-[color:var(--w-ink-soft)]">
+            <span className="basil-mono font-semibold text-[color:var(--w-ink)]">{total}</span> open and yours
+          </span>
+        )}
+      </div>
+
+      {failed ? (
+        <p className="flex items-start gap-2 text-[14px] leading-relaxed text-[color:var(--w-ink)]">
+          <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-[color:var(--w-manila)]" aria-hidden />
+          <span>
+            <strong className="font-semibold">Cannot tell what needs attention.</strong>{" "}
+            Commitments could not be read, so a zero count here would be a guess.
+          </span>
+        </p>
+      ) : loading ? (
+        <div className="h-12 animate-pulse rounded-[10px] bg-[var(--w-tray)]" aria-label="Reading your commitments" />
+      ) : (
+        <div className="flex flex-wrap items-stretch gap-5">
+          <div className="flex min-w-0 flex-[3_1_420px] flex-col gap-2.5">
+            {total === 0 ? (
+              <div className="h-12 rounded-[10px] border border-[var(--w-rule)] bg-[var(--w-tray)]" aria-hidden />
+            ) : (
+              <div
+                className="basil-grow flex h-12 gap-[2px]"
+                style={{ animationDelay: `${delay + 180}ms` }}
+                onMouseLeave={() => setHover(null)}
+              >
+                {LOAD_SEGMENTS.filter((s) => value(s.key) > 0).map((s) => {
+                  const n = value(s.key);
+                  const lit = hover === s.key || (s.key === "overdue" && activeFilter === "overdue");
+                  return (
+                    <button
+                      key={s.key}
+                      type="button"
+                      // The legend below carries keyboard focus for the same
+                      // actions; the bar stays one tab stop lighter.
+                      tabIndex={-1}
+                      onClick={() => onSegment(s.key)}
+                      onMouseEnter={() => setHover(s.key)}
+                      aria-label={`${s.label}: ${n}. ${verb(s.key)}.`}
+                      title={`${s.label}: ${n}`}
+                      className="min-w-[14px] cursor-pointer rounded-[4px] outline outline-2 outline-offset-2 transition-[outline-color] first:rounded-l-[10px] last:rounded-r-[10px]"
+                      style={{ ...swatchStyle(s.color), flex: `${n} 1 0%`, outlineColor: lit ? "#10213F" : "transparent" }}
+                    />
+                  );
+                })}
+              </div>
+            )}
+            <div className="-mx-2.5 flex flex-wrap" role="group" aria-label="Your open commitments by when they are due">
+              {LOAD_SEGMENTS.map((s, i) => {
+                const n = value(s.key);
+                return (
+                  <button
+                    key={s.key}
+                    type="button"
+                    disabled={n === 0}
+                    onClick={() => onSegment(s.key)}
+                    onMouseEnter={() => setHover(s.key)}
+                    onMouseLeave={() => setHover(null)}
+                    onFocus={() => setHover(s.key)}
+                    onBlur={() => setHover(null)}
+                    aria-pressed={s.key === "overdue" ? activeFilter === "overdue" : undefined}
+                    aria-label={`${s.label}: ${n}.${n > 0 ? ` ${verb(s.key)}.` : ""}`}
+                    className={`basil-rise inline-flex min-h-[44px] items-center gap-2 rounded-xl px-2.5 text-[14px] text-[color:var(--w-ink)] transition-colors enabled:hover:bg-[var(--w-tray)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-[#10213F] ${
+                      hover === s.key ? "underline decoration-[#C8A96B] decoration-2 underline-offset-4" : ""
+                    }`}
+                    style={{ animationDelay: `${delay + 260 + i * 70}ms` }}
+                  >
+                    <span aria-hidden className="h-3 w-3 shrink-0 rounded-[3px]" style={swatchStyle(s.color)} />
+                    {s.label}
+                    <span className="basil-mono font-semibold">{n}</span>
+                  </button>
+                );
+              })}
+            </div>
+            <p aria-live="polite" className="text-[13px] leading-relaxed text-[color:var(--w-ink-soft)]">{detail}</p>
+          </div>
+
+          {/* What others owe you: the count and the longest wait (from when Basil filed it). */}
+          {waiting > 0 ? (
+            <button
+              type="button"
+              onClick={onWaiting}
+              aria-pressed={activeFilter === "waiting"}
+              aria-label={`Waiting on others: ${waiting}. Longest wait ${longestWait} day${longestWait === 1 ? "" : "s"}. Show them.`}
+              className={`basil-lift flex min-w-[200px] flex-[1_1_220px] flex-col items-start justify-center gap-1.5 rounded-[16px] border bg-[var(--w-tray)] px-5 py-4 text-left ${
+                activeFilter === "waiting" ? "border-[#10213F]" : "border-[var(--w-rule)]"
+              }`}
+            >
+              <span className="basil-mono text-[11px] uppercase tracking-[0.14em] text-[color:var(--w-ink-soft)]">Waiting on others</span>
+              <span className="flex items-baseline gap-2">
+                <span className="basil-serif text-[44px] leading-none text-[#10213F]">{waiting}</span>
+                <span className="text-[14px] text-[color:var(--w-ink)]">{waiting === 1 ? "thing owed to you" : "things owed to you"}</span>
+              </span>
+              <span className="text-[13px] text-[color:var(--w-ink-soft)]">
+                Longest wait{" "}
+                <span className="basil-mono font-semibold text-[color:var(--w-ink)]">
+                  {longestWait} day{longestWait === 1 ? "" : "s"}
+                </span>
+              </span>
+            </button>
+          ) : (
+            <div className="flex min-w-[200px] flex-[1_1_220px] flex-col items-start justify-center gap-1.5 rounded-[16px] border border-[var(--w-rule)] bg-[var(--w-tray)] px-5 py-4">
+              <span className="basil-mono text-[11px] uppercase tracking-[0.14em] text-[color:var(--w-ink-soft)]">Waiting on others</span>
+              <span className="text-[14px] text-[color:var(--w-ink)]">Nobody owes you anything right now.</span>
+            </div>
+          )}
+        </div>
+      )}
+
+      {!failed && !loading && (review > 0 || activeFilter !== "all") && (
+        <div className="flex flex-wrap items-center gap-x-4 gap-y-2 border-t border-[var(--w-rule)] pt-3">
+          {review > 0 && (
+            <button type="button" onClick={onReview} aria-pressed={activeFilter === "review"} className={BTN_SECONDARY}>
+              <ShieldQuestion className="h-4 w-4 text-[color:var(--w-manila)]" aria-hidden />
+              Needs review
+              <span className="basil-mono font-semibold">{review}</span>
+            </button>
+          )}
+          {activeFilter !== "all" && (
+            <span className="inline-flex items-center gap-1 text-[13px] text-[color:var(--w-ink-soft)]">
+              Showing {FILTER_LABEL[activeFilter] ?? activeFilter}.
+              <button
+                type="button"
+                onClick={onClearFilter}
+                className="inline-flex min-h-[44px] items-center px-1 font-medium text-[color:var(--w-carbon)] underline underline-offset-2"
+              >
+                Show all
+              </button>
+            </span>
+          )}
+        </div>
+      )}
+    </section>
   );
 }
 
@@ -523,6 +858,7 @@ function ActionsSyncButton({ onSynced }: { onSynced?: () => void }) {
   const [done, setDone] = useState(false);
   return (
     <button
+      type="button"
       disabled={syncing}
       onClick={async () => {
         setSyncing(true);
@@ -535,9 +871,9 @@ function ActionsSyncButton({ onSynced }: { onSynced?: () => void }) {
         setTimeout(() => { onSynced?.(); }, 12_000);
         setTimeout(() => setDone(false), 20_000);
       }}
-      className="inline-flex items-center gap-2 text-sm text-[color:var(--w-carbon)] hover:underline disabled:opacity-50"
+      className={BTN_SECONDARY}
     >
-      <RefreshCw className={`h-3.5 w-3.5 ${syncing ? "animate-spin" : ""}`} />
+      <RefreshCw className={`h-4 w-4 ${syncing ? "animate-spin" : ""}`} aria-hidden />
       {done ? "Syncing in background…" : syncing ? "Syncing…" : "Sync recent activity"}
     </button>
   );
@@ -568,29 +904,33 @@ function CompletedActionsPanel({ items, todayStr }: { items: ActionItem[]; today
   if (dates.length === 0) return null;
 
   return (
-    <div className="sticky top-4 space-y-3">
-      <div className="flex items-center gap-2">
-        <CheckCircle2 className="h-4 w-4 text-signal-positive" />
-        <span className="text-sm font-semibold">Completed</span>
-        <span className="text-xs text-muted-foreground">({items.length})</span>
+    <aside
+      aria-labelledby="completed-h"
+      className="basil-rise sticky top-4 flex flex-col gap-3 rounded-[20px] border border-[var(--w-rule)] bg-[var(--w-flimsy)] p-5"
+      style={{ animationDelay: "320ms" }}
+    >
+      <div className="flex items-center gap-2.5">
+        <CheckCircle2 className="h-4 w-4 text-[color:var(--w-filed)]" aria-hidden />
+        <h2 id="completed-h" className="basil-serif text-[22px] leading-tight text-[#10213F]">Completed</h2>
+        <CountChip n={items.length} />
       </div>
-      <div className="space-y-4 max-h-[70vh] overflow-y-auto pr-1">
+      <div className="max-h-[70vh] space-y-4 overflow-y-auto pr-1">
         {dates.map((date) => (
           <div key={date}>
-            <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-1.5">
+            <p className="basil-mono mb-1 text-[11px] uppercase tracking-[0.14em] text-[color:var(--w-ink-soft)]">
               {dateLabel(date)}
             </p>
             <div>
               {grouped.get(date)!.map((a) => (
                 <div
                   key={a.id}
-                  className="flex items-start gap-2 py-1.5 border-b border-border/30 last:border-0"
+                  className="flex items-start gap-2 border-b border-[var(--w-rule)] py-2 last:border-0"
                 >
-                  <Check className="h-3 w-3 text-signal-positive mt-0.5 shrink-0" />
+                  <Check className="mt-0.5 h-3.5 w-3.5 shrink-0 text-[color:var(--w-filed)]" aria-hidden />
                   <div className="min-w-0 flex-1">
-                    <p className="text-xs text-muted-foreground leading-snug line-clamp-2">{a.text}</p>
+                    <p className="line-clamp-2 text-[13px] leading-snug text-[color:var(--w-ink)]">{a.text}</p>
                     {a.owner && (
-                      <p className="text-xs text-muted-foreground/60 mt-0.5">{a.owner}</p>
+                      <p className="mt-0.5 text-[12px] text-[color:var(--w-ink-soft)]">{a.owner}</p>
                     )}
                   </div>
                 </div>
@@ -599,7 +939,7 @@ function CompletedActionsPanel({ items, todayStr }: { items: ActionItem[]; today
           </div>
         ))}
       </div>
-    </div>
+    </aside>
   );
 }
 
@@ -614,25 +954,19 @@ const QUADRANTS: Array<{
   verb: string;
   urgent: boolean;
   important: boolean;
-  bg: string;
-  border: string;
-  headerBg: string;
-  headerText: string;
-  badgeBg: string;
-  Icon: React.ComponentType<{ className?: string }>;
+  /** Chart colour for the quadrant's mark (three-state palette; quiet = dashed ring). */
+  color: string;
+  quiet?: boolean;
+  Icon: React.ComponentType<{ className?: string; style?: React.CSSProperties }>;
 }> = [
   {
     id: "Q1",
-    label: "Do First",
+    label: "Do first",
     sublabel: "Urgent + Important",
     verb: "DO",
     urgent: true,
     important: true,
-    bg: "bg-signal-critical/[0.03]",
-    border: "border-signal-critical-border/30",
-    headerBg: "bg-signal-critical/[0.07]",
-    headerText: "text-signal-critical",
-    badgeBg: "bg-signal-critical-subtle text-signal-critical",
+    color: "#D9661F",
     Icon: Zap,
   },
   {
@@ -642,11 +976,7 @@ const QUADRANTS: Array<{
     verb: "PLAN",
     urgent: false,
     important: true,
-    bg: "bg-signal-positive/[0.03]",
-    border: "border-signal-positive-border/30",
-    headerBg: "bg-signal-positive/[0.07]",
-    headerText: "text-signal-positive",
-    badgeBg: "bg-signal-positive-subtle text-signal-positive",
+    color: "#1F8A70",
     Icon: Calendar,
   },
   {
@@ -656,11 +986,7 @@ const QUADRANTS: Array<{
     verb: "DELEGATE",
     urgent: true,
     important: false,
-    bg: "bg-signal-warning/[0.03]",
-    border: "border-signal-warning-border/30",
-    headerBg: "bg-signal-warning/[0.07]",
-    headerText: "text-signal-warning",
-    badgeBg: "bg-signal-warning-subtle text-signal-warning",
+    color: "#2F5FA8",
     Icon: ArrowRight,
   },
   {
@@ -670,11 +996,8 @@ const QUADRANTS: Array<{
     verb: "DROP",
     urgent: false,
     important: false,
-    bg: "bg-slate-500/[0.03]",
-    border: "border-slate-300/40",
-    headerBg: "bg-muted/40",
-    headerText: "text-muted-foreground",
-    badgeBg: "bg-muted/40 text-muted-foreground",
+    color: "#8A8F99",
+    quiet: true,
     Icon: Minus,
   },
 ];
@@ -694,35 +1017,35 @@ function MatrixActionRow({
   todayStr: string;
 }) {
   const isOverdue = action.dueDate && action.dueDate < todayStr && action.status !== "done";
+  const isDone = action.status === "done";
   return (
-    <div className="flex items-start gap-2 py-2 border-b border-border/25 last:border-0 group">
-      <button
-        onClick={() => onToggle(action.id)}
-        className="mt-0.5 shrink-0 h-4 w-4 rounded border border-border/60 flex items-center justify-center hover:border-signal-positive transition-colors"
-        title="Mark done"
-      >
-        {action.status === "done" && <Check className="h-2.5 w-2.5 text-signal-positive" />}
-      </button>
-      <div className="flex-1 min-w-0">
-        {/* Action text — lifted from text-[12px] to text-sm so the matrix view
-            matches body readability across the rest of the app. Foreground at
-            full opacity (instead of /85) keeps the row scannable from a glance. */}
-        <p className={`text-sm leading-snug ${action.status === "done" ? "line-through text-muted-foreground/70" : "text-foreground"}`}>
+    <div className="flex items-start gap-2.5 border-t border-[var(--w-rule)] py-2.5 first:border-t-0">
+      <label className="-ml-1 flex h-7 w-7 shrink-0 cursor-pointer items-start justify-center pt-[2px]">
+        <input
+          type="checkbox"
+          checked={isDone}
+          onChange={() => onToggle(action.id)}
+          title="Mark done"
+          aria-label={`Mark "${action.text.slice(0, 60)}" done`}
+          className="h-4 w-4 cursor-pointer accent-[#10213F]"
+        />
+      </label>
+      <div className="min-w-0 flex-1">
+        <p className={`text-[14px] leading-snug ${isDone ? "text-[color:var(--w-ink-soft)] line-through" : "text-[color:var(--w-ink)]"}`}>
           {action.text}
         </p>
-        <div className="flex items-center gap-2 mt-1 flex-wrap">
+        <div className="mt-1 flex flex-wrap items-center gap-x-2.5 gap-y-1">
           <ExpiryBadge expiresAt={action.expiresAt} />
           {action.dueDate && (
-            <span className={`text-xs font-medium ${isOverdue ? "text-signal-critical" : "text-muted-foreground"}`}>
-              {isOverdue ? "⚠ " : ""}{formatDueDate(action.dueDate)}
+            <span className={`basil-mono text-[12px] font-medium ${isOverdue ? "text-[color:var(--w-stamp)]" : "text-[color:var(--w-ink-soft)]"}`}>
+              {isOverdue ? "Overdue · " : ""}{formatDueDate(action.dueDate)}
             </span>
           )}
           {action.owner && action.owner.toLowerCase() !== "me" && (
-            <span className="text-xs text-muted-foreground">→ {action.owner}</span>
+            <span className="text-[12px] text-[color:var(--w-ink-soft)]">→ {action.owner}</span>
           )}
           {action.eisenhowerReason && (
-            // Lifted from text-xs / opacity 40 (illegible) to text-xs / 80.
-            <span className="text-xs text-muted-foreground/80 italic">{action.eisenhowerReason}</span>
+            <span className="text-[12px] italic text-[color:var(--w-ink-soft)]">{action.eisenhowerReason}</span>
           )}
         </div>
         {onNotes && action.status !== "done" && (
@@ -734,11 +1057,13 @@ function MatrixActionRow({
         )}
       </div>
       <button
+        type="button"
         onClick={() => onDelete(action.id)}
-        className="shrink-0 opacity-0 group-hover:opacity-100 transition-opacity p-0.5 hover:text-signal-critical"
+        className="-mr-1.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-[color:var(--w-ink-soft)] transition-colors hover:bg-[var(--w-tray)] hover:text-[color:var(--w-stamp)]"
         title="Delete"
+        aria-label="Delete action"
       >
-        <Trash2 className="h-3 w-3" />
+        <Trash2 className="h-3.5 w-3.5" />
       </button>
     </div>
   );
@@ -771,44 +1096,51 @@ function MatrixView({
   return (
     <div className="space-y-4">
       {/* Axis labels + classify button */}
-      <div className="flex items-center justify-between gap-3 flex-wrap">
-        <div className="flex items-center gap-4 text-xs text-muted-foreground/60 font-medium">
-          <span className="flex items-center gap-1">
-            <span className="w-2 h-2 rounded-full bg-signal-critical inline-block" /> Urgent
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className="flex flex-wrap items-center gap-4 text-[13px] text-[color:var(--w-ink-soft)]">
+          <span className="inline-flex items-center gap-1.5">
+            <span aria-hidden className="h-2.5 w-2.5 rounded-full" style={{ background: "#D9661F" }} /> Urgent
           </span>
-          <span className="flex items-center gap-1">
-            <span className="w-2 h-2 rounded-full bg-signal-positive inline-block" /> Important
+          <span className="inline-flex items-center gap-1.5">
+            <span aria-hidden className="h-2.5 w-2.5 rounded-full" style={{ background: "#1F8A70" }} /> Important
           </span>
           {classifiedCount > 0 && (
-            <span className="text-muted-foreground/40">{classifiedCount}/{open.length} classified</span>
+            <span><span className="basil-mono text-[color:var(--w-ink)]">{classifiedCount}/{open.length}</span> classified</span>
           )}
         </div>
         <button
+          type="button"
           onClick={onClassify}
           disabled={classifying || open.length === 0}
-          className="inline-flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-lg bg-[var(--w-carbon-tint)] text-[color:var(--w-carbon)] hover:bg-[var(--w-carbon-tint)] border border-[var(--w-rule)] transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+          className={`${BTN_SECONDARY} disabled:cursor-not-allowed`}
         >
           {classifying ? (
-            <><Loader2 className="h-3 w-3 animate-spin" />Classifying…</>
+            <><Loader2 className="h-4 w-4 animate-spin" aria-hidden />Classifying…</>
           ) : (
-            <><Zap className="h-3 w-3" />{classifiedCount > 0 ? "Re-classify" : "Classify with Basil"}</>
+            <><Zap className="h-4 w-4 text-[color:var(--w-carbon)]" aria-hidden />{classifiedCount > 0 ? "Re-classify" : "Classify with Basil"}</>
           )}
         </button>
       </div>
 
       {/* Status banner — error or heuristic-fallback notice */}
       {classifyStatus && (
-        <div className={`flex items-start gap-2 rounded-lg px-3 py-2.5 text-[12px] ${
+        <div className={`flex items-start gap-2 rounded-xl border bg-[var(--w-flimsy)] px-3.5 py-3 text-[13px] ${
           classifyStatus.type === "error"
-            ? "bg-signal-critical-subtle border border-signal-critical-border text-signal-critical"
+            ? "border-[var(--w-stamp)] text-[color:var(--w-stamp)]"
             : classifyStatus.type === "warning"
-              ? "bg-signal-warning-subtle border border-signal-warning-border text-signal-warning"
-              : "bg-signal-positive-subtle border border-signal-positive-border text-signal-positive"
+              ? "border-[var(--w-manila)] text-[color:var(--w-manila)]"
+              : "border-[var(--w-filed)] text-[color:var(--w-filed)]"
         }`}>
-          <span>{classifyStatus.type === "error" ? "⚠ " : classifyStatus.type === "warning" ? "ℹ " : "✓ "}</span>
+          {classifyStatus.type === "error" ? (
+            <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" aria-hidden />
+          ) : classifyStatus.type === "warning" ? (
+            <Info className="mt-0.5 h-4 w-4 shrink-0" aria-hidden />
+          ) : (
+            <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0" aria-hidden />
+          )}
           <span>{classifyStatus.message}</span>
           {classifyStatus.type === "error" && (
-            <a href="/dashboard/settings?tab=brain" className="ml-auto font-semibold underline shrink-0">
+            <a href="/dashboard/settings?tab=brain" className="ml-auto shrink-0 font-semibold underline">
               Configure brain →
             </a>
           )}
@@ -816,36 +1148,36 @@ function MatrixView({
       )}
 
       {/* The 2×2 grid */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-        {QUADRANTS.map((q) => {
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+        {QUADRANTS.map((q, qi) => {
           const items = byQuadrant(q.id);
           const Icon = q.Icon;
           return (
-            <div
+            <section
               key={q.id}
-              className={`rounded-xl border ${q.border} ${q.bg} overflow-hidden`}
+              aria-labelledby={`quad-${q.id}`}
+              className="basil-rise flex flex-col rounded-[20px] border border-[var(--w-rule)] bg-[var(--w-flimsy)]"
+              style={{ animationDelay: `${120 + qi * 70}ms` }}
             >
               {/* Quadrant header */}
-              <div className={`px-4 py-3 ${q.headerBg} flex items-center justify-between`}>
-                <div className="flex items-center gap-2.5">
-                  <Icon className={`h-4 w-4 ${q.headerText}`} />
-                  {/* Lifted verb from text-xs → text-xs, sublabel from
-                      opacity-60 → text-muted-foreground for readability. */}
-                  <span className={`text-xs font-bold uppercase tracking-wider ${q.headerText}`}>
-                    {q.verb}
+              <div className="flex items-center justify-between gap-2 px-5 pb-1.5 pt-4">
+                <div className="flex min-w-0 items-center gap-2.5">
+                  <span
+                    aria-hidden
+                    className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full"
+                    style={q.quiet ? { border: "1.5px dashed #8A8F99" } : { background: q.color }}
+                  >
+                    <Icon className="h-3.5 w-3.5" style={{ color: q.quiet ? "var(--w-ink-soft)" : "#FFFDF8" }} />
                   </span>
-                  <span className="text-xs text-muted-foreground">{q.sublabel}</span>
+                  <h3 id={`quad-${q.id}`} className="basil-serif text-[22px] leading-tight text-[#10213F]">{q.label}</h3>
+                  <span className="hidden truncate text-[12px] text-[color:var(--w-ink-soft)] md:inline">{q.sublabel}</span>
                 </div>
-                {items.length > 0 && (
-                  <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${q.badgeBg}`}>
-                    {items.length}
-                  </span>
-                )}
+                {items.length > 0 && <CountChip n={items.length} />}
               </div>
               {/* Items */}
-              <div className="px-4 py-1 min-h-[80px]">
+              <div className="min-h-[80px] px-5 pb-2">
                 {items.length === 0 ? (
-                  <p className="text-xs text-muted-foreground/60 py-3 italic">
+                  <p className="py-3 text-[13px] italic text-[color:var(--w-ink-soft)]">
                     {classifiedCount === 0 ? "Run classify to populate" : "Nothing here"}
                   </p>
                 ) : (
@@ -861,21 +1193,23 @@ function MatrixView({
                   ))
                 )}
               </div>
-            </div>
+            </section>
           );
         })}
       </div>
 
       {/* Unclassified overflow */}
       {unclassified.length > 0 && (
-        <div className="rounded-xl border border-border/30 bg-muted/20 overflow-hidden">
-          <div className="px-4 py-3 bg-muted/30 flex items-center justify-between">
-            <span className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+        <section aria-labelledby="quad-unclassified" className="basil-rise rounded-[20px] border border-[var(--w-rule)] bg-[var(--w-tray)]" style={{ animationDelay: "420ms" }}>
+          <div className="flex flex-wrap items-center justify-between gap-2 px-5 pb-1.5 pt-4">
+            <h3 id="quad-unclassified" className="basil-serif text-[20px] leading-tight text-[#10213F]">
               Unclassified
+            </h3>
+            <span className="text-[13px] text-[color:var(--w-ink-soft)]">
+              <span className="basil-mono text-[color:var(--w-ink)]">{unclassified.length}</span> item{unclassified.length !== 1 ? "s" : ""} · run classify to sort
             </span>
-            <span className="text-xs text-muted-foreground/80">{unclassified.length} item{unclassified.length !== 1 ? "s" : ""} · run classify to sort</span>
           </div>
-          <div className="px-4 py-1">
+          <div className="px-5 pb-2">
             {unclassified.map((a) => (
               <MatrixActionRow
                 key={a.id}
@@ -886,7 +1220,7 @@ function MatrixView({
               />
             ))}
           </div>
-        </div>
+        </section>
       )}
     </div>
   );
@@ -1348,86 +1682,137 @@ export default function ActionsPage() {
   const uncategorized = openActions.filter((a) => !a.category).sort(sortByPriority);
   const decisionNeeded = openActions.filter((a) => a.decisionRequired && !a.linkedDecisionId).sort(sortByPriority);
 
-  return (
-    // The Wire Desk (seed basil01). `wire` scopes the world to this surface so
-    // pages not yet converted keep the incumbent one and never render half-broken.
-    <div className="wire p-4 sm:p-6 lg:p-8 space-y-6">
-      <header className="flex items-center justify-between">
-        <div>
-          <h1 className="wire-slug text-2xl tracking-tight flex items-center gap-2 text-[color:var(--w-ink)]">
-            <ListChecks className="h-6 w-6 text-[color:var(--w-carbon)]" />
-            Commitments
-          </h1>
-          <p className="text-sm text-muted-foreground mt-1">
-            Commitments from meetings, Slack, and email. Basil can read and add to this list.
-          </p>
-        </div>
-        <div className="flex items-center gap-2">
-          {/* View mode toggle */}
-          <div className="hidden sm:flex rounded-lg border border-border overflow-hidden text-xs">
-            <button
-              className={`px-3 py-1.5 font-medium transition-colors ${viewMode === "timeline" ? "bg-[var(--w-carbon)] text-white" : "bg-background text-muted-foreground hover:text-foreground"}`}
-              onClick={() => setViewMode("timeline")}
-            >Timeline</button>
-            <button
-              className={`px-3 py-1.5 font-medium transition-colors ${viewMode === "category" ? "bg-[var(--w-carbon)] text-white" : "bg-background text-muted-foreground hover:text-foreground"}`}
-              onClick={() => setViewMode("category")}
-            >By Category</button>
-            <button
-              className={`px-3 py-1.5 font-medium transition-colors flex items-center gap-1 ${viewMode === "matrix" ? "bg-[var(--w-carbon)] text-white" : "bg-background text-muted-foreground hover:text-foreground"}`}
-              onClick={() => setViewMode("matrix")}
-            >
-              <LayoutGrid className="h-3 w-3" />
-              Matrix
-            </button>
-          </div>
-          <Button
-            size="sm"
-            className="bg-[var(--w-carbon)] hover:bg-[var(--w-ink)] text-white gap-1.5"
-            onClick={() => setForm(f => ({ ...f, showForm: !f.showForm }))}
-          >
-            <Plus className="h-3.5 w-3.5" />
-            Add Action
-          </Button>
-        </div>
-      </header>
+  // ── Your load (presentation only) ──────────────────────────────────────────
+  // Counted from YOUR open commitments with the same rules the groups use, but
+  // before search and the status filter — choosing a segment narrows the list
+  // without the graphic collapsing to that one segment.
+  const weekEndStr = new Date(Date.now() + 7 * 86_400_000).toISOString().split("T")[0];
+  const load = countLoad(actions.filter((a) => !isTheirs(a)), todayStr, weekEndStr);
+  const loadTotal = load.overdue + load.today + load.week + load.laterDated + load.noDate;
+  const nowDate = new Date();
+  const longestWait = actions.reduce(
+    (m, a) => (a.status !== "done" && isTheirs(a) ? Math.max(m, daysSince(a.createdAt, nowDate)) : m),
+    0,
+  );
+  // Where "later than this week" starts inside Upcoming (which is sorted by date).
+  const laterStart = upcoming.findIndex((a) => (a.dueDate ?? "").slice(0, 10) > weekEndStr);
 
-      {/* Add form */}
-      {form.showForm && (
-        <Card className="border-[var(--w-rule)]">
-          <CardContent className="p-4 space-y-3">
+  /** Scroll to a timeline group — used for states that have no filter of their own. */
+  function jumpTo(ids: string[]) {
+    if (viewMode !== "timeline") setViewMode("timeline");
+    if (statusFilter !== "all" && statusFilter !== "open") setStatusFilter("all");
+    window.setTimeout(() => {
+      const el = ids.map((id) => document.getElementById(id)).find(Boolean);
+      if (!el) return;
+      const reduce = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
+      el.scrollIntoView({ behavior: reduce ? "auto" : "smooth", block: "start" });
+    }, 80);
+  }
+
+  function showLoad(key: LoadKey) {
+    // Overdue has a filter of its own; the other states are groups in the timeline.
+    if (key === "overdue") { setStatusFilter("overdue"); return; }
+    if (key === "today") { jumpTo(["group-today"]); return; }
+    if (key === "week") { jumpTo(["group-upcoming"]); return; }
+    const openNoDate = load.noDate - load.stalled;
+    jumpTo(
+      load.laterDated > 0 ? ["group-later", "group-upcoming", "group-open", "group-stalled"]
+      : openNoDate > 0 ? ["group-open", "group-stalled"]
+      : ["group-stalled"],
+    );
+  }
+
+  const eyebrow = loading || fetchError
+    ? "Your commitments"
+    : `${loadTotal} open · ${waitingCount} waiting on others`;
+
+  return (
+    // The Basil identity (2026-10-14). `wire` scopes the cream world to this
+    // surface. overflow-clip (not hidden) keeps the Completed panel sticky.
+    <div className="wire basil-dots relative min-h-full overflow-clip">
+      <span aria-hidden className="pointer-events-none absolute -right-40 -top-56 h-[560px] w-[760px] rounded-full" style={{ background: "radial-gradient(closest-side, rgba(212,185,120,.28), transparent 72%)" }} />
+      <div className="relative mx-auto flex w-full max-w-[78rem] flex-col gap-6 px-4 py-6 sm:px-8 sm:py-10">
+        <PageHero
+          eyebrow={eyebrow}
+          title="Commitments"
+          subtitle="Commitments from meetings, Slack, and email. Basil can read and add to this list."
+          actions={
+            <>
+              {/* View mode — a segmented control, the active segment navy */}
+              <div role="group" aria-label="View" className="hidden min-h-[44px] items-center gap-1 rounded-xl border border-[var(--w-rule-strong)] bg-[var(--w-flimsy)] p-1 sm:inline-flex">
+                {([
+                  ["timeline", "Timeline"],
+                  ["category", "By Category"],
+                  ["matrix", "Matrix"],
+                ] as const).map(([v, label]) => (
+                  <button
+                    key={v}
+                    type="button"
+                    aria-pressed={viewMode === v}
+                    onClick={() => setViewMode(v)}
+                    className={`inline-flex h-9 items-center gap-1.5 rounded-lg px-3 text-[13px] font-medium transition-colors ${
+                      viewMode === v ? "bg-[#10213F] text-[#F6F1E7]" : "text-[color:var(--w-ink)] hover:bg-[var(--w-tray)]"
+                    }`}
+                  >
+                    {v === "matrix" && <LayoutGrid className="h-3.5 w-3.5" aria-hidden />}
+                    {label}
+                  </button>
+                ))}
+              </div>
+              <button
+                type="button"
+                className={BTN_PRIMARY}
+                aria-expanded={form.showForm}
+                onClick={() => setForm(f => ({ ...f, showForm: !f.showForm }))}
+              >
+                <Plus className="h-4 w-4" aria-hidden />
+                Add Action
+              </button>
+            </>
+          }
+        />
+
+        {/* Add form */}
+        {form.showForm && (
+          <section aria-label="Add an action" className="basil-rise flex flex-col gap-3 rounded-[20px] border border-[var(--w-rule)] bg-[var(--w-flimsy)] p-5 sm:p-6">
             <Textarea
               placeholder="What needs to be done?"
               value={form.text}
               onChange={(e) => setForm(f => ({ ...f, text: e.target.value }))}
               rows={2}
+              aria-label="What needs to be done"
+              className="rounded-xl border-[var(--w-rule-strong)] bg-[var(--w-flimsy)] text-[15px]"
             />
-            <div className="flex gap-3 flex-wrap">
+            <div className="flex flex-wrap gap-3">
               <Input
                 placeholder="Owner"
                 value={form.owner}
                 onChange={(e) => setForm(f => ({ ...f, owner: e.target.value }))}
-                className="flex-1 min-w-28 text-[16px] sm:text-sm"
+                aria-label="Owner"
+                className="h-11 min-w-28 flex-1 rounded-xl border-[var(--w-rule-strong)] bg-[var(--w-flimsy)] text-[16px] sm:text-sm"
               />
               <Input
                 type="date"
                 value={form.due}
                 onChange={(e) => setForm(f => ({ ...f, due: e.target.value }))}
-                className="w-full sm:w-38 text-[16px] sm:text-sm"
+                aria-label="Due date"
+                className="basil-mono h-11 w-full rounded-xl border-[var(--w-rule-strong)] bg-[var(--w-flimsy)] text-[16px] sm:w-44 sm:text-sm"
               />
               <select
                 value={form.priority}
                 onChange={(e) => setForm(f => ({ ...f, priority: e.target.value as NonNullable<ActionItem["priority"]> }))}
-                className="h-10 rounded-lg border border-border bg-background px-3 text-[16px] sm:text-sm"
+                aria-label="Priority"
+                className="h-11 rounded-xl border border-[var(--w-rule-strong)] bg-[var(--w-flimsy)] px-3 text-[16px] text-[color:var(--w-ink)] sm:text-sm"
               >
-                <option value="high">🔴 High</option>
-                <option value="medium">🟡 Medium</option>
-                <option value="low">⚪ Low</option>
+                <option value="high">High priority</option>
+                <option value="medium">Medium priority</option>
+                <option value="low">Low priority</option>
               </select>
               <select
                 value={form.source}
                 onChange={(e) => setForm(f => ({ ...f, source: e.target.value as ActionItem["source"] }))}
-                className="h-10 rounded-lg border border-border bg-background px-3 text-[16px] sm:text-sm"
+                aria-label="Source"
+                className="h-11 rounded-xl border border-[var(--w-rule-strong)] bg-[var(--w-flimsy)] px-3 text-[16px] text-[color:var(--w-ink)] sm:text-sm"
               >
                 <option value="manual">Manual</option>
                 <option value="meeting">Meeting</option>
@@ -1436,457 +1821,458 @@ export default function ActionsPage() {
                 <option value="chat">Chat</option>
               </select>
             </div>
-            <div className="flex items-center gap-2">
-              <Button
-                size="sm"
-                onClick={handleAdd}
-                className="bg-[var(--w-carbon)] text-white hover:bg-[var(--w-ink)]"
-              >
+            <div className="flex flex-wrap items-center gap-2">
+              <button type="button" onClick={handleAdd} className={BTN_PRIMARY}>
                 Save
-              </Button>
-              <Button size="sm" variant="outline" onClick={clearForm}>
+              </button>
+              <button type="button" onClick={clearForm} className={BTN_SECONDARY}>
                 Cancel
-              </Button>
+              </button>
               <DraftSavedIndicator saved={formDraftSaved} className="ml-1" />
             </div>
-          </CardContent>
-        </Card>
-      )}
+          </section>
+        )}
 
-      {/* What actually wants you, before the list of everything.
-          The page used to open on all commitments with the pressing ones
-          somewhere inside; these are the same counts the sections below use,
-          so the lead can never disagree with the list. */}
-      {!loading && (
-        <NeedsAttention
-          buckets={[
-            { label: "Overdue", count: overdue.length, urgent: true, onClick: () => setStatusFilter("overdue") },
-            { label: "Due today", count: dueToday.length, onClick: () => setStatusFilter("open") },
-            ...(reviewItems.length > 0
-              ? [{ label: "Needs review", count: reviewItems.length, onClick: () => setStatusFilter("review") }]
-              : []),
-          ]}
-          allClear={
-            openCount > 0
-              ? `Nothing overdue or due today. ${openCount} commitment${openCount === 1 ? "" : "s"} open further out.`
-              : "No open commitments."
-          }
-          unavailable={fetchError ? "Commitments could not be read, so a zero count here would be a guess." : undefined}
+        {/* Your load — what actually wants you, before the list of everything.
+            Folds in the old "needs attention" lead: same counts as the groups
+            below, and an outage reads as "cannot tell", never as all clear. */}
+        <LoadPanel
+          counts={load}
+          review={reviewItems.length}
+          waiting={waitingCount}
+          longestWait={longestWait}
+          failed={!!fetchError}
+          loading={loading}
+          activeFilter={statusFilter}
+          onSegment={showLoad}
+          onWaiting={() => setStatusFilter("waiting")}
+          onReview={() => setStatusFilter("review")}
+          onClearFilter={() => setStatusFilter("all")}
+          delay={80}
         />
-      )}
 
-      {/* Filters */}
-      <div className="flex gap-3">
-        <div className="relative flex-1">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
-          <Input
-            placeholder="Search actions or owner…"
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            className="pl-9"
-          />
+        {/* Filters */}
+        <div className="basil-rise flex flex-wrap gap-3" style={{ animationDelay: "160ms" }}>
+          <div className="relative min-w-[220px] flex-1">
+            <Search className="pointer-events-none absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-[color:var(--w-ink-soft)]" aria-hidden />
+            <Input
+              placeholder="Search actions or owner…"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              aria-label="Search commitments"
+              className="h-11 rounded-xl border-[var(--w-rule-strong)] bg-[var(--w-flimsy)] pl-10 text-[15px]"
+            />
+          </div>
+          <select
+            value={statusFilter}
+            onChange={(e) => setStatusFilter(e.target.value)}
+            aria-label="Filter commitments"
+            className="h-11 rounded-xl border border-[var(--w-rule-strong)] bg-[var(--w-flimsy)] px-3 text-[14px] text-[color:var(--w-ink)]"
+          >
+            <option value="all">All ({actions.length})</option>
+            <option value="open">Open ({openCount})</option>
+            <option value="done">Done</option>
+            <option value="overdue">Overdue</option>
+            {waitingCount > 0 && <option value="waiting">Waiting on others ({waitingCount})</option>}
+            {reviewItems.length > 0 && (
+              <option value="review">Needs Review ({reviewItems.length})</option>
+            )}
+          </select>
         </div>
-        <select
-          value={statusFilter}
-          onChange={(e) => setStatusFilter(e.target.value)}
-          className="h-10 rounded-lg border border-border bg-background px-3 text-sm"
-        >
-          <option value="all">All ({actions.length})</option>
-          <option value="open">Open ({openCount})</option>
-          <option value="done">Done</option>
-          <option value="overdue">Overdue</option>
-          {waitingCount > 0 && <option value="waiting">Waiting on others ({waitingCount})</option>}
-          {reviewItems.length > 0 && (
-            <option value="review">Needs Review ({reviewItems.length})</option>
-          )}
-        </select>
-      </div>
 
-      {/* Content + Completed sidebar */}
-      <div className="grid lg:grid-cols-[1fr_280px] gap-6 items-start">
-      <div className="min-w-0 space-y-6">
-      {/* Content */}
-      {loading ? (
-        <div className="space-y-3">
-          {[1,2,3].map((i) => (
-            <Card key={i}>
-              <CardContent className="py-4 space-y-2">
+        {/* Content + Completed sidebar */}
+        <div className="grid items-start gap-6 lg:grid-cols-[minmax(0,1fr)_300px]">
+        <div className="min-w-0 space-y-5">
+        {/* Content */}
+        {loading ? (
+          <div className="space-y-3">
+            {[1,2,3].map((i) => (
+              <div key={i} className="space-y-2 rounded-[20px] border border-[var(--w-rule)] bg-[var(--w-flimsy)] p-5">
                 <Skeleton className="h-4 w-3/4" />
                 <Skeleton className="h-3 w-1/3" />
-              </CardContent>
-            </Card>
-          ))}
-        </div>
-      ) : fetchError ? (
-        <Card>
-          <CardContent className="py-2">
-            <DataState error={fetchError} onRetry={refresh} />
-          </CardContent>
-        </Card>
-      ) : filtered.length === 0 ? (
-        <div className="rounded-2xl basil-card p-12 text-center space-y-3">
-          <CheckSquare className="h-12 w-12 mx-auto text-muted-foreground/30" />
-          <h2 className="text-xl font-semibold">No actions found yet</h2>
-          <p className="text-sm text-muted-foreground max-w-md mx-auto">
-            Basil extracts commitments from Slack DMs, @-mentions and emails automatically.
-            Add one manually, or sync recent activity to let Basil look.
-          </p>
-          <div className="flex items-center justify-center gap-3 flex-wrap">
-            <button
-              onClick={() => setForm(f => ({ ...f, showForm: true }))}
-              className="inline-flex items-center gap-1.5 rounded-lg bg-[var(--w-carbon)] text-white text-sm font-semibold px-4 py-2 hover:brightness-105 transition"
-            >
-              <Plus className="h-4 w-4" />
-              Add action
-            </button>
-            <ActionsSyncButton onSynced={refresh} />
+              </div>
+            ))}
           </div>
-        </div>
+        ) : fetchError ? (
+          <div className="rounded-[20px] border border-[var(--w-rule)] bg-[var(--w-flimsy)] px-5 py-2">
+            <DataState error={fetchError} onRetry={refresh} />
+          </div>
+        ) : filtered.length === 0 ? (
+          <div className="basil-rise flex flex-col items-center gap-3 rounded-[20px] border border-[var(--w-rule)] bg-[var(--w-flimsy)] p-10 text-center sm:p-12" style={{ animationDelay: "200ms" }}>
+            <CheckSquare className="h-10 w-10 text-[color:var(--w-rule-strong)]" aria-hidden />
+            <h2 className="basil-serif text-[28px] leading-tight text-[#10213F]">No actions found yet</h2>
+            <p className="mx-auto max-w-md text-[14px] leading-relaxed text-[color:var(--w-ink-soft)]">
+              Basil extracts commitments from Slack DMs, @-mentions and emails automatically.
+              Add one manually, or sync recent activity to let Basil look.
+            </p>
+            <div className="flex flex-wrap items-center justify-center gap-3">
+              <button
+                type="button"
+                onClick={() => setForm(f => ({ ...f, showForm: true }))}
+                className={BTN_PRIMARY}
+              >
+                <Plus className="h-4 w-4" aria-hidden />
+                Add action
+              </button>
+              <ActionsSyncButton onSynced={refresh} />
+            </div>
+          </div>
 
-      ) : viewMode === "category" ? (
-        /* ── Category view ──────────────────────────────────────────────── */
-        <div className="space-y-6">
-          {/* Needs Review — always on top */}
-          {reviewItems.length > 0 && (
-            <CollapsibleSection
-              label="Needs Review"
-              accent="text-signal-warning"
-              items={reviewItems}
-              defaultOpen={true}
-              onToggle={toggleDone}
-              onReplied={refresh}
-              onDelete={handleDelete}
-              onNotes={handleNotes}
-              onConfirmReview={handleConfirmReview}
-              onDecisionClick={handleDecisionClick}
-              todayStr={todayStr}
-              photos={photos}
-            />
-          )}
-
-          {/* Decision needed — urgent signal section */}
-          {decisionNeeded.length > 0 && (
-            <CollapsibleSection
-              label="Decision Needed"
-              accent="text-signal-info"
-              items={decisionNeeded}
-              defaultOpen={true}
-              onToggle={toggleDone}
-              onReplied={refresh}
-              onDelete={handleDelete}
-              onNotes={handleNotes}
-              onConfirmReview={handleConfirmReview}
-              onDecisionClick={handleDecisionClick}
-              todayStr={todayStr}
-              photos={photos}
-            />
-          )}
-
-          {/* Critical / role + project */}
-          <CollapsibleSection
-            label="Critical — Role & Project"
-            accent="text-signal-critical"
-            items={critical}
-            defaultOpen={true}
-            onToggle={toggleDone}
-              onReplied={refresh}
-            onDelete={handleDelete}
-            onConfirmReview={handleConfirmReview}
-            onDecisionClick={handleDecisionClick}
-            todayStr={todayStr}
-          />
-
-          {/* Admin */}
-          <CollapsibleSection
-            label="Admin & Operations"
-            accent="text-signal-info"
-            items={adminActs}
-            defaultOpen={true}
-            onToggle={toggleDone}
-              onReplied={refresh}
-            onDelete={handleDelete}
-            onConfirmReview={handleConfirmReview}
-            onDecisionClick={handleDecisionClick}
-            todayStr={todayStr}
-          />
-
-          {/* Personal */}
-          <CollapsibleSection
-            label="Personal"
-            accent="text-signal-positive"
-            items={personal}
-            defaultOpen={true}
-            onToggle={toggleDone}
-              onReplied={refresh}
-            onDelete={handleDelete}
-            onConfirmReview={handleConfirmReview}
-            onDecisionClick={handleDecisionClick}
-            todayStr={todayStr}
-          />
-
-          {/* Uncategorized — collapsed by default */}
-          {uncategorized.length > 0 && (
-            <CollapsibleSection
-              label="Uncategorized"
-              items={uncategorized}
-              defaultOpen={false}
-              onToggle={toggleDone}
-              onReplied={refresh}
-              onDelete={handleDelete}
-              onNotes={handleNotes}
-              onConfirmReview={handleConfirmReview}
-              onDecisionClick={handleDecisionClick}
-              todayStr={todayStr}
-              photos={photos}
-            />
-          )}
-
-          {/* Done — collapsed */}
-          <CollapsibleSection
-            label="Done"
-            items={done}
-            defaultOpen={false}
-            onToggle={toggleDone}
-              onReplied={refresh}
-            onDelete={handleDelete}
-            todayStr={todayStr}
-            photos={photos}
-          />
-        </div>
-
-      ) : viewMode === "matrix" ? (
-        /* ── Eisenhower Matrix view ──────────────────────────────────── */
-        <MatrixView
-          actions={filtered}
-          classifying={classifying}
-          classifyStatus={classifyStatus}
-          onClassify={handleClassify}
-          onToggle={toggleDone}
-          onDelete={handleDelete}
-          todayStr={todayStr}
-        />
-
-      ) : showGrouped ? (
-        /* ── Timeline view (default) ──────────────────────────────────── */
-        <div className="space-y-6">
-          {/* Needs Review — amber section, shown only when items pending */}
-          {statusFilter !== "review" && reviewItems.length > 0 && (
-            <CollapsibleSection
-              label="Needs Review"
-              accent="text-signal-warning"
-              items={reviewItems}
-              defaultOpen={true}
-              onToggle={toggleDone}
-              onReplied={refresh}
-              onDelete={handleDelete}
-              onNotes={handleNotes}
-              onConfirmReview={handleConfirmReview}
-              onDecisionClick={handleDecisionClick}
-              todayStr={todayStr}
-              photos={photos}
-            />
-          )}
-          {statusFilter === "review" && (
-            <>
-              {filtered.length > 1 && (
-                <div className="flex justify-end mb-2">
-                  <button
-                    type="button"
-                    onClick={async () => {
-                      if (!confirm(`Dismiss all ${filtered.length} review items? This cannot be undone.`)) return;
-                      await Promise.all(filtered.map((a) => handleDelete(a.id)));
-                    }}
-                    className="text-xs text-muted-foreground hover:text-destructive border border-border rounded px-3 py-1.5 transition-colors"
-                  >
-                    Dismiss all ({filtered.length})
-                  </button>
-                </div>
-              )}
+        ) : viewMode === "category" ? (
+          /* ── Category view ──────────────────────────────────────────────── */
+          <div className="space-y-5">
+            {/* Needs Review — always on top */}
+            {reviewItems.length > 0 && (
               <CollapsibleSection
                 label="Needs Review"
-                accent="text-signal-warning"
-                items={filtered}
+                items={reviewItems}
                 defaultOpen={true}
+                delay={200}
                 onToggle={toggleDone}
-              onReplied={refresh}
+                onReplied={refresh}
                 onDelete={handleDelete}
-              onNotes={handleNotes}
+                onNotes={handleNotes}
                 onConfirmReview={handleConfirmReview}
                 onDecisionClick={handleDecisionClick}
                 todayStr={todayStr}
                 photos={photos}
               />
-            </>
-          )}
+            )}
 
-          {statusFilter !== "review" && (
-            <>
-              {/* Overdue */}
-              {overdue.length > 0 && (
-                <div>
-                  <SectionHeading label="Overdue" count={overdue.length} accent="text-signal-critical" />
-                  <div className="space-y-2">
+            {/* Decision needed — urgent signal section */}
+            {decisionNeeded.length > 0 && (
+              <CollapsibleSection
+                label="Decision Needed"
+                items={decisionNeeded}
+                defaultOpen={true}
+                delay={260}
+                onToggle={toggleDone}
+                onReplied={refresh}
+                onDelete={handleDelete}
+                onNotes={handleNotes}
+                onConfirmReview={handleConfirmReview}
+                onDecisionClick={handleDecisionClick}
+                todayStr={todayStr}
+                photos={photos}
+              />
+            )}
+
+            {/* Critical / role + project */}
+            <CollapsibleSection
+              label="Critical — Role & Project"
+              dot={LOAD_COLOR.overdue}
+              items={critical}
+              defaultOpen={true}
+              delay={320}
+              onToggle={toggleDone}
+              onReplied={refresh}
+              onDelete={handleDelete}
+              onConfirmReview={handleConfirmReview}
+              onDecisionClick={handleDecisionClick}
+              todayStr={todayStr}
+            />
+
+            {/* Admin */}
+            <CollapsibleSection
+              label="Admin & Operations"
+              dot={LOAD_COLOR.today}
+              items={adminActs}
+              defaultOpen={true}
+              delay={380}
+              onToggle={toggleDone}
+              onReplied={refresh}
+              onDelete={handleDelete}
+              onConfirmReview={handleConfirmReview}
+              onDecisionClick={handleDecisionClick}
+              todayStr={todayStr}
+            />
+
+            {/* Personal */}
+            <CollapsibleSection
+              label="Personal"
+              dot={LOAD_COLOR.week}
+              items={personal}
+              defaultOpen={true}
+              delay={440}
+              onToggle={toggleDone}
+              onReplied={refresh}
+              onDelete={handleDelete}
+              onConfirmReview={handleConfirmReview}
+              onDecisionClick={handleDecisionClick}
+              todayStr={todayStr}
+            />
+
+            {/* Uncategorized — collapsed by default */}
+            {uncategorized.length > 0 && (
+              <CollapsibleSection
+                label="Uncategorized"
+                dot={LOAD_COLOR.later}
+                items={uncategorized}
+                defaultOpen={false}
+                delay={500}
+                onToggle={toggleDone}
+                onReplied={refresh}
+                onDelete={handleDelete}
+                onNotes={handleNotes}
+                onConfirmReview={handleConfirmReview}
+                onDecisionClick={handleDecisionClick}
+                todayStr={todayStr}
+                photos={photos}
+              />
+            )}
+
+            {/* Done — collapsed */}
+            <CollapsibleSection
+              label="Done"
+              items={done}
+              defaultOpen={false}
+              delay={560}
+              onToggle={toggleDone}
+              onReplied={refresh}
+              onDelete={handleDelete}
+              todayStr={todayStr}
+              photos={photos}
+            />
+          </div>
+
+        ) : viewMode === "matrix" ? (
+          /* ── Eisenhower Matrix view ──────────────────────────────────── */
+          <MatrixView
+            actions={filtered}
+            classifying={classifying}
+            classifyStatus={classifyStatus}
+            onClassify={handleClassify}
+            onToggle={toggleDone}
+            onDelete={handleDelete}
+            todayStr={todayStr}
+          />
+
+        ) : showGrouped ? (
+          /* ── Timeline view (default) ──────────────────────────────────── */
+          <div className="space-y-5">
+            {/* Needs Review — shown only when items pending */}
+            {statusFilter !== "review" && reviewItems.length > 0 && (
+              <CollapsibleSection
+                id="group-review"
+                label="Needs Review"
+                items={reviewItems}
+                defaultOpen={true}
+                delay={200}
+                onToggle={toggleDone}
+                onReplied={refresh}
+                onDelete={handleDelete}
+                onNotes={handleNotes}
+                onConfirmReview={handleConfirmReview}
+                onDecisionClick={handleDecisionClick}
+                todayStr={todayStr}
+                photos={photos}
+              />
+            )}
+            {statusFilter === "review" && (
+              <>
+                {filtered.length > 1 && (
+                  <div className="flex justify-end">
+                    <button
+                      type="button"
+                      onClick={async () => {
+                        if (!confirm(`Dismiss all ${filtered.length} review items? This cannot be undone.`)) return;
+                        await Promise.all(filtered.map((a) => handleDelete(a.id)));
+                      }}
+                      className={`${BTN_SECONDARY} hover:text-[color:var(--w-stamp)]`}
+                    >
+                      Dismiss all ({filtered.length})
+                    </button>
+                  </div>
+                )}
+                <CollapsibleSection
+                  id="group-review"
+                  label="Needs Review"
+                  items={filtered}
+                  defaultOpen={true}
+                  delay={200}
+                  onToggle={toggleDone}
+                  onReplied={refresh}
+                  onDelete={handleDelete}
+                  onNotes={handleNotes}
+                  onConfirmReview={handleConfirmReview}
+                  onDecisionClick={handleDecisionClick}
+                  todayStr={todayStr}
+                  photos={photos}
+                />
+              </>
+            )}
+
+            {statusFilter !== "review" && (
+              <>
+                {/* Overdue */}
+                {overdue.length > 0 && (
+                  <GroupCard id="group-overdue" label="Overdue" count={overdue.length} dot={LOAD_COLOR.overdue} delay={220}>
                     {overdue.map((a) => (
                       <ActionCard
                         key={a.id}
                         action={a}
                         onToggle={toggleDone}
-              onReplied={refresh}
+                        onReplied={refresh}
                         onDelete={handleDelete}
-              onNotes={handleNotes}
+                        onNotes={handleNotes}
                         onConfirmReview={handleConfirmReview}
                         onDecisionClick={handleDecisionClick}
                         todayStr={todayStr}
                         photos={photos}
                       />
                     ))}
-                  </div>
-                </div>
-              )}
+                  </GroupCard>
+                )}
 
-              {/* Due today */}
-              {dueToday.length > 0 && (
-                <div>
-                  <SectionHeading label="Due Today" count={dueToday.length} accent="text-signal-warning" />
-                  <div className="space-y-2">
+                {/* Due today */}
+                {dueToday.length > 0 && (
+                  <GroupCard id="group-today" label="Due Today" count={dueToday.length} dot={LOAD_COLOR.today} delay={290}>
                     {dueToday.map((a) => (
                       <ActionCard
                         key={a.id}
                         action={a}
                         onToggle={toggleDone}
-              onReplied={refresh}
+                        onReplied={refresh}
                         onDelete={handleDelete}
-              onNotes={handleNotes}
+                        onNotes={handleNotes}
                         onConfirmReview={handleConfirmReview}
                         onDecisionClick={handleDecisionClick}
                         todayStr={todayStr}
                         photos={photos}
                       />
                     ))}
-                  </div>
-                </div>
-              )}
+                  </GroupCard>
+                )}
 
-              {/* Upcoming */}
-              {upcoming.length > 0 && (
-                <div>
-                  <SectionHeading label="Upcoming" count={upcoming.length} />
-                  <div className="space-y-2">
-                    {upcoming.map((a) => (
-                      <ActionCard
-                        key={a.id}
-                        action={a}
-                        onToggle={toggleDone}
-              onReplied={refresh}
-                        onDelete={handleDelete}
-              onNotes={handleNotes}
-                        onConfirmReview={handleConfirmReview}
-                        onDecisionClick={handleDecisionClick}
-                        todayStr={todayStr}
-                        photos={photos}
-                      />
+                {/* Upcoming — this week first, then a marker where "later" begins */}
+                {upcoming.length > 0 && (
+                  <GroupCard id="group-upcoming" label="Upcoming" count={upcoming.length} dot={LOAD_COLOR.week} delay={360}>
+                    {upcoming.map((a, i) => (
+                      <Fragment key={a.id}>
+                        {i === laterStart && (
+                          <p
+                            id="group-later"
+                            className="basil-mono flex scroll-mt-6 items-center gap-2 pb-2 pt-4 text-[11px] uppercase tracking-[0.14em] text-[color:var(--w-ink-soft)]"
+                          >
+                            <span aria-hidden className="h-2.5 w-2.5 rounded-[3px]" style={swatchStyle(LOAD_COLOR.later)} />
+                            Later than this week
+                          </p>
+                        )}
+                        <ActionCard
+                          action={a}
+                          onToggle={toggleDone}
+                          onReplied={refresh}
+                          onDelete={handleDelete}
+                          onNotes={handleNotes}
+                          onConfirmReview={handleConfirmReview}
+                          onDecisionClick={handleDecisionClick}
+                          todayStr={todayStr}
+                          photos={photos}
+                        />
+                      </Fragment>
                     ))}
-                  </div>
-                </div>
-              )}
+                  </GroupCard>
+                )}
 
-              {/* Open (no due date) */}
-              {openNoDue.length > 0 && (
-                <div>
-                  <SectionHeading label="Open" count={openNoDue.length} />
-                  <div className="space-y-2">
+                {/* Open (no due date) */}
+                {openNoDue.length > 0 && (
+                  <GroupCard id="group-open" label="Open, no date" count={openNoDue.length} dot={LOAD_COLOR.later} delay={430}>
                     {openNoDue.map((a) => (
                       <ActionCard
                         key={a.id}
                         action={a}
                         onToggle={toggleDone}
-              onReplied={refresh}
+                        onReplied={refresh}
                         onDelete={handleDelete}
-              onNotes={handleNotes}
+                        onNotes={handleNotes}
                         onConfirmReview={handleConfirmReview}
                         onDecisionClick={handleDecisionClick}
                         todayStr={todayStr}
                         photos={photos}
                       />
                     ))}
-                  </div>
-                </div>
-              )}
+                  </GroupCard>
+                )}
 
-              {/* Stalled — collapsed by default */}
-              <CollapsibleSection
-                label="Stalled"
-                accent="text-signal-warning"
-                items={stalled}
-                archive
-                note="No due date and no movement for weeks. These are not overdue — they are forgotten. Give one a date or delete it."
-                defaultOpen={false}
+                {/* Stalled — collapsed by default */}
+                <CollapsibleSection
+                  id="group-stalled"
+                  label="Stalled"
+                  items={stalled}
+                  delay={500}
+                  archive
+                  note="No due date and no movement for weeks. These are not overdue — they are forgotten. Give one a date or delete it."
+                  defaultOpen={false}
+                  onToggle={toggleDone}
+                  onReplied={refresh}
+                  onDelete={handleDelete}
+                  onNotes={handleNotes}
+                  onConfirmReview={handleConfirmReview}
+                  onDecisionClick={handleDecisionClick}
+                  todayStr={todayStr}
+                  photos={photos}
+                />
+
+                {/* Done — collapsed by default */}
+                <CollapsibleSection
+                  label="Done"
+                  items={done}
+                  delay={560}
+                  archive
+                  note="Completed work, kept for the record."
+                  defaultOpen={false}
+                  onToggle={toggleDone}
+                  onReplied={refresh}
+                  onDelete={handleDelete}
+                  onNotes={handleNotes}
+                  todayStr={todayStr}
+                  photos={photos}
+                />
+              </>
+            )}
+          </div>
+        ) : (
+          // Flat list for non-grouped status filters
+          <section className="basil-rise rounded-[20px] border border-[var(--w-rule)] bg-[var(--w-flimsy)] px-4 py-1.5 sm:px-6" style={{ animationDelay: "200ms" }}>
+            {filtered.map((a) => (
+              <ActionCard
+                key={a.id}
+                action={a}
                 onToggle={toggleDone}
-              onReplied={refresh}
+                onReplied={refresh}
                 onDelete={handleDelete}
-              onNotes={handleNotes}
+                onNotes={handleNotes}
                 onConfirmReview={handleConfirmReview}
                 onDecisionClick={handleDecisionClick}
                 todayStr={todayStr}
                 photos={photos}
               />
-
-              {/* Done — collapsed by default */}
-              <CollapsibleSection
-                label="Done"
-                items={done}
-                archive
-                note="Completed work, kept for the record."
-                defaultOpen={false}
-                onToggle={toggleDone}
-              onReplied={refresh}
-                onDelete={handleDelete}
-              onNotes={handleNotes}
-                todayStr={todayStr}
-                photos={photos}
-              />
-            </>
-          )}
-        </div>
-      ) : (
-        // Flat list for non-grouped status filters
-        <div className="space-y-2">
-          {filtered.map((a) => (
-            <ActionCard
-              key={a.id}
-              action={a}
-              onToggle={toggleDone}
-              onReplied={refresh}
-              onDelete={handleDelete}
-              onNotes={handleNotes}
-              onConfirmReview={handleConfirmReview}
-              onDecisionClick={handleDecisionClick}
-              todayStr={todayStr}
-              photos={photos}
-            />
-          ))}
-        </div>
-      )}
-      </div>{/* end left column */}
-      {!loading && done.length > 0 && (
-        <CompletedActionsPanel items={done} todayStr={todayStr} />
-      )}
-      </div>{/* end grid */}
+            ))}
+          </section>
+        )}
+        </div>{/* end left column */}
+        {!loading && done.length > 0 && (
+          <CompletedActionsPanel items={done} todayStr={todayStr} />
+        )}
+        </div>{/* end grid */}
+      </div>
 
       {/* ── Undo toast ──────────────────────────────────────────────────── */}
       {undoEntry && (
-        <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 flex items-center gap-3 rounded-xl bg-foreground text-background px-4 py-2.5 shadow-xl text-sm font-medium animate-in slide-in-from-bottom-2 duration-200">
-          <RotateCcw className="h-3.5 w-3.5 shrink-0 opacity-70" />
-          <span className="max-w-[260px] truncate opacity-80">{undoEntry.label}</span>
+        <div role="status" className="fixed bottom-6 left-1/2 z-50 flex -translate-x-1/2 items-center gap-3 rounded-xl bg-[#10213F] px-4 py-2 text-[14px] font-medium text-[#F6F1E7] shadow-xl animate-in slide-in-from-bottom-2 duration-200">
+          <RotateCcw className="h-3.5 w-3.5 shrink-0 text-[#D4B978]" aria-hidden />
+          <span className="max-w-[260px] truncate">{undoEntry.label}</span>
           <button
+            type="button"
             onClick={handleUndo}
-            className="ml-1 text-[color:var(--w-carbon)] hover:text-[oklch(0.80_0.15_85)] font-semibold transition-colors"
+            className="ml-1 inline-flex min-h-[36px] items-center px-1 font-semibold text-[#D4B978] underline-offset-2 hover:underline"
           >
             Undo
           </button>
           <button
+            type="button"
             onClick={() => { if (undoTimeoutRef.current) clearTimeout(undoTimeoutRef.current); setUndoEntry(null); }}
-            className="opacity-50 hover:opacity-80 transition-opacity"
+            className="flex h-8 w-8 items-center justify-center rounded-lg text-[#F6F1E7] transition-colors hover:bg-[#1A2D50]"
             aria-label="Dismiss"
           >
             <X className="h-3.5 w-3.5" />

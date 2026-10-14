@@ -959,7 +959,7 @@ function ContactDetail({
                 <ul className="space-y-2 text-sm">
                   {liveItems.slice(0, 6).map((item, i) => (
                     <li key={i} className="flex gap-2 leading-relaxed">
-                      <span className="text-signal-positive mt-1.5 h-1.5 w-1.5 rounded-full bg-signal-positive shrink-0" />
+                      <span aria-hidden className="mt-1.5 h-1.5 w-1.5 rounded-full bg-signal-positive shrink-0" />
                       <span className="text-foreground/90">{item}</span>
                     </li>
                   ))}

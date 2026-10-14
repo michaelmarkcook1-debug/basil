@@ -18,12 +18,16 @@ import {
   Command, CommandInput, CommandList, CommandEmpty, CommandGroup, CommandItem,
 } from "@/components/ui/command";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
-import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { getTodayISO } from "@/lib/timezone";
 import { CalendarPlus, X, Plus, Check, Video, Loader2, UserPlus } from "lucide-react";
+import { BTN_PRIMARY, BTN_SECONDARY } from "@/components/basil/page-hero";
+
+/** Inputs in the cream world: rounded-xl, ruled border, paper-white fill. */
+const FIELD = "rounded-xl border-[var(--w-rule)] bg-[var(--w-flimsy)] text-[color:var(--w-ink)] placeholder:text-[color:var(--w-ink-soft)] focus-visible:border-[#C8A96B]";
+const LABEL = "basil-mono text-[11px] uppercase tracking-[0.12em] text-[color:var(--w-ink-soft)]";
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
@@ -143,30 +147,35 @@ export function NewEventDialog({
 
   return (
     <Dialog open={open} onOpenChange={(v) => { if (!saving) onOpenChange(v); }}>
-      <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">
+      {/* The dialog portals to <body>, outside the page's `.wire` scope — so it
+          carries `wire` itself to get the cream ground and the --w-* tokens. */}
+      <DialogContent className="wire max-w-lg sm:max-w-lg max-h-[90vh] overflow-y-auto gap-5 rounded-[20px] border border-[var(--w-rule)] bg-[var(--w-paper)] p-6 text-[color:var(--w-ink)] ring-0 shadow-[0_30px_60px_-30px_rgba(16,33,63,.6)]">
         <DialogHeader>
-          <DialogTitle className="flex items-center gap-2">
-            <CalendarPlus className="h-4 w-4 text-[color:var(--w-carbon)]" /> New event
+          <DialogTitle className="basil-serif flex items-center gap-2.5 text-[32px] font-normal leading-none tracking-[-0.01em] text-[#10213F]">
+            <CalendarPlus className="h-5 w-5 text-[color:var(--w-carbon)]" />
+            <span>New event<span className="text-[#C8A96B]">.</span></span>
           </DialogTitle>
         </DialogHeader>
 
-        <div className="space-y-4 py-1">
+        <div className="space-y-4">
           {/* Title */}
           <div className="space-y-1.5">
-            <Label htmlFor="ev-title" className="text-xs text-muted-foreground">Title</Label>
+            <Label htmlFor="ev-title" className={LABEL}>Title</Label>
             <Input id="ev-title" value={title} autoFocus placeholder="e.g. Product sync"
+              className={`h-11 text-[15px] ${FIELD}`}
               onChange={(e) => setTitle(e.target.value)} />
           </div>
 
           {/* Date + time */}
-          <div className="grid grid-cols-3 gap-2">
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-3 sm:gap-2">
             <div className="space-y-1.5">
-              <Label htmlFor="ev-date" className="text-xs text-muted-foreground">Date</Label>
-              <Input id="ev-date" type="date" value={date} onChange={(e) => setDate(e.target.value)} />
+              <Label htmlFor="ev-date" className={LABEL}>Date</Label>
+              <Input id="ev-date" type="date" value={date} className={`basil-mono h-11 text-[14px] ${FIELD}`}
+                onChange={(e) => setDate(e.target.value)} />
             </div>
             <div className="space-y-1.5">
-              <Label htmlFor="ev-start" className="text-xs text-muted-foreground">Start</Label>
-              <Input id="ev-start" type="time" value={startTime}
+              <Label htmlFor="ev-start" className={LABEL}>Start</Label>
+              <Input id="ev-start" type="time" value={startTime} className={`basil-mono h-11 text-[14px] ${FIELD}`}
                 onChange={(e) => {
                   const v = e.target.value;
                   setStartTime(v);
@@ -179,39 +188,41 @@ export function NewEventDialog({
                 }} />
             </div>
             <div className="space-y-1.5">
-              <Label htmlFor="ev-end" className="text-xs text-muted-foreground">End</Label>
-              <Input id="ev-end" type="time" value={endTime} onChange={(e) => setEndTime(e.target.value)} />
+              <Label htmlFor="ev-end" className={LABEL}>End</Label>
+              <Input id="ev-end" type="time" value={endTime} className={`basil-mono h-11 text-[14px] ${FIELD}`}
+                onChange={(e) => setEndTime(e.target.value)} />
             </div>
           </div>
 
           {/* Attendees */}
           <div className="space-y-1.5">
-            <Label className="text-xs text-muted-foreground">Invite people</Label>
+            <Label className={LABEL}>Invite people</Label>
             {attendees.length > 0 && (
               <div className="flex flex-wrap gap-1.5">
                 {attendees.map((a) => (
                   <span key={a.email}
-                    className="inline-flex items-center gap-1 rounded-full border border-border bg-muted/40 pl-2 pr-1 py-0.5 text-xs">
+                    className="inline-flex items-center gap-1 rounded-full border border-[var(--w-rule)] bg-[var(--w-flimsy)] py-0.5 pl-2.5 pr-1 text-[13px] text-[color:var(--w-ink)]">
                     <span className="max-w-[180px] truncate">{a.name || a.email}</span>
                     <button type="button" aria-label={`Remove ${a.name || a.email}`}
                       onClick={() => removeAttendee(a.email)}
-                      className="rounded-full p-0.5 text-muted-foreground hover:text-foreground hover:bg-muted">
+                      className="inline-flex h-6 w-6 items-center justify-center rounded-full text-[color:var(--w-ink-soft)] hover:bg-[var(--w-tray)] hover:text-[color:var(--w-ink)]">
                       <X className="h-3 w-3" />
                     </button>
                   </span>
                 ))}
               </div>
             )}
-            <div className="flex gap-2">
+            <div className="flex flex-wrap gap-2">
               <Popover open={pickerOpen} onOpenChange={setPickerOpen}>
                 <PopoverTrigger asChild>
-                  <Button type="button" variant="outline" size="sm" className="gap-1.5">
-                    <UserPlus className="h-3.5 w-3.5" />
+                  <button type="button" className={BTN_SECONDARY}>
+                    <UserPlus className="h-4 w-4 text-[color:var(--w-carbon)]" />
                     From contacts
-                  </Button>
+                  </button>
                 </PopoverTrigger>
-                <PopoverContent className="p-0 w-72" align="start">
-                  <Command>
+                {/* Portalled too — `wire` again for the cream tokens. */}
+                <PopoverContent className="wire w-72 rounded-xl border border-[var(--w-rule)] bg-[var(--w-flimsy)] p-0 text-[color:var(--w-ink)]" align="start">
+                  <Command className="bg-[var(--w-flimsy)]">
                     <CommandInput placeholder="Search contacts…" />
                     <CommandList>
                       <CommandEmpty>
@@ -225,8 +236,8 @@ export function NewEventDialog({
                             <CommandItem key={c.id} value={`${c.name} ${c.email}`} onSelect={() => toggleContact(c)}>
                               <Check className={`mr-2 h-3.5 w-3.5 ${selected ? "opacity-100 text-[color:var(--w-carbon)]" : "opacity-0"}`} />
                               <div className="min-w-0">
-                                <div className="truncate text-sm">{c.name}</div>
-                                <div className="truncate text-xs text-muted-foreground">{c.email}</div>
+                                <div className="truncate text-[14px] text-[color:var(--w-ink)]">{c.name}</div>
+                                <div className="truncate text-[12px] text-[color:var(--w-ink-soft)]">{c.email}</div>
                               </div>
                             </CommandItem>
                           );
@@ -237,50 +248,54 @@ export function NewEventDialog({
                 </PopoverContent>
               </Popover>
 
-              <div className="flex flex-1 gap-1.5">
+              <div className="flex min-w-[220px] flex-1 gap-1.5">
                 <Input value={emailInput} placeholder="or type an email…"
+                  className={`h-11 text-[14px] ${FIELD}`}
                   onChange={(e) => setEmailInput(e.target.value)}
                   onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); addRawEmail(); } }} />
-                <Button type="button" variant="outline" size="icon" aria-label="Add email"
-                  onClick={addRawEmail} disabled={!emailInput.trim()}>
+                <button type="button" aria-label="Add email"
+                  onClick={addRawEmail} disabled={!emailInput.trim()}
+                  className={`${BTN_SECONDARY} w-11 shrink-0 px-0`}>
                   <Plus className="h-4 w-4" />
-                </Button>
+                </button>
               </div>
             </div>
           </div>
 
           {/* Location / video */}
           <div className="space-y-1.5">
-            <Label htmlFor="ev-loc" className="text-xs text-muted-foreground">Location or video link</Label>
+            <Label htmlFor="ev-loc" className={LABEL}>Location or video link</Label>
             <Input id="ev-loc" value={location} placeholder="Room 2, or paste a Zoom/Meet link"
+              className={`h-11 text-[14px] ${FIELD}`}
               onChange={(e) => setLocation(e.target.value)} />
-            <label className="flex items-center gap-2 text-sm text-muted-foreground pt-0.5">
+            <label className="flex min-h-[36px] cursor-pointer items-center gap-2 pt-0.5 text-[14px] text-[color:var(--w-ink)]">
               <input type="checkbox" checked={addVideoCall}
-                onChange={(e) => setAddVideoCall(e.target.checked)} className="rounded" />
-              <Video className="h-3.5 w-3.5" /> Add a Google Meet video call
+                onChange={(e) => setAddVideoCall(e.target.checked)} className="h-4 w-4 rounded accent-[#10213F]" />
+              <Video className="h-4 w-4 text-[color:var(--w-carbon)]" /> Add a Google Meet video call
             </label>
           </div>
 
           {/* Notes */}
           <div className="space-y-1.5">
-            <Label htmlFor="ev-desc" className="text-xs text-muted-foreground">Notes (optional)</Label>
+            <Label htmlFor="ev-desc" className={LABEL}>Notes (optional)</Label>
             <Textarea id="ev-desc" value={description} rows={3} placeholder="Agenda, context, links…"
+              className={`px-3 py-2.5 text-[14px] ${FIELD}`}
               onChange={(e) => setDescription(e.target.value)} />
           </div>
 
           {error && (
-            <p className="rounded-md bg-signal-critical-subtle border border-signal-critical-border/60 px-3 py-2 text-xs text-signal-critical">
+            <p role="alert" className="rounded-xl border border-[var(--w-stamp)] bg-[var(--w-flimsy)] px-3 py-2 text-[13px] text-[color:var(--w-stamp)]">
               {error}
             </p>
           )}
         </div>
 
-        <DialogFooter>
-          <Button variant="outline" onClick={() => onOpenChange(false)} disabled={saving}>Cancel</Button>
-          <Button onClick={submit} disabled={saving || !title.trim()} className="gap-1.5">
-            {saving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <CalendarPlus className="h-3.5 w-3.5" />}
+        <DialogFooter className="mx-0 mb-0 rounded-none border-t border-[var(--w-rule)] bg-transparent px-0 pb-0 pt-4">
+          <button type="button" className={BTN_SECONDARY} onClick={() => onOpenChange(false)} disabled={saving}>Cancel</button>
+          <button type="button" className={BTN_PRIMARY} onClick={submit} disabled={saving || !title.trim()}>
+            {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <CalendarPlus className="h-4 w-4" />}
             {attendees.length > 0 ? `Create & invite ${attendees.length}` : "Create event"}
-          </Button>
+          </button>
         </DialogFooter>
       </DialogContent>
     </Dialog>

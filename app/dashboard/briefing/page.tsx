@@ -4,7 +4,6 @@ import Link from "next/link";
 import { useState, useEffect, useRef, useCallback } from "react";
 import { usePersistentDraft } from "@/lib/hooks/use-persistent-draft";
 import { scopedKey } from "@/lib/session-user";
-import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
   Newspaper,
@@ -29,6 +28,7 @@ import {
   RefreshCw,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { PageHero, BTN_PRIMARY } from "@/components/basil/page-hero";
 import {
   ExtraContextInput,
   buildExtraContextFormData,
@@ -132,6 +132,19 @@ const sections: SectionDef[] = [
   },
 ];
 
+/** Icon-tile and map colour per section (2026-10-14 identity; ≥3:1 on cream). */
+const SECTION_COLOR: Record<SectionKey, string> = {
+  criticalToday: "#B4372A",
+  projectRadar: "#1F8A70",
+  followUps: "#D9661F",
+  decisionsToWatch: "#2F5FA8",
+  meetingsNeedingPrep: "#10213F",
+  peopleAndAccounts: "#0E9E8A",
+  inboxSlack: "#5865C2",
+};
+
+const wordCount = (t: string) => (t.match(/\S+/g) ?? []).length;
+
 /** Split inline numbered lists like "1. foo 2. bar" into separate items */
 function splitInlineNumbered(text: string): string[] {
   // Matches " 2. ", " 10. " etc. — but not things like "v1.0" or dates "Apr 2."
@@ -165,7 +178,7 @@ function splitInlineNumbered(text: string): string[] {
 }
 
 /** Render briefing paragraph with bullet lines promoted to list items */
-function RichContent({ text }: { text: string }) {
+function RichContent({ text, lead = false }: { text: string; lead?: boolean }) {
   const lines = text.split("\n").filter((l) => l.trim().length > 0);
 
   const blocks: Array<
@@ -212,15 +225,15 @@ function RichContent({ text }: { text: string }) {
     <div className="space-y-3">
       {blocks.map((b, i) =>
         b.type === "p" ? (
-          <p key={i} className="text-sm leading-relaxed text-foreground/90">
+          <p key={i} className={cn("basil-serif text-[color:var(--w-ink)]", lead ? "text-[24px] leading-[1.45]" : "text-[19px] leading-[1.55]")}>
             {b.text}
           </p>
         ) : (
-          <ul key={i} className="space-y-2">
+          <ul key={i} className="space-y-2.5">
             {b.items.map((item, j) => (
-              <li key={j} className="flex gap-3 text-sm leading-relaxed">
-                <span className="mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full bg-current opacity-70" />
-                <span className="text-foreground/90">{item}</span>
+              <li key={j} className={cn("basil-serif flex gap-3 text-[color:var(--w-ink)]", lead ? "text-[22px] leading-[1.45]" : "text-[19px] leading-[1.5]")}>
+                <span className="mt-[0.6em] h-1.5 w-1.5 shrink-0 rounded-full bg-[#C8A96B]" />
+                <span>{item}</span>
               </li>
             ))}
           </ul>
@@ -475,7 +488,8 @@ export default function BriefingPage() {
   const loadingLabel = BRIEFING_TYPES.find(t => t.id === (loadingType ?? briefingType))?.label ?? "briefing";
 
   return (
-    <div className="wire p-4 sm:p-6 lg:p-8 space-y-8 max-w-5xl mx-auto">
+    <div className="wire basil-dots min-h-full">
+    <div className="mx-auto max-w-5xl space-y-8 p-4 sm:p-6 lg:p-10">
 
       {/* ── Sticky generation banner ─────────────────────────────────────────── */}
       {loading && (
@@ -497,54 +511,26 @@ export default function BriefingPage() {
       )}
 
       {/* Hero header */}
-      <header className="flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
-        <div className="space-y-2">
-          <p className="basil-eyebrow flex items-center gap-2 text-[13px]">
-            <Newspaper className="h-3.5 w-3.5" />
-            {BRIEFING_TYPES.find((t) => t.id === briefingType)?.label ?? "Briefing"}
-          </p>
-          <h1 className="basil-display text-3xl sm:text-5xl lg:text-6xl leading-[1.05] text-foreground">
-            {today.split(",")[0]}
-            <span className="text-[color:var(--w-carbon)]">.</span>
-          </h1>
-          <p className="text-base text-muted-foreground">
-            {today.split(",").slice(1).join(",").trim()} · Prepared by Basil
-          </p>
-        </div>
-        <Button
-          onClick={() => generate()}
-          disabled={loading}
-          size="lg"
-          className="bg-[var(--w-carbon)] text-white hover:bg-[var(--w-ink)] gap-2 h-11 px-5"
-        >
-          {loading ? (
-            <>
-              <Loader2 className="h-4 w-4 animate-spin" />
-              Generating…
-            </>
-          ) : (
-            <>
-              <Zap className="h-4 w-4" />
-              {briefing ? "Regenerate" : "Generate briefing"}
-            </>
-          )}
-        </Button>
-      </header>
-
-      {/* Anchored to Today.
-          This page presented as a standalone generation screen — arrive, find
-          nothing, press a button. That framing makes the briefing feel like a
-          separate product rather than the long form of the read on Today, and
-          an empty screen with one button is the least useful state a surface
-          can open in. The link is cheap and it re-establishes the relationship:
-          Today is the summary, this is the explanation behind it. */}
-      <p className="text-[0.875rem] text-[color:var(--w-ink-soft)] -mt-2">
-        The expanded explanation behind{" "}
-        <Link href="/dashboard" className="font-semibold underline underline-offset-2" style={{ color: "var(--w-carbon)" }}>
-          Today
-        </Link>
-        {briefing ? "." : " — generate it when you want the reasoning in full."}
-      </p>
+      <PageHero
+        eyebrow={`${BRIEFING_TYPES.find((t) => t.id === briefingType)?.label ?? "Briefing"} · ${today.split(",").slice(1).join(",").trim()}`}
+        title={today.split(",")[0]}
+        subtitle={
+          <>
+            Prepared by Basil. The expanded explanation behind{" "}
+            <Link href="/dashboard" className="font-semibold underline underline-offset-2" style={{ color: "var(--w-carbon)" }}>Today</Link>
+            {briefing ? "." : " — generate it when you want the reasoning in full."}
+          </>
+        }
+        actions={
+          <button type="button" onClick={() => generate()} disabled={loading} className={BTN_PRIMARY}>
+            {loading ? (
+              <><Loader2 className="h-4 w-4 animate-spin" />Generating…</>
+            ) : (
+              <><Zap className="h-4 w-4" />{briefing ? "Regenerate" : "Generate briefing"}</>
+            )}
+          </button>
+        }
+      />
 
       {/* ── Briefing type selector ──────────────────────────────────────
            Five operational briefing modes. Auto-selected by time of day.
@@ -559,16 +545,17 @@ export default function BriefingPage() {
               onClick={() => handleTypeChange(t.id)}
               disabled={loading}
               title={t.description}
+              aria-pressed={active}
               className={cn(
-                "inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[12px] font-medium",
-                "transition-all duration-150 border",
+                "inline-flex min-h-[40px] items-center gap-1.5 rounded-full border px-4 text-[13px] font-medium",
+                "transition-colors duration-150",
                 active
-                  ? "bg-[var(--w-carbon-tint)] text-[color:var(--w-carbon)] border-[var(--w-rule)]"
-                  : "bg-transparent text-muted-foreground/60 border-border/30 hover:border-border/60 hover:text-muted-foreground"
+                  ? "border-[#10213F] bg-[#10213F] text-[#F6F1E7]"
+                  : "border-[var(--w-rule-strong)] bg-[var(--w-flimsy)] text-[color:var(--w-ink)] hover:border-[#C8A96B]"
               )}
             >
               {active && (
-                <span className="h-1.5 w-1.5 rounded-full bg-[var(--w-carbon)] shrink-0" />
+                <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-[#D4B978]" />
               )}
               {t.label}
             </button>
@@ -798,12 +785,8 @@ export default function BriefingPage() {
           {sections.map((s) => (
             <div
               key={s.key}
-              className={cn(
-                "relative overflow-hidden rounded-2xl ring-1 p-7 basil-card",
-                s.ring
-              )}
+              className="relative overflow-hidden rounded-[20px] border border-[var(--w-rule)] bg-[var(--w-flimsy)] p-7"
             >
-              <span className={cn("absolute left-0 top-0 bottom-0 w-1", s.accent)} />
               <Skeleton className="h-4 w-24 mb-4" />
               <Skeleton className="h-5 w-full mb-2" />
               <Skeleton className="h-5 w-11/12 mb-2" />
@@ -816,7 +799,7 @@ export default function BriefingPage() {
       {!loading && briefing && (
         <div className="space-y-5">
           {/* Provenance line — generated at + source attribution */}
-          <div className="flex items-center gap-2 text-xs text-muted-foreground/50 font-mono">
+          <div className="basil-mono flex items-center gap-2 text-[12px] text-[color:var(--w-ink-soft)]">
             <Clock className="h-3 w-3 shrink-0" />
             <span>Generated {new Date(briefing.generatedAt).toLocaleString("en-GB", {
               timeZone: USER_TZ,
@@ -827,49 +810,71 @@ export default function BriefingPage() {
             {isStale && (
               <>
                 <span className="text-border/40">·</span>
-                <span className="text-signal-warning/70">data changed since generation</span>
+                <span className="text-[color:var(--w-manila)]">data changed since generation</span>
               </>
             )}
           </div>
 
-          {sections.map((s) => {
+          {/* The briefing map: one tile per section, its bar sized by how much
+              Basil wrote there — where today's weight sits. Click to jump. */}
+          {(() => {
+            const present = sections.filter((x) => briefing[x.key]);
+            const maxWords = Math.max(1, ...present.map((x) => wordCount(briefing[x.key] as string)));
+            return present.length > 1 ? (
+              <nav aria-label="Briefing sections" className="basil-rise grid grid-cols-2 gap-2.5 sm:grid-cols-3 lg:grid-cols-4" style={{ animationDelay: "120ms" }}>
+                {present.map((x, i) => {
+                  const words = wordCount(briefing[x.key] as string);
+                  return (
+                    <a
+                      key={x.key}
+                      href={`#brief-${x.key}`}
+                      className="basil-lift flex min-h-[64px] flex-col justify-between gap-2 rounded-2xl border border-[var(--w-rule)] bg-[var(--w-flimsy)] px-3.5 py-3 text-[color:var(--w-ink)] no-underline"
+                    >
+                      <span className="flex items-center gap-2 text-[13px] font-semibold">
+                        <span className="h-2 w-2 shrink-0 rounded-full" style={{ background: SECTION_COLOR[x.key] }} />
+                        {x.label}
+                      </span>
+                      <span className="flex items-center gap-2">
+                        <span className="h-1.5 flex-1 overflow-hidden rounded-full bg-[var(--w-tray)]">
+                          <span className="basil-grow block h-1.5 rounded-full" style={{ width: `${(words / maxWords) * 100}%`, background: SECTION_COLOR[x.key], animationDelay: `${240 + i * 60}ms` }} />
+                        </span>
+                        <span className="basil-mono text-[11px] text-[color:var(--w-ink-soft)]">{words}w</span>
+                      </span>
+                    </a>
+                  );
+                })}
+              </nav>
+            ) : null;
+          })()}
+
+          {sections.map((s, i) => {
             const content = briefing[s.key];
             if (!content) return null;
             const Icon = s.icon;
+            const lead = s.key === "criticalToday";
             return (
               <article
                 key={s.key}
+                id={`brief-${s.key}`}
                 className={cn(
-                  "relative overflow-hidden rounded-2xl ring-1 basil-card transition-shadow hover:shadow-lg",
-                  s.ring,
-                  s.bg
+                  "basil-rise scroll-mt-6 rounded-[24px] border p-6 sm:p-8",
+                  lead
+                    ? "border-[#C8A96B] bg-[var(--w-flimsy)] shadow-[0_0_0_4px_rgba(200,169,107,.12)]"
+                    : "border-[var(--w-rule)] bg-[var(--w-flimsy)]"
                 )}
+                style={{ animationDelay: `${200 + i * 70}ms` }}
               >
-                {/* Accent bar */}
-                <span className={cn("absolute left-0 top-0 bottom-0 w-1.5", s.accent)} />
+                <header className="mb-5 flex items-center gap-3">
+                  <span
+                    className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl"
+                    style={{ background: SECTION_COLOR[s.key] }}
+                  >
+                    <Icon className="h-[18px] w-[18px] text-[#FFFDF8]" />
+                  </span>
+                  <h2 className="basil-serif text-[28px] leading-tight text-[#10213F]">{s.label}</h2>
+                </header>
 
-                <div className="p-7 pl-9 lg:p-9 lg:pl-11">
-                  <header className="flex items-center gap-3 mb-5">
-                    <span
-                      className={cn(
-                        "flex h-9 w-9 items-center justify-center rounded-lg shadow-sm",
-                        s.accent
-                      )}
-                    >
-                      <Icon className="h-4 w-4 text-white" />
-                    </span>
-                    <h2
-                      className={cn(
-                        "text-[13px] font-semibold uppercase tracking-[0.22em]",
-                        s.fg
-                      )}
-                    >
-                      {s.label}
-                    </h2>
-                  </header>
-
-                  <RichContent text={content} />
-                </div>
+                <RichContent text={content} lead={lead} />
               </article>
             );
           })}
@@ -877,7 +882,7 @@ export default function BriefingPage() {
           <div className="pt-2">
             <div className="basil-hairline" />
             <div className="pt-4 flex flex-col items-center gap-2 text-center">
-              <p className="text-sm text-muted-foreground font-mono tracking-wider uppercase">
+              <p className="basil-mono text-[12px] uppercase tracking-wider text-[color:var(--w-ink-soft)]">
                 Prepared by Basil ·{" "}
                 {new Date(briefing.generatedAt).toLocaleString("en-GB", {
                   timeZone: USER_TZ,
@@ -891,7 +896,7 @@ export default function BriefingPage() {
               {briefing.sourceAttribution && (
                 <div className="flex flex-col items-center gap-1.5 pt-1 text-xs text-muted-foreground max-w-xl">
                   {briefing.sourceAttribution.unavailable.length > 0 && (
-                    <p className="text-signal-warning/80">
+                    <p className="text-[color:var(--w-manila)]">
                       <span className="font-medium">Not available: </span>
                       {briefing.sourceAttribution.unavailable.join(" · ")}
                     </p>
@@ -921,7 +926,7 @@ export default function BriefingPage() {
       )}
 
       {!loading && !briefing && !error && (
-        <div className="relative overflow-hidden rounded-2xl basil-card ring-1 ring-foreground/[0.06] p-12 text-center">
+        <div className="basil-rise relative overflow-hidden rounded-[24px] border border-[var(--w-rule)] bg-[var(--w-flimsy)] p-12 text-center">
           {/* Atmospheric glow */}
           <div
             aria-hidden
@@ -934,12 +939,12 @@ export default function BriefingPage() {
             <div className="h-14 w-14 rounded-xl bg-[var(--w-carbon-tint)] flex items-center justify-center mx-auto mb-5 ring-1 ring-[var(--w-rule)]">
               <Newspaper className="h-6 w-6 text-[color:var(--w-carbon)]/70" />
             </div>
-            <h2 className="basil-display text-2xl mb-2">Ready for your briefing</h2>
+            <h2 className="basil-serif mb-2 text-[30px] text-[#10213F]">Ready for your briefing</h2>
             <p className="text-sm text-muted-foreground max-w-xs mx-auto leading-relaxed">
               Basil will synthesise today&apos;s calendar, inbox, open actions,
               and key decisions into a concise operational brief.
             </p>
-            <div className="flex items-center justify-center gap-3 mt-6 text-xs text-muted-foreground/50 font-mono uppercase tracking-wider">
+            <div className="basil-mono mt-6 flex items-center justify-center gap-3 text-[12px] uppercase tracking-wider text-[color:var(--w-ink-soft)]">
               {["Calendar", "Inbox", "Actions", "Decisions"].map((src, i) => (
                 <span key={src} className="flex items-center gap-1.5">
                   {i > 0 && <span className="text-border/40">·</span>}
@@ -950,6 +955,7 @@ export default function BriefingPage() {
           </div>
         </div>
       )}
+    </div>
     </div>
   );
 }

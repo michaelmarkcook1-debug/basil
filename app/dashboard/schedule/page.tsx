@@ -2,13 +2,9 @@
 
 import { useState, useEffect, useCallback } from "react";
 import { getTodayISO } from "@/lib/timezone";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
 import { Textarea } from "@/components/ui/textarea";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
+import { BTN_PRIMARY, BTN_SECONDARY } from "@/components/basil/page-hero";
 import { usePersistentDraft } from "@/lib/hooks/use-persistent-draft";
 import {
   CalendarPlus,
@@ -16,18 +12,15 @@ import {
   ChevronRight,
   Send,
   Loader2,
-  Clock,
-  Users,
   Unplug,
   Check,
-  X,
-  Pencil,
-  Save,
   Plus,
 } from "lucide-react";
 import Link from "next/link";
 import { DayView, type DayEvent } from "./components/DayView";
 import { NewEventDialog } from "./components/NewEventDialog";
+import { WeekPanel } from "./components/WeekLoad";
+import { blockKind, KindLegend, KindSwatch } from "./components/event-kind";
 
 interface CalEvent {
   id: string;
@@ -422,6 +415,14 @@ export default function SchedulePage() {
     ? `${year}-${String(month + 1).padStart(2, "0")}-${String(selectedDay).padStart(2, "0")}`
     : getTodayISO();
 
+  // ── "This week" panel inputs (presentation only — from the events already loaded) ──
+  const monthPrefix = `${year}-${String(month + 1).padStart(2, "0")}`;
+  const weekAnchorISO = selectedDay ? selectedDateStr : todayDay > 0 ? todayISO : `${monthPrefix}-01`;
+  const weekStatus: "loading" | "error" | "disconnected" | "ready" =
+    loading ? "loading" : error ? "error" : !connected ? "disconnected" : "ready";
+  const selectedTimed = selectedEvents.filter((e) => !e.isAllDay);
+  const otherPending = pendingProposals.filter((p) => p.date !== selectedDateStr);
+
   return (
     <div className="wire h-full flex flex-col overflow-hidden">
       <NewEventDialog
@@ -439,182 +440,225 @@ export default function SchedulePage() {
         }}
       />
       {toast && (
-        <div className="fixed bottom-5 right-5 z-50 max-w-sm rounded-lg border border-signal-positive-border bg-signal-positive-subtle px-4 py-2.5 text-sm text-signal-positive shadow-lg flex items-start gap-2">
-          <Check className="h-4 w-4 shrink-0 mt-0.5" />
+        <div role="status" className="basil-pop fixed bottom-5 right-5 z-50 flex max-w-sm items-start gap-2.5 rounded-xl bg-[#10213F] px-4 py-3 text-[14px] text-[#F6F1E7] shadow-[0_16px_28px_-14px_rgba(16,33,63,.55)]">
+          <Check className="mt-0.5 h-4 w-4 shrink-0 text-[#D4B978]" />
           <span>{toast}</span>
         </div>
       )}
-      {/* ── Top bar ──────────────────────────────────────────────────────── */}
-      <div className="flex flex-wrap items-center gap-x-3 gap-y-1 px-4 py-2 min-h-12 border-b border-border/40 shrink-0 bg-background/80 backdrop-blur-sm">
-        <CalendarPlus className="h-4 w-4 text-[color:var(--w-carbon)] shrink-0" />
-        <span className="font-semibold text-sm">Schedule</span>
 
-        <Button
-          size="sm"
-          className="h-7 gap-1.5 ml-1"
-          onClick={() => setNewEventOpen(true)}
-        >
-          <Plus className="h-3.5 w-3.5" /> New event
-        </Button>
-
-        <div className="flex-1" />
+      {/* ── Header: compact tool-page title, month navigation, actions ──── */}
+      <header className="flex shrink-0 flex-wrap items-center gap-x-4 gap-y-2.5 border-b border-[var(--w-rule)] bg-[var(--w-paper)] px-4 py-3 sm:px-6">
+        <h1 className="basil-serif text-[36px] leading-none tracking-[-0.02em] text-[#10213F]">
+          Calendar<span className="text-[#C8A96B]">.</span>
+        </h1>
 
         {/* Month navigation */}
-        <div className="flex items-center gap-1">
+        <nav aria-label="Month" className="flex items-center gap-1.5">
           <button
+            type="button"
             onClick={prevMonth}
-            className="p-1.5 rounded hover:bg-accent transition-colors text-muted-foreground hover:text-foreground"
+            className={`${BTN_SECONDARY} w-11 px-0`}
             aria-label="Previous month"
           >
-            <ChevronLeft className="h-3.5 w-3.5" />
+            <ChevronLeft className="h-4 w-4" />
           </button>
-          <span className="text-sm font-medium w-28 text-center">
+          <span aria-live="polite" className="basil-serif min-w-[9.5rem] text-center text-[22px] leading-none text-[#10213F]">
             {MONTH_NAMES[month]} {year}
           </span>
           <button
+            type="button"
             onClick={nextMonth}
-            className="p-1.5 rounded hover:bg-accent transition-colors text-muted-foreground hover:text-foreground"
+            className={`${BTN_SECONDARY} w-11 px-0`}
             aria-label="Next month"
           >
-            <ChevronRight className="h-3.5 w-3.5" />
+            <ChevronRight className="h-4 w-4" />
           </button>
-        </div>
+        </nav>
 
-        <button
-          onClick={goToToday}
-          className="px-3 py-1 text-xs font-medium rounded-md border border-border hover:bg-accent transition-colors text-muted-foreground hover:text-foreground"
-        >
+        <button type="button" onClick={goToToday} className={BTN_SECONDARY}>
           Today
         </button>
 
+        {/* Connection status */}
         {error && !loading ? (
           <button
+            type="button"
             onClick={fetchEvents}
-            className="flex items-center gap-1.5 text-xs text-signal-critical bg-signal-critical-subtle border border-signal-critical-border/60 px-2.5 py-1 rounded-md hover:opacity-90 transition-opacity"
+            className="inline-flex min-h-[36px] items-center gap-1.5 rounded-full border border-[var(--w-stamp)] bg-[var(--w-flimsy)] px-3 text-[13px] font-medium text-[color:var(--w-stamp)] transition-colors hover:bg-[var(--w-paper)]"
           >
-            <Unplug className="h-3 w-3" /> Couldn&apos;t load calendar — retry
+            <Unplug className="h-3.5 w-3.5" /> Couldn&apos;t load calendar — retry
           </button>
         ) : !connected && !loading ? (
           <Link
             href="/dashboard/settings"
-            className="flex items-center gap-1.5 text-xs text-signal-warning bg-signal-warning-subtle border border-signal-warning-border/60 px-2.5 py-1 rounded-md hover:bg-signal-warning-subtle transition-colors"
+            className="inline-flex min-h-[36px] items-center gap-1.5 rounded-full border border-[var(--w-manila)] bg-[var(--w-flimsy)] px-3 text-[13px] font-medium text-[color:var(--w-manila)] transition-colors hover:bg-[var(--w-paper)]"
           >
-            <Unplug className="h-3 w-3" /> Calendar not connected
+            <Unplug className="h-3.5 w-3.5" /> Calendar not connected
           </Link>
+        ) : connected && !loading ? (
+          <span className="inline-flex min-h-[36px] items-center gap-2 rounded-full border border-[var(--w-rule)] bg-[var(--w-flimsy)] px-3 text-[13px] text-[color:var(--w-ink-soft)]">
+            <span aria-hidden className="h-2 w-2 rounded-full bg-[#1F8A70]" />
+            Google Calendar connected
+          </span>
         ) : null}
-      </div>
+
+        <div className="flex-1" />
+
+        <button type="button" className={BTN_PRIMARY} onClick={() => setNewEventOpen(true)}>
+          <Plus className="h-4 w-4" /> New event
+        </button>
+      </header>
 
       {/* ── Body ─────────────────────────────────────────────────────────── */}
       <div className="flex flex-col md:flex-row flex-1 min-h-0 overflow-y-auto md:overflow-hidden">
 
-        {/* ── Left sidebar ─────────────────────────────────────────────── */}
-        <aside className="w-full md:w-60 border-b md:border-b-0 md:border-r border-border/40 flex flex-col overflow-hidden shrink-0 bg-[var(--w-flimsy)]">
+        {/* ── Left panel ───────────────────────────────────────────────── */}
+        <aside className="flex w-full shrink-0 flex-col gap-4 border-b border-[var(--w-rule)] bg-[var(--w-paper)] p-4 md:w-[300px] md:overflow-y-auto md:border-b-0 md:border-r">
 
           {/* Mini calendar */}
-          <div className="p-3 shrink-0">
+          <section aria-label={`${MONTH_NAMES[month]} ${year}`} className="basil-rise shrink-0 rounded-[20px] border border-[var(--w-rule)] bg-[var(--w-flimsy)] p-4">
             {/* Day-name row */}
-            <div className="grid grid-cols-7 gap-0.5 mb-1">
+            <div className="grid grid-cols-7 mb-1">
               {["S","M","T","W","T","F","S"].map((d, i) => (
-                <div key={i} className="text-center text-xs font-semibold text-muted-foreground/60 py-0.5">
+                <div key={i} aria-hidden className="basil-mono py-1 text-center text-[11px] text-[color:var(--w-ink-soft)]">
                   {d}
                 </div>
               ))}
             </div>
             {/* Day cells */}
             {loading ? (
-              <Skeleton className="h-32 w-full rounded-md" />
+              <Skeleton className="h-[200px] w-full rounded-xl bg-[var(--w-tray)]" />
             ) : (
-              <div className="grid grid-cols-7 gap-0.5">
+              <div className="grid grid-cols-7 gap-y-1">
                 {Array.from({ length: firstDay }).map((_, i) => (
-                  <div key={`e-${i}`} className="h-7" />
+                  <div key={`e-${i}`} className="h-8" />
                 ))}
                 {Array.from({ length: daysInMonth }).map((_, i) => {
                   const day = i + 1;
                   const isToday = day === todayDay;
                   const isSelected = day === selectedDay;
-                  const hasCal = (eventsByDay[day] || []).filter((e) => !e.isAllDay).length > 0;
+                  const calCount = (eventsByDay[day] || []).filter((e) => !e.isAllDay).length;
+                  const hasCal = calCount > 0;
                   const hasProp = (proposedByDay[day] || []).some((p) => p.status === "proposed");
 
                   return (
-                    <button
-                      key={day}
-                      onClick={() => setSelectedDay(day)}
-                      className={`h-7 w-full rounded flex flex-col items-center justify-center text-xs font-medium relative transition-colors
-                        ${isSelected
-                          ? "bg-[var(--w-carbon)] text-[oklch(0.18_0.04_250)]"
-                          : isToday
-                            ? "ring-1 ring-[var(--w-carbon)] text-[color:var(--w-carbon)] font-bold"
-                            : "text-foreground hover:bg-accent/50"
-                        }`}
-                    >
-                      {day}
-                      {/* Event indicator dots */}
-                      {(hasCal || hasProp) && !isSelected && (
-                        <div className="flex gap-0.5 absolute bottom-0.5">
-                          {hasCal && <span className="w-1 h-1 rounded-full bg-[var(--w-carbon-tint)]" />}
-                          {hasProp && <span className="w-1 h-1 rounded-full bg-signal-warning" />}
-                        </div>
-                      )}
-                    </button>
+                    <div key={day} className="flex justify-center">
+                      <button
+                        type="button"
+                        onClick={() => setSelectedDay(day)}
+                        aria-pressed={isSelected}
+                        aria-label={`${MONTH_NAMES[month]} ${day}${isToday ? ", today" : ""}${hasCal ? `, ${calCount} event${calCount === 1 ? "" : "s"}` : ""}${hasProp ? ", proposal pending" : ""}`}
+                        className={`relative flex h-8 w-8 items-center justify-center rounded-full text-[13px] transition-colors
+                          ${isToday
+                            ? "bg-[#10213F] font-semibold text-[#F6F1E7]"
+                            : "text-[color:var(--w-ink)] hover:bg-[var(--w-tray)]"
+                          }
+                          ${isSelected ? "ring-2 ring-[#C8A96B] ring-offset-1 ring-offset-[var(--w-flimsy)]" : ""}`}
+                      >
+                        {day}
+                        {/* Event indicator dots */}
+                        {(hasCal || hasProp) && (
+                          <span aria-hidden className="absolute bottom-[3px] flex gap-0.5">
+                            {hasCal && <span className={`h-1 w-1 rounded-full ${isToday ? "bg-[#F6F1E7]" : "bg-[#10213F]"}`} />}
+                            {hasProp && <span className={`h-1 w-1 rounded-full ${isToday ? "bg-[#D4B978]" : "bg-[var(--w-manila)]"}`} />}
+                          </span>
+                        )}
+                      </button>
+                    </div>
                   );
                 })}
               </div>
             )}
-          </div>
+            <p className="mt-3 flex flex-wrap gap-x-3 gap-y-1 text-[11px] text-[color:var(--w-ink-soft)]">
+              <span className="inline-flex items-center gap-1.5"><span aria-hidden className="h-1.5 w-1.5 rounded-full bg-[#10213F]" />Events</span>
+              <span className="inline-flex items-center gap-1.5"><span aria-hidden className="h-1.5 w-1.5 rounded-full bg-[var(--w-manila)]" />Basil proposal</span>
+              <span className="inline-flex items-center gap-1.5"><span aria-hidden className="h-2.5 w-2.5 rounded-full ring-2 ring-[#C8A96B]" />Selected</span>
+            </p>
+          </section>
+
+          {/* This week — meeting hours vs free, Mon–Fri */}
+          <WeekPanel
+            events={events}
+            anchorIso={weekAnchorISO}
+            year={year}
+            month={month}
+            monthName={MONTH_NAMES[month]}
+            todayIso={todayISO}
+            selectedIso={selectedDateStr || undefined}
+            status={weekStatus}
+            onSelectDay={(iso) => setSelectedDay(Number(iso.slice(8, 10)))}
+            delay={80}
+          />
 
           {/* Selected day agenda list */}
-          <div className="flex-1 min-h-0 overflow-y-auto px-3 pb-2">
+          <section aria-labelledby="day-list-h" className="basil-rise flex shrink-0 flex-col gap-2" style={{ animationDelay: "160ms" }}>
             {selectedDay ? (
               <>
-                <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-1.5 sticky top-0 bg-[var(--w-flimsy)] py-1">
-                  {selectedDateLabel}
-                </p>
-                {selectedEvents.filter((e) => !e.isAllDay).length === 0 ? (
-                  <p className="text-xs text-muted-foreground/50 italic py-1">No events</p>
+                <div className="flex items-baseline justify-between gap-2">
+                  <h2 id="day-list-h" className="basil-serif text-[22px] leading-tight text-[#10213F]">
+                    {selectedDateLabel}
+                  </h2>
+                  <span className="basil-mono shrink-0 text-[12px] text-[color:var(--w-ink-soft)]">
+                    {selectedTimed.length} event{selectedTimed.length === 1 ? "" : "s"}
+                  </span>
+                </div>
+                {selectedTimed.length === 0 ? (
+                  <p className="text-[13px] text-[color:var(--w-ink-soft)]">Nothing booked.</p>
                 ) : (
-                  <div className="space-y-0.5">
-                    {selectedEvents
-                      .filter((e) => !e.isAllDay)
-                      .map((ev, i) => {
-                        const t = new Date(ev.start).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
-                        return (
-                          <div key={i} className="flex items-start gap-2 py-1.5 border-b border-border/25 last:border-0">
-                            <span className="text-xs font-mono text-muted-foreground/60 mt-0.5 w-10 shrink-0">{t}</span>
-                            <div className="flex-1 min-w-0">
-                              <p className="text-xs leading-snug truncate font-medium">{ev.summary}</p>
-                              {ev.hasVideo && (
-                                <span className="text-xs text-[color:var(--w-carbon)]">Video call</span>
-                              )}
-                            </div>
+                  <ul className="flex flex-col gap-1.5">
+                    {selectedTimed.map((ev, i) => {
+                      const t = new Date(ev.start).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+                      const kind = blockKind(ev);
+                      return (
+                        <li key={i} className="flex items-start gap-2.5 rounded-xl border border-[var(--w-rule)] bg-[var(--w-flimsy)] px-3 py-2">
+                          <KindSwatch kind={kind} className="mt-[3px]" />
+                          <span className="basil-mono mt-px w-11 shrink-0 text-[12px] text-[color:var(--w-ink-soft)]">{t}</span>
+                          <div className="min-w-0 flex-1">
+                            <p
+                              className="truncate text-[13px] font-medium leading-snug text-[color:var(--w-ink)]"
+                              style={{ textDecoration: kind === "declined" ? "line-through" : "none" }}
+                            >
+                              {ev.summary}
+                            </p>
+                            {(kind === "invite" || kind === "declined" || ev.hasVideo) && (
+                              <p className="text-[12px] leading-snug text-[color:var(--w-ink-soft)]">
+                                {kind === "invite" ? "Needs your reply" : kind === "declined" ? "Declined" : null}
+                                {(kind === "invite" || kind === "declined") && ev.hasVideo ? " · " : null}
+                                {ev.hasVideo && <span className="text-[color:var(--w-carbon)]">Video call</span>}
+                              </p>
+                            )}
                           </div>
-                        );
-                      })}
-                  </div>
+                        </li>
+                      );
+                    })}
+                  </ul>
                 )}
                 {/* Proposed for this day */}
                 {selectedProposed.length > 0 && (
-                  <div className="mt-2 pt-2 border-t border-signal-warning-border/30">
-                    <p className="text-xs font-semibold uppercase tracking-wider text-signal-warning mb-1.5">
+                  <div className="mt-1 flex flex-col gap-2">
+                    <p className="basil-mono text-[11px] uppercase tracking-[0.12em] text-[color:var(--w-manila)]">
                       Proposed ({selectedProposed.length})
                     </p>
                     {selectedProposed.map((p, i) => {
                       const globalIndex = proposed.indexOf(p);
                       return (
-                        <div key={i} className="rounded-md p-2 mb-1.5 bg-signal-warning-subtle border border-dashed border-signal-warning-border/40">
-                          <p className="text-xs font-medium truncate">{p.title}</p>
-                          <p className="text-xs text-muted-foreground">{p.startTime} · {p.duration}min</p>
-                          <div className="flex gap-1.5 mt-1.5">
+                        <div key={i} className="rounded-xl border border-dashed border-[var(--w-rule-strong)] bg-[var(--w-flimsy)] p-3">
+                          <p className="truncate text-[14px] font-medium text-[color:var(--w-ink)]">{p.title}</p>
+                          <p className="basil-mono text-[12px] text-[color:var(--w-ink-soft)]">{p.startTime} · {p.duration}min</p>
+                          <div className="mt-2.5 flex gap-2">
                             <button
+                              type="button"
                               disabled={approving === globalIndex}
                               onClick={() => handleApprove(globalIndex)}
-                              className="flex items-center gap-1 text-xs font-medium px-2 py-0.5 rounded bg-signal-positive text-white hover:bg-signal-positive disabled:opacity-50 transition-colors"
+                              className={`${BTN_PRIMARY} flex-1`}
                             >
-                              {approving === globalIndex ? <Loader2 className="h-2.5 w-2.5 animate-spin" /> : <Check className="h-2.5 w-2.5" />}
+                              {approving === globalIndex ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Check className="h-3.5 w-3.5" />}
                               Approve
                             </button>
                             <button
+                              type="button"
                               onClick={() => handleDecline(globalIndex)}
-                              className="text-xs font-medium px-2 py-0.5 rounded border border-border text-muted-foreground hover:text-destructive hover:border-destructive/40 transition-colors"
+                              className={`${BTN_SECONDARY} flex-1 hover:text-[color:var(--w-stamp)]`}
                             >
                               Decline
                             </button>
@@ -626,42 +670,46 @@ export default function SchedulePage() {
                 )}
               </>
             ) : (
-              <p className="text-xs text-muted-foreground/40 italic py-2">Pick a day</p>
+              <p id="day-list-h" className="text-[13px] text-[color:var(--w-ink-soft)]">Pick a day on the calendar.</p>
             )}
-          </div>
+          </section>
 
           {/* Pending proposals (global) — if any outside selected day */}
-          {pendingProposals.filter((p) => p.date !== selectedDateStr).length > 0 && (
-            <div className="border-t border-signal-warning-border/30 px-3 py-2 shrink-0">
-              <p className="text-xs font-semibold uppercase tracking-wider text-signal-warning mb-1.5">
-                Other pending ({pendingProposals.filter((p) => p.date !== selectedDateStr).length})
+          {otherPending.length > 0 && (
+            <section aria-labelledby="other-pending-h" className="flex shrink-0 flex-col gap-1.5">
+              <p id="other-pending-h" className="basil-mono text-[11px] uppercase tracking-[0.12em] text-[color:var(--w-manila)]">
+                Other pending ({otherPending.length})
               </p>
-              <div className="space-y-1 max-h-24 overflow-y-auto">
-                {pendingProposals
-                  .filter((p) => p.date !== selectedDateStr)
-                  .map((p) => (
-                    <div key={p._index} className="text-xs text-muted-foreground flex items-center gap-1.5 cursor-pointer hover:text-foreground" onClick={() => {
+              <div className="flex max-h-36 flex-col gap-1.5 overflow-y-auto p-0.5">
+                {otherPending.map((p) => (
+                  <button
+                    key={p._index}
+                    type="button"
+                    className="basil-lift flex min-h-[36px] items-center gap-2 rounded-xl border border-[var(--w-rule)] bg-[var(--w-flimsy)] px-3 text-left text-[13px] text-[color:var(--w-ink)]"
+                    onClick={() => {
                       const d = new Date(p.date + "T12:00:00");
                       setYear(d.getFullYear()); setMonth(d.getMonth()); setSelectedDay(d.getDate());
-                    }}>
-                      <span className="w-1.5 h-1.5 rounded-full bg-signal-warning shrink-0" />
-                      <span className="truncate">{p.date} — {p.title}</span>
-                    </div>
-                  ))}
+                    }}
+                  >
+                    <span aria-hidden className="h-1.5 w-1.5 shrink-0 rounded-full bg-[var(--w-manila)]" />
+                    <span className="basil-mono shrink-0 text-[12px] text-[color:var(--w-ink-soft)]">{p.date}</span>
+                    <span className="truncate">{p.title}</span>
+                  </button>
+                ))}
               </div>
-            </div>
+            </section>
           )}
 
           {/* Ask Basil */}
-          <div className="border-t border-border/40 p-3 shrink-0">
-            <div className="flex items-center gap-1.5 mb-2">
-              <img src="/brand/basil-mark.png" alt="" className="h-3.5 w-3.5 rounded" />
-              <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Ask Basil</span>
+          <section aria-labelledby="ask-basil-h" className="basil-rise flex shrink-0 flex-col gap-3 rounded-[20px] border border-[var(--w-rule)] bg-[var(--w-flimsy)] p-4" style={{ animationDelay: "240ms" }}>
+            <div className="flex items-center gap-2">
+              <span className="flex h-5 w-5 items-center justify-center overflow-hidden rounded bg-[#07111F]"><img src="/brand/basil-logo-compass.png" alt="" className="h-8 w-8 max-w-none" /></span>
+              <h2 id="ask-basil-h" className="basil-serif text-[22px] leading-none text-[#10213F]">Ask Basil</h2>
             </div>
             {/* Pre-populated scheduling prompts — clicking submits immediately.
                 Calendar-flavoured so suggestions are relevant to this surface. */}
             {!basilInput && !basilLoading && (
-              <div className="flex flex-wrap gap-1 mb-2">
+              <div className="flex flex-wrap gap-1.5">
                 {[
                   "Schedule a 30 min with Sam tomorrow",
                   "Find a 1h slot this week",
@@ -679,7 +727,7 @@ export default function SchedulePage() {
                         form?.requestSubmit();
                       });
                     }}
-                    className="text-xs px-2 py-1 rounded-md border border-[var(--w-rule)] bg-[var(--w-carbon-tint)] text-[color:var(--w-carbon)] hover:bg-[var(--w-carbon-tint)] transition-colors text-left leading-tight"
+                    className="basil-lift min-h-[36px] rounded-xl border border-[var(--w-rule)] bg-[var(--w-paper)] px-3 py-1.5 text-left text-[13px] leading-snug text-[color:var(--w-ink)]"
                   >
                     {q}
                   </button>
@@ -687,53 +735,54 @@ export default function SchedulePage() {
               </div>
             )}
 
-            <form id="schedule-basil-form" onSubmit={handleBasilSubmit} className="space-y-2">
+            <form id="schedule-basil-form" onSubmit={handleBasilSubmit} className="space-y-2.5">
               <Textarea
                 value={basilInput}
                 onChange={(e) => setBasilInput(e.target.value)}
                 placeholder="Or type your own request…"
-                className="min-h-[56px] resize-none text-xs leading-relaxed"
+                aria-label="Ask Basil to schedule something"
+                className="min-h-[64px] resize-none rounded-xl border-[var(--w-rule)] bg-[var(--w-paper)] px-3 py-2.5 text-[13px] leading-relaxed text-[color:var(--w-ink)] placeholder:text-[color:var(--w-ink-soft)] focus-visible:border-[#C8A96B]"
                 rows={2}
               />
               <div className="flex items-center justify-between gap-2">
-                <p className="text-xs text-muted-foreground leading-snug">You approve before any invite sends</p>
-                <Button
+                <p className="text-[12px] leading-snug text-[color:var(--w-ink-soft)]">You approve before any invite sends</p>
+                <button
                   type="submit"
-                  size="sm"
                   disabled={basilLoading || !basilInput.trim()}
-                  className="h-6 text-xs shrink-0 bg-[var(--w-carbon)] text-[oklch(0.18_0.04_250)] hover:bg-[oklch(0.78_0.12_85)] gap-1 px-2"
+                  className={`${BTN_PRIMARY} shrink-0`}
                 >
-                  {basilLoading ? <Loader2 className="h-3 w-3 animate-spin" /> : <Send className="h-3 w-3" />}
+                  {basilLoading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Send className="h-3.5 w-3.5" />}
                   Send
-                </Button>
+                </button>
               </div>
             </form>
             {basilResponse && (
-              <p className="mt-2 text-xs text-muted-foreground bg-accent/30 rounded px-2 py-1.5 leading-relaxed">
+              <p className="basil-serif rounded-xl border border-[var(--w-rule)] bg-[var(--w-paper)] px-3 py-2.5 text-[18px] leading-snug text-[color:var(--w-ink)]">
                 {basilResponse}
               </p>
             )}
-          </div>
+          </section>
         </aside>
 
         {/* ── Main: full-width DayView ────────────────────────────────── */}
-        <div className="flex-1 min-w-0 flex flex-col overflow-hidden min-h-[70vh] md:min-h-0">
+        <div className="flex-1 min-w-0 flex flex-col overflow-hidden min-h-[70vh] md:min-h-0 bg-[var(--w-flimsy)]">
           {/* Day header bar */}
-          <div className="flex items-center justify-between px-4 h-10 border-b border-border/40 shrink-0 bg-background/60">
-            <div className="flex items-center gap-3">
-              <span className="font-semibold text-sm">
+          <div className="flex shrink-0 flex-wrap items-center justify-between gap-x-4 gap-y-2 border-b border-[var(--w-rule)] px-4 py-3 sm:px-6">
+            <div className="flex items-baseline gap-3">
+              <h2 className="basil-serif text-[26px] leading-tight text-[#10213F]">
                 {selectedDateLabel || "No day selected"}
-              </span>
+              </h2>
               {selectedDay && (
-                <span className="text-xs text-muted-foreground">
-                  {selectedEvents.filter((e) => !e.isAllDay).length} event
-                  {selectedEvents.filter((e) => !e.isAllDay).length !== 1 ? "s" : ""}
+                <span className="basil-mono text-[12px] text-[color:var(--w-ink-soft)]">
+                  {selectedTimed.length} event{selectedTimed.length !== 1 ? "s" : ""}
                 </span>
               )}
             </div>
-            {!connected && (
-              <span className="text-xs text-muted-foreground/50">Connect Google Calendar to see events</span>
-            )}
+            {connected ? (
+              <KindLegend />
+            ) : !loading ? (
+              <span className="text-[13px] text-[color:var(--w-ink-soft)]">Connect Google Calendar to see events</span>
+            ) : null}
           </div>
 
           {/* DayView — fills all remaining height, no fixed cap */}
@@ -745,9 +794,9 @@ export default function SchedulePage() {
                 onRefresh={fetchEvents}
               />
             ) : (
-              <div className="flex flex-col items-center justify-center h-full gap-3 text-muted-foreground/40">
-                <CalendarPlus className="h-10 w-10" />
-                <p className="text-sm">Select a day from the mini calendar</p>
+              <div className="flex h-full flex-col items-center justify-center gap-3 px-6 text-center">
+                <CalendarPlus className="h-10 w-10 text-[color:var(--w-carbon)]" />
+                <p className="text-[15px] text-[color:var(--w-ink-soft)]">Select a day from the mini calendar</p>
               </div>
             )}
           </div>

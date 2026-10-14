@@ -850,7 +850,7 @@ export default function OnboardingPage() {
       <div className="auth-animate flex items-center gap-2.5 mb-8">
         {/* eslint-disable-next-line @next/next/no-img-element */}
         <img
-          src="/brand/basil-mark.png"
+          src="/brand/basil-logo-compass.png"
           alt="Basil"
           className="h-9 w-9 rounded-xl"
           style={{ filter: "drop-shadow(0 0 14px rgba(200,169,107,0.3))" }}

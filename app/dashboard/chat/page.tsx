@@ -24,7 +24,6 @@ function resubmitWhen({ messages }: { messages: UIMessage[] }): boolean {
 }
 import { useSearchParams, useRouter } from "next/navigation";
 import { emitChange, type SyncDomain } from "@/lib/sync/channel";
-import { Card } from "@/components/ui/card";
 import { TrustLine, UndoTool } from "@/components/chat/trust";
 import useSWR from "swr";
 import { Button } from "@/components/ui/button";
@@ -32,12 +31,10 @@ import { downscaleImage } from "@/lib/images/downscale";
 import { Markdown } from "@/components/ui/markdown";
 import { Textarea } from "@/components/ui/textarea";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { Avatar, AvatarFallback } from "@/components/ui/avatar";
+import { BTN_PRIMARY, BTN_SECONDARY } from "@/components/basil/page-hero";
 
 import {
   Send,
-  Bot,
-  User,
   Calendar,
   Mail,
   Hash,
@@ -46,7 +43,6 @@ import {
   Check,
   X,
   ShieldCheck,
-  Trash2,
   MessageCirclePlus,
   Paperclip,
   AlertTriangle,
@@ -56,6 +52,12 @@ import {
   ChevronUp,
   MessageSquare,
   Square,
+  Inbox,
+  Users,
+  Scale,
+  Briefcase,
+  Sparkles,
+  BellOff,
 } from "lucide-react";
 
 // Per-session localStorage key — intentionally includes no username because
@@ -151,6 +153,49 @@ function humanSize(bytes: number): string {
   if (bytes < 1024) return `${bytes}B`;
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(0)}KB`;
   return `${(bytes / (1024 * 1024)).toFixed(1)}MB`;
+}
+
+/** The welcome-screen prompts. Clicking one sends it, exactly as before. */
+const WELCOME_PROMPTS: { text: string; icon: typeof Calendar }[] = [
+  { text: "What needs my attention today?", icon: Inbox },
+  { text: "Who is blocked?", icon: Users },
+  { text: "What decisions are waiting on me?", icon: Scale },
+  { text: "What projects am I working on?", icon: Briefcase },
+  { text: "What did I promise?", icon: ListTodo },
+  { text: "What meetings need prep?", icon: Calendar },
+  { text: "What AI work needs review?", icon: Sparkles },
+  { text: "What can I ignore?", icon: BellOff },
+];
+
+/** Basil's mark in a gold ring — the speaker badge beside each reply. */
+function BasilMark({ className = "" }: { className?: string }) {
+  return (
+    <span
+      aria-hidden
+      className={`flex h-8 w-8 shrink-0 items-center justify-center overflow-hidden rounded-full bg-[#07111F] ${className}`}
+      style={{ boxShadow: "0 0 0 2px var(--w-paper), 0 0 0 3.5px #C8A96B" }}
+    >
+      <img src="/brand/basil-logo-compass.png" alt="" className="h-12 w-12 max-w-none" />
+    </span>
+  );
+}
+
+/** A tool step's state, as a dot: done, running (live ping), failed or stopped. */
+function StepDot({ tone }: { tone: "done" | "running" | "failed" | "denied" | "archived" }) {
+  if (tone === "running") {
+    return (
+      <span aria-hidden className="relative h-2 w-2 shrink-0">
+        <span className="basil-ping absolute inset-0 rounded-full bg-[#C8A96B]" />
+        <span className="absolute inset-0 rounded-full bg-[#C8A96B]" />
+      </span>
+    );
+  }
+  const fill =
+    tone === "done" ? "bg-[#1F8A70]"
+    : tone === "failed" ? "bg-[var(--w-stamp)]"
+    : tone === "denied" ? "border-[1.5px] border-[var(--w-stamp)]"
+    : "border-[1.5px] border-dashed border-[#8A8F99]";
+  return <span aria-hidden className={`h-2 w-2 shrink-0 rounded-full ${fill}`} />;
 }
 
 function ChatPageInner() {
@@ -568,25 +613,27 @@ function ChatPageInner() {
         : msg || "Something went wrong. Please try again.";
     }
     return (
-      <div className="mx-4 mt-2 rounded-lg border border-destructive/40 bg-destructive/5 px-4 py-3 text-sm text-destructive space-y-2">
-        <div className="flex items-start gap-2">
-          <AlertTriangle className="h-4 w-4 shrink-0 mt-0.5" />
-          <span>
-            <strong>Chat unavailable:</strong> {userMessage}
+      <div role="alert" className="flex flex-col gap-2.5 rounded-2xl border border-[var(--w-rule)] bg-[var(--w-flimsy)] px-4 py-3.5 text-[14px] text-[color:var(--w-ink)]">
+        <div className="flex items-start gap-3">
+          <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl border border-[var(--w-rule)] bg-[var(--w-paper)]">
+            <AlertTriangle className="h-4 w-4 text-[color:var(--w-stamp)]" aria-hidden />
+          </span>
+          <span className="pt-1 leading-relaxed">
+            <strong className="font-semibold text-[color:var(--w-stamp)]">Chat unavailable:</strong> {userMessage}
             {" — "}
-            <a href="/dashboard/settings" className="underline">
+            <a href="/dashboard/settings" className="font-medium text-[color:var(--w-carbon)] underline underline-offset-2">
               Check Settings → Readiness
             </a>
           </span>
         </div>
         {narrowingOptions && narrowingOptions.length > 0 && (
-          <div className="flex flex-wrap gap-1.5 pl-6">
+          <div className="flex flex-wrap gap-2 pl-11">
             {narrowingOptions.map((opt) => (
               <Button
                 key={opt}
                 variant="outline"
                 size="sm"
-                className="text-xs border-destructive/30 text-destructive hover:bg-destructive/10 h-auto py-1"
+                className="h-auto min-h-[44px] rounded-xl border-[var(--w-rule-strong)] bg-[var(--w-flimsy)] px-3.5 py-2 text-[13px] text-[color:var(--w-ink)] hover:border-[#C8A96B] hover:bg-[var(--w-flimsy)] hover:text-[color:var(--w-ink)]"
                 onClick={() => { hasSentMessage.current = true; sendMessage({ text: opt }); }}
               >
                 {opt}
@@ -599,7 +646,7 @@ function ChatPageInner() {
   })() : null;
 
   const inputForm = (
-    <form onSubmit={handleSubmit} className="space-y-2">
+    <form onSubmit={handleSubmit} className="flex flex-col gap-2.5">
       {/* Directly above the composer, so a failure is visible where the user's
           attention already is. It previously rendered at the very top of the
           page — off-screen in any real conversation. */}
@@ -609,8 +656,8 @@ function ChatPageInner() {
           your history", which is the same class of lie as an empty list on a
           failed fetch. */}
       {historyMeta?.truncated && (
-        <p className="px-1 text-[11px] text-muted-foreground">
-          Showing the last {HISTORY_DAYS} days ({historyMeta.returned} of {historyMeta.total} messages).
+        <p className="px-1 text-[12px] leading-relaxed text-[color:var(--w-ink-soft)]">
+          Showing the last <span className="basil-mono">{HISTORY_DAYS}</span> days (<span className="basil-mono">{historyMeta.returned}</span> of <span className="basil-mono">{historyMeta.total}</span> messages).
           Older history is kept — ask Basil about it and it will search further back.
         </p>
       )}
@@ -625,37 +672,38 @@ function ChatPageInner() {
       />
       {/* Staged file chips */}
       {stagedFiles.length > 0 && (
-        <div className="flex flex-wrap gap-1.5">
+        <div className="flex flex-wrap gap-2">
           {stagedFiles.map((sf) => (
             <div
               key={sf.id}
-              className="group relative flex items-center gap-1.5 rounded-md border border-border bg-muted/50 pl-2 pr-1 py-1 text-xs text-muted-foreground"
+              className="flex min-h-[44px] items-center gap-2 rounded-xl border border-[var(--w-rule)] bg-[var(--w-flimsy)] pl-2.5 text-[13px] text-[color:var(--w-ink)]"
             >
               {sf.previewUrl ? (
-                 
                 <img
                   src={sf.previewUrl}
                   alt={sf.file.name}
-                  className="h-5 w-5 rounded object-cover shrink-0"
+                  className="h-7 w-7 shrink-0 rounded-md object-cover"
                 />
               ) : (
-                <FileText className="h-3 w-3 shrink-0" />
+                <FileText className="h-4 w-4 shrink-0 text-[color:var(--w-ink-soft)]" aria-hidden />
               )}
-              <span className="max-w-[140px] truncate">{sf.file.name}</span>
-              <span className="text-muted-foreground/60">{humanSize(sf.file.size)}</span>
+              <span className="max-w-[160px] truncate">{sf.file.name}</span>
+              <span className="basil-mono text-[12px] text-[color:var(--w-ink-soft)]">{humanSize(sf.file.size)}</span>
               <button
                 type="button"
                 onClick={() => removeFile(sf.id)}
-                className="ml-0.5 rounded p-0.5 opacity-60 hover:opacity-100 hover:text-destructive transition-opacity"
+                className="flex h-11 w-11 items-center justify-center rounded-xl text-[color:var(--w-ink-soft)] transition-colors hover:text-[color:var(--w-stamp)]"
                 aria-label={`Remove ${sf.file.name}`}
               >
-                <X className="h-3 w-3" />
+                <X className="h-4 w-4" />
               </button>
             </div>
           ))}
         </div>
       )}
-      <div className="flex items-end gap-2">
+      {/* The composer: one cream field holding attach, the message and send.
+          The gold ring marks it as the place your typing goes. */}
+      <div className="flex items-end gap-1.5 rounded-2xl border border-[var(--w-rule-strong)] bg-[var(--w-flimsy)] p-1.5 transition-[border-color,box-shadow] focus-within:border-[#C8A96B] focus-within:ring-2 focus-within:ring-[#C8A96B]">
         <Button
           type="button"
           size="icon"
@@ -663,7 +711,7 @@ function ChatPageInner() {
           disabled={isActive}
           onClick={() => fileInputRef.current?.click()}
           aria-label="Attach file"
-          className="h-12 w-12 shrink-0 text-muted-foreground hover:text-foreground"
+          className="h-11 w-11 shrink-0 rounded-xl text-[color:var(--w-ink-soft)] hover:bg-[var(--w-tray)] hover:text-[#10213F]"
         >
           <Paperclip className="h-4 w-4" />
         </Button>
@@ -676,7 +724,7 @@ function ChatPageInner() {
           autoComplete="off"
           autoCorrect="on"
           spellCheck
-          className="min-h-12 max-h-40 resize-none border-[var(--w-rule)] focus-visible:ring-[var(--w-carbon)] py-3 text-[16px] sm:text-sm"
+          className="min-h-11 max-h-40 resize-none rounded-xl border-0 bg-[var(--w-flimsy)] px-2 py-2.5 text-[16px] text-[color:var(--w-ink)] shadow-none placeholder:text-[color:var(--w-ink-soft)] focus-visible:ring-0 md:text-[15px]"
           rows={1}
         />
         {/* While a reply is in flight the primary control becomes Stop, so a
@@ -688,7 +736,7 @@ function ChatPageInner() {
             onClick={() => stop()}
             aria-label="Stop generating"
             title="Stop generating"
-            className="h-12 w-12 shrink-0 border border-border/60 bg-card text-foreground hover:bg-card/70"
+            className="h-11 w-11 shrink-0 rounded-xl border border-[var(--w-rule-strong)] bg-[var(--w-flimsy)] text-[#10213F] hover:border-[#C8A96B] hover:bg-[var(--w-flimsy)]"
           >
             <Square className="h-4 w-4" fill="currentColor" />
           </Button>
@@ -698,7 +746,7 @@ function ChatPageInner() {
             size="icon"
             disabled={!input.trim() && stagedFiles.length === 0}
             aria-label="Send message"
-            className="h-12 w-12 shrink-0 bg-[var(--w-carbon)] hover:bg-[var(--w-ink)] text-white"
+            className="h-11 w-11 shrink-0 rounded-xl bg-[#10213F] text-[#F6F1E7] hover:bg-[#1A2D50]"
           >
             <Send className="h-4 w-4" />
           </Button>
@@ -708,48 +756,56 @@ function ChatPageInner() {
   );
 
   // ── Message list (shared between layouts) ───────────────────────────────────
+  // You: navy bubbles on the right. Basil: cream cards beside its gold-ringed
+  // mark, with each tool step as a compact mono row and any action that needs
+  // your say-so as a navy approval panel.
   const messageList = (
-    <div className="max-w-3xl mx-auto space-y-6">
-      {messages.map((message) => (
-        <div key={message.id} className="flex gap-3">
-          <Avatar className="h-7 w-7 shrink-0 mt-0.5">
-            <AvatarFallback className="text-xs bg-secondary">
-              {message.role === "user" ? (
-                <User className="h-3.5 w-3.5" />
-              ) : (
-                <Bot className="h-3.5 w-3.5 text-[color:var(--w-carbon)]" />
-              )}
-            </AvatarFallback>
-          </Avatar>
-          <div className="flex-1 space-y-2 min-w-0">
-            <p className="text-xs font-medium text-muted-foreground">
-              {message.role === "user" ? "You" : "Basil"}
+    <div className="mx-auto flex max-w-3xl flex-col gap-6">
+      {messages.map((message) => {
+        const isUser = message.role === "user";
+        return (
+        <div key={message.id} className={`basil-rise flex gap-3 ${isUser ? "justify-end" : ""}`}>
+          {!isUser && <BasilMark className="mt-0.5" />}
+          <div className={`flex min-w-0 flex-col gap-2.5 ${isUser ? "max-w-[85%] items-end" : "flex-1"}`}>
+            <p className={isUser ? "sr-only" : "basil-mono pt-1.5 text-[12px] uppercase tracking-[0.14em] text-[color:var(--w-ink-soft)]"}>
+              {isUser ? "You" : "Basil"}
             </p>
             {(message.parts ?? []).map((part, i) => {
               if (part.type === "text") {
                 const isAssistant = message.role === "assistant";
                 const actionKey = message.id + "action";
                 const memoryKey = message.id + "memory";
+                const hasText = part.text.trim().length > 0;
+                if (!isAssistant) {
+                  // An attachment-only send carries an empty text part — no empty bubble.
+                  if (!hasText) return null;
+                  return (
+                    <div key={`${message.id}-${i}`} className="rounded-2xl rounded-br-md bg-[#10213F] px-4 py-3 text-[15px] leading-relaxed whitespace-pre-wrap text-[#F6F1E7]">
+                      {part.text}
+                    </div>
+                  );
+                }
                 return (
-                  <div key={`${message.id}-${i}`}>
-                    {isAssistant
-                      ? <Markdown text={part.text} />
-                      : <div className="text-sm leading-relaxed whitespace-pre-wrap">{part.text}</div>}
+                  <div
+                    key={`${message.id}-${i}`}
+                    className={hasText ? "rounded-[20px] rounded-tl-md border border-[var(--w-rule)] bg-[var(--w-flimsy)] px-5 py-4 text-[color:var(--w-ink)]" : undefined}
+                  >
+                    <Markdown text={part.text} />
                     {isAssistant && part.text.trim().length > 0 && (
-                      <div className="mt-2 flex gap-1.5">
+                      <div className="-mx-2 -mb-2 mt-3 flex flex-wrap gap-1 border-t border-[var(--w-tray)] pt-1.5">
                         <button
                           type="button"
                           disabled={saveState[actionKey] === "saving" || saveState[actionKey] === "saved"}
                           onClick={() => saveChatSnippet(message.id, part.text, "action")}
-                          className="inline-flex items-center gap-1 rounded px-2 py-0.5 text-xs text-muted-foreground hover:text-foreground hover:bg-muted transition-colors disabled:opacity-50"
+                          className="inline-flex min-h-[44px] items-center gap-1.5 rounded-xl px-2.5 text-[13px] font-medium text-[color:var(--w-ink-soft)] transition-colors hover:bg-[var(--w-tray)] hover:text-[#10213F] disabled:opacity-50"
                           title="Save as action"
                         >
                           {saveState[actionKey] === "saving" ? (
-                            <Loader2 className="h-3 w-3 animate-spin" />
+                            <Loader2 className="h-3.5 w-3.5 animate-spin" />
                           ) : saveState[actionKey] === "saved" ? (
-                            <Check className="h-3 w-3 text-signal-positive" />
+                            <Check className="h-3.5 w-3.5 text-[color:var(--w-filed)]" />
                           ) : (
-                            <ListTodo className="h-3 w-3" />
+                            <ListTodo className="h-3.5 w-3.5" />
                           )}
                           {saveState[actionKey] === "saved" ? "Saved" : "→ Action"}
                         </button>
@@ -757,15 +813,15 @@ function ChatPageInner() {
                           type="button"
                           disabled={saveState[memoryKey] === "saving" || saveState[memoryKey] === "saved"}
                           onClick={() => saveChatSnippet(message.id, part.text, "memory")}
-                          className="inline-flex items-center gap-1 rounded px-2 py-0.5 text-xs text-muted-foreground hover:text-foreground hover:bg-muted transition-colors disabled:opacity-50"
+                          className="inline-flex min-h-[44px] items-center gap-1.5 rounded-xl px-2.5 text-[13px] font-medium text-[color:var(--w-ink-soft)] transition-colors hover:bg-[var(--w-tray)] hover:text-[#10213F] disabled:opacity-50"
                           title="Save to memory"
                         >
                           {saveState[memoryKey] === "saving" ? (
-                            <Loader2 className="h-3 w-3 animate-spin" />
+                            <Loader2 className="h-3.5 w-3.5 animate-spin" />
                           ) : saveState[memoryKey] === "saved" ? (
-                            <Check className="h-3 w-3 text-signal-positive" />
+                            <Check className="h-3.5 w-3.5 text-[color:var(--w-filed)]" />
                           ) : (
-                            <BookMarked className="h-3 w-3" />
+                            <BookMarked className="h-3.5 w-3.5" />
                           )}
                           {saveState[memoryKey] === "saved" ? "Saved" : "→ Memory"}
                         </button>
@@ -779,21 +835,20 @@ function ChatPageInner() {
                 const isImage = filePart.mediaType?.startsWith("image/");
                 if (isImage && filePart.url) {
                   return (
-                     
                     <img
                       key={`${message.id}-${i}`}
                       src={filePart.url}
                       alt={filePart.filename ?? "attachment"}
-                      className="max-w-xs max-h-60 rounded-lg border border-border object-cover"
+                      className="max-h-60 w-fit max-w-xs rounded-2xl border border-[var(--w-rule)] object-cover"
                     />
                   );
                 }
                 return (
                   <div
                     key={`${message.id}-${i}`}
-                    className="inline-flex items-center gap-1.5 rounded-md border border-border bg-muted/50 px-2.5 py-1.5 text-xs text-muted-foreground"
+                    className="inline-flex w-fit items-center gap-2 rounded-xl border border-[var(--w-rule)] bg-[var(--w-flimsy)] px-3 py-2 text-[13px] text-[color:var(--w-ink)]"
                   >
-                    <FileText className="h-3 w-3 shrink-0" />
+                    <FileText className="h-3.5 w-3.5 shrink-0 text-[color:var(--w-ink-soft)]" aria-hidden />
                     <span className="max-w-[200px] truncate">
                       {filePart.filename ?? filePart.mediaType ?? "file"}
                     </span>
@@ -820,31 +875,35 @@ function ChatPageInner() {
                   const approval = toolPart.approval as { id: string } | undefined;
                   const toolInput = toolPart.input as Record<string, unknown>;
                   return (
-                    <Card key={`${message.id}-${i}`} className="p-4 border-signal-warning/40 bg-signal-warning-subtle">
-                      <div className="flex items-center gap-2 mb-3">
-                        <ShieldCheck className="h-4 w-4 text-signal-warning" />
-                        <span className="text-sm font-medium text-signal-warning">Approval needed</span>
-                      </div>
-                      <div className="flex items-center gap-2 mb-2">
-                        <IconComponent className="h-3.5 w-3.5 text-muted-foreground" />
-                        <span className="text-xs font-medium text-muted-foreground">
+                    <section
+                      key={`${message.id}-${i}`}
+                      aria-label="Approval needed"
+                      className="basil-rise flex flex-col gap-3 rounded-[20px] bg-[#10213F] p-5 text-[#F6F1E7] sm:p-6"
+                    >
+                      <div className="flex flex-wrap items-center justify-between gap-2">
+                        <span className="flex items-center gap-2">
+                          <ShieldCheck className="h-4 w-4 text-[#D4B978]" aria-hidden />
+                          <span className="basil-serif text-[24px] leading-tight text-[#D4B978]">Approval needed</span>
+                        </span>
+                        <span className="basil-mono inline-flex items-center gap-1.5 text-[12px] uppercase tracking-[0.12em] text-[#F6F1E7]">
+                          <IconComponent className="h-3.5 w-3.5 text-[#D4B978]" aria-hidden />
                           {toolName.replace(/([A-Z])/g, " $1").trim()}
                         </span>
                       </div>
                       {/* Why this, now — the model's one sentence to the user — and how
                           sure it is. Both are the model's own claims and are labelled so. */}
                       {typeof toolInput?.why === "string" && toolInput.why.trim() !== "" && (
-                        <p className="mb-2 text-sm text-foreground/90">{toolInput.why}</p>
+                        <p className="text-[15px] leading-relaxed text-[#F6F1E7]">{toolInput.why}</p>
                       )}
                       {toolInput && (
-                        <pre className="text-sm bg-background/50 rounded-md p-3 mb-3 whitespace-pre-wrap">
+                        <pre className="basil-mono whitespace-pre-wrap rounded-2xl bg-[#1A2D50] p-4 text-[13px] leading-relaxed text-[#F6F1E7]">
                           {formatToolInput(toolName, toolInput)}
                         </pre>
                       )}
-                      <div className="flex gap-2">
+                      <div className="flex flex-wrap gap-2">
                         <Button
                           size="sm"
-                          className="bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-600 hover:to-teal-600 text-white gap-1.5"
+                          className="h-11 gap-1.5 rounded-xl bg-[#D4B978] px-4 text-[14px] font-semibold text-[#10213F] hover:bg-[#C8A96B]"
                           onClick={() => { if (approval?.id) addToolApprovalResponse({ id: approval.id, approved: true }); }}
                         >
                           <Check className="h-3.5 w-3.5" /> Approve
@@ -852,25 +911,27 @@ function ChatPageInner() {
                         <Button
                           size="sm"
                           variant="outline"
-                          className="border-destructive/30 text-destructive hover:bg-destructive/10 gap-1.5"
+                          className="h-11 gap-1.5 rounded-xl border-[#F6F1E7] bg-[#10213F] px-4 text-[14px] font-medium text-[#F6F1E7] hover:border-[#D4B978] hover:bg-[#1A2D50] hover:text-[#F6F1E7]"
                           onClick={() => { if (approval?.id) addToolApprovalResponse({ id: approval.id, approved: false }); }}
                         >
                           <X className="h-3.5 w-3.5" /> Deny
                         </Button>
                       </div>
                       <TrustLine tool={toolName} />
-                    </Card>
+                    </section>
                   );
                 }
 
+                const tone = isPending ? "running" : isDone ? "done" : isFailed ? "failed" : isDenied ? "denied" : isArchived ? "archived" : null;
                 return (
-                  <div key={`${message.id}-${i}`} className="flex items-center gap-2 py-1 text-xs text-muted-foreground">
-                    <IconComponent className="h-3 w-3" />
+                  <div key={`${message.id}-${i}`} className="basil-mono flex min-h-[28px] flex-wrap items-center gap-x-2 gap-y-1 px-1 text-[12px] text-[color:var(--w-ink-soft)]">
+                    {tone ? <StepDot tone={tone} /> : <span aria-hidden className="h-2 w-2 shrink-0" />}
+                    <IconComponent className="h-3.5 w-3.5 shrink-0" aria-hidden />
                     <span className="font-medium">{toolName.replace(/([A-Z])/g, " $1").trim()}</span>
-                    {isPending && <Loader2 className="h-3 w-3 animate-spin" />}
-                    {isDone && <span className="text-signal-positive">{receiptLabel(state).label}</span>}
-                    {isDenied && <span className="text-destructive">{receiptLabel(state).label}</span>}
-                    {isFailed && <span className="text-destructive">{receiptLabel(state).label}</span>}
+                    {isPending && <span>running</span>}
+                    {isDone && <span className="text-[color:var(--w-filed)]">{receiptLabel(state).label}</span>}
+                    {isDenied && <span className="text-[color:var(--w-stamp)]">{receiptLabel(state).label}</span>}
+                    {isFailed && <span className="text-[color:var(--w-stamp)]">{receiptLabel(state).label}</span>}
                     {isArchived && <span className="text-[color:var(--w-manila)]">{receiptLabel(state).label}</span>}
                     {isDone && <UndoTool toolName={toolName} output={toolPart.output} />}
                   </div>
@@ -880,17 +941,14 @@ function ChatPageInner() {
             })}
           </div>
         </div>
-      ))}
+        );
+      })}
 
       {isActive && messages[messages.length - 1]?.role === "user" && (
-        <div className="flex gap-3">
-          <Avatar className="h-7 w-7 shrink-0 mt-0.5">
-            <AvatarFallback className="text-xs bg-secondary">
-              <Bot className="h-3.5 w-3.5 text-[color:var(--w-carbon)]" />
-            </AvatarFallback>
-          </Avatar>
-          <div className="flex items-center gap-2 text-sm text-muted-foreground">
-            <Loader2 className="h-3.5 w-3.5 animate-spin text-[color:var(--w-carbon)]" />
+        <div className="basil-rise flex items-center gap-3">
+          <BasilMark />
+          <div className="flex items-center gap-2.5 text-[14px] text-[color:var(--w-ink-soft)]">
+            <StepDot tone="running" />
             Thinking...
           </div>
         </div>
@@ -901,36 +959,68 @@ function ChatPageInner() {
   return (
     // Wire scope goes on the inner component: the page root is a Suspense
     // boundary, which renders no element of its own to carry the world.
-    <div className="wire flex h-full flex-col">
+    <div className="wire relative isolate flex h-full flex-col">
+      {/* The one permitted wash: a faint gold glow behind the title, clipped
+          to the page so it never adds a horizontal scroll. */}
+      <div aria-hidden className="pointer-events-none absolute inset-0 -z-10 overflow-hidden">
+        <span
+          className="absolute -right-40 -top-56 h-[460px] w-[680px] rounded-full"
+          style={{ background: "radial-gradient(closest-side, rgba(212,185,120,.26), transparent 72%)" }}
+        />
+      </div>
+
       {/* ── Header ─────────────────────────────────────────────────────────── */}
-      <header className="border-b border-border px-4 sm:px-6 py-3 sm:py-4 flex items-center justify-between gap-3">
-        <div>
-          <h1 className="text-lg font-semibold text-foreground">Ask Basil</h1>
-          <p className="text-sm text-muted-foreground hidden sm:block">
+      <header className="basil-rise flex flex-wrap items-end justify-between gap-4 border-b border-[var(--w-rule)] px-4 py-4 sm:px-8 sm:py-6">
+        <div className="flex min-w-0 flex-col gap-1.5">
+          <h1 className="basil-serif text-[36px] leading-[0.95] tracking-[-0.02em] text-[#10213F] sm:text-[44px]">
+            Ask Basil<span className="text-[#C8A96B]">.</span>
+          </h1>
+          <p className="hidden text-[15px] leading-relaxed text-[color:var(--w-ink-soft)] sm:block">
             Ask me anything about your day, meetings, emails, or Slack.
           </p>
+          {/* Brain ready status — what model is answering and what Basil is
+              carrying into the conversation. */}
+          {brainReady === true && brainModel && (
+            <p className="basil-mono flex flex-wrap items-center gap-x-2 gap-y-1 pt-0.5 text-[12px] text-[color:var(--w-ink-soft)]">
+              <span className="inline-flex items-center gap-1.5 font-medium text-[color:var(--w-filed)]">
+                <span aria-hidden className="h-2 w-2 shrink-0 rounded-full bg-[#1F8A70]" />
+                AI ready
+              </span>
+              <span aria-hidden>·</span>
+              <span>{brainModel}</span>
+              {memoryStats && (
+                <>
+                  <span aria-hidden>·</span>
+                  <a href="/dashboard/memory" className="text-[color:var(--w-carbon)] underline-offset-2 hover:underline">
+                    {memoryStats.total} {memoryStats.total === 1 ? "memory" : "memories"} on file
+                    {memoryStats.pinned > 0 ? ` · ${memoryStats.pinned} pinned` : ""}
+                    {memoryStats.expired > 0 ? ` · ${memoryStats.expired} expired` : ""}
+                  </a>
+                </>
+              )}
+            </p>
+          )}
         </div>
-        <div className="flex items-center gap-2 shrink-0">
+        <div className="flex shrink-0 items-center gap-2">
           {/* "New chat" — always available so it's a consistent, discoverable
               affordance. Disabled when there's nothing to clear or when a
               message is in flight (so we don't tear state out mid-response). */}
-          <Button
-            variant="outline"
-            size="sm"
+          <button
+            type="button"
             onClick={clearChat}
             disabled={isActive || messages.length === 0}
-            className="gap-1.5 border-[var(--w-rule)] text-[color:var(--w-carbon)] hover:bg-[var(--w-carbon-tint)] hover:text-[color:var(--w-carbon)] hover:border-[var(--w-rule)] disabled:opacity-40"
+            className={BTN_SECONDARY}
             title="Start a fresh conversation and clear all visible history"
+            aria-label="New chat"
           >
-            <MessageCirclePlus className="h-3.5 w-3.5" />
+            <MessageCirclePlus className="h-4 w-4" aria-hidden />
             <span className="hidden sm:inline">New chat</span>
-          </Button>
+          </button>
           {/* History is ALWAYS available — clicking it lazy-loads the archive
               from the server. We don't gate on messages.length so users can
               still reach prior conversations even on a fresh-entry view. */}
-          <Button
-            variant="ghost"
-            size="sm"
+          <button
+            type="button"
             onClick={() => {
               // Opening: pull the archive in the background, then toggle.
               if (!showHistory) {
@@ -939,78 +1029,57 @@ function ChatPageInner() {
               setShowHistory((v) => !v);
             }}
             disabled={historyLoading}
-            className="text-xs text-muted-foreground hover:text-foreground gap-1.5"
+            className={BTN_SECONDARY}
             title={showHistory ? "Collapse chat history" : "Show previous conversations"}
           >
             {historyLoading ? (
-              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+              <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
             ) : (
-              <MessageSquare className="h-3.5 w-3.5" />
+              <MessageSquare className="h-4 w-4" aria-hidden />
             )}
             {showHistory ? (
-              <>History <ChevronUp className="h-3 w-3" /></>
+              <>History <ChevronUp className="h-3.5 w-3.5" aria-hidden /></>
             ) : (
-              <>History <ChevronDown className="h-3 w-3" /></>
+              <>History <ChevronDown className="h-3.5 w-3.5" aria-hidden /></>
             )}
-          </Button>
+          </button>
         </div>
       </header>
 
       {/* Brain loading spinner */}
       {brainReady === null && (
-        <div className="flex flex-1 items-center justify-center">
-          <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+        <div className="flex flex-1 items-center justify-center" role="status" aria-label="Loading">
+          <Loader2 className="h-6 w-6 animate-spin text-[color:var(--w-ink-soft)]" />
         </div>
       )}
 
       {/* Brain not configured — full blocking panel */}
       {brainReady === false && (
-        <div className="flex flex-1 flex-col items-center justify-center px-6 py-16 text-center">
-          <div className="mb-4 flex h-14 w-14 items-center justify-center rounded-full border-2 border-signal-critical-border bg-signal-critical-subtle">
-            <AlertTriangle className="h-7 w-7 text-signal-critical" />
-          </div>
-          <h2 className="text-xl font-semibold text-foreground">AI not reachable</h2>
-          <p className="mt-2 max-w-sm text-sm text-muted-foreground">
-            Basil couldn&apos;t reach the AI provider. Set one of the following environment variables in your Vercel project.
-          </p>
-          <div className="mt-4 rounded-lg border border-signal-critical-border bg-signal-critical-subtle px-5 py-4 text-left text-sm text-signal-critical space-y-1 w-full max-w-sm">
-            <p><code className="font-mono font-semibold">BASIL_LLM_KEY</code> — Anthropic API key <span className="text-signal-critical/70">(preferred)</span></p>
-            <p><code className="font-mono font-semibold">AI_GATEWAY_API_KEY</code> — Vercel AI Gateway key</p>
-          </div>
-          <div className="mt-5 flex gap-3">
-            <a
-              href="/dashboard/settings?tab=brain"
-              className="inline-flex items-center rounded-md bg-foreground px-4 py-2 text-sm font-medium text-background hover:opacity-90 transition-opacity"
-            >
+        <div className="flex flex-1 items-center justify-center px-4 py-10 sm:px-8">
+          <section
+            aria-labelledby="ai-down-h"
+            className="basil-rise flex w-full max-w-md flex-col items-start gap-4 rounded-[20px] border border-[var(--w-rule)] bg-[var(--w-flimsy)] p-6 sm:p-7"
+          >
+            <span className="flex h-11 w-11 items-center justify-center rounded-2xl border border-[var(--w-rule)] bg-[var(--w-paper)]">
+              <AlertTriangle className="h-5 w-5 text-[color:var(--w-stamp)]" aria-hidden />
+            </span>
+            <h2 id="ai-down-h" className="basil-serif text-[30px] leading-tight text-[#10213F]">AI not reachable</h2>
+            <p className="text-[15px] leading-relaxed text-[color:var(--w-ink-soft)]">
+              Basil couldn&apos;t reach the AI provider. Set one of the following environment variables in your Vercel project.
+            </p>
+            <div className="w-full space-y-1.5 rounded-2xl border border-[var(--w-rule)] bg-[var(--w-paper)] px-4 py-3.5 text-[14px] text-[color:var(--w-ink)]">
+              <p><code className="basil-mono font-semibold text-[#10213F]">BASIL_LLM_KEY</code> — Anthropic API key <span className="text-[color:var(--w-ink-soft)]">(preferred)</span></p>
+              <p><code className="basil-mono font-semibold text-[#10213F]">AI_GATEWAY_API_KEY</code> — Vercel AI Gateway key</p>
+            </div>
+            <a href="/dashboard/settings?tab=brain" className={BTN_PRIMARY}>
               Open Settings → Brain
             </a>
-          </div>
+          </section>
         </div>
       )}
 
       {brainReady === true && (
         <>
-          {/* Brain ready status bar */}
-          {brainModel && (
-            <div className="mx-4 mt-2 flex items-center gap-2 rounded-lg border border-signal-positive-border bg-signal-positive-subtle/50 px-3 py-1.5 text-xs text-signal-positive">
-              <div className="h-1.5 w-1.5 rounded-full bg-signal-positive shrink-0" />
-              <span className="font-medium">AI ready</span>
-              <span className="text-signal-positive/70">·</span>
-              <span className="font-mono">{brainModel}</span>
-              {memoryStats && (
-                <>
-                  <span className="text-signal-positive/70">·</span>
-                  <a href="/dashboard/memory" className="hover:underline">
-                    {memoryStats.total} {memoryStats.total === 1 ? "memory" : "memories"} on file
-                    {memoryStats.pinned > 0 ? ` · ${memoryStats.pinned} pinned` : ""}
-                    {memoryStats.expired > 0 ? ` · ${memoryStats.expired} expired` : ""}
-                  </a>
-                </>
-              )}
-            </div>
-          )}
-
-
           {/* ── Conversation layout ─────────────────────────────────────────
               Gated on messages ALONE, deliberately. This was
               `showHistory && messages.length > 0`, which tied the LIVE thread to
@@ -1020,55 +1089,58 @@ function ChatPageInner() {
               decide whether the current one is visible. */}
           {messages.length > 0 ? (
             <>
-              <ScrollArea className="flex-1 p-3 sm:p-6" ref={scrollRef}>
+              <ScrollArea className="flex-1 px-4 py-5 sm:px-8 sm:py-8" ref={scrollRef}>
                 {messageList}
               </ScrollArea>
-              <div className="border-t border-border px-4 py-4 pb-[max(1rem,env(safe-area-inset-bottom))] bg-background/80 backdrop-blur-sm">
-                <div className="max-w-3xl mx-auto">
+              <div className="border-t border-[var(--w-rule)] bg-[var(--w-paper)] px-4 py-4 pb-[max(1rem,env(safe-area-inset-bottom))] sm:px-8">
+                <div className="mx-auto max-w-3xl">
                   {inputForm}
                 </div>
               </div>
             </>
           ) : (
             /* ── Centered layout (default / history collapsed) ────────────── */
-            <div className="flex-1 flex flex-col items-center justify-center px-4 py-6 sm:px-6">
-              <div className="w-full max-w-2xl flex flex-col items-center gap-6">
+            <div className="flex min-h-0 flex-1 flex-col overflow-y-auto px-4 py-6 sm:px-8 sm:py-10">
+              <div className="mx-auto my-auto flex w-full max-w-3xl flex-col gap-6">
                 {/* Welcome panel — shown when no messages yet */}
                 {messages.length === 0 && (
-                  <div className="text-center">
-                    <div className="h-12 w-12 rounded-xl bg-[var(--w-carbon)] flex items-center justify-center mb-4 mx-auto">
-                      <Bot className="h-6 w-6 text-white" />
+                  <div className="flex flex-col gap-6">
+                    <div className="basil-rise flex flex-col gap-3" style={{ animationDelay: "60ms" }}>
+                      <span className="basil-mono inline-flex items-center gap-3 text-[12px] uppercase tracking-[0.14em] text-[color:var(--w-ink-soft)]">
+                        <BasilMark />
+                        {firstName ? `Hey, ${firstName}` : "Hey"}
+                      </span>
+                      <h2
+                        className="basil-serif max-w-[660px] text-[32px] leading-[1.08] tracking-[-0.01em] text-[#10213F] sm:text-[44px]"
+                        style={{ textWrap: "balance" }}
+                      >
+                        What do you want to know about your day, your people or your work?
+                      </h2>
+                      <p className="max-w-[560px] text-[15px] leading-relaxed text-[color:var(--w-ink-soft)]">
+                        I can check your calendar, search emails, draft messages, or just chat.
+                      </p>
                     </div>
-                    <h2 className="text-lg font-medium">{firstName ? `Hey, ${firstName}` : "Hey"}</h2>
-                    <p className="text-sm text-muted-foreground mt-1 max-w-sm">
-                      What do you need? I can check your calendar, search emails,
-                      draft messages, or just chat.
-                    </p>
-                    <div className="flex flex-wrap gap-2 mt-5 justify-center">
-                      {[
-                        "What needs my attention today?",
-                        "Who is blocked?",
-                        "What decisions are waiting on me?",
-                        "What projects am I working on?",
-                        "What did I promise?",
-                        "What meetings need prep?",
-                        "What AI work needs review?",
-                        "What can I ignore?",
-                      ].map((suggestion) => (
-                        <Button
-                          key={suggestion}
-                          variant="outline"
-                          size="sm"
-                          className="border-[var(--w-rule)] hover:bg-[var(--w-carbon-tint)]"
-                          onClick={() => {
-                            hasSentMessage.current = true;
-                            sendMessage({ text: suggestion });
-                          }}
-                        >
-                          {suggestion}
-                        </Button>
+                    {/* Rise on the item, lift on the button: one element cannot
+                        hold both, the rise's fill would pin the hover transform. */}
+                    <ul className="grid grid-cols-1 gap-3 sm:grid-cols-2" aria-label="Suggested questions">
+                      {WELCOME_PROMPTS.map(({ text: suggestion, icon: Icon }, i) => (
+                        <li key={suggestion} className="basil-rise" style={{ animationDelay: `${140 + i * 70}ms` }}>
+                          <button
+                            type="button"
+                            className="basil-lift flex min-h-[64px] w-full items-center gap-3.5 rounded-[20px] border border-[var(--w-rule)] bg-[var(--w-flimsy)] px-4 py-3 text-left text-[15px] font-medium leading-snug text-[color:var(--w-ink)]"
+                            onClick={() => {
+                              hasSentMessage.current = true;
+                              sendMessage({ text: suggestion });
+                            }}
+                          >
+                            <span aria-hidden className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-[#10213F]">
+                              <Icon className="h-4 w-4 text-[#D4B978]" />
+                            </span>
+                            {suggestion}
+                          </button>
+                        </li>
                       ))}
-                    </div>
+                    </ul>
                   </div>
                 )}
 
@@ -1084,15 +1156,15 @@ function ChatPageInner() {
                       setShowHistory(true);
                     }}
                     disabled={historyLoading}
-                    className="flex items-center gap-2 text-xs text-muted-foreground hover:text-foreground transition-colors px-3 py-2 rounded-lg border border-border/60 hover:border-border bg-muted/30 hover:bg-muted/60 disabled:opacity-50"
+                    className={`${BTN_SECONDARY} self-start`}
                   >
                     {historyLoading ? (
-                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                      <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
                     ) : (
-                      <MessageSquare className="h-3.5 w-3.5" />
+                      <MessageSquare className="h-4 w-4" aria-hidden />
                     )}
                     <span>Show previous conversations</span>
-                    <ChevronDown className="h-3 w-3" />
+                    <ChevronDown className="h-3.5 w-3.5" aria-hidden />
                   </button>
                 )}
 
@@ -1101,31 +1173,30 @@ function ChatPageInner() {
                     empty-state above is the welcome panel for first-load only;
                     this row is for "what now?" between turns. */}
                 {messages.length > 0 && !input.trim() && (
-                  <div className="w-full flex flex-wrap gap-2 justify-center">
+                  <div className="flex w-full flex-wrap gap-2">
                     {[
                       "What needs my attention?",
                       "Who's waiting on me?",
                       "Summarise the last meeting",
                       "What can I close out today?",
                     ].map((suggestion) => (
-                      <Button
+                      <button
                         key={suggestion}
-                        variant="outline"
-                        size="sm"
-                        className="border-[var(--w-rule)] hover:bg-[var(--w-carbon-tint)]"
+                        type="button"
+                        className={BTN_SECONDARY}
                         onClick={() => {
                           hasSentMessage.current = true;
                           sendMessage({ text: suggestion });
                         }}
                       >
                         {suggestion}
-                      </Button>
+                      </button>
                     ))}
                   </div>
                 )}
 
-                {/* Centered input box with subtle tinted background */}
-                <div className="w-full rounded-2xl border border-[var(--w-rule)] bg-[oklch(0.97_0.008_85)] dark:bg-card/80 shadow-sm px-3 py-3">
+                {/* The composer — a cream field with a gold focus ring. */}
+                <div className="basil-rise w-full" style={{ animationDelay: "120ms" }}>
                   {inputForm}
                 </div>
               </div>

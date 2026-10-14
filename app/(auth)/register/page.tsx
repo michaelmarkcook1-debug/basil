@@ -91,7 +91,7 @@ export default function RegisterPage() {
       {/* ── Logo + wordmark ── */}
       <div className="auth-animate flex flex-col items-center gap-3.5 mb-8">
         <img
-          src="/brand/basil-mark.png"
+          src="/brand/basil-logo-compass.png"
           alt="Basil"
           className="h-[64px] w-[64px] rounded-2xl"
           style={{ filter: "drop-shadow(0 0 18px rgba(200,169,107,0.3))" }}

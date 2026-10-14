@@ -2,7 +2,7 @@
 
 import { useState, useRef, useCallback, useEffect, useMemo } from "react";
 import { RsvpControls } from "@/components/calendar/rsvp-controls";
-import { Button } from "@/components/ui/button";
+import { BTN_PRIMARY, BTN_SECONDARY } from "@/components/basil/page-hero";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { cn } from "@/lib/utils";
@@ -13,6 +13,14 @@ import {
   Send, Forward, Sparkles,
   Link as LinkIcon, CalendarSearch,
 } from "lucide-react";
+import { blockKind, KIND_STYLE, KIND_SUB, KIND_LABEL, KindSwatch, LIFT_SHADOW } from "./event-kind";
+
+/** Inputs in the cream world: rounded-xl, ruled border, paper fill. */
+const FIELD = "rounded-xl border-[var(--w-rule)] bg-[var(--w-paper)] text-[color:var(--w-ink)] placeholder:text-[color:var(--w-ink-soft)]";
+/** A small mono label over a field or group. */
+const EYEBROW = "basil-mono text-[11px] uppercase tracking-[0.12em] text-[color:var(--w-ink-soft)]";
+/** Quiet icon button (edit / cancel / close) — 36px, cream hover. */
+const ICON_BTN = "inline-flex h-9 w-9 items-center justify-center rounded-xl text-[color:var(--w-ink-soft)] transition-colors hover:bg-[var(--w-tray)] hover:text-[color:var(--w-ink)] disabled:opacity-50";
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 const HOUR_HEIGHT    = 80;          // px per hour
@@ -116,20 +124,6 @@ function eventHeight(startMin: number, endMin: number): number {
 
 const HOURS = Array.from({ length: GRID_END_H - GRID_START_H }, (_, i) => GRID_START_H + i);
 
-// Palette for attendee avatars
-const AVATAR_COLORS = [
-  "bg-signal-info-subtle text-signal-info",
-  "bg-signal-info-subtle text-signal-info",
-  "bg-signal-positive-subtle text-signal-positive",
-  "bg-signal-warning-subtle text-signal-warning",
-  "bg-signal-critical-subtle text-signal-critical",
-  "bg-cyan-500/20 text-cyan-600 dark:text-cyan-300",
-];
-
-function avatarColor(index: number) {
-  return AVATAR_COLORS[index % AVATAR_COLORS.length];
-}
-
 function isVideoProvider(link: string): "zoom" | "meet" | "teams" | "other" {
   if (link.includes("zoom.us")) return "zoom";
   if (link.includes("meet.google.com")) return "meet";
@@ -161,29 +155,30 @@ function EventBlock({
   const top    = eventTop(displayStart);
   const height = eventHeight(displayStart, displayEnd);
 
-  let bg   = "bg-[var(--w-carbon-tint)] border-[var(--w-rule)]";
-  let text = "text-[oklch(0.4_0.1_85)] dark:text-[oklch(0.8_0.12_85)]";
-  const lower = event.summary.toLowerCase();
-  if (lower.includes("focus") || lower.includes("deep work")) {
-    bg   = "bg-signal-info-subtle border-signal-info-border/40";
-    text = "text-signal-info";
-  } else if (lower.includes("lunch") || lower.includes("break")) {
-    bg   = "bg-signal-positive-subtle border-signal-positive-border/40";
-    text = "text-signal-positive";
-  }
+  // Same marks as the Today day ribbon: navy meeting, gold-hatch "just you",
+  // cream + blue ring for an unanswered invitation, dashed ghost when declined.
+  const kind = blockKind(event);
+  const sub  = KIND_SUB[kind];
+  const stateNote = kind === "invite" ? "needs reply" : kind === "declined" ? "declined" : "";
 
   return (
     <div
-      className={`absolute left-0 right-2 rounded-md border px-2 py-1 select-none group
-        ${bg} ${dragging ? "opacity-70 shadow-lg ring-2 ring-gold z-20" : "hover:shadow-md hover:brightness-105 z-10"}
-        transition-all cursor-pointer active:cursor-grabbing`}
-      style={{ top: `${top}px`, height: `${height}px`, minHeight: `${MIN_DURATION * PX_PER_MIN}px` }}
+      className={`absolute left-1 right-3 rounded-xl px-2.5 py-1.5 select-none group overflow-hidden
+        ${dragging ? "ring-2 ring-[#C8A96B] z-20" : "hover:-translate-y-0.5 hover:shadow-[0_16px_28px_-14px_rgba(16,33,63,.55)] z-10"}
+        transition-[top,height,translate,box-shadow] cursor-pointer active:cursor-grabbing`}
+      style={{
+        ...KIND_STYLE[kind],
+        top: `${top}px`,
+        height: `${height}px`,
+        minHeight: `${MIN_DURATION * PX_PER_MIN}px`,
+        ...(dragging ? { boxShadow: LIFT_SHADOW, translate: "0 -2px" } : {}),
+      }}
       // Button semantics: this was a bare <div onClick>, so every event on the
       // calendar was unreachable without a mouse. Drag stays mouse-only (a
       // separate concern), but OPENING an event must not require one.
       role="button"
       tabIndex={0}
-      aria-label={`${event.summary}, ${minToTime(displayStart)} to ${minToTime(displayEnd)}`}
+      aria-label={`${event.summary}, ${minToTime(displayStart)} to ${minToTime(displayEnd)}${stateNote ? `, ${stateNote}` : ""}`}
       onMouseDown={(e) => { e.stopPropagation(); onDragStart(e, event.id); }}
       // Stop the click bubbling to the grid (which would open the "New event"
       // modal). The parent decides whether this was a click or the tail of a drag.
@@ -197,22 +192,26 @@ function EventBlock({
       }}
     >
       {/* Pencil icon hint on hover */}
-      <div className="absolute top-1 right-1 opacity-0 group-hover:opacity-60 transition-opacity pointer-events-none">
-        <Pencil className="h-3 w-3 text-current" />
+      <div className="absolute top-1.5 right-1.5 opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none">
+        <Pencil className="h-3 w-3" style={{ color: sub }} />
       </div>
 
       <div className="flex items-start gap-1 overflow-hidden h-full pr-4">
         <div className="flex-1 min-w-0">
-          <p className={`text-[13px] font-semibold leading-tight truncate ${text}`}>
+          <p
+            className="text-[13px] font-semibold leading-tight truncate"
+            style={{ textDecoration: kind === "declined" ? "line-through" : "none" }}
+          >
             {event.summary}
           </p>
           {height >= 36 && (
-            <p className="text-xs text-muted-foreground leading-tight">
+            <p className="basil-mono text-[11px] leading-tight mt-0.5 truncate" style={{ color: sub }}>
               {minToTime(displayStart)} – {minToTime(displayEnd)}
+              {stateNote && <span className="font-medium" style={{ color: kind === "invite" ? "#2F5FA8" : sub }}> · {stateNote}</span>}
             </p>
           )}
           {height >= 52 && event.attendees.length > 0 && (
-            <p className="text-xs text-muted-foreground truncate flex items-center gap-0.5 mt-0.5">
+            <p className="text-[12px] truncate flex items-center gap-1 mt-0.5" style={{ color: sub }}>
               <Users className="h-2.5 w-2.5 inline shrink-0" />
               {event.attendees.slice(0, 2).join(", ")}
               {event.attendees.length > 2 && ` +${event.attendees.length - 2}`}
@@ -220,7 +219,7 @@ function EventBlock({
           )}
         </div>
         {event.hasVideo && height >= 36 && (
-          <Video className="h-3 w-3 text-signal-info shrink-0 mt-0.5" />
+          <Video className="h-3 w-3 shrink-0 mt-0.5" style={{ color: sub }} />
         )}
       </div>
 
@@ -344,52 +343,60 @@ function EventDetailPopover({
   const shortDesc = descLines.slice(0, 3).join(" ").slice(0, 200);
   const hasMoreDesc = descLines.length > 3 || (event.description?.length ?? 0) > 200;
 
+  const kind = blockKind(event);
+
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
       {/* Backdrop */}
-      <div className="absolute inset-0 bg-black/30 backdrop-blur-[2px]" onClick={onClose} />
+      <div className="absolute inset-0 bg-[rgba(16,33,63,.35)] backdrop-blur-[2px]" onClick={onClose} />
 
       {/* Popover card */}
-      <div className="relative w-full max-w-sm bg-card border border-border rounded-xl shadow-2xl overflow-hidden">
-        {/* Colour accent bar */}
-        <div className="h-1 w-full bg-[var(--w-carbon)]" />
-
+      <div className="basil-rise relative w-full max-w-sm max-h-[calc(100vh-2rem)] overflow-y-auto rounded-[20px] border border-[var(--w-rule)] bg-[var(--w-flimsy)] shadow-[0_30px_60px_-30px_rgba(16,33,63,.6)]" style={{ animationDuration: ".35s" }}>
         <div className="p-5 space-y-4">
           {/* Header */}
           <div className="flex items-start justify-between gap-3">
-            <h3 className="font-semibold text-base leading-snug flex-1 pr-2">
-              {event.summary}
-            </h3>
-            <div className="flex items-center gap-1 shrink-0">
+            <div className="flex min-w-0 flex-1 flex-col gap-1.5 pr-1">
+              <span className="inline-flex items-center gap-1.5 text-[12px] text-[color:var(--w-ink-soft)]">
+                <KindSwatch kind={kind} />
+                {KIND_LABEL[kind]}
+              </span>
+              <h3
+                className="basil-serif text-[26px] leading-[1.1] text-[#10213F]"
+                style={{ textDecoration: kind === "declined" ? "line-through" : "none" }}
+              >
+                {event.summary}
+              </h3>
+            </div>
+            <div className="flex items-center gap-0.5 shrink-0 -mr-1.5 -mt-1">
               {/* Organizer: Edit + Delete. Invitee: no edit/delete */}
               {isOrganizer && (
                 <>
                   <button
                     onClick={onEdit}
-                    className="p-1.5 rounded-md text-muted-foreground hover:text-foreground hover:bg-accent transition-colors"
+                    className={ICON_BTN}
                     title="Edit event"
                     aria-label="Edit event"
                   >
-                    <Pencil className="h-3.5 w-3.5" />
+                    <Pencil className="h-4 w-4" />
                   </button>
                   <button
                     onClick={onDelete}
                     disabled={deleting}
-                    className="p-1.5 rounded-md text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors disabled:opacity-50"
+                    className={`${ICON_BTN} hover:text-[color:var(--w-stamp)]`}
                     title="Cancel event"
                     aria-label="Cancel event"
                   >
-                    {deleting ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Trash2 className="h-3.5 w-3.5" />}
+                    {deleting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Trash2 className="h-4 w-4" />}
                   </button>
                 </>
               )}
               <button
                 onClick={onClose}
-                className="p-1.5 rounded-md text-muted-foreground hover:text-foreground hover:bg-accent transition-colors"
+                className={ICON_BTN}
                 title="Close"
                 aria-label="Close"
               >
-                <X className="h-3.5 w-3.5" />
+                <X className="h-4 w-4" />
               </button>
             </div>
           </div>
@@ -401,7 +408,7 @@ function EventDetailPopover({
           {actionError && (
             <p
               role="alert"
-              className="rounded-md border border-signal-critical-border bg-signal-critical-subtle px-3 py-2 text-xs text-signal-critical"
+              className="rounded-xl border border-[var(--w-stamp)] bg-[var(--w-flimsy)] px-3 py-2 text-[13px] text-[color:var(--w-stamp)]"
             >
               {actionError}
             </p>
@@ -409,7 +416,7 @@ function EventDetailPopover({
 
           {!isOrganizer && (
             <div className="space-y-1.5">
-              <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Your response</p>
+              <p className={EYEBROW}>Your response</p>
               {/* Shared with Today and Meetings: checks the server's answer
                   (the old buttons ignored it) and can propose a new time. */}
               <RsvpControls
@@ -425,17 +432,17 @@ function EventDetailPopover({
           )}
 
           {/* Time */}
-          <div className="flex items-center gap-2 text-sm text-muted-foreground">
+          <div className="flex items-center gap-2 text-[14px] text-[color:var(--w-ink)]">
             <Clock className="h-4 w-4 shrink-0 text-[color:var(--w-carbon)]" />
             <span>
-              {minToTime(startMin)} – {minToTime(endMin)}
-              <span className="ml-1.5 text-xs opacity-70">({durationLabel(dur)})</span>
+              <span className="basil-mono">{minToTime(startMin)} – {minToTime(endMin)}</span>
+              <span className="ml-1.5 text-[13px] text-[color:var(--w-ink-soft)]">({durationLabel(dur)})</span>
             </span>
           </div>
 
           {/* Location */}
           {event.location && !event.videoLink && (
-            <div className="flex items-start gap-2 text-sm text-muted-foreground">
+            <div className="flex items-start gap-2 text-[14px] text-[color:var(--w-ink)]">
               <MapPin className="h-4 w-4 shrink-0 mt-0.5 text-[color:var(--w-carbon)]" />
               <span className="leading-snug">{event.location}</span>
             </div>
@@ -448,20 +455,19 @@ function EventDetailPopover({
                 href={event.videoLink}
                 target="_blank"
                 rel="noopener noreferrer"
-                className="flex-1 flex items-center justify-center gap-1.5 h-9 rounded-md text-sm font-medium
-                  bg-[var(--w-carbon)] text-white hover:bg-[oklch(0.78_0.12_85)] transition-colors"
+                className={`${BTN_PRIMARY} flex-1`}
               >
                 <Video className="h-4 w-4" />
                 {videoLabel}
-                <ExternalLink className="h-3 w-3 opacity-70" />
+                <ExternalLink className="h-3.5 w-3.5" />
               </a>
               <button
                 onClick={copyLink}
-                className="h-9 w-9 flex items-center justify-center rounded-md border border-border text-muted-foreground hover:text-foreground hover:bg-accent transition-colors"
+                className={`${BTN_SECONDARY} w-11 px-0`}
                 title="Copy link"
                 aria-label="Copy meeting link"
               >
-                {copied ? <Check className="h-3.5 w-3.5 text-signal-positive" /> : <Copy className="h-3.5 w-3.5" />}
+                {copied ? <Check className="h-4 w-4 text-[color:var(--w-filed)]" /> : <Copy className="h-4 w-4" />}
               </button>
             </div>
           )}
@@ -469,7 +475,7 @@ function EventDetailPopover({
           {/* Attendees */}
           {event.attendees.length > 0 && (
             <div className="space-y-2">
-              <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide flex items-center gap-1.5">
+              <p className={`${EYEBROW} flex items-center gap-1.5`}>
                 <Users className="h-3 w-3" />
                 {event.attendees.length} {event.attendees.length === 1 ? "attendee" : "attendees"}
               </p>
@@ -477,17 +483,17 @@ function EventDetailPopover({
                 {event.attendees.slice(0, 8).map((name, i) => (
                   <div
                     key={i}
-                    className={`flex items-center gap-1.5 rounded-full pl-0.5 pr-2.5 py-0.5 text-xs font-medium ${avatarColor(i)}`}
+                    className="flex items-center gap-1.5 rounded-full border border-[var(--w-rule)] bg-[var(--w-paper)] py-0.5 pl-0.5 pr-2.5 text-[12px] font-medium text-[color:var(--w-ink)]"
                     title={name}
                   >
-                    <span className={`w-5 h-5 rounded-full flex items-center justify-center text-[9px] font-bold shrink-0 ${avatarColor(i)}`}>
+                    <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-[#10213F] text-[9px] font-bold text-[#F6F1E7]">
                       {initials(name)}
                     </span>
                     <span className="truncate max-w-[120px]">{name}</span>
                   </div>
                 ))}
                 {event.attendees.length > 8 && (
-                  <div className="flex items-center gap-1 text-xs text-muted-foreground px-2 py-0.5">
+                  <div className="flex items-center gap-1 px-2 py-0.5 text-[12px] text-[color:var(--w-ink-soft)]">
                     +{event.attendees.length - 8} more
                   </div>
                 )}
@@ -498,14 +504,14 @@ function EventDetailPopover({
           {/* Description */}
           {descLines.length > 0 && (
             <div className="space-y-1">
-              <p className="text-xs text-muted-foreground leading-relaxed">
+              <p className="text-[13px] leading-relaxed text-[color:var(--w-ink-soft)]">
                 {descExpanded ? event.description : shortDesc}
                 {!descExpanded && hasMoreDesc && "…"}
               </p>
               {hasMoreDesc && (
                 <button
                   onClick={() => setDescExpanded(!descExpanded)}
-                  className="flex items-center gap-0.5 text-xs text-[color:var(--w-carbon)] hover:text-[color:var(--w-carbon)] transition-colors"
+                  className="flex items-center gap-0.5 text-[13px] font-medium text-[color:var(--w-carbon)] transition-colors hover:underline"
                 >
                   {descExpanded ? <><ChevronUp className="h-3 w-3" /> Show less</> : <><ChevronDown className="h-3 w-3" /> Show more</>}
                 </button>
@@ -514,17 +520,15 @@ function EventDetailPopover({
           )}
 
           {/* ── Action bar ──────────────────────────────────────────────── */}
-          <div className="border-t border-border/50 pt-3 space-y-2.5">
+          <div className="border-t border-[var(--w-rule)] pt-3 space-y-1.5">
 
             {/* Create brief button */}
             <Link
               href={`/dashboard/meetings/${event.id}`}
               onClick={onClose}
-              className="flex items-center justify-center gap-2 w-full h-9 rounded-md text-sm font-medium
-                bg-[var(--w-carbon-tint)] text-[color:var(--w-carbon)] border border-[var(--w-rule)]
-                hover:bg-[var(--w-carbon-tint)] transition-colors"
+              className={`${BTN_SECONDARY} w-full`}
             >
-              <Sparkles className="h-3.5 w-3.5" />
+              <Sparkles className="h-4 w-4 text-[color:var(--w-carbon)]" />
               Create meeting brief
             </Link>
 
@@ -532,42 +536,38 @@ function EventDetailPopover({
             <div>
               <button
                 onClick={() => { setReplyOpen((v) => !v); setForwardOpen(false); }}
-                className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground hover:text-foreground transition-colors w-full"
+                className="flex min-h-[40px] w-full items-center gap-2 rounded-xl px-1 text-[13px] font-medium text-[color:var(--w-ink)] transition-colors hover:text-[color:var(--w-carbon)]"
               >
-                <Send className="h-3.5 w-3.5" />
+                <Send className="h-3.5 w-3.5 text-[color:var(--w-carbon)]" />
                 Reply to organiser
-                {replyOpen ? <ChevronUp className="h-3 w-3 ml-auto" /> : <ChevronDown className="h-3 w-3 ml-auto" />}
+                {replyOpen ? <ChevronUp className="h-3.5 w-3.5 ml-auto" /> : <ChevronDown className="h-3.5 w-3.5 ml-auto" />}
               </button>
               {replyOpen && (
-                <div className="mt-2 space-y-2">
+                <div className="mt-1 space-y-2">
                   <textarea
                     value={replyMessage}
                     onChange={(e) => setReplyMessage(e.target.value)}
                     autoFocus
                     rows={3}
                     placeholder="Type your message…"
-                    className="w-full text-sm rounded-md border border-border bg-muted/30 px-3 py-2
-                      outline-none resize-none focus:ring-2 focus:ring-[var(--w-rule)]
-                      placeholder:text-muted-foreground/40"
+                    className={`w-full resize-none border px-3 py-2 text-[14px] outline-none focus:border-[#C8A96B] ${FIELD}`}
                   />
                   <div className="flex items-center justify-between gap-2">
-                    <label className="flex items-center gap-1.5 text-xs text-muted-foreground cursor-pointer">
+                    <label className="flex cursor-pointer items-center gap-1.5 text-[13px] text-[color:var(--w-ink-soft)]">
                       <input
                         type="checkbox"
                         checked={replyAll}
                         onChange={(e) => setReplyAll(e.target.checked)}
-                        className="rounded"
+                        className="h-4 w-4 rounded accent-[#10213F]"
                       />
                       Reply all
                     </label>
                     <button
                       onClick={handleReply}
                       disabled={replySending || !replyMessage.trim()}
-                      className="flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium
-                        bg-[var(--w-carbon)] text-white
-                        hover:bg-[oklch(0.78_0.12_85)] disabled:opacity-50 transition-colors"
+                      className={BTN_PRIMARY}
                     >
-                      {replySent ? <><Check className="h-3 w-3" /> Sent</> : replySending ? <Loader2 className="h-3 w-3 animate-spin" /> : <><Send className="h-3 w-3" /> Send</>}
+                      {replySent ? <><Check className="h-3.5 w-3.5" /> Sent</> : replySending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <><Send className="h-3.5 w-3.5" /> Send</>}
                     </button>
                   </div>
                 </div>
@@ -578,33 +578,29 @@ function EventDetailPopover({
             <div>
               <button
                 onClick={() => { setForwardOpen((v) => !v); setReplyOpen(false); }}
-                className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground hover:text-foreground transition-colors w-full"
+                className="flex min-h-[40px] w-full items-center gap-2 rounded-xl px-1 text-[13px] font-medium text-[color:var(--w-ink)] transition-colors hover:text-[color:var(--w-carbon)]"
               >
-                <Forward className="h-3.5 w-3.5" />
+                <Forward className="h-3.5 w-3.5 text-[color:var(--w-carbon)]" />
                 Forward invite
-                {forwardOpen ? <ChevronUp className="h-3 w-3 ml-auto" /> : <ChevronDown className="h-3 w-3 ml-auto" />}
+                {forwardOpen ? <ChevronUp className="h-3.5 w-3.5 ml-auto" /> : <ChevronDown className="h-3.5 w-3.5 ml-auto" />}
               </button>
               {forwardOpen && (
-                <div className="mt-2 space-y-2">
+                <div className="mt-1 space-y-2">
                   <input
                     type="text"
                     value={forwardEmails}
                     onChange={(e) => setForwardEmails(e.target.value)}
                     autoFocus
                     placeholder="email@example.com, another@example.com"
-                    className="w-full text-sm rounded-md border border-border bg-muted/30 px-3 py-1.5
-                      outline-none focus:ring-2 focus:ring-[var(--w-rule)]
-                      placeholder:text-muted-foreground/40"
+                    className={`h-10 w-full border px-3 text-[14px] outline-none focus:border-[#C8A96B] ${FIELD}`}
                   />
-                  <p className="text-xs text-muted-foreground">Separate multiple addresses with commas</p>
+                  <p className="text-[12px] text-[color:var(--w-ink-soft)]">Separate multiple addresses with commas</p>
                   <button
                     onClick={handleForward}
                     disabled={forwarding || !forwardEmails.trim()}
-                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium
-                      border border-border text-muted-foreground hover:text-foreground hover:bg-accent
-                      disabled:opacity-50 transition-colors"
+                    className={BTN_SECONDARY}
                   >
-                    {forwardDone ? <><Check className="h-3 w-3 text-signal-positive" /> Forwarded</> : forwarding ? <Loader2 className="h-3 w-3 animate-spin" /> : <><Forward className="h-3 w-3" /> Forward</>}
+                    {forwardDone ? <><Check className="h-3.5 w-3.5 text-[color:var(--w-filed)]" /> Forwarded</> : forwarding ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <><Forward className="h-3.5 w-3.5" /> Forward</>}
                   </button>
                 </div>
               )}
@@ -703,11 +699,11 @@ function AttendeesAutocomplete({
           } else if (e.key === "Escape") setFocused(false);
         }}
         placeholder="alice@co.com, bob@co.com"
-        className="h-9 text-sm"
+        className={`h-11 text-[14px] ${FIELD}`}
         autoComplete="off"
       />
       {showDropdown && (
-        <div className="absolute z-10 mt-1 w-full rounded-md border border-border bg-popover shadow-lg overflow-hidden">
+        <div className="absolute z-10 mt-1 w-full overflow-hidden rounded-xl border border-[var(--w-rule)] bg-[var(--w-flimsy)] shadow-[0_16px_28px_-14px_rgba(16,33,63,.55)]">
           {matches.map((c, i) => (
             <button
               key={c.id}
@@ -716,12 +712,12 @@ function AttendeesAutocomplete({
               onMouseDown={(e) => { e.preventDefault(); selectMatch(c); }}
               onMouseEnter={() => setHighlight(i)}
               className={cn(
-                "w-full flex items-center justify-between gap-2 px-3 py-2 text-sm text-left transition-colors",
-                i === highlight ? "bg-accent" : "hover:bg-accent/50"
+                "w-full flex items-center justify-between gap-2 px-3 py-2 text-[14px] text-left text-[color:var(--w-ink)] transition-colors",
+                i === highlight ? "bg-[var(--w-tray)]" : "hover:bg-[var(--w-paper)]"
               )}
             >
               <span className="font-medium truncate">{c.name}</span>
-              <span className="text-xs text-muted-foreground truncate ml-2">{c.email}</span>
+              <span className="text-[12px] text-[color:var(--w-ink-soft)] truncate ml-2">{c.email}</span>
             </button>
           ))}
         </div>
@@ -810,7 +806,7 @@ function SmartSlotPicker({
         type="button"
         onClick={findTimes}
         disabled={disabled}
-        className="flex items-center gap-1.5 text-xs font-medium text-[color:var(--w-carbon)] hover:text-[color:var(--w-carbon)] disabled:text-muted-foreground/40 disabled:cursor-not-allowed transition-colors"
+        className="flex min-h-[36px] items-center gap-1.5 text-[13px] font-medium text-[color:var(--w-carbon)] transition-colors hover:underline disabled:cursor-not-allowed disabled:text-[color:var(--w-ink-soft)] disabled:no-underline"
         title={emails.length === 0 ? "Add an attendee email first" : "Check everyone's calendars"}
       >
         {loading ? (
@@ -823,18 +819,18 @@ function SmartSlotPicker({
 
       {/* Slot chips — only render once a query has run */}
       {slots !== null && (
-        <div className="rounded-md border border-border/60 bg-muted/30 p-2 space-y-1.5">
+        <div className="rounded-xl border border-[var(--w-rule)] bg-[var(--w-paper)] p-2.5 space-y-2">
           {error && (
-            <p className="text-xs text-signal-warning">{error}</p>
+            <p className="text-[13px] text-[color:var(--w-manila)]">{error}</p>
           )}
           {slots.length === 0 && !error && (
-            <p className="text-xs text-muted-foreground italic">
+            <p className="text-[13px] text-[color:var(--w-ink-soft)]">
               No mutual free slots in the next 7 days — try a different duration or check the attendees&apos; tz.
             </p>
           )}
           {slots.length > 0 && (
             <>
-              <p className="text-[11px] uppercase tracking-wider text-muted-foreground/80 font-medium">
+              <p className={EYEBROW}>
                 Suggested times
               </p>
               <div className="flex flex-wrap gap-1.5">
@@ -855,9 +851,9 @@ function SmartSlotPicker({
                       type="button"
                       onClick={() => onChoose(dateStr, startTime)}
                       title={tooltip}
-                      className="inline-flex items-center gap-1.5 rounded-md border border-[var(--w-rule)] bg-[var(--w-carbon-tint)] hover:bg-[var(--w-carbon-tint)] px-2.5 py-1 text-xs font-medium text-[color:var(--w-carbon)] transition-colors"
+                      className="basil-lift inline-flex min-h-[36px] items-center gap-1.5 rounded-xl border border-[var(--w-rule)] bg-[var(--w-flimsy)] px-3 text-[13px] font-medium text-[color:var(--w-ink)]"
                     >
-                      <Clock className="h-3 w-3" />
+                      <Clock className="h-3.5 w-3.5 text-[color:var(--w-carbon)]" />
                       {slot.label}
                     </button>
                   );
@@ -902,61 +898,61 @@ function EditModal({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-      <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" onClick={onClose} />
-      <div className="relative w-full max-w-md bg-card border border-border rounded-xl shadow-2xl p-6 space-y-4">
-        <div className="flex items-center justify-between">
-          <h3 className="font-semibold text-base">
-            {isNew ? "New Event" : "Edit Event"}
+      <div className="absolute inset-0 bg-[rgba(16,33,63,.4)] backdrop-blur-sm" onClick={onClose} />
+      <div className="basil-rise relative w-full max-w-md max-h-[calc(100vh-2rem)] overflow-y-auto rounded-[20px] border border-[var(--w-rule)] bg-[var(--w-paper)] p-6 space-y-4 shadow-[0_30px_60px_-30px_rgba(16,33,63,.6)]" style={{ animationDuration: ".35s" }}>
+        <div className="flex items-center justify-between gap-3">
+          <h3 className="basil-serif text-[30px] leading-none tracking-[-0.01em] text-[#10213F]">
+            {isNew ? "New event" : "Edit event"}<span className="text-[#C8A96B]">.</span>
           </h3>
-          <button onClick={onClose} className="text-muted-foreground hover:text-foreground transition-colors" aria-label="Close">
+          <button onClick={onClose} className={`${ICON_BTN} -mr-2`} aria-label="Close">
             <X className="h-4 w-4" />
           </button>
         </div>
 
         <div className="space-y-1.5">
-          <Label htmlFor="ev-title" className="text-xs font-medium">Title</Label>
+          <Label htmlFor="ev-title" className={EYEBROW}>Title</Label>
           <Input
             id="ev-title"
             value={state.title}
             onChange={(e) => onChange({ title: e.target.value })}
             placeholder="Meeting title"
-            className="h-9 text-sm"
+            className={`h-11 text-[15px] ${FIELD}`}
             autoFocus
           />
         </div>
 
         <div className="grid grid-cols-2 gap-3">
           <div className="space-y-1.5">
-            <Label htmlFor="ev-date" className="text-xs font-medium">Date</Label>
+            <Label htmlFor="ev-date" className={EYEBROW}>Date</Label>
             <Input
               id="ev-date"
               type="date"
               value={state.date}
               onChange={(e) => onChange({ date: e.target.value })}
-              className="h-9 text-sm"
+              className={`basil-mono h-11 text-[14px] ${FIELD}`}
             />
           </div>
           <div className="space-y-1.5">
-            <Label htmlFor="ev-start" className="text-xs font-medium">Start time</Label>
+            <Label htmlFor="ev-start" className={EYEBROW}>Start time</Label>
             <Input
               id="ev-start"
               type="time"
               step={900}
               value={state.startTime}
               onChange={(e) => onChange({ startTime: e.target.value })}
-              className="h-9 text-sm"
+              className={`basil-mono h-11 text-[14px] ${FIELD}`}
             />
           </div>
         </div>
 
         <div className="grid grid-cols-2 gap-3">
           <div className="space-y-1.5">
-            <Label htmlFor="ev-duration" className="text-xs font-medium">Duration</Label>
+            <Label htmlFor="ev-duration" className={EYEBROW}>Duration</Label>
             <select
               id="ev-duration"
               value={state.durationMin}
               onChange={(e) => onChange({ durationMin: Number(e.target.value) })}
-              className="h-9 w-full rounded-md border border-input bg-background px-3 text-sm"
+              className={`h-11 w-full border px-3 text-[14px] ${FIELD}`}
             >
               {[15, 30, 45, 60, 90, 120, 180, 240].map((d) => (
                 <option key={d} value={d}>
@@ -966,17 +962,18 @@ function EditModal({
             </select>
           </div>
           <div className="space-y-1.5">
-            <Label className="text-xs font-medium text-muted-foreground">Ends at</Label>
-            <div className="h-9 flex items-center px-3 rounded-md border border-input bg-muted/30 text-sm text-muted-foreground">
+            <Label className={EYEBROW}>Ends at</Label>
+            <div className="basil-mono flex h-11 items-center rounded-xl border border-[var(--w-rule)] bg-[var(--w-tray)] px-3 text-[14px] text-[color:var(--w-ink-soft)]">
               {endTime}
             </div>
           </div>
         </div>
 
         <div className="space-y-1.5">
-          <Label htmlFor="ev-attendees" className="text-xs font-medium">
-            Attendees <span className="text-muted-foreground font-normal">(type to search your contacts)</span>
-          </Label>
+          <div className="flex flex-wrap items-baseline justify-between gap-x-2">
+            <Label htmlFor="ev-attendees" className={EYEBROW}>Attendees</Label>
+            <span className="text-[12px] text-[color:var(--w-ink-soft)]">Type to search your contacts</span>
+          </div>
           <AttendeesAutocomplete
             value={state.attendees}
             onChange={(v) => onChange({ attendees: v })}
@@ -993,17 +990,17 @@ function EditModal({
 
         {/* ── Video conferencing ───────────────────────────────────────────── */}
         <div className="space-y-2 pt-1">
-          <label className="flex items-center gap-2 cursor-pointer select-none">
+          <label className="flex min-h-[36px] flex-wrap items-center gap-2 cursor-pointer select-none text-[color:var(--w-ink)]">
             <input
               type="checkbox"
               checked={state.addVideoCall}
               onChange={(e) => onChange({ addVideoCall: e.target.checked })}
-              className="h-4 w-4 rounded border-input accent-gold"
+              className="h-4 w-4 rounded accent-[#10213F]"
             />
-            <Video className="h-3.5 w-3.5 text-[color:var(--w-carbon)]" />
-            <span className="text-xs font-medium">Add video call</span>
+            <Video className="h-4 w-4 text-[color:var(--w-carbon)]" />
+            <span className="text-[14px] font-medium">Add video call</span>
             {!state.videoLink.trim() && state.addVideoCall && (
-              <span className="text-xs text-muted-foreground">
+              <span className="text-[13px] text-[color:var(--w-ink-soft)]">
                 · Google Meet link will be generated
               </span>
             )}
@@ -1011,44 +1008,45 @@ function EditModal({
 
           {state.addVideoCall && (
             <div className="pl-6 space-y-1.5">
-              <Label htmlFor="ev-videolink" className="text-xs font-medium text-muted-foreground">
+              <Label htmlFor="ev-videolink" className={EYEBROW}>
                 Or paste a Zoom / Teams link
               </Label>
               <div className="relative">
-                <LinkIcon className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
+                <LinkIcon className="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-[color:var(--w-ink-soft)]" />
                 <Input
                   id="ev-videolink"
                   value={state.videoLink}
                   onChange={(e) => onChange({ videoLink: e.target.value })}
                   placeholder="https://zoom.us/j/…  (leave blank for Meet)"
-                  className="h-9 pl-8 text-sm"
+                  className={`h-11 pl-8 text-[14px] ${FIELD}`}
                 />
               </div>
             </div>
           )}
         </div>
 
-        <div className="flex items-center gap-2 pt-1">
-          <Button
+        <div className="flex flex-wrap items-center gap-2 pt-1">
+          <button
+            type="button"
             onClick={onSave}
             disabled={saving || !state.title.trim()}
-            className="flex-1 h-9 bg-[var(--w-carbon)] text-white hover:bg-[oklch(0.78_0.12_85)] gap-1.5"
+            className={`${BTN_PRIMARY} flex-1`}
           >
-            {saving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Save className="h-3.5 w-3.5" />}
+            {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
             {isNew ? "Create" : "Save changes"}
-          </Button>
+          </button>
           {!isNew && (
-            <Button
-              variant="outline"
+            <button
+              type="button"
               onClick={onDelete}
               disabled={deleting}
-              className="h-9 border-destructive/40 text-destructive hover:bg-destructive/10 gap-1.5"
+              className={`${BTN_SECONDARY} text-[color:var(--w-stamp)] hover:border-[var(--w-stamp)]`}
             >
-              {deleting ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Trash2 className="h-3.5 w-3.5" />}
+              {deleting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Trash2 className="h-4 w-4" />}
               Delete
-            </Button>
+            </button>
           )}
-          <Button variant="ghost" onClick={onClose} className="h-9 px-3">Cancel</Button>
+          <button type="button" onClick={onClose} className={BTN_SECONDARY}>Cancel</button>
         </div>
       </div>
     </div>
@@ -1319,15 +1317,15 @@ export function DayView({
   return (
     <div className="flex flex-col" style={{ height: "100%" }}>
       {/* Hint bar */}
-      <div className="flex items-center justify-between px-3 py-2 border-b border-border/50 shrink-0">
-        <p className="text-xs text-muted-foreground">
+      <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1.5 px-4 py-2 border-b border-[var(--w-rule)] shrink-0 sm:px-6">
+        <p className="text-[12px] text-[color:var(--w-ink-soft)]">
           Click an event to view · drag to move · drag bottom edge to resize
         </p>
         <button
           onClick={() => openNew()}
-          className="flex items-center gap-1.5 text-xs font-medium px-2.5 py-1 rounded-md border border-[var(--w-rule)] text-[color:var(--w-carbon)] hover:bg-[var(--w-carbon-tint)] hover:text-[color:var(--w-carbon)] transition-colors"
+          className="basil-lift inline-flex min-h-[36px] items-center gap-1.5 rounded-xl border border-[var(--w-rule-strong)] bg-[var(--w-flimsy)] px-3 text-[13px] font-medium text-[color:var(--w-ink)]"
         >
-          <Plus className="h-3.5 w-3.5" /> Add event
+          <Plus className="h-3.5 w-3.5 text-[color:var(--w-carbon)]" /> Add event
         </button>
       </div>
 
@@ -1339,11 +1337,11 @@ export function DayView({
           onMouseMove={onMouseMove}
         >
           {/* Hour labels */}
-          <div className="w-12 shrink-0 relative select-none" style={{ height: `${totalGridHeight}px` }}>
+          <div className="w-14 shrink-0 relative select-none" style={{ height: `${totalGridHeight}px` }}>
             {HOURS.map((h) => (
               <div
                 key={h}
-                className="absolute right-2 text-xs font-medium text-muted-foreground/80 -translate-y-2"
+                className="basil-mono absolute right-2.5 text-[11px] text-[color:var(--w-ink-soft)] -translate-y-2"
                 style={{ top: `${(h - GRID_START_H) * HOUR_HEIGHT}px` }}
               >
                 {String(h).padStart(2, "0")}:00
@@ -1354,7 +1352,7 @@ export function DayView({
           {/* Event grid */}
           <div
             ref={gridRef}
-            className="flex-1 relative cursor-crosshair"
+            className="flex-1 relative cursor-crosshair mr-2 sm:mr-4"
             style={{ height: `${totalGridHeight}px` }}
             onClick={handleGridClick}
           >
@@ -1362,7 +1360,7 @@ export function DayView({
             {HOURS.map((h) => (
               <div
                 key={h}
-                className="absolute left-0 right-0 border-t border-border/40"
+                className="absolute left-0 right-0 border-t border-[var(--w-rule)]"
                 style={{ top: `${(h - GRID_START_H) * HOUR_HEIGHT}px` }}
               />
             ))}
@@ -1370,13 +1368,13 @@ export function DayView({
             {HOURS.map((h) => (
               <div
                 key={`${h}h`}
-                className="absolute left-0 right-0 border-t border-border/20"
+                className="absolute left-0 right-0 border-t border-dashed border-[var(--w-tray)]"
                 style={{ top: `${(h - GRID_START_H) * HOUR_HEIGHT + HOUR_HEIGHT / 2}px` }}
               />
             ))}
 
-            {/* Current time indicator */}
-            <CurrentTimeIndicator />
+            {/* Current time indicator — only on today's grid */}
+            <CurrentTimeIndicator date={date} />
 
             {/* Events */}
             {timedEvents.map((ev) => {
@@ -1433,31 +1431,40 @@ export function DayView({
 }
 
 // ─── CurrentTimeIndicator ─────────────────────────────────────────────────────
-function CurrentTimeIndicator() {
+// The gold "now" line of the Today ribbon, laid across the grid: a 2px gold
+// rule, a pulsing gold dot at the left edge, and the time in the hour gutter.
+function CurrentTimeIndicator({ date }: { date: string }) {
   // Start null to avoid SSR/client hydration mismatch (React #418):
   // new Date() on server produces a different minute than on the client.
-  const [min, setMin] = useState<number | null>(null);
+  const [now, setNow] = useState<{ min: number; day: string } | null>(null);
 
   useEffect(() => {
     // Set immediately on mount (client-only), then update every minute
     const update = () => {
       const n = new Date();
-      setMin(n.getHours() * 60 + n.getMinutes());
+      const day = `${n.getFullYear()}-${String(n.getMonth() + 1).padStart(2, "0")}-${String(n.getDate()).padStart(2, "0")}`;
+      setNow({ min: n.getHours() * 60 + n.getMinutes(), day });
     };
     update();
     const id = setInterval(update, 60_000);
     return () => clearInterval(id);
   }, []);
 
-  if (min === null || min < GRID_START_H * 60 || min > GRID_END_H * 60) return null;
+  if (now === null || now.day !== date) return null;
+  const { min } = now;
+  if (min < GRID_START_H * 60 || min > GRID_END_H * 60) return null;
   const top = (min - GRID_START_H * 60) * PX_PER_MIN;
 
   return (
     <div className="absolute left-0 right-0 z-30 pointer-events-none" style={{ top: `${top}px` }}>
-      <div className="flex items-center gap-1">
-        <div className="w-2 h-2 rounded-full bg-signal-critical shrink-0 -ml-1" />
-        <div className="flex-1 h-px bg-signal-critical/70" />
-      </div>
+      <span aria-hidden className="absolute left-0 right-0 -top-px h-[2px] rounded" style={{ background: "#C8A96B" }} />
+      <span aria-hidden className="absolute -left-1.5 -top-1.5 h-3 w-3">
+        <span className="basil-ping absolute inset-0 rounded-full" style={{ background: "#C8A96B" }} />
+        <span className="absolute inset-0 rounded-full" style={{ background: "#C8A96B", boxShadow: "0 0 0 3px #FFFDF8" }} />
+      </span>
+      <span className="basil-mono absolute right-full top-0 mr-2.5 -translate-y-1/2 rounded bg-[var(--w-flimsy)] px-1 text-[11px] font-medium text-[color:var(--w-carbon)]">
+        {minToTime(min)}
+      </span>
     </div>
   );
 }
