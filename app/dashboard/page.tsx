@@ -42,6 +42,7 @@ import {
 } from "@/components/today/panels";
 import { PriorityActionCard } from "@/components/today/priority-action-card";
 import { gmailIdOf, preloadEmails } from "@/components/email/use-email";
+import { isWaitingOnOthers } from "@/lib/actions/utils";
 import { InvitationsPanel } from "@/components/today/invitations-panel";
 import { DayTimeline } from "@/components/today/day-timeline";
 import { PressureSection } from "@/components/today/pressure";
@@ -102,9 +103,13 @@ export default function Today() {
     if (emailIds) preloadEmails(emailIds.split(","));
   }, [emailIds]);
   const day = useMemo(() => buildDayShape(cal?.events ?? [], clock, timeZone), [cal, clock, timeZone]);
+  // Your commitments only — someone else's ("Carter to send…") is waiting-on.
+  const selfName = settings?.name;
   const buckets = useMemo(
-    () => (actions?.actions ? bucketCommitments(actions.actions, clock, timeZone) : null),
-    [actions, clock, timeZone],
+    () => (actions?.actions
+      ? bucketCommitments(actions.actions.filter((a) => !isWaitingOnOthers(a, selfName ? [selfName] : [])), clock, timeZone)
+      : null),
+    [actions, clock, timeZone, selfName],
   );
 
   const sources = useMemo(() => sourceStates(feed?.sources ?? {

@@ -1,5 +1,6 @@
 import { google } from "googleapis";
 import { getAuthedClient } from "./auth";
+import { getSelfIdentity } from "@/lib/self-identity";
 
 export interface GmailMessage {
   id: string;
@@ -528,16 +529,20 @@ export async function getReplyContext(username: string, messageId: string): Prom
   const auth = await getAuthedClient(username);
   if (!auth) throw new Error("Gmail not connected");
   const gmail = google.gmail({ version: "v1", auth });
-  const [detail, selfAddress] = await Promise.all([
+  const [detail, selfAddress, identity] = await Promise.all([
     gmail.users.messages.get({ userId: "me", id: messageId, format: "full" }),
     getGmailAddress(username),
+    getSelfIdentity(username).catch(() => ({ emails: [] as string[], names: [] as string[] })),
   ]);
   const headers = detail.data.payload?.headers ?? [];
   const h = (n: string) => headers.find((x) => x.name?.toLowerCase() === n.toLowerCase())?.value || "";
   const from = parseAddressList(h("From"))[0] ?? { name: "", email: "" };
   const to = parseAddressList(h("To"));
   const cc = parseAddressList(h("Cc"));
-  const selfEmails = [selfAddress?.toLowerCase()].filter((e): e is string => !!e);
+  // Every address that is the user — the mailbox AND its aliases. Mail sent to
+  // michael@analystgenius.ai (an alias) put the user on their own reply-all Cc
+  // when only the mailbox address counted as self (2026-10-14).
+  const selfEmails = [...new Set([selfAddress, ...identity.emails].map((e) => e?.toLowerCase()).filter((e): e is string => !!e))];
   const { replyTo, replyAllCc } = replyRecipients({ from, replyToHeader: parseAddressList(h("Reply-To")), to, cc }, selfEmails);
   return {
     messageId,

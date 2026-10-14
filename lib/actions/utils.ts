@@ -170,3 +170,44 @@ export function isGroupOwner(owner: string | undefined): boolean {
     o === "the channel"
   );
 }
+
+// ── Whose action is it? ──────────────────────────────────────────────────────
+//
+// Every action records an owner, but nothing used it to decide whose list it
+// belongs on: on 2026-10-13 two Zoom recaps filed Carter's "send the brochure
+// to Michael" and Roger's "update AI Enterprise cache rules" as Michael's open
+// actions (11 → 33 open in four days). Someone else's commitment is something
+// you are WAITING ON — tracked, but not on your list or in your counts.
+
+const SELF_OWNERS = new Set(["", "me", "you", "myself", "i"]);
+
+/**
+ * True when the action belongs to someone else. `selfNames` are the user's
+ * names ("Michael Cook", "Michael"); with none known, nothing is assumed to
+ * be someone else's — better to show an action than to hide one.
+ */
+export function isWaitingOnOthers(action: { owner?: string }, selfNames: readonly string[]): boolean {
+  const owner = (action.owner ?? "").trim().toLowerCase();
+  if (SELF_OWNERS.has(owner) || selfNames.length === 0) return false;
+  const names = selfNames.map((n) => n.trim().toLowerCase()).filter(Boolean);
+  if (names.includes(owner)) return false;
+  const firsts = new Set(names.map((n) => n.split(/\s+/)[0]));
+  return !firsts.has(owner.split(/\s+/)[0]);
+}
+
+/**
+ * A meeting note ("Follow up: …", "Blocker: …", a decision's consequence)
+ * → whose task it is. The user's when it names them; a named person's when it
+ * reads "<Name> to/will …"; otherwise nobody's — it stays a meeting note, not
+ * an action. Pure — exported for tests.
+ */
+export function ownerOfMeetingNote(text: string, selfNames: readonly string[]): { owner: string } | null {
+  const body = text.replace(/^\s*(follow[- ]?up|blocker)\s*:\s*/i, "");
+  const firsts = selfNames.map((n) => n.trim().split(/\s+/)[0]).filter(Boolean);
+  for (const f of firsts) {
+    if (new RegExp(`\\b${f.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\b`, "i").test(body)) return { owner: selfNames[0] ?? f };
+  }
+  if (/^\s*you\b/i.test(body)) return { owner: selfNames[0] ?? "me" };
+  const named = /^\s*([A-Z][a-z]+(?:\s+[A-Z][a-z]+)?)\s+(?:to|will|should|needs to|is to)\b/.exec(body);
+  return named ? { owner: named[1] } : null;
+}

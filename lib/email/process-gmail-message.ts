@@ -24,6 +24,7 @@ import { extractZoomMeeting } from "@/lib/zoom/extract-meeting";
 import { writeToneObservations } from "@/lib/contacts/tone-store";
 import { touchContactsRecency } from "@/lib/contacts/touch-recency";
 import { createActionTracked } from "@/lib/actions/store";
+import { ownerOfMeetingNote } from "@/lib/actions/utils";
 import { createDecisionTracked, linkActionToDecision } from "@/lib/decisions/store";
 import { createMemoryTracked } from "@/lib/memory/store";
 import { updateEvent } from "@/lib/events/store";
@@ -377,6 +378,16 @@ export async function processZoomEmail(opts: ProcessZoomEmailOpts): Promise<void
 
     const zoomAuditEntries: AuditEntry[] = [];
     const zoomATier = zoomActionTier(extract.confidence);
+    // Follow-ups, blockers and decision consequences are meeting NOTES. Each
+    // becomes an action only when it names the user (theirs) or reads "<Name>
+    // to …" (waiting on that person); the rest stay in the recap. Every one of
+    // them used to become an unowned "action" — ~8 per call.
+    const titleCase = (n: string) => n.replace(/\b\w/g, (c) => c.toUpperCase());
+    const noteOwner = (text: string) => {
+      const o = ownerOfMeetingNote(text, selfIdentity.names);
+      return o ? titleCase(o.owner) : null;
+    };
+    let notesKeptAsNotes = 0;
     const zoomDTier = zoomDecisionTier(extract.confidence);
     const zoomMTier = memoryTier(extract.confidence);
 
@@ -465,9 +476,12 @@ export async function processZoomEmail(opts: ProcessZoomEmailOpts): Promise<void
           // Create follow-up actions for explicit decision consequences
           for (const consequence of dec.consequences ?? []) {
             if (!consequence.trim()) continue;
+            const consequenceOwner = noteOwner(consequence);
+            if (!consequenceOwner) { notesKeptAsNotes++; continue; }
             try {
               const { item: action, created: actCreated } = await createActionTracked(username, {
                 text: consequence.trim(),
+                owner: consequenceOwner,
                 source: "meeting",
                 eventId,
                 sourceRef,
@@ -504,8 +518,11 @@ export async function processZoomEmail(opts: ProcessZoomEmailOpts): Promise<void
           const blockerText = blocker.trim().startsWith("Blocker:")
             ? blocker.trim()
             : `Blocker: ${blocker.trim()}`;
+          const blockerOwner = noteOwner(blockerText);
+          if (!blockerOwner) { notesKeptAsNotes++; continue; }
           const { item: action, created } = await createActionTracked(username, {
             text: blockerText,
+            owner: blockerOwner,
             source: "meeting",
             eventId,
             sourceRef,
@@ -533,8 +550,11 @@ export async function processZoomEmail(opts: ProcessZoomEmailOpts): Promise<void
           const followUpText = followUp.trim().startsWith("Follow up:")
             ? followUp.trim()
             : `Follow up: ${followUp.trim()}`;
+          const followUpOwner = noteOwner(followUpText);
+          if (!followUpOwner) { notesKeptAsNotes++; continue; }
           const { item: action, created } = await createActionTracked(username, {
             text: followUpText,
+            owner: followUpOwner,
             source: "meeting",
             eventId,
             sourceRef,
@@ -554,6 +574,9 @@ export async function processZoomEmail(opts: ProcessZoomEmailOpts): Promise<void
 
     if (actionsCreated > 0) {
       console.log(`[zoom-process] materialized ${actionsCreated} action(s) for ${externalId}`);
+    }
+    if (notesKeptAsNotes > 0) {
+      console.log(`[zoom-process] ${notesKeptAsNotes} follow-up/blocker note(s) named nobody — kept in the recap, not as actions (${externalId})`);
     }
     if (decisionsCreated > 0) {
       console.log(`[zoom-process] materialized ${decisionsCreated} decision(s) for ${externalId}`);

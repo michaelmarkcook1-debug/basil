@@ -135,6 +135,7 @@ export function sentimentPrompt(name: string, selfFirst: string, interactions: I
 - summary: one plain sentence a busy executive can act on.
 - evidence: up to 3 specific messages that show it, each {"date": "YYYY-MM-DD", "source": "slack|email|zoom", "note": "what was said or how, briefly"}.
 Use only what the messages show. Do not invent context.
+Judge the relationship with ${selfFirst} only: frustration, praise or criticism ${name} aims at someone else is not about ${selfFirst}. Newsletters and mass mailings say nothing about a relationship.
 
 Interactions:
 ${interactions.map((i) => `- ${i.date.slice(0, 10)} [${i.source}] ${i.mine ? `${selfFirst} → ${name}` : name}: ${i.text}`).join("\n")}
@@ -196,6 +197,12 @@ export async function assessRelationship(
   opts: { force?: boolean; sources?: InteractionSources; shifts?: ToneObservation[]; selfNames?: string[]; judge?: SentimentJudge; now?: number } = {},
 ): Promise<{ sentiment: RelationshipSentiment | null; interactions: number }> {
   const now = opts.now ?? Date.now();
+  // A read from the last day stands — answer before gathering 30 days of Slack
+  // and Gmail (opening a profile took seconds for a read already on file).
+  if (!opts.force && !opts.sources) {
+    const prev = (await listSentiment(username))[contact.id];
+    if (prev && now - Date.parse(prev.computedAt) < REFRESH_MS) return { sentiment: prev, interactions: prev.basedOn };
+  }
   const [sources, identity, overrides, stored] = await Promise.all([
     opts.sources ?? loadInteractionSources(username),
     opts.selfNames ? { names: opts.selfNames } : getSelfIdentity(username),

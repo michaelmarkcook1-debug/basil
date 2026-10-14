@@ -280,6 +280,9 @@ Classification rules — follow strictly:
     language where casual was the norm, frustration, sarcasm, noticeably fewer words than typical.
     DO NOT flag routine Slack messages as a tone shift. Only flag when the language clearly
     departs from normal professional norms in one direction or the other.
+    Only record a shift in how the person relates to ${userFirstName} — warmth, engagement or friction
+    towards ${userFirstName} or ${userFirstName}'s work. Frustration, praise or criticism aimed at someone
+    else (a colleague, a client, a vendor) is NOT a tone shift in this relationship.
     Each entry: person (name of the person), direction ("warming"/"cooling"/"neutral"), summary (1 sentence).
 
 Extract ONLY what is explicitly stated. Never infer or fabricate.

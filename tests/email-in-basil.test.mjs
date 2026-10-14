@@ -92,6 +92,7 @@ function detector({ inbox, events = [], noReplyIds = [] }) {
     },
     "@/lib/email/view-cache": loadTs("lib/email/view-cache.ts", {
       "@/lib/storage/user-store": memStore(), "@/lib/google/gmail": { getReplyContext: async () => ({}) },
+      "@/lib/self-identity": { getSelfIdentity: async () => ({ emails: [], names: [] }) },
     }),
   });
 }
@@ -144,7 +145,7 @@ test("an email whose subject IS an answered meeting's title is that meeting's in
 // ── Reply with your own To / Cc / Bcc ────────────────────────────────────────
 
 test("buildReplyMime: edited recipients replace the defaults, and Bcc rides in the header", () => {
-  const G = loadTs("lib/google/gmail.ts", { googleapis: { google: {} }, "./auth": {} });
+  const G = loadTs("lib/google/gmail.ts", { "@/lib/self-identity": { getSelfIdentity: async () => ({ emails: ["me@self.invalid", "alias@self.invalid"], names: ["me"] }) }, googleapis: { google: {} }, "./auth": {} });
   const ctx = {
     messageId: "m", threadId: "t", subject: "Pricing", date: "2026-10-09T10:00:00Z",
     from: { name: "Priya", email: "priya@partner.invalid" }, to: [], cc: [],
@@ -169,6 +170,7 @@ test("view cache: serves a warm email without Gmail, flattens HTML, expires and 
   const store = memStore();
   let gmailCalls = 0;
   const V = loadTs("lib/email/view-cache.ts", {
+    "@/lib/self-identity": { getSelfIdentity: async () => ({ emails: ["michael@fixture.invalid", "michael@alias.invalid"], names: [] }) },
     "@/lib/storage/user-store": store,
     "@/lib/google/gmail": {
       getReplyContext: async (_u, id) => {
@@ -192,4 +194,20 @@ test("view cache: serves a warm email without Gmail, flattens HTML, expires and 
   assert.deepEqual(Object.keys(pruned), ["fresh"]);
   const many = Object.fromEntries(Array.from({ length: 70 }, (_, i) => entry(`m${i}`, i / 100)).map((e) => [e.id, e]));
   assert.equal(Object.keys(V.pruneCache(many, now)).length, 60);
+});
+
+test("reply-all never puts the user on their own Cc — mailbox or alias, cached or fresh", () => {
+  const V = loadTs("lib/email/view-cache.ts", {
+    "@/lib/storage/user-store": memStore(), "@/lib/google/gmail": {},
+    "@/lib/self-identity": { getSelfIdentity: async () => ({ emails: [], names: [] }) },
+  });
+  const view = {
+    id: "m", subject: "s", date: "2026-10-12T15:49:00Z", body: "", cachedAt: "2026-10-13T19:55:00Z",
+    from: { name: "Carter Lusher", email: "carter@lusher.invalid" }, to: [], cc: [],
+    replyTo: [{ name: "Carter Lusher", email: "carter@lusher.invalid" }],
+    replyAllCc: [{ name: "MICHAEL COOK", email: "Michael@Alias.invalid" }, { name: "Ann", email: "ann@x.invalid" }],
+  };
+  const fixed = V.withoutSelf(view, ["michael@fixture.invalid", "michael@alias.invalid"]);
+  assert.equal(fixed.replyAllCc.map((a) => a.email).join(","), "ann@x.invalid");
+  assert.equal(fixed.replyTo[0].email, "carter@lusher.invalid");
 });

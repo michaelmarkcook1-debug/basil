@@ -278,6 +278,9 @@ Classification rules — follow these strictly:
     passive-aggressive language, withdrawal of previously offered help, notably shorter than usual.
     DO NOT flag routine professional emails as a tone shift. Only flag when the language clearly
     departs from baseline professional norms in one direction or the other.
+    Only record a shift in how the sender relates to ${userFirstName} — warmth, engagement or friction
+    towards ${userFirstName} or ${userFirstName}'s work. Frustration, praise or criticism aimed at someone
+    else (a colleague, a client, a vendor) is NOT a tone shift in this relationship.
     Each entry: person (the sender's name), direction ("warming"/"cooling"/"neutral"), summary (1 sentence).
 
 Extract ONLY what is explicitly present. Never fabricate or infer.

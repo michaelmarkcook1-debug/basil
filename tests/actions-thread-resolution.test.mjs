@@ -22,7 +22,7 @@ const ago = (days) => new Date(Date.now() - days * DAY).toISOString();
 
 // ── Bulk mail is recognised by its headers and Gmail's tabs ─────────────────
 
-const gmail = loadTs("lib/google/gmail.ts", { googleapis: { google: {} }, "./auth": { getAuthedClient: async () => null } });
+const gmail = loadTs("lib/google/gmail.ts", { "@/lib/self-identity": { getSelfIdentity: async () => ({ emails: ["me@self.invalid", "alias@self.invalid"], names: ["me"] }) }, googleapis: { google: {} }, "./auth": { getAuthedClient: async () => null } });
 const hdr = (h) => (n) => h[n] ?? "";
 
 test("bulk mail: List-Unsubscribe, List-Id, Precedence and Auto-Submitted mark it; a person's email does not", () => {

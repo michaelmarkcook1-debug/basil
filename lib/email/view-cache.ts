@@ -10,6 +10,7 @@
  */
 import { readUserStore, updateUserStore } from "@/lib/storage/user-store";
 import { getReplyContext, type Address, type ReplyContext } from "@/lib/google/gmail";
+import { getSelfIdentity } from "@/lib/self-identity";
 
 const FILE = "email-view-cache.json";
 const TTL_MS = 7 * 24 * 60 * 60 * 1000;
@@ -98,16 +99,28 @@ async function storeViews(username: string, views: EmailView[]): Promise<void> {
   );
 }
 
+/**
+ * Never offer the user as their own recipient — whatever address (mailbox or
+ * alias) they were written to. Applied on every read, so views cached before
+ * aliases counted as self are corrected too. Pure — exported for tests.
+ */
+export function withoutSelf(view: EmailView, selfEmails: readonly string[]): EmailView {
+  const self = new Set(selfEmails.map((e) => e.toLowerCase()));
+  const keep = (list: Address[]) => list.filter((a) => !self.has(a.email.toLowerCase()));
+  return { ...view, replyTo: keep(view.replyTo), replyAllCc: keep(view.replyAllCc) };
+}
+
 /** The email, from the cache when it is there, else from Gmail (and then cached). */
 export async function loadEmailView(username: string, id: string, opts: { fresh?: boolean } = {}): Promise<EmailView> {
+  const selfEmails = (await getSelfIdentity(username).catch(() => ({ emails: [] as string[] }))).emails;
   if (!opts.fresh) {
     const hit = await getCachedEmailView(username, id);
-    if (hit) return hit;
+    if (hit) return withoutSelf(hit, selfEmails);
   }
   const view = toEmailView(id, await getReplyContext(username, id));
   await storeViews(username, [view]).catch((e) =>
     console.warn("[email/view-cache] could not cache", id, e instanceof Error ? e.message : e));
-  return view;
+  return withoutSelf(view, selfEmails);
 }
 
 /**

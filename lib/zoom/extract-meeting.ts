@@ -198,7 +198,7 @@ EXTRACTION RULES (follow strictly):
    - 0.5  = partial notes or short summary without structure
    - 0.3  = sparse email, mostly boilerplate/link with little content
 
-10. toneShifts — ONLY when an attendee shows a NOTABLE change in warmth, engagement, or disposition versus routine professional tone (e.g. visibly cooling, newly enthusiastic, frustrated). The "person" MUST be one of the attendees. Omit entirely for ordinary meetings — do not manufacture shifts.
+10. toneShifts — ONLY when an attendee shows a NOTABLE change in warmth, engagement, or disposition TOWARDS THE USER (the person these notes are for) versus routine professional tone (e.g. visibly cooling towards them, newly enthusiastic about working with them, frustrated with them). Frustration or praise aimed at someone else is NOT a shift in this relationship. The "person" MUST be one of the attendees. Omit entirely for ordinary meetings — do not manufacture shifts.
 
 IMPORTANT: Extract from ALL sections — AI summary, transcript, action items list, and any inline notes. Empty arrays are always correct over invented content.
 

@@ -56,6 +56,8 @@ test("the feed carries follow-up degradation through to the dashboard", async ()
   const quiet = console.warn; console.warn = () => {};
   try {
     const F = loadTs("lib/today/feed.ts", {
+    "@/lib/self-identity": { getSelfIdentity: async () => ({ emails: [], names: [] }) },
+    "@/lib/actions/utils": { isWaitingOnOthers: () => false },
     "@/lib/memory/store": { listMemories: async () => [] },
     "@/lib/contacts/cadence-rules": { extractCadenceRules: () => [] },
       "@/lib/delta/compute": { computeDeltas: () => ({ changes: [] }) },

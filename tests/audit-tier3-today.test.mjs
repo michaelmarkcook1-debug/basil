@@ -118,6 +118,8 @@ function feedModule({ linearOn = false, linearThrows = false, followups = 0 } = 
     lastInboundAt: new Date().toISOString(), href: `https://example.test/${i}`,
   }));
   return loadTs("lib/today/feed.ts", {
+    "@/lib/self-identity": { getSelfIdentity: async () => ({ emails: [], names: [] }) },
+    "@/lib/actions/utils": { isWaitingOnOthers: () => false },
     "@/lib/memory/store": { listMemories: async () => [] },
     "@/lib/contacts/cadence-rules": { extractCadenceRules: () => [] },
     "@/lib/delta/compute": { computeDeltas: () => ({ changes: [] }) },

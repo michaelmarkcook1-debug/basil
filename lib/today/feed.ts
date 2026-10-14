@@ -19,6 +19,8 @@ import { getLearning } from "@/lib/learning/store";
 import { listMemories } from "@/lib/memory/store";
 import { extractCadenceRules } from "@/lib/contacts/cadence-rules";
 import { getSettings } from "@/lib/settings/store";
+import { getSelfIdentity } from "@/lib/self-identity";
+import { isWaitingOnOthers } from "@/lib/actions/utils";
 import { computeCategoryPriors, taskClassOf, priorEffect } from "@/lib/learning/priors";
 import type {
   TodayFeedItem,
@@ -75,7 +77,7 @@ function followupSeverity(hoursWaiting: number): ChangeSeverity {
 /** Compute the full feed — the Gmail/Slack/Linear/delta fan-out (~5s). */
 export async function computeTodayFeed(username: string): Promise<TodayFeedResponse> {
     // ── Core inputs (local stores — must succeed for the feed to compute) ──────
-    const [since, actions, decisions, contacts, learning, overrides, settings, memories] = await Promise.all([
+    const [since, allActions, decisions, contacts, learning, overrides, settings, memories, identity] = await Promise.all([
       getSinceDate(username),
       listActions(username),
       listDecisions(username),
@@ -84,7 +86,11 @@ export async function computeTodayFeed(username: string): Promise<TodayFeedRespo
       getAllOverridesFromStore(username).catch(() => ({})),
       getSettings(username).catch(() => null), // ci-ok: settings optional; TZ falls back to Europe/London
       listMemories(username).catch((e) => { console.warn("[today] memories failed:", e instanceof Error ? e.message : e); return []; }),
+      getSelfIdentity(username).catch(() => ({ emails: [] as string[], names: [] as string[] })),
     ]);
+    // Only the user's own actions drive Today. Someone else's commitment
+    // ("Carter to send the brochure") is waiting-on, not the user's work.
+    const actions = allActions.filter((a) => !isWaitingOnOthers(a, identity.names));
     // "Keep in touch with Jane every 3 weeks" is a memory; the delta engine
     // honours it as that person's silence threshold.
     const cadenceRules = extractCadenceRules(memories, contacts);

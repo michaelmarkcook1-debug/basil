@@ -13,7 +13,7 @@ import { getRecentSlackMessages } from "@/lib/slack/client";
 import { listMemories } from "@/lib/memory/store";
 import { getRecentLinearActivity } from "@/lib/linear/client";
 import { getSessionUser } from "@/lib/auth";
-import { listUserContacts } from "@/lib/contacts/user-store";
+import { listUserContacts, updateUserContactInStore } from "@/lib/contacts/user-store";
 import { sampleContacts } from "@/lib/contacts-data";
 import type { Contact } from "@/lib/contacts-data";
 
@@ -477,6 +477,26 @@ async function computeContactActivity(username: string): Promise<ActivityPayload
  * half-hour-old activity is materially just as useful as second-fresh activity —
  * and vastly more useful than a 14-second wait.
  */
+/**
+ * Save newer last-contact dates back to the contacts. This scan is the most
+ * complete view of when you last dealt with someone, but only the People page
+ * used it: Today's "gone quiet" read the stored date, which the daily ingest
+ * can miss (no email on file, a Slack display name that doesn't match). On
+ * 2026-10-14 Logan Carlson showed as gone quiet (stored 24 Sep) while this
+ * scan had him on 12 Oct. Only ever moves a date forward; user contacts only.
+ */
+async function saveNewerDates(username: string, payload: ActivityPayload): Promise<void> {
+  const stored = new Map((await listUserContacts(username)).map((c) => [c.id, c.lastInteraction]));
+  for (const a of payload.activity) {
+    if (!a.lastInteraction || !stored.has(a.contactId)) continue;
+    const before = stored.get(a.contactId);
+    if (before && Date.parse(before) >= Date.parse(a.lastInteraction)) continue;
+    if (Date.parse(a.lastInteraction) > Date.now() + 60_000) continue; // never a future date
+    await updateUserContactInStore(username, a.contactId, { lastInteraction: a.lastInteraction }).catch((e) =>
+      console.warn("[contacts/activity] could not save last contact for", a.contactId, e instanceof Error ? e.message : e));
+  }
+}
+
 export async function GET() {
   const username = await getSessionUser();
   if (!username) return NextResponse.json({ error: "Unauthorised" }, { status: 401 });
@@ -498,6 +518,7 @@ export async function GET() {
           inputHash: computeInputHash(username, fresh.fetchedAt),
           ttlMs: CONTACT_ACTIVITY_TTL_MS,
         });
+        await saveNewerDates(username, fresh);
       } catch (e) {
         console.error("[contacts/activity] background refresh failed:", e instanceof Error ? e.message : e);
       }
@@ -511,5 +532,7 @@ export async function GET() {
     inputHash: computeInputHash(username, fresh.fetchedAt),
     ttlMs: CONTACT_ACTIVITY_TTL_MS,
   }).catch((e) => console.error("[contacts/activity] cache write failed:", e));
+  after(() => saveNewerDates(username, fresh).catch((e) =>
+    console.warn("[contacts/activity] saving last-contact dates failed:", e instanceof Error ? e.message : e)));
   return NextResponse.json({ ...fresh, cache: "miss" });
 }

@@ -13,6 +13,7 @@
  */
 
 import { createActionTracked } from "@/lib/actions/store";
+import { ownerOfMeetingNote } from "@/lib/actions/utils";
 import { createDecisionTracked, linkActionToDecision } from "@/lib/decisions/store";
 import { createMemoryTracked } from "@/lib/memory/store";
 import { actionTier, decisionTier, memoryTier, needsReviewFlag } from "@/lib/trust/policy";
@@ -274,11 +275,18 @@ export async function materializeSlackIntelligence(
 
         // Consequence actions inherit the same review flag as their parent decision.
         if (dec.consequences && dec.consequences.length > 0) {
+          // A consequence is the user's action only when it names them, or
+          // someone else's ("<Name> to …", waiting on them); otherwise it stays
+          // part of the decision, not an unowned action on the user's list.
+          const selfNames = (await getSelfIdentity(username).catch(() => ({ names: [] as string[] }))).names;
           for (const consequence of dec.consequences) {
             if (!consequence.trim()) continue;
+            const owner = ownerOfMeetingNote(consequence, selfNames)?.owner;
+            if (!owner) continue;
             try {
               const { item: action, created: actCreated } = await createActionTracked(username, {
                 text: consequence.trim(),
+                owner: owner.replace(/\b\w/g, (c) => c.toUpperCase()),
                 source: "slack",
                 eventId,
                 sourceRef,

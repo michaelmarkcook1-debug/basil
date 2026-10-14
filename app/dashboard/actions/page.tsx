@@ -43,7 +43,7 @@ import {
 } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { findContactByName } from "@/lib/contacts-lookup";
-import { isActionStalled } from "@/lib/actions/utils";
+import { isActionStalled, isWaitingOnOthers } from "@/lib/actions/utils";
 import { cn } from "@/lib/utils";
 import { dashboardCache } from "@/lib/dashboard-cache";
 import type { ActionItem, ActionCategory } from "@/lib/types/action";
@@ -900,6 +900,15 @@ export default function ActionsPage() {
   const [fetchError, setFetchError] = useState<Error | null>(null);
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState<string>("all");
+  // Whose action is it: someone else's commitment ("Carter to send…") is
+  // waiting-on — tracked under its own filter, never in your list or counts.
+  const [selfName, setSelfName] = useState<string | null>(null);
+  useEffect(() => {
+    fetch("/api/settings", { cache: "no-store" })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((j: { name?: string } | null) => { if (j?.name) setSelfName(j.name); })
+      .catch(() => { /* without a name, every action is shown as yours — never hidden */ });
+  }, []);
   // "timeline" (default) | "category" | "matrix" view
   const [viewMode, setViewMode] = useState<"timeline" | "category" | "matrix">("timeline");
 
@@ -1272,11 +1281,15 @@ export default function ActionsPage() {
   const photos = useContactPhotos(ownerEmails);
 
   // ── Filter ─────────────────────────────────────────────────────────────────
+  const isTheirs = (a: ActionItem) => isWaitingOnOthers(a, selfName ? [selfName] : []);
+  const waitingCount = actions.filter((a) => a.status !== "done" && isTheirs(a)).length;
   const filtered = actions.filter((a) => {
     const matchesSearch =
       !search ||
       a.text.toLowerCase().includes(search.toLowerCase()) ||
       a.owner.toLowerCase().includes(search.toLowerCase());
+    if (statusFilter === "waiting") return matchesSearch && a.status !== "done" && isTheirs(a);
+    if (isTheirs(a)) return false;
     if (statusFilter === "review") return matchesSearch && !!a.needsReview;
     const matchesStatus = statusFilter === "all" || a.status === statusFilter;
     return matchesSearch && matchesStatus;
@@ -1322,9 +1335,9 @@ export default function ActionsPage() {
     (a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime()
   );
 
-  const reviewItems = actions.filter((a) => !!a.needsReview);
+  const reviewItems = actions.filter((a) => !!a.needsReview && !isTheirs(a));
   const openCount = overdue.length + dueToday.length + upcoming.length + openNoDue.length + stalled.length;
-  const showGrouped = statusFilter === "all" || statusFilter === "open" || statusFilter === "overdue" || statusFilter === "review";
+  const showGrouped = statusFilter === "all" || statusFilter === "open" || statusFilter === "overdue" || statusFilter === "review" || statusFilter === "waiting";
 
   // ── Category grouping (for "By Category" view) ─────────────────────────────
   const openActions = filtered.filter((a) => a.status !== "done");
@@ -1481,6 +1494,7 @@ export default function ActionsPage() {
           <option value="open">Open ({openCount})</option>
           <option value="done">Done</option>
           <option value="overdue">Overdue</option>
+          {waitingCount > 0 && <option value="waiting">Waiting on others ({waitingCount})</option>}
           {reviewItems.length > 0 && (
             <option value="review">Needs Review ({reviewItems.length})</option>
           )}

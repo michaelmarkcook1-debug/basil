@@ -12,7 +12,7 @@ import { loadTs, nextServer } from "./_helpers/load-ts.mjs";
 const ROOT = path.resolve(path.dirname(new URL(import.meta.url).pathname), "..");
 const src = (f) => fs.readFileSync(path.join(ROOT, f), "utf8");
 // The real address parser, for routes that are otherwise run against mocks.
-const gmailParse = loadTs("lib/google/gmail.ts", { googleapis: { google: {} }, "./auth": {} }).parseAddressList;
+const gmailParse = loadTs("lib/google/gmail.ts", { "@/lib/self-identity": { getSelfIdentity: async () => ({ emails: ["me@self.invalid", "alias@self.invalid"], names: ["me"] }) }, googleapis: { google: {} }, "./auth": {} }).parseAddressList;
 const decode = (raw) => Buffer.from(raw, "base64url").toString("utf8");
 const headersOf = (mime) => mime.split("\r\n\r\n")[0].split("\r\n");
 
@@ -38,7 +38,7 @@ function fakeGoogle({ message, event, selfEmail = "me@fixture.invalid" } = {}) {
   };
   const googleapis = { google: { gmail: () => gmail, calendar: () => calendar } };
   const auth = { getAuthedClient: async () => ({}) };
-  const gmailMod = loadTs("lib/google/gmail.ts", { googleapis, "./auth": auth });
+  const gmailMod = loadTs("lib/google/gmail.ts", { "@/lib/self-identity": { getSelfIdentity: async () => ({ emails: ["me@self.invalid", "alias@self.invalid"], names: ["me"] }) }, googleapis, "./auth": auth });
   const calMod = loadTs("lib/google/calendar.ts", {
     googleapis, "./auth": auth, "./gmail": gmailMod,
     "@/lib/self-identity": { getSelfIdentity: async () => ({ emails: [selfEmail], names: [] }), stripSelf: (a) => a },

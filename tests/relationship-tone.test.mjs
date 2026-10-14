@@ -18,6 +18,7 @@ const daysAgo = (d) => new Date(NOW - d * 86_400_000).toISOString();
 
 function sentiment(store = {}) {
   const files = { "contact-sentiment.json": structuredClone(store) };
+  const fetches = { slack: 0 };
   const S = loadTs("lib/contacts/sentiment.ts", {
     zod: require("zod"),
     "@/lib/storage/user-store": {
@@ -28,13 +29,13 @@ function sentiment(store = {}) {
     "@/lib/contacts/user-store": { listUserContacts: async () => [] },
     "@/lib/contacts/overrides-store": { getAllOverridesFromStore: async () => ({}) },
     "@/lib/self-identity": { getSelfIdentity: async () => ({ names: ["michael cook"], emails: [] }) },
-    "@/lib/slack/client": { getRecentSlackMessages: async () => [] },
+    "@/lib/slack/client": { getRecentSlackMessages: async () => { fetches.slack++; return []; } },
     "@/lib/google/gmail": { getRecentEmails: async () => [] },
     "@/lib/ai/generate": { generateTextSafe: async () => { throw new Error("no model in tests"); } },
     "@/lib/ai/model-config": { getTextModel: () => "fast" },
     "@/lib/ai/parse-json": loadTs("lib/ai/parse-json.ts", { zod: require("zod") }),
   });
-  return { S, files };
+  return { S, files, fetches };
 }
 
 const slack = (o) => ({ id: o.date, channel: "#general", author: "Someone", text: "hi", isMention: false, fromSelf: false, ...o });
@@ -114,4 +115,13 @@ test("People page: tone card leads the Profile tab; hover links names and bubble
   assert.match(page, /onMouseEnter=\{\(\) => setHoveredId\(c\.id\)\}/, "bubbles report hover");
   assert.match(page, /hoveredId === c\.id \? "relative z-10 scale-125/, "the hovered contact's bubble is highlighted");
   assert.match(page, /hovered=\{hoveredId\} onHover=\{setHoveredId\}/);
+});
+
+test("a read from the last day is returned without gathering Slack/Gmail", async () => {
+  const fresh = { contactId: "ed", tone: "warm", trend: "steady", summary: "s", evidence: [], basedOn: 12, latestAt: daysAgo(1), computedAt: new Date(NOW - 3_600_000).toISOString() };
+  const { S, fetches } = sentiment({ ed: fresh });
+  const r = await S.assessRelationship("u", ED, { now: NOW, judge: async () => { throw new Error("must not re-read"); } });
+  assert.equal(r.sentiment.tone, "warm");
+  assert.equal(r.interactions, 12);
+  assert.equal(fetches.slack, 0, "no 30-day Slack fetch for a read already on file");
 });
