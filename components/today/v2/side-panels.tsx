@@ -40,7 +40,7 @@ export function WaitingPanel({ items, now, delay = 0 }: { items: ActionItem[]; n
           <span className="text-[14px] leading-snug text-[color:var(--w-ink)]"><strong className="font-semibold">{r.who}</strong> · {r.what}</span>
           <span className="flex items-center gap-2.5">
             <span className="h-2.5 flex-1 overflow-hidden rounded-full bg-[var(--w-tray)]">
-              <span className="basil-grow block h-2.5 rounded-full" style={{ width: `${(r.days / max) * 100}%`, background: "#2F5FA8", animationDelay: `${delay + 200 + i * 120}ms` }} />
+              <span className="basil-grow basil-raised block h-2.5 rounded-full" style={{ width: `${(r.days / max) * 100}%`, backgroundColor: "#2F5FA8", animationDelay: `${delay + 200 + i * 120}ms` }} />
             </span>
             <span className="basil-mono w-[58px] text-right text-[12px] text-[color:var(--w-ink)]">{r.days} day{r.days === 1 ? "" : "s"}</span>
           </span>
@@ -83,8 +83,8 @@ export function NextDaysPanel({
             className="flex h-full flex-1 flex-col items-stretch justify-end gap-1.5 border-0 bg-transparent p-0 text-[#F6F1E7]"
           >
             <span className="basil-col flex flex-col gap-0.5 rounded-[5px] transition-[outline-color]" style={{ animationDelay: `${delay + 200 + i * 80}ms`, outline: focus?.key === d.key ? "2px solid #F6F1E7" : "2px solid transparent", outlineOffset: 3 }}>
-              <span className="rounded-t-[4px] rounded-b-[2px] bg-[#D4B978]" style={{ height: Math.round(d.free * px) }} />
-              <span className="rounded-[2px] bg-[#6C7FA3]" style={{ height: Math.round(d.meet * px) }} />
+              <span className="basil-raised rounded-t-[4px] rounded-b-[2px] bg-[#D4B978]" style={{ height: Math.round(d.free * px) }} />
+              <span className="basil-raised rounded-[2px] bg-[#6C7FA3]" style={{ height: Math.round(d.meet * px) }} />
             </span>
             <span className="basil-mono text-center text-[11px]" style={{ color: focus?.key === d.key ? "#D4B978" : "rgba(246,241,231,.75)" }}>{d.label}</span>
           </button>

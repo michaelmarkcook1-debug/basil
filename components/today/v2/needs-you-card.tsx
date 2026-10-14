@@ -53,8 +53,8 @@ export function NeedsYouCard({
     >
       <div className="flex items-start gap-4">
         <span
-          className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full text-[14px] font-semibold text-white"
-          style={{ background: toneColor ?? "#10213F", boxShadow: `0 0 0 4px ${toneColor ? `${toneColor}26` : "rgba(16,33,63,.12)"}` }}
+          className="basil-sphere flex h-12 w-12 shrink-0 items-center justify-center rounded-full text-[14px] font-semibold text-white"
+          style={{ backgroundColor: toneColor ?? "#10213F", boxShadow: `0 0 0 4px ${toneColor ? `${toneColor}26` : "rgba(16,33,63,.12)"}, 0 10px 18px -8px rgba(16,33,63,.55), inset 0 -2px 4px rgba(0,0,0,.2)` }}
           aria-hidden
         >
           {person ? initialsOf(person) : <Mail className="h-5 w-5" />}

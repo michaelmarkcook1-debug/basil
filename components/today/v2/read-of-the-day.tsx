@@ -39,7 +39,7 @@ export function ReadOfTheDay({
         </span>
         {dateLine || " "}
       </span>
-      <h1 className="basil-serif text-[56px] leading-[0.95] tracking-[-0.02em] text-[#10213F] sm:text-[84px]">
+      <h1 className="basil-serif basil-emboss text-[56px] leading-[0.95] tracking-[-0.02em] text-[#10213F] sm:text-[84px]">
         {greeting},<br /><em className="italic">{name}</em><span className="text-[#C8A96B]">.</span>
       </h1>
       {text && (
@@ -71,8 +71,7 @@ export function ReadOfTheDay({
         {stats.map((s) => (
           <div
             key={s.label}
-            className="flex flex-[1_1_140px] flex-col gap-0.5 rounded-2xl px-[18px] py-3.5"
-            style={s.dark ? { background: "#10213F" } : { background: "rgba(255,253,248,.85)", border: "1px solid var(--w-rule)" }}
+            className={`basil-lift flex flex-[1_1_140px] flex-col gap-0.5 rounded-2xl px-[18px] py-3.5 ${s.dark ? "bg-[#10213F]" : "border border-[var(--w-rule)] bg-[var(--w-flimsy)]"}`}
           >
             <span className="basil-serif text-[44px] leading-none" style={{ color: s.dark ? "#D4B978" : "#10213F" }}>
               {s.value}{s.unit && s.value !== "—" ? <span className="text-[24px]">{s.unit}</span> : null}

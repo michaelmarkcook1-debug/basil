@@ -24,7 +24,7 @@ export function PageHero({
         {eyebrow && (
           <span className="basil-mono text-[12px] uppercase tracking-[0.14em] text-[color:var(--w-ink-soft)]">{eyebrow}</span>
         )}
-        <h1 className="basil-serif text-[44px] leading-[0.95] tracking-[-0.02em] text-[#10213F] sm:text-[60px]">
+        <h1 className="basil-serif basil-emboss text-[44px] leading-[0.95] tracking-[-0.02em] text-[#10213F] sm:text-[60px]">
           {title}<span className="text-[#C8A96B]">.</span>
         </h1>
         {subtitle && <p className="max-w-[680px] text-[15px] leading-relaxed text-[color:var(--w-ink-soft)]">{subtitle}</p>}

@@ -14,6 +14,7 @@
 
 import Link from "next/link";
 import { useMemo } from "react";
+import { useTilt, Sheen } from "@/components/basil/tilt";
 import { placeOrbit, type OrbitPerson, type Tone } from "@/lib/today/visual-data";
 
 export { orbitTone, type OrbitPerson, type Tone, type SentimentRow } from "@/lib/today/visual-data";
@@ -43,14 +44,17 @@ export function Orbit({
 }) {
   const placed = useMemo(() => placeOrbit(people.slice(0, 12)), [people]);
   const shown = placed.find((p) => p.name === focus) ?? placed[0];
+  const tilt = useTilt(2.5);
 
   return (
     <section
       aria-label="Your orbit: who you are closest to right now"
-      className="basil-sky basil-rise relative flex min-w-0 flex-col gap-2.5 overflow-hidden rounded-[24px] bg-[#10213F] px-[22px] pb-[18px] pt-[22px] text-[#F6F1E7] shadow-[0_30px_60px_-30px_rgba(16,33,63,.6)]"
+      className="basil-sky basil-rise basil-tilt relative flex min-w-0 flex-col gap-2.5 overflow-hidden rounded-[24px] bg-[#10213F] px-[22px] pb-[18px] pt-[22px] text-[#F6F1E7]"
       style={{ animationDelay: "120ms" }}
-      onMouseLeave={() => onFocus(null)}
+      onMouseMove={tilt.onMouseMove}
+      onMouseLeave={(e) => { onFocus(null); tilt.onMouseLeave(e); }}
     >
+      <Sheen />
       <span aria-hidden className="pointer-events-none absolute inset-0" style={{ background: "radial-gradient(420px 300px at 50% 46%, rgba(212,185,120,.16), transparent 70%)" }} />
       {[[12, 22, 0], [86, 30, 1.2], [78, 82, 2.1], [8, 74, 0.6]].map(([l, t, d]) => (
         <span key={`${l}-${t}`} aria-hidden className="basil-star absolute h-[3px] w-[3px] rounded-full bg-[#F6F1E7]" style={{ left: `${l}%`, top: `${t}%`, animationDelay: `${d}s` }} />
@@ -107,12 +111,14 @@ export function Orbit({
                 >
                   <span className="basil-counter flex flex-col items-center gap-1">
                     <span
-                      className="box-border flex items-center justify-center rounded-full text-[11px] font-semibold text-white transition-shadow"
+                      className={`box-border flex items-center justify-center rounded-full text-[11px] font-semibold text-white transition-shadow ${quiet ? "" : "basil-sphere"}`}
                       style={{
                         width: p.size, height: p.size,
-                        background: quiet ? "rgba(16,33,63,.6)" : TONE[p.tone].color,
+                        backgroundColor: quiet ? "rgba(16,33,63,.6)" : TONE[p.tone].color,
                         border: quiet ? "2px dashed rgba(246,241,231,.7)" : "2px solid rgba(246,241,231,.85)",
-                        boxShadow: on ? "0 0 0 4px rgba(212,185,120,.9), 0 0 26px rgba(212,185,120,.8)" : "none",
+                        boxShadow: on
+                          ? "0 0 0 4px rgba(212,185,120,.9), 0 0 26px rgba(212,185,120,.8)"
+                          : quiet ? "none" : "0 8px 16px -6px rgba(0,0,0,.55), inset 0 -2px 4px rgba(0,0,0,.2)",
                       }}
                     >
                       {initials(p.name)}
@@ -127,7 +133,7 @@ export function Orbit({
           </div>
           <div className="absolute left-1/2 top-1/2 h-14 w-14 -translate-x-1/2 -translate-y-1/2">
             <span className="basil-ping absolute inset-0 rounded-full" style={{ background: "rgba(212,185,120,.5)" }} />
-            <span className="absolute inset-0 flex items-center justify-center rounded-full text-[14px] font-semibold text-[#10213F]" style={{ background: "#D4B978", boxShadow: "0 0 0 4px #10213F, 0 0 30px rgba(212,185,120,.6)" }}>You</span>
+            <span className="basil-sphere absolute inset-0 flex items-center justify-center rounded-full text-[14px] font-semibold text-[#10213F]" style={{ backgroundColor: "#D4B978", boxShadow: "0 0 0 4px #10213F, 0 0 30px rgba(212,185,120,.6)" }}>You</span>
           </div>
         </div>
       )}

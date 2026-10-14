@@ -82,14 +82,16 @@ export function DriftStrip({
                 style={{ left: `${Math.max(1.5, Math.min(98.5, p.x))}%`, top: 38 + p.lane * 58, animationDelay: `${200 + i * 40}ms` }}
               >
                 <span
-                  className="box-border flex items-center justify-center rounded-full text-[11px] font-semibold transition-[transform,box-shadow] duration-200"
+                  className={`box-border flex items-center justify-center rounded-full text-[11px] font-semibold transition-[transform,box-shadow] duration-200 ${quiet ? "" : "basil-sphere"}`}
                   style={{
                     width: p.size, height: p.size,
-                    background: quiet ? "#FFFDF8" : TONE[p.tone].color,
+                    backgroundColor: quiet ? "#FFFDF8" : TONE[p.tone].color,
                     border: quiet ? "2px dashed #8A8F99" : "3px solid #FFFDF8",
                     color: quiet ? "#4B5568" : "#FFFFFF",
                     transform: `scale(${p.id === hoveredId ? 1.22 : p.id === selectedId ? 1.1 : 1})`,
-                    boxShadow: lit ? "0 0 0 3px #C8A96B, 0 10px 24px -8px rgba(16,33,63,.5)" : "0 4px 12px -6px rgba(16,33,63,.35)",
+                    boxShadow: lit
+                      ? "0 0 0 3px #C8A96B, 0 12px 26px -8px rgba(16,33,63,.55)"
+                      : "0 8px 16px -7px rgba(16,33,63,.5), inset 0 -2px 4px rgba(0,0,0,.18)",
                   }}
                 >{p.initials}</span>
                 <span className="whitespace-nowrap text-[11px] font-medium transition-colors" style={{ color: lit ? "#10213F" : "#4B5568" }}>{p.name.split(" ")[0]}</span>

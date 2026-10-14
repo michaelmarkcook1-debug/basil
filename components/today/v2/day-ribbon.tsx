@@ -16,7 +16,10 @@ import type { CalendarEvent } from "@/lib/google/calendar";
 import { buildBlocks, hhmm, localHours, parseHHMM, type Kind } from "@/lib/today/visual-data";
 
 const STYLE: Record<Kind, React.CSSProperties> = {
-  meeting: { background: "#10213F", color: "#F6F1E7", border: "1px solid #10213F" },
+  meeting: {
+    backgroundColor: "#10213F", color: "#F6F1E7", border: "1px solid #10213F",
+    backgroundImage: "linear-gradient(180deg, rgba(255,255,255,.12), rgba(255,255,255,0) 55%)",
+  },
   free: {
     background: "repeating-linear-gradient(135deg, rgba(200,169,107,.42) 0 6px, rgba(200,169,107,.18) 6px 12px)",
     color: "#4A3712", border: "1px solid #C8A96B",
@@ -91,7 +94,9 @@ export function DayRibbon({
                   width: `${Math.max(1.2, at(b.end) - at(b.start))}%`,
                   animationDelay: `${300 + i * 80}ms`,
                   translate: on ? "0 -6px" : "0 0",
-                  boxShadow: on ? "0 16px 28px -14px rgba(16,33,63,.55)" : "none",
+                  boxShadow: on
+                    ? "inset 0 1px 0 rgba(255,255,255,.18), 0 18px 30px -12px rgba(16,33,63,.6)"
+                    : b.kind === "meeting" ? "inset 0 1px 0 rgba(255,255,255,.14), 0 6px 14px -8px rgba(16,33,63,.6)" : "0 4px 10px -8px rgba(16,33,63,.4)",
                 }}
               >
                 <span className="truncate text-[13px] font-semibold" style={{ textDecoration: b.kind === "declined" ? "line-through" : "none" }}>

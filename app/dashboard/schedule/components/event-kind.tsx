@@ -33,7 +33,11 @@ const HATCH =
 
 /** Fill, border and title colour for each kind — the same marks as the Today day ribbon. */
 export const KIND_STYLE: Record<BlockKind, CSSProperties> = {
-  meeting: { background: "#10213F", color: "#F6F1E7", border: "1px solid #10213F" },
+  meeting: {
+    backgroundColor: "#10213F", color: "#F6F1E7", border: "1px solid #10213F",
+    backgroundImage: "linear-gradient(180deg, rgba(255,255,255,.12), rgba(255,255,255,0) 55%)",
+    boxShadow: "inset 0 1px 0 rgba(255,255,255,.14), 0 6px 14px -8px rgba(16,33,63,.6)",
+  },
   solo: { background: HATCH, color: "#4A3712", border: "1px solid #C8A96B" },
   invite: { background: "var(--w-paper)", color: "var(--w-ink)", border: "1.5px solid #2F5FA8" },
   declined: { background: "var(--w-paper)", color: "var(--w-ink-soft)", border: "1.5px dashed #8A8F99" },
