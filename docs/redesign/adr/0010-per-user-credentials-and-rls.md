@@ -1,7 +1,7 @@
 # ADR-0010: Per-user credentials only; row-level security
 
 ## Status
-Proposed
+Accepted — Michael confirmed other users get **completely separate** data (2026-10-14)
 
 ## Context
 Shared env-var credentials (`GOOGLE_TOKENS`, `SLACK_*_TOKEN`) were a fallback for every login, so two other logins ingested Michael's mail and Slack (fixed 6e123cf, owner-only). A refresh copied Michael's token into their storage. The user records' encryption key was missing locally, and tooling worked around it.

@@ -1,6 +1,6 @@
 # Basil — Architecture Redesign (clean rebuild)
 
-Status: **Proposed — for review** · Author: Claude with Michael · 2026-10-14
+Status: **Proposed — open questions answered 2026-10-14** · Author: Claude with Michael · 2026-10-14
 Decisions: [ADR index](adr/README.md)
 
 ## 1. Why redesign
@@ -35,8 +35,8 @@ Patching each one fixed the instance, not the class. The redesign removes the cl
 ### 2.2 Functional (kept)
 | # | Capability | Notes |
 |---|---|---|
-| F1 | Connect your own accounts: Google (Gmail, Calendar, Drive), Slack, Zoom, Linear | per-user OAuth only |
-| F2 | Continuous ingestion: email, Slack (channels, DMs, group DMs, threads), calendar and RSVPs, meeting recaps, Linear issues | push where possible, reconcile poll |
+| F1 | Connect your own accounts: Google (Gmail, Calendar, Drive), Slack, Linear, coding tools | per-user OAuth only. **Zoom is not connected** (it can't be connected); meetings come from Zoom's recap emails via Gmail. Decided 2026-10-14 |
+| F2 | Continuous ingestion: email, Slack (channels, DMs, group DMs, threads), calendar and RSVPs, Zoom recap emails, Linear issues | push where possible, reconcile poll |
 | F3 | **Know who's who:** one Person per human across email, Slack and Zoom; people vs organisations; internal vs external; your own identities and aliases | the foundation for trust |
 | F4 | **Understand each message once:** needs a reply? asks you to act? who committed to what, for whom, by when? decision? tone towards *you*? how long is it valid? | one shared rule set |
 | F5 | Today: priorities, *genuinely* awaiting reply, your commitments vs waiting-on, day shape, relationships needing attention | |
@@ -45,12 +45,15 @@ Patching each one fixed the instance, not the class. The redesign removes the cl
 | F8 | One briefing (daily, plus a cached on-demand operational read) and meeting prep | Stig merged in |
 | F9 | Ask Basil: reads from the context graph; write actions only after approval; conversations resumable | |
 | F10 | Memory and glossary with provenance, decay and expiry | |
-| F11 | Project radar (real projects, not tool names) | |
+| F11 | Project radar (real projects, not tool names) | **Linear issues feed the radar only, not your commitments.** Decided 2026-10-14 |
 | F12 | Admin: users, health, spend, backups | |
+| F13 | **Work Apps tab:** one left-hand navigation item that toggles between Linear, Code (AI coding tools: Claude Code, Claude.ai projects, GitHub) and any app you add later | requested 2026-10-14; see ADR-0013 |
 
 ### 2.3 Cut or deferred (unused or duplicate)
 - **Merged into F8:** the Stig engine and the Briefing's separate "operational read" pipeline.
-- **Removed for now:** Siri/Ask API (no use logged, ever); AI-platform tracking (0 items); billing/dunning (no paying users); WhatsApp import (personal contacts deleted at your request); shadow pipelines and the shadow log; learning priors.
+- **Removed for now:** billing/dunning (no paying users); WhatsApp import (personal contacts deleted at your request); shadow pipelines and the shadow log; learning priors.
+- **Maybe later:** Siri/voice, as a client of the agent API (no use logged so far; Michael: "maybe").
+- **Kept, but moved:** AI coding-tool tracking becomes the **Code** app inside the Work Apps tab (F13).
 - **Deferred until needed:** Microsoft 365 / Teams (currently disconnected).
 
 ### 2.4 Non-functional
@@ -93,7 +96,8 @@ graph TD
     SY["Synthesis (cached by input fingerprint)<br/>briefing · operational read · meeting prep · profiles · relationship reads"]
     AG["Ask Basil agent<br/>graph read tools · approval-gated write tools"]
     FX["Effects<br/>send · RSVP · post — only from approved operations"]
-    UI["Screens<br/>Today · People · Inbox · Briefing · Meetings · Chat"]
+    UI["Screens<br/>Today · People · Inbox · Briefing · Meetings · Chat · Work Apps"]
+    APPS["Work Apps hub<br/>app adapters: Linear · Code · (add more)"]
     GW["AI gateway<br/>routing · structured output · caching · budgets · evals"]
   end
 
@@ -108,6 +112,9 @@ graph TD
   U & SY & AG --> GW
   SY --> PG
   UI -->|reads views only| PG
+  UI --> APPS
+  APPS -->|adapter reads, cached| PG
+  LN --> APPS
   UI --> AG
   AG -->|queries| PG
   AG -->|proposes| PG
@@ -213,7 +220,7 @@ Infra: Neon at about $0–19/mo (small instance, point-in-time restore), Blob at
 | **0 Foundations** | New repo `basil-next`; Neon, schema and migrations (Drizzle); auth and token vault; AI gateway; observability; CI gates | Sign in, connect Google and Slack; spend metering visible |
 | **1 Ingest and resolve** | Google and Slack connectors (push + reconcile), normalise, identity resolution, Slack directory sync; 60-day backfill | Data-quality report: 0 duplicate people, self resolved across all aliases, orgs and bots separated |
 | **2 Understand and project** | The one understanding stage with evals (built from the audit's real cases); commitments, needs-reply, validity sweep; Today, People, Inbox screens | Side-by-side with today's Basil on the same week: no wrong-owner actions, no expired asks, correct last contact |
-| **3 Act and converse** | Email in-app, RSVP, pending operations and Effects; Ask Basil; briefing, operational read, meeting prep, profiles; Zoom and Linear connectors | All F1–F12 working; cost ≤ $1/day over a week |
+| **3 Act and converse** | Email in-app, RSVP, pending operations and Effects; Ask Basil; briefing, operational read, meeting prep, profiles; Zoom recap-email parsing; Work Apps hub with Linear and Code adapters | All F1–F13 working; cost ≤ $1/day over a week |
 | **4 Migrate and cut over** | Import curated contacts, profiles, notes, memories (de-duplicated), open commitments, decisions and glossary from Blob, with dry-run diff reports; 1–2 weeks shadow-running; switch the domain; old app read-only for 30 days, then retired | You sign off on the shadow comparison |
 
 The current app stays in maintenance-only mode during phases 0–3: security and breakage fixes only.
@@ -228,8 +235,8 @@ The current app stays in maintenance-only mode during phases 0–3: security and
 | Identity resolution errors | Unconfirmed people need either an identifier match or your confirmation; reversible merges |
 | Cost creep | Per-stage budgets, a daily spend report, and synthesis only on fingerprint change |
 
-## 7. Open questions for review
-1. Which **Zoom** route? Today it's recap emails via Gmail. Do you want Zoom transcripts via the API, which give better meeting understanding but need a Zoom app?
-2. Should **Linear** feed commitments (issues assigned to you) or only the project radar?
-3. Do the "handful" of other users get their **own** Basil (separate data), or **shared** visibility of anything? The design assumes fully separate.
-4. Should Siri/voice come back later as a client of the same agent API?
+## 7. Decisions on the open questions (Michael, 2026-10-14)
+1. **Zoom:** Zoom can't be connected, so keep the meeting features and continue using **recap emails via Gmail** for now. The Zoom API connector stays a later option.
+2. **Linear:** issues do **not** become commitments; they feed the project radar. Linear and Code are combined under **one left-hand tab** that toggles between apps, extensible to any app added later (F13, ADR-0013).
+3. **Other users:** **completely separate** data (ADR-0010 as designed).
+4. **Siri/voice:** **maybe later**, as a client of the agent API; not in the rebuild scope.
