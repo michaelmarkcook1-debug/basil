@@ -18,14 +18,15 @@ import {
   Search,
   Settings,
   Shield,
-  Zap,
   Lightbulb,
-  BrainCircuit,
+  FolderKanban,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { PM_ENTRY, inProjectManagement } from "@/lib/project-management/views";
 
 // ── Navigation structure — primary surfaces, organized around the user's day ─────
-// Today (the brief + signals), Linear, Meetings, People, Commitments, Memory.
+// Today (the brief + signals), Project management (Linear + AI tools), Meetings,
+// People, Commitments, Memory.
 // Signals folded into Today (one home, not two competing models).
 // Linear promoted to primary nav — it's a headline signal and was previously
 // only reachable via a home-page panel or Cmd-K (never ≤1 click, absent on mobile).
@@ -36,11 +37,10 @@ import { cn } from "@/lib/utils";
 // above, not a nav slot.
 const PRIMARY_NAV = [
   { href: "/dashboard",           label: "Today",        icon: Sparkles },
-  { href: "/dashboard/linear",    label: "Linear",       icon: Zap },
+  { href: PM_ENTRY,               label: "Project management", icon: FolderKanban },
   { href: "/dashboard/meetings",  label: "Meetings",     icon: CalendarCheck },
   { href: "/dashboard/contacts",  label: "People",       icon: Users },
   { href: "/dashboard/actions",   label: "Commitments",  icon: CheckSquare },
-  { href: "/dashboard/ai-projects", label: "AI Tools", icon: BrainCircuit },
 ] as const;
 
 // Secondary surfaces. "Full briefing" + "Weekly digest" are removed — the
@@ -124,7 +124,10 @@ export function AppSidebar({
 }) {
   const pathname = usePathname();
   const isActive = (href: string) =>
-    href === "/dashboard" ? pathname === "/dashboard" : pathname.startsWith(href);
+    href === "/dashboard" ? pathname === "/dashboard"
+    // Linear and AI tools are the two views of one tab.
+    : href === PM_ENTRY ? inProjectManagement(pathname)
+    : pathname.startsWith(href);
 
   const [isAdmin, setIsAdmin] = useState(false);
   const [userName, setUserName] = useState("");
@@ -155,7 +158,7 @@ export function AppSidebar({
       className={cn(
         "basil-chrome relative flex flex-col bg-sidebar py-4 overflow-hidden",
         "border-r border-sidebar-border/60",
-        expanded ? "w-full h-full border-r-0" : "w-[52px] lg:w-[220px]"
+        expanded ? "w-full h-full border-r-0" : "w-[52px] lg:w-[236px]"
       )}
     >
       {/* Subtle atmospheric glow */}

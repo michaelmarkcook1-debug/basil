@@ -328,7 +328,7 @@ test("chat exposes a Stop control and never hides the live conversation", () => 
 });
 
 test("Linear cards are keyboard-operable", () => {
-  const src = read("app/dashboard/linear/page.tsx");
+  const src = read("app/dashboard/(project-management)/linear/page.tsx");
   assert.ok(/role="button"/.test(src) && /tabIndex=\{0\}/.test(src) && /onKeyDown=/.test(src),
     "Card renders a div; onClick alone made the whole Linear list keyboard-unreachable");
 });

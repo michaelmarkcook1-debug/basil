@@ -32,6 +32,7 @@ import {
 } from "lucide-react";
 import { NeedsAttention } from "@/components/shared/needs-attention";
 import { cn } from "@/lib/utils";
+import { ViewActions } from "../view-actions";
 import type { LinearIssue, LinearTeam, LinearWorkflowState, LinearComment, LinearNotification, LinearUser, LinearLabel } from "@/lib/linear/client";
 
 // ── Priority helpers ───────────────────────────────────────────────────────
@@ -893,14 +894,7 @@ export default function LinearPage() {
 
   if (notConnected) {
     return (
-      <div className="p-4 sm:p-6 lg:p-8">
-        <header className="flex items-center gap-3 mb-8">
-          <Triangle className="h-5 w-5 text-[color:var(--w-carbon)]" />
-          <div>
-            <h1 className="text-2xl font-semibold tracking-tight">Linear</h1>
-            <p className="text-sm text-muted-foreground mt-0.5">Issues, projects and blockers</p>
-          </div>
-        </header>
+      <div className="px-4 pb-4 pt-5 sm:px-6 sm:pb-6 lg:px-8 lg:pb-8">
         <Card className="rounded-lg border border-border/60">
           <CardContent className="py-12 text-center space-y-3">
             <AlertCircle className="h-10 w-10 mx-auto text-muted-foreground/30" />
@@ -921,19 +915,12 @@ export default function LinearPage() {
   const unreadCount = notifications.filter((n) => !n.readAt).length;
 
   return (
-    <div className="wire p-4 sm:p-6 lg:p-8 space-y-5">
+    <div className="px-4 pb-4 pt-5 sm:px-6 sm:pb-6 lg:px-8 lg:pb-8 space-y-5">
       {/* Forward toast */}
       <ForwardToast visible={forwardToastVisible} />
 
-      {/* Header */}
-      <header className="flex items-start justify-between gap-4">
-        <div className="flex items-center gap-3">
-          <Triangle className="h-5 w-5 text-[color:var(--w-carbon)] shrink-0" />
-          <div>
-            <h1 className="text-2xl font-semibold tracking-tight">Linear</h1>
-            <p className="text-sm text-muted-foreground mt-0.5">Issues, projects and blockers</p>
-          </div>
-        </div>
+      {/* Title and toggle live in the Project management layout; Linear's own actions sit beside the toggle. */}
+      <ViewActions>
         <div className="flex items-center gap-2 shrink-0">
           <button
             onClick={handleRefresh}
@@ -960,7 +947,7 @@ export default function LinearPage() {
             </Button>
           )}
         </div>
-      </header>
+      </ViewActions>
 
       {/* Tab switcher */}
       <div className="flex items-center gap-1 border-b border-border/50">

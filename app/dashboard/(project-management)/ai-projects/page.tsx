@@ -20,6 +20,7 @@ import { cn } from "@/lib/utils";
 import { relativeTime } from "@/lib/utils";
 import type { AIProject, AIProjectsData, Category, Platform } from "@/lib/ai-projects/types";
 import { PLATFORM_LABELS } from "@/lib/ai-projects/types";
+import { ViewActions } from "../view-actions";
 
 // ── Styles helpers ────────────────────────────────────────────────────────────
 
@@ -468,18 +469,9 @@ export default function AIProjectsPage() {
     : 0;
 
   return (
-    <div className="wire p-4 sm:p-6 lg:p-10 space-y-8 max-w-[1200px] mx-auto">
-      {/* Header */}
-      <div className="flex items-center justify-between gap-4 flex-wrap">
-        <div>
-          <h1 className="text-2xl font-semibold tracking-tight flex items-center gap-2">
-            <BrainCircuit className="h-6 w-6 text-[color:var(--w-carbon)]" />
-            AI Tools
-          </h1>
-          <p className="text-sm text-muted-foreground mt-1">
-            Track recent work across your AI and dev platforms.
-          </p>
-        </div>
+    <div className="px-4 pb-4 pt-5 sm:px-6 sm:pb-6 lg:px-8 lg:pb-8 space-y-8">
+      {/* Title and toggle live in the Project management layout; AI tools' own actions sit beside the toggle. */}
+      <ViewActions>
         <div className="flex gap-2">
           <Button
             variant="outline"
@@ -500,7 +492,7 @@ export default function AIProjectsPage() {
             Sync all
           </Button>
         </div>
-      </div>
+      </ViewActions>
 
       {/* Log AI work form */}
       {showLogForm && (

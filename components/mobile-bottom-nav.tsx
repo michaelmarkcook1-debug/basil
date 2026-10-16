@@ -4,22 +4,20 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import {
   Sparkles,
-  Zap,
   CalendarCheck,
+  FolderKanban,
   Users,
-  BrainCircuit,
   MoreHorizontal,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { PM_ENTRY, inProjectManagement } from "@/lib/project-management/views";
 
-// Primary bottom-bar tabs. Today, Linear, AI Projects, Meetings, People are the
-// thumb-reachable surfaces; Commitments + Memory + Ask Basil live behind "More"
-// (which opens the full sidebar drawer). AI Projects is promoted here so the
-// GitHub/Vercel/Linear project view is one tap away on phone, not buried in More.
+// Primary bottom-bar tabs: Today, Project management ("Projects" here for width;
+// Linear + AI tools, toggled at the top of the page), Meetings, People.
+// Commitments, Memory and the rest live behind "More" (the full sidebar drawer).
 const TABS = [
   { href: "/dashboard",            label: "Today",    icon: Sparkles },
-  { href: "/dashboard/linear",     label: "Linear",   icon: Zap },
-  { href: "/dashboard/ai-projects", label: "AI Tools", icon: BrainCircuit },
+  { href: PM_ENTRY,                label: "Projects", icon: FolderKanban },
   { href: "/dashboard/meetings",   label: "Meetings", icon: CalendarCheck },
   { href: "/dashboard/contacts",   label: "People",   icon: Users },
 ] as const;
@@ -32,7 +30,9 @@ export function MobileBottomNav({ onMoreClick }: MobileBottomNavProps) {
   const pathname = usePathname();
 
   const isActive = (href: string) =>
-    href === "/dashboard" ? pathname === "/dashboard" : pathname.startsWith(href);
+    href === "/dashboard" ? pathname === "/dashboard"
+    : href === PM_ENTRY ? inProjectManagement(pathname)
+    : pathname.startsWith(href);
 
   const moreActive = !TABS.some((t) => isActive(t.href));
 
