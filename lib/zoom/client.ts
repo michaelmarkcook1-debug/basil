@@ -148,7 +148,14 @@ export async function getPastMeetings(
     // "pastJoined" also returns meetings you JOINED but didn't host — group calls
     // someone else ran, which is most of them. "past" (hosted only) is the
     // fallback if the account's plan or Zoom rejects it (zoomGet returns null).
-    const data = (await report("pastJoined")) ?? (await report("past"));
+    // Report endpoints need the Reports role privilege, which Zoom gives admins
+    // only by default — so a Member gets null from both and falls through to the
+    // host-level list: meetings you hosted, no participant counts.
+    const to = new Date().toISOString().split("T")[0];
+    const data = (await report("pastJoined")) ?? (await report("past")) ?? (await zoomGet<Report>(
+      username,
+      `/users/me/meetings?type=previous_meetings&from=${from}&to=${to}&page_size=${Math.min(maxResults, 300)}`
+    ));
 
     return (data?.meetings ?? []).slice(0, maxResults).map((m) => ({
       id:               String(m.id),
@@ -186,7 +193,7 @@ export async function getMeetingParticipants(
       ? encodeURIComponent(encodeURIComponent(meetingUuid))
       : encodeURIComponent(meetingUuid);
 
-    const data = await zoomGet<{
+    type Participants = {
       participants?: Array<{
         name: string;
         user_email?: string;
@@ -194,7 +201,12 @@ export async function getMeetingParticipants(
         leave_time?: string;
         duration?: number;
       }>;
-    }>(username, `/report/meetings/${encoded}/participants?page_size=100`);
+    };
+    // Report first (admin-level, covers meetings you only joined); the host-level
+    // past_meetings endpoint has the same shape and needs no admin privilege.
+    const data =
+      (await zoomGet<Participants>(username, `/report/meetings/${encoded}/participants?page_size=100`)) ??
+      (await zoomGet<Participants>(username, `/past_meetings/${encoded}/participants?page_size=100`));
 
     return (data?.participants ?? []).map((p) => ({
       name:      p.name,

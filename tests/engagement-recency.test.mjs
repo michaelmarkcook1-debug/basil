@@ -101,7 +101,9 @@ test("a Zoom meeting fetched from the API records contact with every participant
 
 test("Zoom is asked for meetings you joined, falling back to hosted-only", () => {
   const s = src("lib/zoom/client.ts");
-  assert.match(s, /const data = \(await report\("pastJoined"\)\) \?\? \(await report\("past"\)\);/);
+  // Then to the host-level list for Members without the Reports privilege
+  // (behaviour pinned in zoom-member-fallback.test.mjs).
+  assert.match(s, /const data = \(await report\("pastJoined"\)\) \?\? \(await report\("past"\)\) \?\?/);
 });
 
 // ── What counts as a relationship risk ───────────────────────────────────────
