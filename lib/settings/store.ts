@@ -65,6 +65,12 @@ export interface UserSettings {
   briefingEmail?: boolean;
   /** Deliver the daily briefing as a Slack DM (opt-in, default off). */
   briefingSlack?: boolean;
+  /**
+   * Read how each relationship feels (tone, trend, shifts) from message history.
+   * Default on. Off stops the model reads and the per-message tone shifts, and
+   * hides tone everywhere; stored reads are kept but not shown.
+   */
+  toneSentiment?: boolean;
 }
 
 /** Base defaults — used as fallback for any unset field. */
@@ -139,7 +145,7 @@ export async function patchSettings(
   const safe: Partial<UserSettings> = {};
   const keys: Array<keyof UserSettings> = [
     "name", "timezone", "workStart", "workEnd", "videoTool", "meetingUrl", "useIpTimezone", "githubToken", "openaiApiKey", "anthropicApiKey", "geminiApiKey", "pinnedSlackContacts",
-    "briefingEmail", "briefingSlack",
+    "briefingEmail", "briefingSlack", "toneSentiment",
   ];
   for (const k of keys) {
     if (patch[k] !== undefined) {

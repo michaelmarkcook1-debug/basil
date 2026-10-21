@@ -32,6 +32,7 @@ function sentiment(store = {}) {
     "@/lib/slack/client": { getRecentSlackMessages: async () => { fetches.slack++; return []; } },
     "@/lib/google/gmail": { getRecentEmails: async () => [] },
     "@/lib/ai/generate": { generateTextSafe: async () => { throw new Error("no model in tests"); } },
+    "@/lib/settings/store": { getSettings: async () => ({ toneSentiment: files.toneSentiment }) },
     "@/lib/ai/model-config": { getTextModel: () => "fast" },
     "@/lib/ai/parse-json": loadTs("lib/ai/parse-json.ts", { zod: require("zod") }),
   });

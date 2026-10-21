@@ -35,6 +35,7 @@ const SettingsPatchSchema = z.object({
   pinnedSlackContacts: z.array(z.string().max(200)).max(100).optional(),
   briefingEmail: z.boolean().optional(),
   briefingSlack: z.boolean().optional(),
+  toneSentiment: z.boolean().optional(),
   // Email aliases / send-as addresses (stored on the user record, not settings).
   aliasEmails: z.array(z.string().email().max(320)).max(20).optional(),
 });

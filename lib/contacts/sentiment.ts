@@ -25,6 +25,7 @@ import { getRecentEmails, type GmailMessage } from "@/lib/google/gmail";
 import { generateTextSafe } from "@/lib/ai/generate";
 import { getTextModel } from "@/lib/ai/model-config";
 import { parseAndValidate } from "@/lib/ai/parse-json";
+import { getSettings } from "@/lib/settings/store";
 
 const FILE = "contact-sentiment.json";
 const WINDOW_DAYS = 30;
@@ -168,6 +169,11 @@ export function makeModelSentimentJudge(username: string): SentimentJudge {
 
 type Store = Record<string, RelationshipSentiment>;
 
+/** The Settings switch: on unless the user turned tone & sentiment off. */
+export async function toneSentimentEnabled(username: string): Promise<boolean> {
+  return (await getSettings(username)).toneSentiment !== false;
+}
+
 export async function listSentiment(username: string): Promise<Store> {
   return readUserStore<Store>(username, FILE, {});
 }
@@ -236,6 +242,7 @@ export async function assessRelationship(
 
 /** Re-read every relationship with something new (once a day each, bounded). Returns how many were re-judged. */
 export async function refreshStaleSentiment(username: string, max = 8, now = Date.now()): Promise<number> {
+  if (!(await toneSentimentEnabled(username))) return 0;
   const [contacts, sources, identity, overrides, stored] = await Promise.all([
     listUserContacts(username), loadInteractionSources(username), getSelfIdentity(username),
     getAllOverridesFromStore(username).catch(() => ({} as Record<string, { toneHistory?: ToneObservation[] }>)),

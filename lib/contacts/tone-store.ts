@@ -12,6 +12,7 @@ import type { ToneShift } from "@/lib/email/classify-email";
 import { sampleContacts } from "@/lib/contacts-data";
 import { listUserContacts } from "@/lib/contacts/user-store";
 import { appendToneObservation } from "@/lib/contacts/overrides-store";
+import { getSettings } from "@/lib/settings/store";
 
 // ── Name matching ─────────────────────────────────────────────────────────────
 
@@ -93,6 +94,10 @@ export async function writeToneObservations(
   source: "email" | "slack" | "zoom",
   sourceRef: string
 ): Promise<void> {
+  if (toneShifts.length === 0) return;
+  // Tone & sentiment switched off in Settings: the classifier may still name
+  // shifts, but none are kept.
+  if ((await getSettings(username)).toneSentiment === false) return;
   for (const shift of toneShifts) {
     if (!shift.person?.trim() || !shift.summary?.trim()) continue;
 

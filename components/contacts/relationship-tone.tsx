@@ -8,6 +8,7 @@
  */
 import useSWR from "swr";
 import { useState } from "react";
+import Link from "next/link";
 import { Loader2, MessageCircle, RefreshCw } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -50,7 +51,7 @@ export function toneLine(s: RelationshipSentiment): string {
   return `${TONE[s.tone]?.label ?? s.tone} · ${TREND[s.trend]?.label.slice(2).toLowerCase() ?? s.trend}`;
 }
 
-interface OneResponse { sentiment: RelationshipSentiment | null; interactions: number; minInteractions: number; error?: string }
+interface OneResponse { sentiment: RelationshipSentiment | null; interactions?: number; minInteractions?: number; disabled?: boolean; error?: string }
 
 async function fetchOne(url: string): Promise<OneResponse> {
   const r = await fetch(url, { cache: "no-store" });
@@ -107,10 +108,14 @@ export function RelationshipToneCard({
           <p className="flex items-center gap-2 text-sm text-muted-foreground">
             <Loader2 className="size-4 animate-spin" /> Reading the last 30 days with {first}…
           </p>
+        ) : data.disabled ? (
+          <p className="text-sm text-muted-foreground">
+            Tone &amp; sentiment is switched off. Turn it on in <Link href="/dashboard/settings" className="underline underline-offset-2">Settings</Link> to have Basil read how {first} comes across.
+          </p>
         ) : !s ? (
           <p className="text-sm text-muted-foreground">
             Not enough recent messages with {first} to read the tone yet
-            {` (${data.interactions} in the last 30 days; Basil needs ${data.minInteractions}).`}
+            {` (${data.interactions ?? 0} in the last 30 days; Basil needs ${data.minInteractions ?? 2}).`}
           </p>
         ) : (
           <>
@@ -135,7 +140,7 @@ export function RelationshipToneCard({
           </>
         )}
 
-        {shifts.length > 0 && (
+        {shifts.length > 0 && !data?.disabled && (
           <div className="border-t border-[var(--w-rule)] pt-3">
             <p className="mb-2 text-xs font-semibold uppercase tracking-widest text-muted-foreground">Shifts Basil noticed</p>
             <ul className="space-y-2">

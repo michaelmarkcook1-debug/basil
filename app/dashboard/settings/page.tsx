@@ -117,6 +117,7 @@ interface UserSettings {
   useIpTimezone?: boolean;
   briefingEmail?: boolean;
   briefingSlack?: boolean;
+  toneSentiment?: boolean;
   aliasEmails?: string[];
   profile?: {
     firstName?: string;
@@ -1172,6 +1173,7 @@ export default function SettingsPage() {
           useIpTimezone: draft.useIpTimezone,
           briefingEmail: draft.briefingEmail,
           briefingSlack: draft.briefingSlack,
+          toneSentiment: draft.toneSentiment ?? true,
           aliasEmails: draft.aliasEmails ?? [],
         }),
       });
@@ -1652,6 +1654,34 @@ export default function SettingsPage() {
               <Button size="sm" onClick={saveProfile} disabled={savingProfile || !draft}>
                 {savingProfile ? <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" /> : null}
                 Save delivery preferences
+              </Button>
+            </CardContent>
+          </Card>
+
+          <Card className="shadow-sm mt-6">
+            <CardHeader className="pb-3">
+              <CardTitle className="text-base font-semibold">Tone &amp; sentiment</CardTitle>
+              <p className="text-xs text-muted-foreground">
+                Basil reads your last 30 days of messages with each person to say how they come across to you, and whether that is warming or cooling. It shows on People, Today and in meeting prep.
+              </p>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              <label className="flex items-center gap-2 text-sm text-muted-foreground">
+                <input
+                  type="checkbox"
+                  role="switch"
+                  aria-checked={draft?.toneSentiment ?? true}
+                  checked={draft?.toneSentiment ?? true}
+                  onChange={(e) => setDraft((d) => d ? { ...d, toneSentiment: e.target.checked } : d)}
+                />
+                Read tone &amp; sentiment for my relationships
+              </label>
+              <p className="text-xs text-muted-foreground">
+                Off: no reads are made, the model is not called, and nothing about tone is shown. Earlier reads are kept but hidden until you turn it back on.
+              </p>
+              <Button size="sm" onClick={saveProfile} disabled={savingProfile || !draft}>
+                {savingProfile ? <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" /> : null}
+                Save
               </Button>
             </CardContent>
           </Card>

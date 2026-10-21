@@ -8,7 +8,7 @@
 import { NextResponse, after } from "next/server";
 import { getSessionUser } from "@/lib/auth";
 import { listUserContacts } from "@/lib/contacts/user-store";
-import { assessRelationship, listSentiment, refreshStaleSentiment, MIN_INTERACTIONS } from "@/lib/contacts/sentiment";
+import { assessRelationship, listSentiment, refreshStaleSentiment, toneSentimentEnabled, MIN_INTERACTIONS } from "@/lib/contacts/sentiment";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 120;
@@ -28,6 +28,8 @@ async function one(username: string, id: string, force: boolean) {
 export async function GET(req: Request) {
   const username = await getSessionUser();
   if (!username) return NextResponse.json({ error: "Unauthorised" }, { status: 401 });
+  // Switched off in Settings: no reads happen and none are shown.
+  if (!(await toneSentimentEnabled(username))) return NextResponse.json({ sentiment: {}, disabled: true });
   const id = new URL(req.url).searchParams.get("id");
   if (id) return one(username, id, false);
 
@@ -51,5 +53,6 @@ export async function POST(req: Request) {
   if (!username) return NextResponse.json({ error: "Unauthorised" }, { status: 401 });
   const body = await req.json().catch(() => ({})) as { id?: unknown };
   if (typeof body.id !== "string" || !body.id) return NextResponse.json({ error: "id is required" }, { status: 400 });
+  if (!(await toneSentimentEnabled(username))) return NextResponse.json({ error: "Tone & sentiment is switched off in Settings." }, { status: 409 });
   return one(username, body.id, true);
 }
