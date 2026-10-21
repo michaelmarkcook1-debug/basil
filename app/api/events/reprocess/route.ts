@@ -103,7 +103,9 @@ export async function POST(req: Request) {
     (ev) => ev.source === "email" &&
     (ev.externalId!.startsWith("gmail:") || ev.externalId!.startsWith("outlook:"))
   );
-  const zoomEvents   = toClassify.filter((ev) => ev.source === "zoom_email");
+  // Digest meetings ("zoom-digest:…") have no Gmail message of their own; the
+  // sync re-reads the digest instead.
+  const zoomEvents   = toClassify.filter((ev) => ev.source === "zoom_email" && ev.externalId!.startsWith("gmail:"));
   const slackEvents  = toClassify.filter(
     (ev) => ev.source === "slack" && ev.externalId!.startsWith("slack:")
   );

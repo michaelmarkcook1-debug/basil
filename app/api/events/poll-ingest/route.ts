@@ -18,7 +18,8 @@ import { publish } from "@/lib/events/bus";
 import { generateDraftForEvent } from "@/lib/events/drafter";
 import type { IngestPayload, BasilEvent } from "@/lib/events/types";
 import { getTodayEvents, getEventsForMonth } from "@/lib/google/calendar";
-import { getRecentEmails, searchEmails } from "@/lib/google/gmail";
+import { getEmailBody, getRecentEmails, searchEmails } from "@/lib/google/gmail";
+import { ZOOM_DIGEST_GMAIL_QUERY, digestMeetingRef, digestMeetingText, isZoomDigest, parseZoomDigest, type DigestMeeting } from "@/lib/zoom/digest";
 import { resolveThreadActions } from "@/lib/actions/resolve-threads";
 import { captureSentPromises } from "@/lib/commitments/capture";
 import { getRecentSlackMessages } from "@/lib/slack/client";
@@ -1026,6 +1027,75 @@ export async function POST(req: Request) {
     });
   }
 
+  // ── Zoom digest: calls the user joined but didn't host ────────────────────
+  // Zoom only emails recaps to the host. The user's own digest ("Meeting
+  // Summaries — Calls You Didn't Host", from their alias) lists the rest, one
+  // section per meeting over a rolling 30 days. Each meeting is its own event
+  // (stable id, so a repeat in tomorrow's digest is skipped) and goes through
+  // the same extraction as a recap. Capped per run and processed one at a time:
+  // extraction takes seconds per meeting, and the stores are read-modify-write.
+  const DIGEST_PER_RUN = 10;
+  let digestQueued = 0;
+  let digestUnusable = 0;
+  try {
+    const digests = (await searchEmails(username, ZOOM_DIGEST_GMAIL_QUERY, 5))
+      .filter((m) => isZoomDigest(m, selfIdentity));
+    const seen = new Set<string>();
+    const fresh: Array<{ m: DigestMeeting; ref: string; gmailId: string }> = [];
+    for (const d of digests) {
+      if (fresh.length >= DIGEST_PER_RUN) break;
+      const full = await getEmailBody(username, d.id);
+      for (const m of parseZoomDigest(full.body ?? "")) {
+        const ref = digestMeetingRef(m);
+        if (seen.has(ref)) continue;
+        seen.add(ref);
+        // An unusable summary gets no event, so a corrected digest can still land.
+        if (!m.usable) { digestUnusable++; continue; }
+        if (await hasExternalId(username, ref)) continue;
+        if (fresh.length < DIGEST_PER_RUN) fresh.push({ m, ref, gmailId: d.id });
+      }
+    }
+    const queued: Array<{ m: DigestMeeting; ref: string; gmailId: string; eventId: string }> = [];
+    for (const f of fresh) {
+      const event = await createEvent(username, eventFromIngest({
+        source: "zoom_email",
+        externalId: f.ref,
+        title: f.m.title,
+        body: `Hosted by ${f.m.host}. ${f.m.summary}`.slice(0, 2000),
+        from: f.m.host,
+        date: f.m.date,
+      }));
+      publish(event);
+      queued.push({ ...f, eventId: event.id });
+    }
+    digestQueued = queued.length;
+    if (digests.length || digestUnusable) {
+      console.log(
+        `[poll-ingest] zoom digest: ${digests.length} digest email(s), ${digestQueued} new meeting(s) queued` +
+        (digestUnusable ? `, ${digestUnusable} skipped (summary unusable)` : "")
+      );
+    }
+    if (queued.length) {
+      after(async () => {
+        for (const q of queued) {
+          await processZoomEmail({
+            username,
+            gmailId: q.gmailId,
+            externalId: q.ref,
+            eventId: q.eventId,
+            subject: q.m.title,
+            dateFallback: q.m.date,
+            body: digestMeetingText(q.m),
+            ensureAttendees: [q.m.host],
+          });
+        }
+        await forceFlushSnapshot();
+      });
+    }
+  } catch (err) {
+    console.error("[poll-ingest] zoom digest failed:", err instanceof Error ? err.message : err);
+  }
+
   // Run event compaction after ingestion — keeps the events store small
   // so the BASIL_DATA snapshot stays within Vercel's env var size limit.
   // Fire-and-forget: compaction never fails the poll-ingest response.
@@ -1231,6 +1301,8 @@ export async function POST(req: Request) {
     zoom: {
       detected: zoomEmails.length,
       ingested: zoomIngested,
+      // Meetings from the "calls you didn't host" digest, queued this run.
+      digestQueued,
     },
     // Intelligence queues are async fire-and-forget.  Actual materialization
     // counts are emitted to server logs since they complete after this response.

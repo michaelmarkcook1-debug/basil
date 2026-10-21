@@ -299,9 +299,9 @@ export async function processRegularEmail(opts: ProcessEmailOpts): Promise<void>
 export interface ProcessZoomEmailOpts {
   /** Username to scope Google API calls to. Required — no fallback. */
   username: string;
-  /** Raw Gmail message ID (no "gmail:" prefix). */
+  /** Raw Gmail message ID (no "gmail:" prefix). Unused when `body` is given. */
   gmailId: string;
-  /** "gmail:<id>" — used as sourceRef on every created record. */
+  /** "gmail:<id>" (or "zoom-digest:…") — used as sourceRef on every created record. */
   externalId: string;
   /** ID of the BasilEvent created for this email. */
   eventId: string;
@@ -312,6 +312,14 @@ export interface ProcessZoomEmailOpts {
    * Prefer ISO dates from the Gmail envelope; omit to fall back to ingest time.
    */
   dateFallback?: string;
+  /**
+   * The recap text, already in hand — one meeting from the "calls you didn't
+   * host" digest (lib/zoom/digest.ts). Skips the Gmail fetch; `dateFallback`
+   * is then the meeting's own date.
+   */
+  body?: string;
+  /** People known to have been there (the digest's host), added if extraction missed them. */
+  ensureAttendees?: string[];
 }
 
 /**
@@ -336,7 +344,9 @@ export async function processZoomEmail(opts: ProcessZoomEmailOpts): Promise<void
   const selfIdentity = await getSelfIdentity(username);
 
   try {
-    const fullEmail = await getEmailBody(username, gmailId);
+    const fullEmail = opts.body !== undefined
+      ? { body: opts.body, date: dateFallback }
+      : await getEmailBody(username, gmailId);
     if (!fullEmail?.body) {
       console.warn(`[zoom-process] body empty for ${externalId} — skipping extraction`);
       return;
@@ -361,6 +371,10 @@ export async function processZoomEmail(opts: ProcessZoomEmailOpts): Promise<void
     }
 
     const extract = await extractZoomMeeting(plainBody, { subject, date }, username);
+    for (const name of opts.ensureAttendees ?? []) {
+      const n = name.trim();
+      if (n && !extract.attendees.some((a) => a.trim().toLowerCase() === n.toLowerCase())) extract.attendees.push(n);
+    }
 
     console.log(
       `[zoom-process] extracted for ${externalId}: ` +
