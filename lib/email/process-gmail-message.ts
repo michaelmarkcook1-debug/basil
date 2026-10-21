@@ -320,6 +320,12 @@ export interface ProcessZoomEmailOpts {
   body?: string;
   /** People known to have been there (the digest's host), added if extraction missed them. */
   ensureAttendees?: string[];
+  /**
+   * Context only: notes, decisions and attendees, but no actions (action
+   * items, blockers, follow-ups, decision consequences). For backfilled
+   * meetings old enough that their "will do" items are history.
+   */
+  notesOnly?: boolean;
 }
 
 /**
@@ -391,7 +397,7 @@ export async function processZoomEmail(opts: ProcessZoomEmailOpts): Promise<void
     }
 
     const zoomAuditEntries: AuditEntry[] = [];
-    const zoomATier = zoomActionTier(extract.confidence);
+    const zoomATier = opts.notesOnly ? "skip" : zoomActionTier(extract.confidence);
     // Follow-ups, blockers and decision consequences are meeting NOTES. Each
     // becomes an action only when it names the user (theirs) or reads "<Name>
     // to …" (waiting on that person); the rest stay in the recap. Every one of
@@ -490,6 +496,7 @@ export async function processZoomEmail(opts: ProcessZoomEmailOpts): Promise<void
           // Create follow-up actions for explicit decision consequences
           for (const consequence of dec.consequences ?? []) {
             if (!consequence.trim()) continue;
+            if (opts.notesOnly) { notesKeptAsNotes++; continue; }
             const consequenceOwner = noteOwner(consequence);
             if (!consequenceOwner) { notesKeptAsNotes++; continue; }
             try {

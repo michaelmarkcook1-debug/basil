@@ -177,3 +177,23 @@ export function coveredByHostedRecap(
     return at >= t - 86_400_000 && at <= t + 3 * 86_400_000;
   });
 }
+
+/**
+ * A meeting booked under an address outside the user's own domains (e.g. a
+ * personal Gmail in the title) is personal, not work: Basil leaves it out.
+ */
+export function isPersonalMeeting(m: Pick<DigestMeeting, "title">, self: SelfIdentity): boolean {
+  const own = new Set(self.emails.map((e) => e.split("@")[1]).filter(Boolean));
+  const addrs = m.title.toLowerCase().match(/[a-z0-9._%+-]+@[a-z0-9.-]+\.[a-z]{2,}/g) ?? [];
+  return addrs.some((a) => !own.has(a.split("@")[1]));
+}
+
+/**
+ * Backfilled meetings older than this add context only — notes, decisions and
+ * who was there — not open actions: three-week-old "will do X" items are
+ * mostly done, and would bury the live list.
+ */
+export const DIGEST_ACTION_WINDOW_DAYS = 7;
+export function digestNotesOnly(m: Pick<DigestMeeting, "date">, now = Date.now()): boolean {
+  return now - Date.parse(m.date) > DIGEST_ACTION_WINDOW_DAYS * 86_400_000;
+}

@@ -118,3 +118,22 @@ test("a digest meeting Zoom already recapped (the user hosted it) is a duplicate
   assert.equal(D.coveredByHostedRecap(m, []), false);
   assert.match(src("app/api/events/poll-ingest/route.ts"), /if \(coveredByHostedRecap\(m, hostedRecaps\)\) \{ digestCovered\+\+; continue; \}/);
 });
+
+test("a meeting booked under a personal address is left out; work addresses are not", () => {
+  const self = { emails: ["me@work.example", "me@alias.example"], names: [] };
+  assert.equal(D.isPersonalMeeting({ title: "Roadmap call: Mike & Pam (someone@gmail.com)" }, self), true);
+  assert.equal(D.isPersonalMeeting({ title: "Sync with me@alias.example" }, self), false);
+  assert.equal(D.isPersonalMeeting({ title: "TalentGenius GTM standup" }, self), false);
+});
+
+test("backfilled meetings older than a week add context, not open actions", () => {
+  const now = Date.parse("2026-10-22T09:00:00Z");
+  assert.equal(D.digestNotesOnly({ date: "2026-10-21T18:29:00Z" }, now), false);
+  assert.equal(D.digestNotesOnly({ date: "2026-10-08T18:00:00Z" }, now), true);
+  const r = src("app/api/events/poll-ingest/route.ts");
+  assert.match(r, /if \(isPersonalMeeting\(m, selfIdentity\)\) \{ digestPersonal\+\+; continue; \}/);
+  assert.match(r, /notesOnly: digestNotesOnly\(q\.m\)/);
+  const p = src("lib/email/process-gmail-message.ts");
+  assert.match(p, /const zoomATier = opts\.notesOnly \? "skip" : zoomActionTier/, "no action items, blockers or follow-ups");
+  assert.match(p, /if \(opts\.notesOnly\) \{ notesKeptAsNotes\+\+; continue; \}/, "no decision-consequence actions either");
+});

@@ -19,7 +19,7 @@ import { generateDraftForEvent } from "@/lib/events/drafter";
 import type { IngestPayload, BasilEvent } from "@/lib/events/types";
 import { getTodayEvents, getEventsForMonth } from "@/lib/google/calendar";
 import { getEmailBody, getRecentEmails, searchEmails } from "@/lib/google/gmail";
-import { ZOOM_DIGEST_GMAIL_QUERY, coveredByHostedRecap, digestMeetingRef, digestMeetingText, isZoomDigest, parseZoomDigest, type DigestMeeting } from "@/lib/zoom/digest";
+import { ZOOM_DIGEST_GMAIL_QUERY, coveredByHostedRecap, digestMeetingRef, digestMeetingText, digestNotesOnly, isPersonalMeeting, isZoomDigest, parseZoomDigest, type DigestMeeting } from "@/lib/zoom/digest";
 import { resolveThreadActions } from "@/lib/actions/resolve-threads";
 import { captureSentPromises } from "@/lib/commitments/capture";
 import { getRecentSlackMessages } from "@/lib/slack/client";
@@ -1050,6 +1050,7 @@ export async function POST(req: Request) {
           .map((e) => ({ title: String(e.payload?.title ?? e.headline ?? ""), at: e.createdAt }))
       : [];
     let digestCovered = 0;
+    let digestPersonal = 0;
     for (const d of digests) {
       if (fresh.length >= DIGEST_PER_RUN) break;
       const full = await getEmailBody(username, d.id);
@@ -1059,6 +1060,7 @@ export async function POST(req: Request) {
         seen.add(ref);
         // An unusable summary gets no event, so a corrected digest can still land.
         if (!m.usable) { digestUnusable++; continue; }
+        if (isPersonalMeeting(m, selfIdentity)) { digestPersonal++; continue; }
         if (await hasExternalId(username, ref)) continue;
         if (coveredByHostedRecap(m, hostedRecaps)) { digestCovered++; continue; }
         if (fresh.length < DIGEST_PER_RUN) fresh.push({ m, ref, gmailId: d.id });
@@ -1082,7 +1084,8 @@ export async function POST(req: Request) {
       console.log(
         `[poll-ingest] zoom digest: ${digests.length} digest email(s), ${digestQueued} new meeting(s) queued` +
         (digestUnusable ? `, ${digestUnusable} skipped (summary unusable)` : "") +
-        (digestCovered ? `, ${digestCovered} skipped (already in a Zoom recap)` : "")
+        (digestCovered ? `, ${digestCovered} skipped (already in a Zoom recap)` : "") +
+        (digestPersonal ? `, ${digestPersonal} skipped (personal)` : "")
       );
     }
     if (queued.length) {
@@ -1097,6 +1100,7 @@ export async function POST(req: Request) {
             dateFallback: q.m.date,
             body: digestMeetingText(q.m),
             ensureAttendees: [q.m.host],
+            notesOnly: digestNotesOnly(q.m),
           });
         }
         await forceFlushSnapshot();
