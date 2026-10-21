@@ -143,3 +143,37 @@ export function digestMeetingRef(m: Pick<DigestMeeting, "title" | "date">): stri
 export function digestMeetingText(m: DigestMeeting): string {
   return `Meeting: ${m.title}\nHost: ${m.host}\nDate: ${m.date.slice(0, 10)}\nMeeting participants: ${m.host}\n\nSummary:\n${m.summary}`;
 }
+
+/**
+ * A meeting title as Zoom's own recap emails phrase it, reduced to its words:
+ * "Fwd: Meeting assets for NH Acquisition are ready!" → "nh acquisition".
+ */
+export function recapMeetingTitle(subject: string): string {
+  return subject
+    .replace(/^\s*(?:(?:re|fwd?|fw)\s*:\s*)+/i, "")
+    .replace(/^meeting assets for\s+/i, "")
+    .replace(/\s+are ready!?\s*$/i, "")
+    .replace(/^meeting summary (?:with ai companion )?(?:for|of)\s+/i, "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, " ")
+    .trim();
+}
+
+/**
+ * True when Zoom already mailed a recap for this meeting (the user hosted it),
+ * so the digest copy would be a duplicate. Same title, recap seen from a day
+ * before the meeting to three days after (recaps are ingested at sync time).
+ */
+export function coveredByHostedRecap(
+  m: Pick<DigestMeeting, "title" | "date">,
+  recaps: Array<{ title: string; at: string }>,
+): boolean {
+  const want = recapMeetingTitle(m.title);
+  if (!want) return false;
+  const t = Date.parse(m.date);
+  return recaps.some((r) => {
+    if (recapMeetingTitle(r.title) !== want) return false;
+    const at = Date.parse(r.at);
+    return at >= t - 86_400_000 && at <= t + 3 * 86_400_000;
+  });
+}

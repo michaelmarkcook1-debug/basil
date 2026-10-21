@@ -9,7 +9,7 @@
 export const maxDuration = 300;
 
 import { NextResponse, after } from "next/server";
-import { createEvent, hasExternalId, updateEvent, compactEvents } from "@/lib/events/store";
+import { createEvent, hasExternalId, listEvents, updateEvent, compactEvents } from "@/lib/events/store";
 import { forceFlushSnapshot } from "@/lib/storage/persistent";
 import { writeUserStore, readUserStore } from "@/lib/storage/user-store";
 import { HEALTH_META_FILE, type HealthMeta } from "@/lib/system/health";
@@ -19,7 +19,7 @@ import { generateDraftForEvent } from "@/lib/events/drafter";
 import type { IngestPayload, BasilEvent } from "@/lib/events/types";
 import { getTodayEvents, getEventsForMonth } from "@/lib/google/calendar";
 import { getEmailBody, getRecentEmails, searchEmails } from "@/lib/google/gmail";
-import { ZOOM_DIGEST_GMAIL_QUERY, digestMeetingRef, digestMeetingText, isZoomDigest, parseZoomDigest, type DigestMeeting } from "@/lib/zoom/digest";
+import { ZOOM_DIGEST_GMAIL_QUERY, coveredByHostedRecap, digestMeetingRef, digestMeetingText, isZoomDigest, parseZoomDigest, type DigestMeeting } from "@/lib/zoom/digest";
 import { resolveThreadActions } from "@/lib/actions/resolve-threads";
 import { captureSentPromises } from "@/lib/commitments/capture";
 import { getRecentSlackMessages } from "@/lib/slack/client";
@@ -1042,6 +1042,14 @@ export async function POST(req: Request) {
       .filter((m) => isZoomDigest(m, selfIdentity));
     const seen = new Set<string>();
     const fresh: Array<{ m: DigestMeeting; ref: string; gmailId: string }> = [];
+    // Zoom's own recaps (meetings the user hosted). The digest should only list
+    // other people's calls; if one slips in, the recap already covers it.
+    const hostedRecaps = digests.length
+      ? (await listEvents(username))
+          .filter((e) => e.source === "zoom_email" && e.externalId?.startsWith("gmail:"))
+          .map((e) => ({ title: String(e.payload?.title ?? e.headline ?? ""), at: e.createdAt }))
+      : [];
+    let digestCovered = 0;
     for (const d of digests) {
       if (fresh.length >= DIGEST_PER_RUN) break;
       const full = await getEmailBody(username, d.id);
@@ -1052,6 +1060,7 @@ export async function POST(req: Request) {
         // An unusable summary gets no event, so a corrected digest can still land.
         if (!m.usable) { digestUnusable++; continue; }
         if (await hasExternalId(username, ref)) continue;
+        if (coveredByHostedRecap(m, hostedRecaps)) { digestCovered++; continue; }
         if (fresh.length < DIGEST_PER_RUN) fresh.push({ m, ref, gmailId: d.id });
       }
     }
@@ -1072,7 +1081,8 @@ export async function POST(req: Request) {
     if (digests.length || digestUnusable) {
       console.log(
         `[poll-ingest] zoom digest: ${digests.length} digest email(s), ${digestQueued} new meeting(s) queued` +
-        (digestUnusable ? `, ${digestUnusable} skipped (summary unusable)` : "")
+        (digestUnusable ? `, ${digestUnusable} skipped (summary unusable)` : "") +
+        (digestCovered ? `, ${digestCovered} skipped (already in a Zoom recap)` : "")
       );
     }
     if (queued.length) {

@@ -107,3 +107,14 @@ test("the sync reads the digest, dedupes by meeting, caps each run, and reproces
   const p = src("lib/email/process-gmail-message.ts");
   assert.match(p, /opts\.body !== undefined\s*\? \{ body: opts\.body, date: dateFallback \}/);
 });
+
+test("a digest meeting Zoom already recapped (the user hosted it) is a duplicate and skipped", () => {
+  const m = { title: "NH Acquisition", date: "2026-10-20T14:00:00.000Z" };
+  const recap = (title, at) => [{ title, at }];
+  assert.equal(D.recapMeetingTitle("Fwd: Meeting assets for NH Acquisition are ready!"), "nh acquisition");
+  assert.equal(D.coveredByHostedRecap(m, recap("Meeting assets for NH Acquisition are ready!", "2026-10-21T05:45:00Z")), true);
+  assert.equal(D.coveredByHostedRecap(m, recap("Meeting assets for NH Acquisition are ready!", "2026-10-10T05:45:00Z")), false, "last week's recap of the same series is not this meeting");
+  assert.equal(D.coveredByHostedRecap(m, recap("Meeting assets for AG Design are ready!", "2026-10-20T15:00:00Z")), false);
+  assert.equal(D.coveredByHostedRecap(m, []), false);
+  assert.match(src("app/api/events/poll-ingest/route.ts"), /if \(coveredByHostedRecap\(m, hostedRecaps\)\) \{ digestCovered\+\+; continue; \}/);
+});
