@@ -32,6 +32,8 @@ export async function PUT(
         activitySource: z.string().optional(),
         generatedAt: z.string().optional(),
         summary: z.string().optional(),
+        ownerNotes: z.string().max(4000).optional(),
+        changes: z.string().optional(),
         toneHistory: z
           .array(
             z.object({

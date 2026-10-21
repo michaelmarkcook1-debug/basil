@@ -50,6 +50,7 @@ import {
   ArrowRightLeft,
   MessageCircle,
   Wand2,
+  Lightbulb,
   Check,
   ChevronLeft,
   Pencil,
@@ -347,6 +348,7 @@ function ContactDetail({
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
+          contactId: contact.id,
           name: contact.name,
           email: contact.email,
           phone: contact.phone,
@@ -377,7 +379,10 @@ function ContactDetail({
         recentActivity: data.recentActivity,
         activitySource: data.activitySource,
         summary: data.summary,
+        changes: data.changes,
         generatedAt: new Date().toISOString(),
+        // What the user typed becomes a stated fact that survives every regeneration.
+        ...(genNotes.trim() ? { ownerNotes: [override?.ownerNotes?.trim(), genNotes.trim()].filter(Boolean).join("\n\n") } : {}),
       });
     } catch (e) {
       setGenError(e instanceof Error ? e.message : "Something went wrong");
@@ -419,6 +424,15 @@ function ContactDetail({
           }
         }
 
+        // The user's notes and the change log live in the override layer for
+        // every contact, so they survive regeneration and record edits alike.
+        if (preview.ownerNotes || preview.changes) {
+          await fetch(`/api/contacts/overrides/${contact.id}`, {
+            method: "PUT", headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ ownerNotes: preview.ownerNotes, changes: preview.changes, generatedAt: preview.generatedAt }),
+          }).then((r) => { if (r.ok) onSaveOverride({ ownerNotes: preview.ownerNotes, changes: preview.changes, generatedAt: preview.generatedAt }); })
+            .catch((err) => { console.error("[contacts] could not save owner notes:", err instanceof Error ? err.message : err); });
+        }
         const res = await fetch(`/api/contacts/user/${contact.id}`, {
           method: "PATCH",
           headers: { "Content-Type": "application/json" },
@@ -795,6 +809,11 @@ function ContactDetail({
               </div>
             )}
 
+            {preview.changes && (
+              <p className="rounded-lg bg-[var(--w-tray)] px-3 py-2 text-[13px] text-foreground/90">
+                <span className="font-semibold">What changed: </span>{preview.changes}
+              </p>
+            )}
             {/* Prose preview */}
             <div className="rounded-lg bg-background/60 ring-1 ring-border p-3 space-y-3">
               {(
@@ -909,6 +928,19 @@ function ContactDetail({
         </TabsContent>
 
         <TabsContent value="personality" className="space-y-4 mt-4">
+          {override?.ownerNotes && (
+            <Card className="border-l border-l-[var(--w-nav-accent,#D4B978)]">
+              <CardHeader className="pb-2">
+                <CardTitle className="text-xs font-semibold tracking-widest uppercase flex items-center gap-1.5">
+                  <Lightbulb className="h-3.5 w-3.5 text-[color:var(--w-carbon)]" /> What you’ve told Basil
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                <p className="text-sm leading-relaxed whitespace-pre-line">{override.ownerNotes}</p>
+                <p className="text-[12px] text-muted-foreground mt-2">Kept as stated fact: every regeneration reads this first and never overrides it.</p>
+              </CardContent>
+            </Card>
+          )}
           <Card className="border-l border-l-[var(--w-carbon)]">
             <CardHeader className="pb-2">
               <CardTitle className="text-xs font-semibold tracking-widest uppercase flex items-center gap-1.5">

@@ -49,6 +49,14 @@ export interface ProfileOverride {
   /** Short line from the server about signal density (debug/audit). */
   summary?: string;
   /**
+   * What the user has told Basil about this person, in their own words. Stated
+   * facts outrank anything inferred; they survive every regeneration and are
+   * shown verbatim on the card.
+   */
+  ownerNotes?: string;
+  /** What the last regeneration changed, in the model's words. */
+  changes?: string;
+  /**
    * Ordered history of detected tone/attitude shifts for this contact.
    * Capped at 20 entries — oldest dropped when the cap is exceeded.
    * Written by the materialization pipeline, never by manual profile generation.

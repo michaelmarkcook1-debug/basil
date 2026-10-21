@@ -5,7 +5,14 @@ import { getSystemPrompt } from "@/lib/ai/system-prompt";
 import { generateValidated, AIValidationError, aiValidationErrorResponse } from "@/lib/ai/generate-validated";
 import { SpendCapError, spendCapResponse } from "@/lib/ai/spend-guard";
 import { ContactProfileSchema } from "@/lib/ai/schemas";
-import { searchEmails, getRecentEmails } from "@/lib/google/gmail";
+import { searchEmails, getRecentEmails, getEmailBody } from "@/lib/google/gmail";
+import { getSelfIdentity } from "@/lib/self-identity";
+import { getSettings } from "@/lib/settings/store";
+import { getOverrideFromStore } from "@/lib/contacts/overrides-store";
+import { listUserContacts } from "@/lib/contacts/user-store";
+import { interactionsWith, baselineInteractions } from "@/lib/contacts/sentiment";
+import { baselineOf, recentSignals, describeSignals } from "@/lib/contacts/relationship-signals";
+import { buildProfilePrompt, signalCount as countSignal } from "@/lib/contacts/profile-prompt";
 import {
   getRecentSlackMessages,
   searchSlackMessages,
@@ -25,12 +32,29 @@ import { getSessionUser } from "@/lib/auth";
 // same personality fields the hand-authored seed contacts already have:
 //   personality, whatMakesThemTick, watchOut, recentActivity, activitySource
 //
+// Since 2026-10-21 (docs/personality-profiles-review-2026-10-21.md):
+//   - the window is 90 days, not this week (getRecentEmails defaulted to 2 days);
+//   - the person's measured habits (reply time, length, who starts threads) go
+//     in as facts, shared with the tone read;
+//   - up to 8 direct emails from them go in IN FULL, not as snippets;
+//   - the previous profile and everything the user has told Basil (ownerNotes)
+//     go in too — regeneration revises, it does not restart;
+//   - with tone & sentiment switched off in Settings, only the user's notes
+//     are used: no message data is read.
+//
 // The directory matters:
 //   - work contacts → Gmail + Slack + Zoom signal is rich
 //   - personal contacts → usually zero Gmail/Slack signal; Basil leans on
-//     Michael's notes (and will honestly say "low signal" if neither exists)
+//     the user's notes (and will honestly say "low signal" if neither exists)
+
+/** The long window a profile is drawn from — the same one the tone read uses. */
+const WINDOW_DAYS = 90;
+/** Direct emails from the person fetched in full (one Gmail call each). */
+const MAX_BODIES = 8;
 
 interface ReqBody {
+  /** The stored contact's id, when regenerating: brings in the previous profile and the user's notes. */
+  contactId?: string;
   name: string;
   email?: string;
   phone?: string;
@@ -59,26 +83,50 @@ export async function POST(req: Request) {
   const nameLower = name.toLowerCase();
   const nameFirst = name.split(" ")[0];
 
+  const [identity, settings, contacts] = await Promise.all([
+    getSelfIdentity(username),
+    getSettings(username),
+    listUserContacts(username).catch(() => []),
+  ]);
+  const selfFirstRaw = identity.names[0]?.split(/\s+/)[0] ?? "";
+  const selfFirst = selfFirstRaw ? selfFirstRaw[0].toUpperCase() + selfFirstRaw.slice(1) : "the user";
+  // The stored record (if any) carries the previous profile and the user's notes.
+  // Ask Basil's tool knows only the name, so resolve the id when it is not given.
+  const stored = body.contactId
+    ? contacts.find((c) => c.id === body.contactId)
+    : contacts.find((c) => c.name.toLowerCase() === nameLower || (!!email && c.email?.toLowerCase() === email.toLowerCase()));
+  const contactId = body.contactId ?? stored?.id;
+  const override = contactId ? await getOverrideFromStore(username, contactId).catch(() => undefined) : undefined;
+  const prior = {
+    personality: override?.personality ?? stored?.personality,
+    whatMakesThemTick: override?.whatMakesThemTick ?? stored?.whatMakesThemTick,
+    watchOut: override?.watchOut ?? stored?.watchOut,
+    generatedAt: override?.generatedAt ?? stored?.generatedAt,
+  };
+  const ownerNotes = override?.ownerNotes;
+
   // Only hit Gmail/Slack/Zoom when the directory is "work" OR when we have an
-  // email (which implies they might appear in inbox). Pulling signal for a
-  // personal-only WhatsApp contact from Gmail would just be noise.
-  const shouldPullWorkSignal = directory === "work" || !!email;
+  // email (which implies they might appear in inbox), and only while tone &
+  // sentiment is on — that switch governs every read of message data.
+  const readMessages = settings.toneSentiment !== false;
+  const shouldPullWorkSignal = readMessages && (directory === "work" || !!email);
 
   const [emailsAll, slackRecent, slackSearched, zoomAll, whatsappLines, teamsChatLines, teamsChannelLines, teamsAllMeetings] = await Promise.all([
     shouldPullWorkSignal
-      ? getRecentEmails(username, 40).catch(() => [])
+      ? getRecentEmails(username, 400, WINDOW_DAYS).catch(() => [])
       : Promise.resolve([]),
     shouldPullWorkSignal
-      ? getRecentSlackMessages(username, 80).catch(() => [])
+      // Same (limit, days) as the tone read, so the Slack client serves it from cache.
+      ? getRecentSlackMessages(username, 2500, WINDOW_DAYS).catch(() => [])
       : Promise.resolve([]),
     shouldPullWorkSignal
       ? searchSlackMessages(username, name, 20).catch(() => [])
       : Promise.resolve([]),
     shouldPullWorkSignal
-      ? getZoomSummaries(username, 30).catch(() => [])
+      ? getZoomSummaries(username, WINDOW_DAYS).catch(() => [])
       : Promise.resolve([]),
     // WhatsApp signal is available for any contact regardless of directory.
-    getWhatsAppSignalForContact(username, name, body.phone, 40).catch(() => [] as string[]),
+    readMessages ? getWhatsAppSignalForContact(username, name, body.phone, 40).catch(() => [] as string[]) : Promise.resolve([] as string[]),
     // Teams chat messages — work contacts only
     shouldPullWorkSignal
       ? getTeamsChatSignalForContact(username, name, 30).catch(() => [] as string[])
@@ -102,7 +150,7 @@ export async function POST(req: Request) {
   });
 
   // Also a targeted Gmail search by name / email — catches things outside the
-  // most-recent 40 that still matter.
+  // recent window that still matter.
   const targetedEmails = shouldPullWorkSignal
     ? await searchEmails(username, email ? `from:${email} OR to:${email}` : name, 15).catch(
         () => []
@@ -115,7 +163,14 @@ export async function POST(req: Request) {
   }
   const emails = [...emailsById.values()]
     .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
-    .slice(0, 12);
+    .slice(0, 30);
+
+  // Their direct, non-bulk emails in full: where writing style actually shows.
+  const direct = emails.filter((e) => !e.bulk && ((email && e.fromEmail?.toLowerCase() === email.toLowerCase()) || e.from.toLowerCase().includes(nameLower))).slice(0, MAX_BODIES);
+  const emailBodies = (await Promise.all(direct.map(async (e) => {
+    try { const b = await getEmailBody(username, e.id); return { date: b.date || e.date, subject: b.subject || e.subject, body: b.body }; }
+    catch { return null; }
+  }))).filter((b): b is { date: string; subject: string; body: string } => !!b && b.body.trim().length > 0);
 
   // Merge recent Slack + targeted search, dedup by id, filter against name
   const slackById = new Map<string, (typeof slackRecent)[number]>();
@@ -132,7 +187,15 @@ export async function POST(req: Request) {
   }
   const slackMsgs = [...slackById.values()]
     .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
-    .slice(0, 20);
+    .slice(0, 30);
+
+  // Measured habits — the same computation the tone read uses.
+  const contactLike = { id: contactId ?? name, name, email };
+  const sources = { slack: slackRecent, emails: emailsAll };
+  const long = baselineInteractions(contactLike, sources, identity.names);
+  const baseline = baselineOf(long);
+  const recent = recentSignals(interactionsWith(contactLike, sources, identity.names), baseline);
+  const facts = describeSignals(baseline, recent);
 
   // Zoom summaries mentioning the person
   const zoom = shouldPullWorkSignal
@@ -147,139 +210,20 @@ export async function POST(req: Request) {
   // Teams chat + channel messages for the person
   const teamsLines = [...teamsChatLines, ...teamsChannelLines].slice(0, 30);
 
-  const emailBlock = emails.length
-    ? emails
-        .map((e) => `- [${e.date}] From ${e.from}: "${e.subject}" — ${e.snippet}`)
-        .join("\n")
-    : null;
+  const evidence = {
+    emailLines: emails.map((e) => `- [${e.date}] From ${e.from}: "${e.subject}" — ${e.snippet}`),
+    emailBodies,
+    slackLines: slackMsgs.map((m) => `- [${m.date}] ${m.author} in ${m.channel}: ${m.text}`),
+    zoomBlocks: zoom.map((z) => `- [${z.date}] (${z.source}) ${z.title}\n${z.body}`),
+    whatsappLines,
+    teamsLines,
+    teamsMeetingBlocks: teamsMeetings.map((m) => `- [${m.date}] (teams) ${m.title}\n${m.body}`),
+  };
+  const signalCount = countSignal(evidence);
 
-  const slackBlock = slackMsgs.length
-    ? slackMsgs
-        .map((m) => `- [${m.date}] ${m.author} in ${m.channel}: ${m.text}`)
-        .join("\n")
-    : null;
-
-  const zoomBlock = zoom.length
-    ? zoom
-        .map((z) => `- [${z.date}] (${z.source}) ${z.title}\n${z.body}`)
-        .join("\n\n")
-    : null;
-
-  const whatsappBlock = whatsappLines.length
-    ? whatsappLines.join("\n")
-    : null;
-
-  const teamsChatBlock = teamsLines.length
-    ? teamsLines.join("\n")
-    : null;
-
-  const teamsMeetingBlock = teamsMeetings.length
-    ? teamsMeetings
-        .map((m) => `- [${m.date}] (teams) ${m.title}\n${m.body}`)
-        .join("\n\n")
-    : null;
-
-  const signalCount =
-    emails.length + slackMsgs.length + zoom.length + whatsappLines.length +
-    teamsLines.length + teamsMeetings.length;
-
-  const promptText = `Generate a personality profile for one of Michael's contacts. Match the style of his existing, hand-authored profiles — specific, observational, written like a great chief of staff's notes. No fluff.
-
-## CONTACT
-Name: ${name}
-${email ? `Email: ${email}` : ""}
-${body.phone ? `Phone: ${body.phone}` : ""}
-Directory: ${directory} ${directory === "personal" ? "(friend / family / WhatsApp — not a colleague)" : "(colleague, investor, client, or vendor)"}
-
-${
-  notes
-    ? `## MICHAEL'S NOTES (verbatim — this is his own account of the person)
-${notes}
-`
-    : ""
-}
-${
-  emailBlock
-    ? `## GMAIL SIGNAL (${emails.length} messages, most recent first)
-${emailBlock}
-`
-    : ""
-}
-${
-  slackBlock
-    ? `## SLACK SIGNAL (${slackMsgs.length} messages mentioning or from them)
-${slackBlock}
-`
-    : ""
-}
-${
-  zoomBlock
-    ? `## ZOOM AI COMPANION SUMMARIES mentioning them
-${zoomBlock}
-`
-    : ""
-}
-${
-  whatsappBlock
-    ? `## WHATSAPP SIGNAL (${whatsappLines.length} messages — direct chats and group appearances)
-${whatsappBlock}
-`
-    : ""
-}
-${
-  teamsChatBlock
-    ? `## MICROSOFT TEAMS CHAT (${teamsLines.length} messages — direct and group chats)
-${teamsChatBlock}
-`
-    : ""
-}
-${
-  teamsMeetingBlock
-    ? `## MICROSOFT TEAMS MEETINGS (${teamsMeetings.length} online meetings via Outlook Calendar)
-${teamsMeetingBlock}
-`
-    : ""
-}
-## SIGNAL DENSITY — ${signalCount} item(s) of hard signal, ${notes ? "plus Michael's own notes" : "no personal notes"}.
-${signalCount === 0 && !notes ? "⚠️ NO SIGNAL: say so honestly in the fields. Do NOT invent personality traits, commitments, or history from thin air. Return short placeholder strings that explicitly mark the gap." : ""}
-
-## How Basil writes personality profiles — match the style of existing contacts
-Each field is one compact paragraph, Michael's voice, grounded in evidence:
-
-- **personality** — How they communicate and operate. Observational, specific. Reference real patterns ("Posts reminders with @here", "Communicates in short decisive bursts", "Lead with data then decide"). No adjective soup.
-- **whatMakesThemTick** — What they care about, what energises them. Draw from what they share, what they return to, what they get excited about.
-- **watchOut** — Failure modes and friction points for Michael to anticipate. "His silence usually means X." "He expects Y within hours." Practical — what Michael can actually DO with this info.
-- **recentActivity** — 2-4 concrete recent observations. Name specific emails, Slack threads, meetings. Dates where available. Not generalities.
-- **activitySource** — The sources used, comma-separated (e.g. "Slack, Email, Calendar", or "Owner's notes" if no app signal).
-
-## Factual guardrails — non-negotiable
-- Every specific claim must trace to evidence above. If the data doesn't support it, don't claim it.
-- For a personal contact with only Michael's notes, the profile should READ LIKE a note — "From Michael's account, Sarah is…", not a fabricated first-hand observation.
-- With zero signal AND no notes, fill each field with an honest gap statement: "No signal yet — add Michael's notes or wait for activity." Empty is better than invented.
-- Never fabricate quotes, commitments, or positions.
-- Don't use adjectives that aren't grounded. "Kind" / "smart" mean nothing here.
-
-## canonicalFields extraction
-Scan Michael's notes for directly-stated contact details. Extract ONLY what is written explicitly — do NOT infer from email domains, signal data, or guesswork. Omit any field not literally present in the notes. Return "canonicalFields": {} if nothing is explicitly stated.
-
-## Output shape
-Return ONLY valid JSON, no markdown fences:
-{
-  "personality": "...",
-  "whatMakesThemTick": "...",
-  "watchOut": "...",
-  "recentActivity": "...",
-  "activitySource": "...",
-  "summary": "One-line summary of signal density and what this profile is based on (for debug).",
-  "canonicalFields": {
-    "name": "corrected or full name only if stated in notes",
-    "title": "job title / role only if explicitly stated",
-    "company": "employer only if explicitly stated",
-    "location": "city or country only if explicitly stated",
-    "email": "email address only if explicitly provided",
-    "phone": "phone number only if explicitly provided"
-  }
-}`;
+  const promptText = buildProfilePrompt({
+    name, email, phone: body.phone, directory, selfFirst, notes, ownerNotes, prior, baseline, recent, facts, evidence,
+  });
 
   try {
     const parsed = await generateValidated({
@@ -300,6 +244,7 @@ Return ONLY valid JSON, no markdown fences:
     return Response.json({
       ...parsed,
       signalCount,
+      bodiesRead: emailBodies.length,
       generatedAt: new Date().toISOString(),
     });
   } catch (e) {

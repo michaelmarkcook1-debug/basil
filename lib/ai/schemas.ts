@@ -251,6 +251,8 @@ export const ContactProfileSchema = z.object({
   watchOut:         z.string(),
   recentActivity:   z.string(),
   activitySource:   z.string(),
+  /** What a regeneration changed versus the previous profile ("New profile." the first time). */
+  changes:          z.string().optional(),
   summary:          z.string().optional(),
   canonicalFields:  z.object({
     name:     z.string().optional(),

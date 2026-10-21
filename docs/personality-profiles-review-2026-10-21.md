@@ -2,6 +2,8 @@
 
 *Review, 21 October 2026. Companion to the tone & sentiment review of the same date.*
 
+> **Status, same day:** §4.1 (1–3), §4.2 (4–5) and §4.4 (9–11) are implemented — see `lib/contacts/profile-prompt.ts` and the route. Still open: in-place field editing (6), the stable/volatile split and live `recentActivity` (7), and the one-click "Build a profile" offer (8).
+
 ## 1. What Basil does today
 
 `app/api/contacts/generate-profile/route.ts`, triggered by hand from the People page or by Ask Basil's "give me a read on X" tool.
