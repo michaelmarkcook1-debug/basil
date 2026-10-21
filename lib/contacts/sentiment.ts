@@ -26,9 +26,12 @@ import { generateTextSafe } from "@/lib/ai/generate";
 import { getTextModel } from "@/lib/ai/model-config";
 import { parseAndValidate } from "@/lib/ai/parse-json";
 import { getSettings } from "@/lib/settings/store";
+import { baselineOf, recentSignals, confidenceOf, describeSignals, type Baseline, type RecentSignals, type Confidence } from "@/lib/contacts/relationship-signals";
 
 const FILE = "contact-sentiment.json";
 const WINDOW_DAYS = 30;
+/** The long window a person's own baseline is drawn from. */
+const BASELINE_DAYS = 90;
 /** Re-read a relationship at most this often, however busy it is. */
 const REFRESH_MS = 24 * 60 * 60 * 1000;
 const MAX_INTERACTIONS = 30;
@@ -49,6 +52,12 @@ export interface RelationshipSentiment {
   /** Newest interaction considered — the verdict is current until a newer one exists. */
   latestAt: string;
   computedAt: string;
+  /** How much to trust it: "early" reads show grey and carry no trend. */
+  confidence?: Confidence;
+  /** Plain facts the read was judged against (reply time, length, gaps vs their usual). */
+  facts?: string[];
+  /** The user said this read was wrong, and why — fed into every later read of this person. */
+  correction?: { note: string; at: string };
 }
 
 export interface Interaction { date: string; source: string; from: string; text: string; mine: boolean }
@@ -81,11 +90,11 @@ export interface InteractionSources {
  * @-mentions, their email), then elsewhere — and what the user said to them
  * one-to-one. Newest first. Pure — exported for tests.
  */
-export function interactionsWith(contact: ContactLike, src: InteractionSources, selfNames: string[], now = Date.now()): Interaction[] {
+export function interactionsWith(contact: ContactLike, src: InteractionSources, selfNames: string[], now = Date.now(), windowDays = WINDOW_DAYS, max = MAX_INTERACTIONS): Interaction[] {
   const tokens = nameTokens(contact.name);
   const email = contact.email?.toLowerCase();
   const self = selfNames.map((n) => n.toLowerCase());
-  const since = now - WINDOW_DAYS * 86_400_000;
+  const since = now - windowDays * 86_400_000;
   const direct: Interaction[] = [];
   const elsewhere: Interaction[] = [];
   const seen = new Set<string>();
@@ -120,27 +129,44 @@ export function interactionsWith(contact: ContactLike, src: InteractionSources, 
   const byDate = (a: Interaction, b: Interaction) => b.date.localeCompare(a.date);
   direct.sort(byDate); elsewhere.sort(byDate);
   // Direct contact is the relationship; channel posts only fill the gaps.
-  const picked = direct.slice(0, MAX_INTERACTIONS);
-  picked.push(...elsewhere.slice(0, Math.max(0, MAX_INTERACTIONS - picked.length)));
+  const picked = direct.slice(0, max);
+  picked.push(...elsewhere.slice(0, Math.max(0, max - picked.length)));
   return picked.sort(byDate);
+}
+
+/** Everything with this person over the long window — the baseline's input. Direct contact only. */
+export function baselineInteractions(contact: ContactLike, src: InteractionSources, selfNames: string[], now = Date.now()): Interaction[] {
+  return interactionsWith(contact, src, selfNames, now, BASELINE_DAYS, 400).filter((i) => !i.source.startsWith("slack #"));
 }
 
 // ── The read ────────────────────────────────────────────────────────────────
 
 /** Exported for tests. */
-export function sentimentPrompt(name: string, selfFirst: string, interactions: Interaction[], shifts: ToneObservation[]): string {
-  return `Below are recent interactions between ${selfFirst} and ${name}, newest first. Judge the working relationship as it stands.
+export function sentimentPrompt(
+  name: string, selfFirst: string, interactions: Interaction[], shifts: ToneObservation[],
+  ctx: { facts?: string[]; baseline?: Baseline; correction?: { note: string; at: string } } = {},
+): string {
+  const facts = ctx.facts ?? [];
+  const base = ctx.baseline;
+  const baselineLine = base && base.n >= 5
+    ? `How ${name} usually writes to ${selfFirst} (last 90 days, ${base.n} messages): about ${Math.round(base.medianWords)} words a message${base.shortShare >= 0.5 ? ", mostly one-liners" : ""}${base.medianReplyHours !== undefined ? `, replying in roughly ${base.medianReplyHours < 1 ? "under an hour" : base.medianReplyHours < 48 ? `${Math.round(base.medianReplyHours)} hours` : `${Math.round(base.medianReplyHours / 24)} days`}` : ""}. That is their normal. Terse, direct or unpadded is NOT cool if it is how they always write.`
+    : `There is no long history with ${name} yet, so do not treat brevity or directness as a signal.`;
+  return `Below are recent interactions between ${selfFirst} and ${name}, newest first. Judge the working relationship as it stands, against ${name}'s OWN usual style — never against a generic professional norm.
+
+${baselineLine}
+${facts.length ? `\nMeasured against their usual (these are facts, weigh them):\n${facts.map((f) => `- ${f}`).join("\n")}` : ""}
+${ctx.correction ? `\n${selfFirst} corrected an earlier read of ${name} on ${ctx.correction.at.slice(0, 10)}: "${ctx.correction.note}". Respect this.` : ""}
 
 - tone: how ${name} comes across towards ${selfFirst} now — one of "warm", "positive", "neutral", "cool", "strained". Most work messages are routine: when nothing stands out, say "neutral".
-- trend: the last two weeks compared with before — "warming", "steady" or "cooling". Say "steady" unless the change is visible in the messages.
-- summary: one plain sentence a busy executive can act on.
+- trend: the last two weeks compared with before — "warming", "steady" or "cooling". Say "steady" unless the change is visible in the messages AND consistent with the measured facts. A change in words alone, with reply time and length as usual, is "steady".
+- summary: one plain sentence a busy executive can act on. Describe behaviour ("shorter and slower than usual"), not inner states.
 - evidence: up to 3 specific messages that show it, each {"date": "YYYY-MM-DD", "source": "slack|email|zoom", "note": "what was said or how, briefly"}.
 Use only what the messages show. Do not invent context.
 Judge the relationship with ${selfFirst} only: frustration, praise or criticism ${name} aims at someone else is not about ${selfFirst}. Newsletters and mass mailings say nothing about a relationship.
 
 Interactions:
 ${interactions.map((i) => `- ${i.date.slice(0, 10)} [${i.source}] ${i.mine ? `${selfFirst} → ${name}` : name}: ${i.text}`).join("\n")}
-${shifts.length ? `\nEarlier shifts Basil noted:\n${shifts.slice(-5).map((s) => `- ${s.date} ${s.direction}: ${s.summary}`).join("\n")}` : ""}
+${shifts.length ? `\nEarlier shifts Basil noted:\n${shifts.slice(-5).map((sh) => `- ${sh.date} ${sh.direction}: ${sh.summary}`).join("\n")}` : ""}
 
 Respond with JSON only: {"tone": "...", "trend": "...", "summary": "...", "evidence": [...]}`;
 }
@@ -185,8 +211,9 @@ export async function listSentiment(username: string): Promise<Store> {
 /** Everything the reads draw on, fetched once for all contacts. Each source is best-effort. */
 export async function loadInteractionSources(username: string): Promise<InteractionSources> {
   const [slack, emails, events] = await Promise.all([
-    getRecentSlackMessages(username, 1000, WINDOW_DAYS).catch((e) => { console.warn("[sentiment] slack unavailable:", e instanceof Error ? e.message : e); return []; }),
-    getRecentEmails(username, 150, WINDOW_DAYS).catch((e) => { console.warn("[sentiment] gmail unavailable:", e instanceof Error ? e.message : e); return []; }),
+    // The long window feeds each person's baseline; the read itself uses the last 30 days of it.
+    getRecentSlackMessages(username, 2500, BASELINE_DAYS).catch((e) => { console.warn("[sentiment] slack unavailable:", e instanceof Error ? e.message : e); return []; }),
+    getRecentEmails(username, 400, BASELINE_DAYS).catch((e) => { console.warn("[sentiment] gmail unavailable:", e instanceof Error ? e.message : e); return []; }),
     listEvents(username).catch(() => []),
   ]);
   return { slack, emails, events };
@@ -225,19 +252,44 @@ export async function assessRelationship(
 
   const first = identity.names[0]?.split(/\s+/)[0] ?? "";
   const selfFirst = first ? first[0].toUpperCase() + first.slice(1) : "the user";
-  const verdict = await (opts.judge ?? makeModelSentimentJudge(username))(sentimentPrompt(contact.name, selfFirst, interactions, shifts));
+  const long = baselineInteractions(contact, sources, identity.names, now);
+  const baseline = baselineOf(long);
+  const recent = recentSignals(interactions, baseline, now);
+  const facts = describeSignals(baseline, recent);
+  const confidence = confidenceOf(interactions);
+  const correction = prev?.correction;
+  const verdict = await (opts.judge ?? makeModelSentimentJudge(username))(sentimentPrompt(contact.name, selfFirst, interactions, shifts, { facts, baseline, correction }));
   if (!verdict) return { sentiment: prev, interactions: interactions.length };
 
   const sentiment: RelationshipSentiment = {
     contactId: contact.id,
     ...verdict,
+    // An early read is a glimpse: no trend is shown from it.
+    trend: confidence === "early" ? "steady" : verdict.trend,
     evidence: verdict.evidence.slice(0, 3),
     basedOn: interactions.length,
     latestAt: interactions[0].date,
     computedAt: new Date(now).toISOString(),
+    confidence,
+    facts,
+    ...(correction ? { correction } : {}),
   };
   await updateUserStore<Store>(username, FILE, (cur) => ({ ...cur, [contact.id]: sentiment }), {});
   return { sentiment, interactions: interactions.length };
+}
+
+/**
+ * "That's just how they write." Records the user's correction on the stored
+ * read and re-reads with it in the prompt. The set of corrections is also the
+ * calibration data for checking the reads (review §4.3).
+ */
+export async function correctRelationship(username: string, contact: ContactLike, note: string, now = Date.now()): Promise<RelationshipSentiment | null> {
+  const correction = { note: note.trim().slice(0, 300), at: new Date(now).toISOString() };
+  await updateUserStore<Store>(username, FILE, (cur) => {
+    const prev = cur[contact.id];
+    return prev ? { ...cur, [contact.id]: { ...prev, correction } } : cur;
+  }, {});
+  return (await assessRelationship(username, contact, { force: true, now })).sentiment;
 }
 
 /** Re-read every relationship with something new (once a day each, bounded). Returns how many were re-judged. */

@@ -25,6 +25,9 @@ export interface RelationshipSentiment {
   basedOn: number;
   latestAt: string;
   computedAt: string;
+  confidence?: "early" | "normal" | "grounded";
+  facts?: string[];
+  correction?: { note: string; at: string };
 }
 
 /** "13 Oct" from an ISO timestamp or a plain date; anything else as given. */
@@ -71,8 +74,25 @@ export function RelationshipToneCard({
   const key = `/api/contacts/sentiment?id=${encodeURIComponent(contactId)}`;
   const { data, error, isLoading, mutate } = useSWR<OneResponse>(key, fetchOne, { revalidateOnFocus: false });
   const [refreshing, setRefreshing] = useState(false);
+  const [correcting, setCorrecting] = useState(false);
+  const [note, setNote] = useState("");
   const first = name.split(/\s+/)[0];
   const s = data?.sentiment ?? null;
+
+  // "That's just how they write." Stored on the read and fed to every later one.
+  async function correct() {
+    if (!note.trim()) return;
+    setRefreshing(true);
+    try {
+      const r = await fetch("/api/contacts/sentiment", {
+        method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id: contactId, correction: note.trim() }),
+      });
+      const j = await r.json().catch(() => ({}));
+      if (r.ok) { await mutate(j as OneResponse, { revalidate: false }); setCorrecting(false); setNote(""); onUpdated?.(); }
+    } finally {
+      setRefreshing(false);
+    }
+  }
 
   async function refresh() {
     setRefreshing(true);
@@ -122,7 +142,9 @@ export function RelationshipToneCard({
             <div className="flex flex-wrap items-center gap-2">
               {/* A record from an older shape must not take the whole People page down. */}
               {TONE[s.tone] && <span className={`rounded px-2 py-0.5 text-xs font-semibold ${TONE[s.tone].chip}`}>{TONE[s.tone].label}</span>}
-              {TREND[s.trend] && <span className={`rounded px-2 py-0.5 text-xs font-semibold ${TREND[s.trend].chip}`}>{TREND[s.trend].label}</span>}
+              {s.confidence !== "early" && TREND[s.trend] && <span className={`rounded px-2 py-0.5 text-xs font-semibold ${TREND[s.trend].chip}`}>{TREND[s.trend].label}</span>}
+              {s.confidence === "early" && <span className="rounded px-2 py-0.5 text-xs font-medium border border-[var(--w-rule)] text-muted-foreground" title="Fewer than 5 messages, or all within one week. No trend is read from this.">Early read</span>}
+              {s.confidence === "grounded" && <span className="rounded px-2 py-0.5 text-xs font-medium border border-[var(--w-rule)] text-muted-foreground" title="15 or more messages across two or more weeks.">Well grounded</span>}
             </div>
             <p className="text-sm leading-relaxed">{s.summary}</p>
             {s.evidence.length > 0 && (
@@ -134,9 +156,34 @@ export function RelationshipToneCard({
                 ))}
               </ul>
             )}
-            <p className="text-xs text-muted-foreground">
-              Read from {s.basedOn} message{s.basedOn === 1 ? "" : "s"} · updated {ago(s.computedAt)}
-            </p>
+            {(s.facts?.length ?? 0) > 0 && (
+              <ul className="space-y-1 rounded-lg bg-[var(--w-tray)] px-3 py-2">
+                {s.facts!.map((f, i) => <li key={i} className="text-[0.8125rem] text-foreground/90">{f}</li>)}
+              </ul>
+            )}
+            {s.correction && (
+              <p className="text-xs text-muted-foreground">You told Basil on {dayOf(s.correction.at)}: “{s.correction.note}”</p>
+            )}
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <p className="text-xs text-muted-foreground">
+                Read from {s.basedOn} message{s.basedOn === 1 ? "" : "s"} · updated {ago(s.computedAt)}
+              </p>
+              {!correcting && (
+                <button type="button" onClick={() => setCorrecting(true)} className="text-xs font-medium underline underline-offset-2 text-[color:var(--w-carbon)]">
+                  That’s not right
+                </button>
+              )}
+            </div>
+            {correcting && (
+              <form onSubmit={(e) => { e.preventDefault(); void correct(); }} className="flex flex-col gap-2 rounded-lg border border-[var(--w-rule)] p-3">
+                <label htmlFor={`correct-${contactId}`} className="text-xs font-medium">What should Basil know about how {first} writes?</label>
+                <input id={`correct-${contactId}`} value={note} onChange={(e) => setNote(e.target.value)} maxLength={300} placeholder={`e.g. ${first} is always this brief — it isn’t cool`} className="rounded-md border border-[var(--w-rule)] bg-[var(--w-flimsy)] px-2.5 py-1.5 text-sm" />
+                <div className="flex gap-2">
+                  <Button type="submit" size="xs" disabled={refreshing || !note.trim()}>{refreshing ? <Loader2 className="animate-spin" /> : null} Save and re-read</Button>
+                  <Button type="button" size="xs" variant="ghost" onClick={() => { setCorrecting(false); setNote(""); }}>Cancel</Button>
+                </div>
+              </form>
+            )}
           </>
         )}
 

@@ -25,6 +25,7 @@ function sentimentModule(toneSentiment) {
     "@/lib/ai/generate": { generateTextSafe: async () => { calls.model++; return { text: '{"tone":"warm","trend":"steady","summary":"x","evidence":[]}' }; } },
     "@/lib/ai/model-config": { getTextModel: () => "fast" },
     "@/lib/ai/parse-json": loadTs("lib/ai/parse-json.ts", { zod: require("zod") }),
+    "@/lib/contacts/relationship-signals": loadTs("lib/contacts/relationship-signals.ts"),
     "@/lib/settings/store": { getSettings: async () => ({ toneSentiment }) },
   });
   return { S, calls };

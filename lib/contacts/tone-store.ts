@@ -74,6 +74,9 @@ async function findContactIdByName(
 
 // ── Public API ────────────────────────────────────────────────────────────────
 
+/** Set to true to resume storing per-message tone shifts alongside the daily read. */
+const PER_MESSAGE_SHIFTS = false;
+
 /**
  * Write tone shift observations from the AI to the relevant contact overrides.
  *
@@ -98,6 +101,11 @@ export async function writeToneObservations(
   // Tone & sentiment switched off in Settings: the classifier may still name
   // shifts, but none are kept.
   if ((await getSettings(username)).toneSentiment === false) return;
+  // Since 2026-10-21 the daily relationship read (lib/contacts/sentiment.ts) is
+  // the one source of tone: it sees 30 days against a 90-day baseline, where a
+  // single message judged against "professional norms" marked every terse
+  // writer as cooling. Per-message shifts are no longer stored (review §3.3).
+  if (!PER_MESSAGE_SHIFTS) return;
   for (const shift of toneShifts) {
     if (!shift.person?.trim() || !shift.summary?.trim()) continue;
 

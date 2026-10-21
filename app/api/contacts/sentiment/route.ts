@@ -4,11 +4,13 @@
  * GET  /api/contacts/sentiment?id=<id> — one contact's read, judged now if there is
  *                                         something new (at most once a day).
  * POST /api/contacts/sentiment {id}    — re-read one contact now.
+ * POST /api/contacts/sentiment {id, correction} — "that's just how they write":
+ *                                         store the note and re-read with it.
  */
 import { NextResponse, after } from "next/server";
 import { getSessionUser } from "@/lib/auth";
 import { listUserContacts } from "@/lib/contacts/user-store";
-import { assessRelationship, listSentiment, refreshStaleSentiment, toneSentimentEnabled, MIN_INTERACTIONS } from "@/lib/contacts/sentiment";
+import { assessRelationship, correctRelationship, listSentiment, refreshStaleSentiment, toneSentimentEnabled, MIN_INTERACTIONS } from "@/lib/contacts/sentiment";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 120;
@@ -51,8 +53,19 @@ export async function GET(req: Request) {
 export async function POST(req: Request) {
   const username = await getSessionUser();
   if (!username) return NextResponse.json({ error: "Unauthorised" }, { status: 401 });
-  const body = await req.json().catch(() => ({})) as { id?: unknown };
+  const body = await req.json().catch(() => ({})) as { id?: unknown; correction?: unknown };
   if (typeof body.id !== "string" || !body.id) return NextResponse.json({ error: "id is required" }, { status: 400 });
   if (!(await toneSentimentEnabled(username))) return NextResponse.json({ error: "Tone & sentiment is switched off in Settings." }, { status: 409 });
+  if (typeof body.correction === "string" && body.correction.trim()) {
+    const contact = (await listUserContacts(username)).find((c) => c.id === body.id);
+    if (!contact) return NextResponse.json({ error: "Contact not found" }, { status: 404 });
+    try {
+      const sentiment = await correctRelationship(username, contact, body.correction);
+      return NextResponse.json({ sentiment, interactions: sentiment?.basedOn ?? 0, minInteractions: MIN_INTERACTIONS });
+    } catch (e) {
+      console.error("[contacts/sentiment] correction failed:", e instanceof Error ? e.message : e);
+      return NextResponse.json({ error: "Basil could not re-read this relationship right now." }, { status: 502 });
+    }
+  }
   return one(username, body.id, true);
 }

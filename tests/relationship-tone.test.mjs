@@ -35,6 +35,7 @@ function sentiment(store = {}) {
     "@/lib/settings/store": { getSettings: async () => ({ toneSentiment: files.toneSentiment }) },
     "@/lib/ai/model-config": { getTextModel: () => "fast" },
     "@/lib/ai/parse-json": loadTs("lib/ai/parse-json.ts", { zod: require("zod") }),
+    "@/lib/contacts/relationship-signals": loadTs("lib/contacts/relationship-signals.ts"),
   });
   return { S, files, fetches };
 }
@@ -137,4 +138,52 @@ test("People page shows how old each personality profile is (card + list), flagg
   assert.match(page, /stale \? " — due a refresh" : ""/);
   assert.match(page, /\{d === null \? "no profile" : `profile \$\{d\}d`\}/);
   assert.match(page, /profileDates=\{Object\.fromEntries\(Object\.entries\(overrides\)/);
+});
+
+// ── Baseline-aware reads (2026-10-21) ────────────────────────────────────────
+
+test("the prompt judges against the person's own baseline, carries the facts, and respects a correction", () => {
+  const { S } = sentiment();
+  const ix = [{ date: daysAgo(1), source: "slack", from: "Ed Baum", text: "Yes.", mine: false }];
+  const baseline = { n: 24, medianWords: 3, shortShare: 0.95, medianReplyHours: 1, medianGapDays: 3 };
+  const p = S.sentimentPrompt("Ed Baum", "Michael", ix, [], { baseline, facts: ["Usually writes 3 words a message (mostly one-liners).", "Replies in about 1h, as usual."], correction: { note: "Ed is always this brief", at: "2026-10-20T10:00:00Z" } });
+  assert.match(p, /against Ed Baum's OWN usual style/);
+  assert.match(p, /about 3 words a message, mostly one-liners/);
+  assert.match(p, /Terse, direct or unpadded is NOT cool if it is how they always write/);
+  assert.match(p, /Replies in about 1h, as usual/);
+  assert.match(p, /corrected an earlier read of Ed Baum on 2026-10-20: "Ed is always this brief"/);
+  assert.match(p, /Describe behaviour .* not inner states/);
+  // No history → the prompt says so, rather than inventing a norm.
+  const q = S.sentimentPrompt("Ed Baum", "Michael", ix, [], { baseline: { n: 2, medianWords: 3, shortShare: 1 } });
+  assert.match(q, /no long history with Ed Baum yet, so do not treat brevity or directness as a signal/);
+});
+
+test("a read stores its confidence and facts; an early read carries no trend", async () => {
+  const { S, files } = sentiment();
+  const sources = { slack: [
+    slack({ date: daysAgo(1), channel: "DM: Ed Baum", channelMembers: ["ed"], author: "Ed Baum", text: "ok" }),
+    slack({ date: daysAgo(2), channel: "DM: Ed Baum", channelMembers: ["ed"], author: "Ed Baum", text: "fine" }),
+  ] };
+  const judge = async () => ({ tone: "cool", trend: "cooling", summary: "Terse.", evidence: [] });
+  const r = await S.assessRelationship("u", ED, { sources, selfNames: ["michael cook"], shifts: [], judge, now: NOW });
+  assert.equal(r.sentiment.confidence, "early");
+  assert.equal(r.sentiment.trend, "steady", "two messages cannot establish a trend, whatever the model said");
+  assert.equal(r.sentiment.facts.length, 0, "no 90-day history → no facts");
+  assert.equal(files["contact-sentiment.json"].ed.confidence, "early");
+});
+
+test("a correction is stored, re-reads immediately, and reaches the prompt", async () => {
+  const { S, files } = sentiment();
+  const sources = { slack: Array.from({ length: 6 }, (_, i) => slack({ date: daysAgo(i * 3 + 1), channel: "DM: Ed Baum", channelMembers: ["ed"], author: "Ed Baum", text: "Noted." })) };
+  let prompt = "";
+  const judge = async (p) => { prompt = p; return { tone: "neutral", trend: "steady", summary: "Brief as ever.", evidence: [] }; };
+  await S.assessRelationship("u", ED, { sources, selfNames: ["michael cook"], shifts: [], judge, now: NOW });
+  // correctRelationship goes through the stored path; give it the same sources via the module's loader stub.
+  files["contact-sentiment.json"].ed.correction = undefined;
+  const after = await S.assessRelationship("u", ED, { sources, selfNames: ["michael cook"], shifts: [], judge, now: NOW + 2 * 86_400_000, force: true });
+  assert.equal(after.sentiment.correction, undefined);
+  files["contact-sentiment.json"].ed.correction = { note: "Ed is always this brief", at: new Date(NOW).toISOString() };
+  await S.assessRelationship("u", ED, { sources, selfNames: ["michael cook"], shifts: [], judge, now: NOW + 3 * 86_400_000, force: true });
+  assert.match(prompt, /corrected an earlier read of Ed Baum .*"Ed is always this brief"/);
+  assert.equal(files["contact-sentiment.json"].ed.correction.note, "Ed is always this brief", "the correction survives re-reads");
 });

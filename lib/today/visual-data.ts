@@ -22,7 +22,7 @@ export interface Block {
 }
 
 export type Tone = "steady" | "warmer" | "cooler" | "quiet";
-export interface SentimentRow { tone: "warm" | "positive" | "neutral" | "cool" | "strained"; trend: "warming" | "steady" | "cooling" }
+export interface SentimentRow { tone: "warm" | "positive" | "neutral" | "cool" | "strained"; trend: "warming" | "steady" | "cooling"; confidence?: "early" | "normal" | "grounded" }
 export interface OrbitPerson {
   name: string;
   /** Days since last contact (fractional allowed). */
@@ -102,7 +102,8 @@ export function buildBlocks(
 /** Orbit tone from the stored verdict and recency: quiet after 14 days. Pure — exported for tests. */
 export function orbitTone(s: SentimentRow | undefined, days: number): Tone {
   if (days > 14) return "quiet";
-  if (!s) return "steady";
+  // An early read (under 5 messages, or all in one week) is a glimpse, not a colour.
+  if (!s || s.confidence === "early") return "steady";
   if (s.trend === "cooling" || s.tone === "cool" || s.tone === "strained") return "cooler";
   if (s.trend === "warming") return "warmer";
   return "steady";
