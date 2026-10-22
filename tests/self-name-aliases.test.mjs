@@ -81,3 +81,11 @@ test("actions, meeting notes and attendees all use it", () => {
   const U = loadTs("lib/actions/utils.ts", new Proxy({}, { get: () => ({}) }));
   assert.equal(U.ownerOfMeetingNote("Mike C to send the deck", ["michael cook"])?.owner, "Mike C", "an initial is part of the name");
 });
+
+test("a capitalised verb before 'to' is not a person: 'Need to learn more…' has no owner", () => {
+  const U = loadTs("lib/actions/utils.ts", new Proxy({}, { get: () => ({}) }));
+  assert.equal(U.ownerOfMeetingNote("Blocker: Need to learn more about prospects' roles", ["michael cook"]), null);
+  assert.equal(U.ownerOfMeetingNote("Plan to revisit pricing next week", ["michael cook"]), null);
+  assert.equal(U.ownerOfMeetingNote("Olivia to send the list", ["michael cook"])?.owner, "Olivia");
+  assert.equal(U.ownerOfMeetingNote("Michael to share sourcing details", ["michael cook"])?.owner, "michael cook");
+});

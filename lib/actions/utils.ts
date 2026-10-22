@@ -201,6 +201,8 @@ export function isWaitingOnOthers(action: { owner?: string }, selfNames: readonl
  * reads "<Name> to/will …"; otherwise nobody's — it stays a meeting note, not
  * an action. Pure — exported for tests.
  */
+const NOT_A_NAME = /^(?:need|needs|plan|plans|want|wants|try|continue|decide|decided|remember|agree|agreed|aim|ask|asked|time|going|ready|able|due|unable|likely|team|someone|everyone|nobody|all|both|we|they|it|this|that|there|next|then|also|still|consider|explore|review|follow|confirm)$/i;
+
 export function ownerOfMeetingNote(text: string, selfNames: readonly string[]): { owner: string } | null {
   const body = text.replace(/^\s*(follow[- ]?up|blocker)\s*:\s*/i, "");
   // Ownership is the note's SUBJECT doing something — "<Name> to/will …" or
@@ -212,6 +214,9 @@ export function ownerOfMeetingNote(text: string, selfNames: readonly string[]): 
   const isSelf = (name: string) => firsts.some((f) => f.toLowerCase() === name.split(/\s+/)[0].toLowerCase());
   // Second word may be an initial: "Mike C to send…".
   const named = new RegExp(`^\\s*([A-Z][a-z]+(?:\\s+[A-Z](?:[a-z]+|\\.)?)?)\\s+${VERB}\\b`).exec(body);
+  // "Need to learn more…", "Plan to…": a capitalised word before "to" is not
+  // always a person. Seen 2026-10-22: two blockers were filed under "Need".
+  if (named && NOT_A_NAME.test(named[1].split(/\s+/)[0])) return null;
   if (named) return isSelf(named[1]) ? { owner: selfNames[0] ?? named[1] } : { owner: named[1] };
   for (const f of firsts) {
     const esc = f.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
