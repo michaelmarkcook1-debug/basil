@@ -22,7 +22,7 @@ import {
   isGroupOwner,
   isMeetingAttendancePast,
 } from "./utils";
-import { getSelfIdentity } from "@/lib/self-identity";
+import { getSelfIdentity, isSelf, normaliseOwner } from "@/lib/self-identity";
 import { redactSensitive } from "@/lib/security/sensitive";
 export {
   isActionStalled,
@@ -377,6 +377,8 @@ export async function listActions(username: string, options?: { fresh?: boolean 
     if (o === "me" || o === "i" || o === "unknown" || o === "self") return false;
     // Group-style → handled by isGroupOwner
     if (isGroupOwner(owner)) return false;
+    // The user under another name ("Mike Cook", "Mike C") → keep
+    if (isSelf(owner, selfIdentity)) return false;
     // Matches one of the user's known name tokens → keep
     if (selfNameTokens.length > 0) {
       if (selfNameTokens.some((n) => o.includes(n) || n.includes(o))) return false;
@@ -599,7 +601,17 @@ export async function createAction(username: string, rawInput: CreateActionInput
   // keep credentials.
   const scrubbed = redactSensitive(rawInput.text ?? "");
   if (scrubbed.count > 0) console.warn(`[actions] redacted ${scrubbed.count} value(s) from a new action for ${username}`);
-  const input: CreateActionInput = { ...rawInput, text: scrubbed.text };
+  // The user under another name ("Mike Cook", "Mike C") is still the user:
+  // file it under their display name, or the owner filter below drops it as
+  // "someone else's" and the waiting-on-others check misreads it.
+  const selfIdentity = rawInput.owner
+    ? await getSelfIdentity(username).catch((err) => {
+        console.warn("[actions] self identity unavailable, owner kept as written:", err instanceof Error ? err.message : err);
+        return null;
+      })
+    : null;
+  const owner = selfIdentity ? normaliseOwner(rawInput.owner, selfIdentity) : rawInput.owner;
+  const input: CreateActionInput = { ...rawInput, text: scrubbed.text, owner };
   return withLock(lockKey(username), async () => {
     const items = await readAll(username, { fresh: true });
     const now = new Date().toISOString();

@@ -13,6 +13,8 @@
 
 import { generateTextSafe } from "@/lib/ai/generate";
 import { touchContactsRecency } from "@/lib/contacts/touch-recency";
+import { listUserContacts } from "@/lib/contacts/user-store";
+import { getSelfIdentity, normaliseOwner, selfInContext } from "@/lib/self-identity";
 import { getTextModel, MAX_TOKENS } from "@/lib/ai/model-config";
 import { parseAndValidate } from "@/lib/ai/parse-json";
 import { MeetingIntelligenceSchema } from "@/lib/ai/schemas";
@@ -138,6 +140,12 @@ export async function processZoomMeeting(
     );
 
     if (intel) {
+      // Who "Mike" is on this call: Zoom's participant list is real, so a
+      // namesake contact (another Mike) can be ruled in or out.
+      const meetingIdentity = selfInContext(await getSelfIdentity(username), recording.transcript, {
+        otherPeople: (await listUserContacts(username).catch(() => [])).map((c) => c.name ?? "").filter(Boolean),
+        attendees: attendeeNames,
+      });
       // Actions
       for (const item of intel.actions) {
         const tier = actionTier(item.confidence);
@@ -147,7 +155,7 @@ export async function processZoomMeeting(
           // Only use the owner the model actually extracted. Defaulting to the
           // first attendee fabricated ownership — attributing an unowned action
           // to whoever happened to be listed first. "Unknown" is honest.
-          owner:      item.owner ?? "Unknown",
+          owner:      normaliseOwner(item.owner, meetingIdentity) ?? "Unknown",
           dueDate:    item.dueDate ?? undefined,
           source:     "meeting",
           confidence: item.confidence,

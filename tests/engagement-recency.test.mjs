@@ -87,6 +87,8 @@ test("a Zoom meeting fetched from the API records contact with every participant
     "@/lib/memory/store": { createMemory: async () => ({ id: "m" }) },
     "@/lib/trust/policy": { actionTier: () => "auto", decisionTier: () => "auto", memoryTier: () => "auto", needsReviewFlag: () => false },
     "@/lib/contacts/touch-recency": { touchContactsRecency: async (_u, t) => { touches.push(...t); return t.length; } },
+    "@/lib/contacts/user-store": { listUserContacts: async () => [] },
+    "@/lib/self-identity": { getSelfIdentity: async () => ({ emails: [], names: [] }), normaliseOwner: (o) => o, selfInContext: (i) => i },
   });
   await Z.processZoomMeeting({
     username: "u",

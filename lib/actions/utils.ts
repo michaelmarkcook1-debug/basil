@@ -210,7 +210,8 @@ export function ownerOfMeetingNote(text: string, selfNames: readonly string[]): 
   const VERB = "(?:to|will|'ll|should|must|needs to|has to|is to|owns)";
   const firsts = selfNames.map((n) => n.trim().split(/\s+/)[0]).filter(Boolean);
   const isSelf = (name: string) => firsts.some((f) => f.toLowerCase() === name.split(/\s+/)[0].toLowerCase());
-  const named = new RegExp(`^\\s*([A-Z][a-z]+(?:\\s+[A-Z][a-z]+)?)\\s+${VERB}\\b`).exec(body);
+  // Second word may be an initial: "Mike C to send…".
+  const named = new RegExp(`^\\s*([A-Z][a-z]+(?:\\s+[A-Z](?:[a-z]+|\\.)?)?)\\s+${VERB}\\b`).exec(body);
   if (named) return isSelf(named[1]) ? { owner: selfNames[0] ?? named[1] } : { owner: named[1] };
   for (const f of firsts) {
     const esc = f.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");

@@ -27,8 +27,9 @@ import { createActionTracked } from "@/lib/actions/store";
 import { ownerOfMeetingNote } from "@/lib/actions/utils";
 import { createDecisionTracked, linkActionToDecision } from "@/lib/decisions/store";
 import { createMemoryTracked } from "@/lib/memory/store";
+import { listUserContacts } from "@/lib/contacts/user-store";
 import { updateEvent } from "@/lib/events/store";
-import { getSelfIdentity, isSelf } from "@/lib/self-identity";
+import { canonicalSelfName, getSelfIdentity, isSelf, normaliseOwner, selfInContext } from "@/lib/self-identity";
 import {
   zoomActionTier,
   zoomDecisionTier,
@@ -377,6 +378,13 @@ export async function processZoomEmail(opts: ProcessZoomEmailOpts): Promise<void
     }
 
     const extract = await extractZoomMeeting(plainBody, { subject, date }, username);
+    // Who "me" is in THIS meeting: a bare "Mike" is the user only when the
+    // notes don't also mention Michael or another Mike.
+    // No attendee list here: names extracted from a summary are not Zoom's
+    // participant list, so they cannot show that a namesake was absent.
+    const meetingIdentity = selfInContext(selfIdentity, plainBody, {
+      otherPeople: (await listUserContacts(username).catch(() => [])).map((c) => c.name ?? "").filter(Boolean),
+    });
     for (const name of opts.ensureAttendees ?? []) {
       const n = name.trim();
       if (n && !extract.attendees.some((a) => a.trim().toLowerCase() === n.toLowerCase())) extract.attendees.push(n);
@@ -405,7 +413,8 @@ export async function processZoomEmail(opts: ProcessZoomEmailOpts): Promise<void
     const titleCase = (n: string) => n.replace(/\b\w/g, (c) => c.toUpperCase());
     const noteOwner = (text: string) => {
       const o = ownerOfMeetingNote(text, selfIdentity.names);
-      return o ? titleCase(o.owner) : null;
+      if (!o) return null;
+      return isSelf(o.owner, meetingIdentity) ? canonicalSelfName(meetingIdentity) ?? titleCase(o.owner) : titleCase(o.owner);
     };
     let notesKeptAsNotes = 0;
     const zoomDTier = zoomDecisionTier(extract.confidence);
@@ -440,7 +449,7 @@ export async function processZoomEmail(opts: ProcessZoomEmailOpts): Promise<void
               : ("low" as const);
           const { item: action, created } = await createActionTracked(username, {
             text: item.text.trim(),
-            owner: item.owner,
+            owner: normaliseOwner(item.owner, meetingIdentity),
             dueDate: item.dueDate,
             source: "meeting",
             eventId,
@@ -644,7 +653,7 @@ export async function processZoomEmail(opts: ProcessZoomEmailOpts): Promise<void
     if (extract.attendees.length > 0 && extract.confidence >= ZOOM_REVIEW_FLOOR) {
       const meetingDateStr = extract.meetingDate.slice(0, 10);
       const participants = extract.attendees
-        .filter((a) => a.trim() && !isSelf(a, selfIdentity))
+        .filter((a) => a.trim() && !isSelf(a, meetingIdentity))
         .slice(0, 8);
       // Advance contact recency for Zoom attendees so a recent call counts toward
       // "last interaction" — the delta engine's "gone quiet" signal reads that
