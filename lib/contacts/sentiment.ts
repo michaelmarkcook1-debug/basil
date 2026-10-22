@@ -292,7 +292,16 @@ export async function correctRelationship(username: string, contact: ContactLike
   return (await assessRelationship(username, contact, { force: true, now })).sentiment;
 }
 
-/** Re-read every relationship with something new (once a day each, bounded). Returns how many were re-judged. */
+/**
+ * A read made before reads were baseline-relative (2026-10-21) has no
+ * confidence and no measured facts — the card cannot show message length or
+ * reply time. It is redone on the next refresh, even if nothing new arrived.
+ */
+export function isOldFormat(prev: { confidence?: unknown }): boolean {
+  return !prev.confidence;
+}
+
+/** Re-read every relationship with something new (once a day each, bounded), and any old-format read. Returns how many were re-judged. */
 export async function refreshStaleSentiment(username: string, max = 8, now = Date.now()): Promise<number> {
   if (!(await toneSentimentEnabled(username))) return 0;
   const [contacts, sources, identity, overrides, stored] = await Promise.all([
@@ -303,12 +312,13 @@ export async function refreshStaleSentiment(username: string, max = 8, now = Dat
   const stale = contacts.filter((c) => {
     const ix = interactionsWith(c, sources, identity.names, now);
     const prev = stored[c.id];
-    return ix.length >= MIN_INTERACTIONS && (!prev || (prev.latestAt < ix[0].date && now - Date.parse(prev.computedAt) >= REFRESH_MS));
+    return ix.length >= MIN_INTERACTIONS && (!prev || isOldFormat(prev) || (prev.latestAt < ix[0].date && now - Date.parse(prev.computedAt) >= REFRESH_MS));
   }).slice(0, max);
   let n = 0;
   for (const c of stale) {
     try {
-      const r = await assessRelationship(username, c, { sources, selfNames: identity.names, shifts: overrides[c.id]?.toneHistory ?? [], now });
+      const prev = stored[c.id];
+      const r = await assessRelationship(username, c, { sources, selfNames: identity.names, shifts: overrides[c.id]?.toneHistory ?? [], now, force: !!prev && isOldFormat(prev) });
       if (r.sentiment?.computedAt === new Date(now).toISOString()) n++;
     } catch (e) {
       console.warn("[sentiment] could not read", c.id, e instanceof Error ? e.message : e);

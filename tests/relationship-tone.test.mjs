@@ -187,3 +187,12 @@ test("a correction is stored, re-reads immediately, and reaches the prompt", asy
   assert.match(prompt, /corrected an earlier read of Ed Baum .*"Ed is always this brief"/);
   assert.equal(files["contact-sentiment.json"].ed.correction.note, "Ed is always this brief", "the correction survives re-reads");
 });
+
+test("a read from before baseline-relative reads (no confidence, no facts) is redone even with nothing new", () => {
+  const { S } = sentiment();
+  assert.equal(S.isOldFormat({ tone: "cool", computedAt: daysAgo(1) }), true);
+  assert.equal(S.isOldFormat({ tone: "cool", confidence: "early", facts: [] }), false);
+  const s = src("lib/contacts/sentiment.ts");
+  assert.match(s, /\(!prev \|\| isOldFormat\(prev\) \|\| \(prev\.latestAt < ix\[0\]\.date/, "picked up by the refresh");
+  assert.match(s, /force: !!prev && isOldFormat\(prev\)/, "and forced past the read's own freshness check");
+});
