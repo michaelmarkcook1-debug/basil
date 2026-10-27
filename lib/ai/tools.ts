@@ -6,7 +6,7 @@ import { webSearch, fetchPageContent } from "@/lib/web/search";
 import { isGoogleConnected } from "@/lib/google/auth";
 import { getSettings } from "@/lib/settings/store";
 import { getTodayEvents, createCalendarEvent, getEventsForDate, getEventsForDateRange, checkFreeBusy, respondToEvent, proposeNewTime } from "@/lib/google/calendar";
-import { getRecentEmails, searchEmails, createDraft, getEmailBody, replyToEmail } from "@/lib/google/gmail";
+import { getRecentEmails, searchEmails, createDraft, getEmailBody, replyToEmail, sendEmail as sendGmail } from "@/lib/google/gmail";
 import { searchDriveFiles } from "@/lib/google/drive";
 import { isSlackConnected, getRecentSlackMessages, searchSlackMessages, sendSlackMessage as slackSend, getUserProfile } from "@/lib/slack/client";
 import {
@@ -225,8 +225,43 @@ export function buildAssistantTools(
 
     // ── ACTION TOOLS (require approval) ──
 
+    // A new email used to go through draftEmail, whose approval only SAVED a
+    // Gmail draft: the card promised a send, the user approved, and nothing
+    // left their outbox (reported 2026-10-27). Sending is now its own tool.
+    sendEmail: tool({
+      description: `Send a NEW email for ${name}. ${name} sees exactly who it goes to, the subject and the body, and approves before it sends; approving sends it immediately from their Gmail. Use this whenever ${name} asks you to email someone. To answer an existing email, use replyToEmail (it keeps the thread). Only call it "sent" if this returns status "sent".`,
+      inputSchema: z.object({
+        ...APPROVAL_META,
+        to: z.string().describe("Recipient email address(es), comma-separated"),
+        subject: z.string().describe("Email subject"),
+        body: z.string().describe("Full email body text, greeting and sign-off included"),
+      }),
+      // Sending cannot be undone: always approved, never delegated (not in REVERSIBLE_TOOLS).
+      needsApproval: true,
+      execute: async ({ to, subject, body }) => {
+        if (!(await isGoogleConnected(username))) {
+          return { error: "Gmail not connected. Cannot send until Google is connected in Settings." };
+        }
+        try {
+          const sent = await sendGmail(username, to, subject, body);
+          if (!sent.id) return { error: "Gmail did not confirm the send. The email was NOT sent." };
+          await emitAuditEvent({ username,
+            source: "email",
+            headline: `Sent email to ${to}`,
+            context: `Subject: ${subject}\n\n${body.slice(0, 300)}`,
+            rationale: `${name} approved the email in chat.`,
+            entityName: to,
+            tags: ["email", "sent"],
+          });
+          return { status: "sent", messageId: sent.id, to, subject };
+        } catch (e) {
+          return { error: `Email NOT sent: ${e instanceof Error ? e.message : String(e)}` };
+        }
+      },
+    }),
+
     draftEmail: tool({
-      description: `Queue an email for ${name} to review and send. Creates a pending approval item — ${name} sees the draft, can edit it, then clicks Send. Always use '${name}' as the sender name. Never bypass this queue to send directly.`,
+      description: `Save a new email to ${name}'s Gmail DRAFTS without sending it. Only when ${name} explicitly asks for a draft ("draft", "save it for me to send later"). It is NOT sent: say it is waiting in Gmail Drafts. To send an email, use sendEmail.`,
       inputSchema: z.object({
         ...APPROVAL_META,
         to: z.string().describe("Recipient email address"),
@@ -247,7 +282,7 @@ export function buildAssistantTools(
           entityName: to,
           tags: ["email", "draft"],
         });
-        return { status: "draft_created", draftId: result.id, to, subject, preview: body.substring(0, 100) + "..." };
+        return { status: "saved_to_drafts", sent: false, note: "NOT sent. It is in Gmail Drafts for the user to send.", draftId: result.id, to, subject };
       },
     }),
 

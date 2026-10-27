@@ -230,6 +230,9 @@ export async function getEmailBody(username: string, messageId: string): Promise
   };
 }
 
+/** RFC 2047: a non-ASCII header (an em dash, a curly quote) is otherwise garbled in the recipient's client. */
+const encodeHeader = (s: string) => /^[\x20-\x7e]*$/.test(s) ? s : `=?UTF-8?B?${Buffer.from(s, "utf8").toString("base64")}?=`;
+
 export async function createDraft(
   username: string,
   to: string,
@@ -249,7 +252,7 @@ export async function createDraft(
   const safeFrom = from ? hdr(from) : "";
   const fromHeader = safeFrom ? `From: ${safeFrom}\r\n` : "";
   const raw = Buffer.from(
-    `${fromHeader}To: ${hdr(to)}\r\nSubject: ${hdr(subject)}\r\nContent-Type: text/plain; charset=utf-8\r\n\r\n${body}`
+    `${fromHeader}To: ${hdr(to)}\r\nSubject: ${encodeHeader(hdr(subject))}\r\nMIME-Version: 1.0\r\nContent-Type: text/plain; charset=utf-8\r\nContent-Transfer-Encoding: 8bit\r\n\r\n${body}`
   ).toString("base64url");
 
   const res = await gmail.users.drafts.create({
@@ -283,7 +286,7 @@ export async function sendEmail(
   const safeFrom = from ? hdr(from) : "";
   const fromHeader = safeFrom ? `From: ${safeFrom}\r\n` : "";
   const raw = Buffer.from(
-    `${fromHeader}To: ${hdr(to)}\r\nSubject: ${hdr(subject)}\r\nContent-Type: text/plain; charset=utf-8\r\n\r\n${body}`
+    `${fromHeader}To: ${hdr(to)}\r\nSubject: ${encodeHeader(hdr(subject))}\r\nMIME-Version: 1.0\r\nContent-Type: text/plain; charset=utf-8\r\nContent-Transfer-Encoding: 8bit\r\n\r\n${body}`
   ).toString("base64url");
 
   const res = await gmail.users.messages.send({
@@ -559,7 +562,6 @@ export async function getReplyContext(username: string, messageId: string): Prom
 
 const fmtAddress = (a: Address) => a.name ? `"${a.name.replace(/["\\\r\n]/g, "")}" <${a.email}>` : a.email;
 /** RFC 2047 for non-ASCII header text (subjects in other languages, em dashes). */
-const encodeHeader = (s: string) => /^[\x20-\x7e]*$/.test(s) ? s : `=?UTF-8?B?${Buffer.from(s, "utf8").toString("base64")}?=`;
 const headerSafe = (s: string) => s.replace(/[\r\n]+/g, " ").trim();
 
 /**

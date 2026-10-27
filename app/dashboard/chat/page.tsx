@@ -86,6 +86,7 @@ const toolIcons: Record<string, typeof Calendar> = {
   getCalendarEvents: Calendar,
   searchEmails: Mail,
   searchSlack: Hash,
+  sendEmail: Mail,
   draftEmail: Mail,
   replyToEmail: Mail,
   respondToInvite: Calendar,
@@ -118,10 +119,19 @@ const TOOL_DOMAIN_MAP: Record<string, SyncDomain> = {
   generateContactProfile: "contacts",
 };
 
+/** The approve button says what approving does: sending cannot be undone. */
+function approveLabel(toolName: string): string {
+  if (toolName === "sendEmail" || toolName === "replyToEmail" || toolName === "sendSlackMessage") return "Send";
+  if (toolName === "draftEmail") return "Save draft";
+  return "Approve";
+}
+
 function formatToolInput(toolName: string, input: Record<string, unknown>): string {
   switch (toolName) {
-    case "draftEmail":
+    case "sendEmail":
       return `To: ${input.to}\nSubject: ${input.subject}\n\n${input.body}`;
+    case "draftEmail":
+      return `Saved to Gmail Drafts, NOT sent\nTo: ${input.to}\nSubject: ${input.subject}\n\n${input.body}`;
     case "replyToEmail":
       return `${input.replyAll ? "Reply all" : "Reply"} — in the original thread\nTo: ${input.recipients ?? "the sender"}\n\n${input.body}`;
     case "respondToInvite": {
@@ -906,7 +916,7 @@ function ChatPageInner() {
                           className="h-11 gap-1.5 rounded-xl bg-[#D4B978] px-4 text-[14px] font-semibold text-[#10213F] hover:bg-[#C8A96B]"
                           onClick={() => { if (approval?.id) addToolApprovalResponse({ id: approval.id, approved: true }); }}
                         >
-                          <Check className="h-3.5 w-3.5" /> Approve
+                          <Check className="h-3.5 w-3.5" /> {approveLabel(toolName)}
                         </Button>
                         <Button
                           size="sm"
