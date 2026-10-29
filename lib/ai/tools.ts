@@ -36,6 +36,8 @@ import {
 } from "@/lib/linear/client";
 import { findContactByName, timezoneFromLocation } from "@/lib/contacts-lookup";
 import { listUserContacts } from "@/lib/contacts/user-store";
+import { getUploadText, listUploads } from "@/lib/uploads/store";
+import { searchUploadText } from "@/lib/uploads/search";
 // NOTE: domain sync (emitChange) is NOT called here — tools.ts runs server-side
 // inside the /api/chat route handler where `window` is undefined.  Domain changes
 // are broadcast client-side by the post-stream handler in app/dashboard/chat/page.tsx
@@ -206,6 +208,21 @@ export function buildAssistantTools(
         const profile = await getUserProfile(username, nameOrEmail);
         if (!profile) return { error: `No user found for "${nameOrEmail}"` };
         return profile;
+      },
+    }),
+
+    searchUploads: tool({
+      description: `Search the recordings and documents ${name} uploaded to Basil (transcripts are timestamped). Use for "what did X say in the recording", "find where we discussed Y", or anything in an uploaded file. Returns matching lines with the upload's title, date and the clock time each line was said.`,
+      inputSchema: z.object({
+        query: z.string().describe("Words to look for — a name, topic or phrase"),
+        title: z.string().optional().describe("Only uploads whose title contains this"),
+      }),
+      execute: async ({ query, title }) => {
+        const ups = (await listUploads(username)).filter((u) => u.status === "ready" && (!title || u.title.toLowerCase().includes(title.toLowerCase())));
+        if (!ups.length) return { results: [], note: "No uploads match." };
+        const texts = await Promise.all(ups.slice(0, 40).map(async (u) => ({ u, t: await getUploadText(username, u.id) })));
+        const results = searchUploadText(texts, query, 15);
+        return { results, count: results.length, searched: texts.length };
       },
     }),
 

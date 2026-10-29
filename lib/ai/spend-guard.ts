@@ -437,6 +437,66 @@ export async function commitSpend(
   });
 }
 
+/**
+ * Hold a KNOWN cost under every configured cap — for work priced per unit, not
+ * per token (audio transcription is per minute). All or nothing, tightest cap
+ * first, exactly like reserveSpend; throws SpendCapError when it does not fit.
+ */
+export async function reserveFlatSpend(meter: SpendMeter, usd: number): Promise<SpendReservation> {
+  if (isHardStopped()) throw new SpendCapError("hard-stop", secondsUntilPeriodEnd());
+  const family: PriceFamily = meter.family ?? "transcribe";
+  const period = currentPeriod();
+  const day = currentDay();
+  const gc = globalCapUsd(), dc = dailyCapUsd(), udc = perUserDailyCapUsd();
+  const uc = meter.userMonthlyUsd ?? userCapUsd();
+  const base = { username: meter.username, feature: meter.feature, family, period, day };
+  if ((gc === null && uc === null && dc === null && udc === null) || usd <= 0) return { ...base, reservedUsd: 0, heldKeys: [] };
+
+  const holds: { key: string; ttl: number; cap: number; scope: SpendScope; retryAfter: number }[] = [];
+  if (udc !== null) holds.push({ key: userDailyKey(meter.username, day), ttl: DAILY_TTL_SECONDS, cap: udc, scope: "user-daily", retryAfter: secondsUntilDayEnd() });
+  if (dc !== null) holds.push({ key: dailyKey(day), ttl: DAILY_TTL_SECONDS, cap: dc, scope: "daily", retryAfter: secondsUntilDayEnd() });
+  if (uc !== null) holds.push({ key: userKey(meter.username, period), ttl: COUNTER_TTL_SECONDS, cap: uc, scope: "user", retryAfter: secondsUntilPeriodEnd() });
+  if (gc !== null) holds.push({ key: globalKey(period), ttl: COUNTER_TTL_SECONDS, cap: gc, scope: "global", retryAfter: secondsUntilPeriodEnd() });
+
+  const applied: typeof holds = [];
+  try {
+    for (const h of holds) {
+      const { value } = await incrCounter(h.key, usd, h.ttl);
+      applied.push(h);
+      if (value > h.cap) throw new SpendCapError(h.scope, h.retryAfter);
+    }
+    return { ...base, reservedUsd: usd, heldKeys: applied.map((h) => h.key) };
+  } catch (err) {
+    for (const h of applied) {
+      try {
+        await incrCounter(h.key, -usd, h.ttl);
+      } catch (e) {
+        console.warn("[spend-guard] flat-hold unwind failed:", e instanceof Error ? e.message : e);
+      }
+    }
+    if (err instanceof SpendCapError) throw err;
+    // Counter store unreachable: transcription is a paid, user-initiated call —
+    // fail closed rather than spend blind.
+    console.error("[spend-guard] counter store error on flat hold — failing CLOSED:", err instanceof Error ? err.message : err);
+    throw new SpendCapError("global", secondsUntilPeriodEnd());
+  }
+}
+
+/** Settle a flat hold to what was actually spent and log the event. Never throws. */
+export async function commitFlatSpend(reservation: SpendReservation, actualUsd: number): Promise<void> {
+  try {
+    for (const [key, ttl] of counterKeysFor(reservation)) {
+      await incrCounter(key, commitDeltaFor(key, reservation, actualUsd), ttl);
+    }
+  } catch (err) {
+    console.error("[spend-guard] flat commit counter update failed (event log still recorded):", err instanceof Error ? err.message : err);
+  }
+  await appendSpendEvent({
+    ts: Date.now(), username: reservation.username, feature: reservation.feature, family: reservation.family,
+    inputTokens: 0, outputTokens: 0, usd: actualUsd,
+  });
+}
+
 /** Return a reservation in full when the call failed (so it costs nothing). */
 export async function releaseSpend(reservation: SpendReservation): Promise<void> {
   if (reservation.reservedUsd <= 0) return;

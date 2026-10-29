@@ -267,23 +267,27 @@ export async function blobIsMigrated(): Promise<boolean> {
 export async function blobPurgeUserData(username: string): Promise<number> {
   // Lowercase first: usernames are case-insensitive, so purge targets the one store.
   const sanitized = username.toLowerCase().replace(/[^a-zA-Z0-9._-]/g, "_");
-  const scopePrefix = `${PREFIX}/users/${sanitized}/`;
+  // Uploaded originals (recordings, documents) live under media/, outside
+  // users/**, so the nightly backup does not copy hundreds of MB every day —
+  // but they are the user's data all the same and go with the account.
+  const scopePrefixes = [`${PREFIX}/users/${sanitized}/`, `${PREFIX}/media/${sanitized}/`];
 
   let deleted = 0;
-  let cursor: string | undefined;
-
-  do {
-    const result = await list({ prefix: scopePrefix, cursor, limit: 100 });
-    if (result.blobs.length > 0) {
-      const urls = result.blobs.map((b) => b.url);
-      await del(urls);
-      for (const b of result.blobs) {
-        urlCache.delete(b.pathname);
+  for (const scopePrefix of scopePrefixes) {
+    let cursor: string | undefined;
+    do {
+      const result = await list({ prefix: scopePrefix, cursor, limit: 100 });
+      if (result.blobs.length > 0) {
+        const urls = result.blobs.map((b) => b.url);
+        await del(urls);
+        for (const b of result.blobs) {
+          urlCache.delete(b.pathname);
+        }
+        deleted += result.blobs.length;
       }
-      deleted += result.blobs.length;
-    }
-    cursor = result.hasMore ? result.cursor : undefined;
-  } while (cursor);
+      cursor = result.hasMore ? result.cursor : undefined;
+    } while (cursor);
+  }
 
   return deleted;
 }

@@ -321,6 +321,8 @@ export interface ProcessZoomEmailOpts {
   body?: string;
   /** People known to have been there (the digest's host), added if extraction missed them. */
   ensureAttendees?: string[];
+  /** What the notes call it: "Zoom meeting" (default), "Recording", "Document". */
+  label?: string;
   /**
    * Context only: notes, decisions and attendees, but no actions (action
    * items, blockers, follow-ups, decision consequences). For backfilled
@@ -490,7 +492,7 @@ export async function processZoomEmail(opts: ProcessZoomEmailOpts): Promise<void
             decidedBy: dec.decidedBy || "Meeting attendees",
             stakeholders: extract.attendees.filter((a) => a !== dec.decidedBy),
             date: extract.meetingDate.slice(0, 10),
-            context: `From Zoom meeting: ${extract.meetingTitle}`,
+            context: `From ${opts.label ?? "Zoom meeting"}: ${extract.meetingTitle}`,
             source: "meeting",
             confidence: itemConf,
             needsReview: needsReviewFlag(itemTier),
@@ -631,7 +633,7 @@ export async function processZoomEmail(opts: ProcessZoomEmailOpts): Promise<void
       try {
         const { item: memory, created } = await createMemoryTracked(username, {
           kind: "context",
-          content: `[Zoom meeting — ${extract.meetingTitle}]${attendeeNote}${topicNote}${blockerNote} ${extract.summary.trim()}`,
+          content: `[${opts.label ?? "Zoom meeting"} — ${extract.meetingTitle}]${attendeeNote}${topicNote}${blockerNote} ${extract.summary.trim()}`,
           source: "inferred",
           confidence: extract.confidence,
           needsReview: needsReviewFlag(zoomMTier),
@@ -666,7 +668,7 @@ export async function processZoomEmail(opts: ProcessZoomEmailOpts): Promise<void
         try {
           const { item: memory, created } = await createMemoryTracked(username, {
             kind: "person",
-            content: `Zoom meeting participant: "${extract.meetingTitle}" on ${meetingDateStr}.`,
+            content: `${opts.label ?? "Zoom meeting"} participant: "${extract.meetingTitle}" on ${meetingDateStr}.`,
             entity: attendee.trim(),
             source: "inferred",
             confidence: extract.confidence,

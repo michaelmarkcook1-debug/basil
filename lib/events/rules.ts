@@ -72,6 +72,11 @@ export function classify(payload: IngestPayload): Classification {
   // 0) ZOOM EMAIL — always auto-classify; never draft a reply to a Zoom-generated email
   // The extraction service materializes actions/decisions separately; this event
   // is just the receipt record.
+  if (payload.source === "upload") {
+    // A recording or document the user uploaded: always a record, never a
+    // reply to draft — extraction materialises its actions and notes.
+    return { disposition: "auto", priority: "low", confidence: 1.0, rationale: "Uploaded by you — reading it for notes, decisions and actions.", tags: [...new Set([...tags, "upload"])] };
+  }
   if (payload.source === "zoom_email") {
     const zoomTags = [...new Set([...tags, "zoom", "meeting"])];
     return {

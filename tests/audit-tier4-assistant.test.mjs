@@ -166,7 +166,7 @@ test("AI-02 scheduleMeeting forwards the resolved timezone to the calendar adapt
     "@/lib/google/gmail": noop, "@/lib/google/drive": noop, "@/lib/slack/client": noop,
     "@/lib/memory/store": noop, "@/lib/actions/store": noop, "@/lib/decisions/store": noop,
     "@/lib/events/audit": { emitAuditEvent: async () => {} }, "@/lib/linear/sync-actions": noop, "@/lib/linear/client": noop,
-    "@/lib/contacts-lookup": { findContactByName: () => undefined, timezoneFromLocation: () => undefined }, "@/lib/contacts/user-store": noop,
+    "@/lib/contacts-lookup": { findContactByName: () => undefined, timezoneFromLocation: () => undefined }, "@/lib/contacts/user-store": noop, "@/lib/uploads/store": noop, "@/lib/uploads/search": noop,
     "@/lib/settings/store": { getSettings: async () => ({ meetingUrl: "https://zoom.example.invalid/j/123" }) },
   });
   const tools = T.buildAssistantTools("fixture", "Fixture", "America/New_York");

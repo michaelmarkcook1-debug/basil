@@ -20,6 +20,7 @@ import {
   Shield,
   Lightbulb,
   FolderKanban,
+  UploadCloud,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { PM_ENTRY, inProjectManagement } from "@/lib/project-management/views";
@@ -48,6 +49,7 @@ const PRIMARY_NAV = [
 // digest's roll-up. Memory lives here now.
 const MORE_NAV = [
   { href: "/dashboard/memory",    label: "Memory",        icon: Brain },
+  { href: "/dashboard/uploads",   label: "Uploads",       icon: UploadCloud },
   { href: "/dashboard/schedule",  label: "Schedule",      icon: CalendarDays },
   { href: "/dashboard/decisions", label: "Decisions",     icon: Scale },
   { href: "/dashboard/projects",  label: "Projects",      icon: Folder },

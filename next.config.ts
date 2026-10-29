@@ -51,7 +51,16 @@ const nextConfig: NextConfig = {
   // time and blows up because we don't install them. Treating Baileys as a
   // server-side external module makes Node's native require handle it — the
   // optional imports fail silently as intended.
-  serverExternalPackages: ["@whiskeysockets/baileys", "pg"],
+  // ffmpeg-static resolves its binary from its own __dirname, so it must stay
+  // an unbundled node_modules require; unpdf (pdf.js) and mammoth likewise run
+  // as plain Node packages for document uploads.
+  serverExternalPackages: ["@whiskeysockets/baileys", "pg", "ffmpeg-static", "unpdf", "mammoth"],
+
+  // The ffmpeg binary is not imported as code, so file tracing would leave it
+  // out of the upload route's bundle: ship it explicitly (lib/uploads/transcribe.ts).
+  outputFileTracingIncludes: {
+    "/api/uploads": ["./node_modules/ffmpeg-static/ffmpeg"],
+  },
 
   headers() {
     return Promise.resolve([

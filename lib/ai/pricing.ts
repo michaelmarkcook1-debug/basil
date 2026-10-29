@@ -23,7 +23,9 @@ import { RESERVE_OUTPUT_TOKENS } from "./model-config";
 /** Model families we price. */
 export type PriceFamily =
   | "opus" | "opus5" | "opus55" | "sonnet" | "haiku" | "gpt5"
-  | "gpt56luna" | "gpt56terra" | "gpt56sol";
+  | "gpt56luna" | "gpt56terra" | "gpt56sol"
+  /** Audio transcription — priced per minute, so its events carry usd directly. */
+  | "transcribe";
 
 /**
  * USD per 1,000,000 tokens. Estimates — see module note.
@@ -46,6 +48,8 @@ export const FAMILY_PRICING: Record<PriceFamily, { inputPerM: number; outputPerM
   gpt56luna:  { inputPerM: 1,   outputPerM: 6 },  // data gathering
   gpt56terra: { inputPerM: 2.5, outputPerM: 15 }, // categorization
   gpt56sol:   { inputPerM: 5,   outputPerM: 30 }, // contextual + reasoning (incl. the pinned assistant)
+  // Not token-priced: see reserveFlatSpend / commitFlatSpend (lib/ai/spend-guard.ts).
+  transcribe: { inputPerM: 0,   outputPerM: 0 },
 };
 
 /**

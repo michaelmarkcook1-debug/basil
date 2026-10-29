@@ -41,7 +41,7 @@ export async function GET() {
           m.content.includes("meeting recap") ||
           m.content.startsWith("[Slack") === false) // exclude pure-Slack context
     )
-    .filter((m) => m.content.includes("[Zoom meeting") || m.content.toLowerCase().includes("zoom"))
+    .filter((m) => m.content.includes("[Zoom meeting") || m.content.startsWith("[Recording —") || m.content.toLowerCase().includes("zoom"))
     .sort((a, b) => {
       // Sort by createdAt descending
       const ta = a.createdAt || "0";
