@@ -232,6 +232,8 @@ export default function AdminPage() {
           ))}
         </div>
 
+        <InviteCard onInvited={() => void load()} />
+
         {/* Users list */}
         <Card className="shadow-sm">
           <CardHeader className="pb-2">
@@ -499,3 +501,78 @@ export default function AdminPage() {
     </div>
   );
 }
+
+/**
+ * Invite a colleague: name + email → their account and a one-time link to
+ * choose a password (emailed when email is set up, and shown here to copy
+ * into Slack either way). Onboarding then connects their own Google, Slack
+ * and Zoom.
+ */
+function InviteCard({ onInvited }: { onInvited: () => void }) {
+  const [name, setName] = useState("");
+  const [surname, setSurname] = useState("");
+  const [email, setEmail] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [result, setResult] = useState<{ link: string; emailed: boolean; email: string; name: string } | null>(null);
+  const [copied, setCopied] = useState(false);
+
+  async function invite(e: React.FormEvent) {
+    e.preventDefault();
+    setBusy(true); setError(null); setCopied(false);
+    try {
+      const r = await fetch("/api/admin/invite", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name, surname: surname || undefined, email }),
+      });
+      const j = await r.json().catch(() => ({})) as { error?: string; link?: string; emailed?: boolean; user?: { email: string; name: string } };
+      if (!r.ok || !j.link) throw new Error(j.error || "Could not create the account.");
+      setResult({ link: j.link, emailed: !!j.emailed, email: j.user?.email ?? email, name: j.user?.name ?? name });
+      setName(""); setSurname(""); setEmail("");
+      onInvited();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not create the account.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  const message = result
+    ? `Hi ${result.name}, I've set you up on Basil — it keeps track of your meetings, emails and follow-ups. Takes about 3 minutes: click this link, choose a password, then sign in to Google and Slack when it asks. ${result.link}`
+    : "";
+
+  return (
+    <Card className="shadow-sm">
+      <CardHeader className="pb-2">
+        <CardTitle className="text-sm font-medium flex items-center gap-2">
+          <Mail className="h-4 w-4 text-muted-foreground" />
+          Invite a colleague
+        </CardTitle>
+      </CardHeader>
+      <CardContent className="space-y-3">
+        <form onSubmit={invite} className="grid gap-2 sm:grid-cols-[1fr_1fr_1.4fr_auto]">
+          <input aria-label="First name" required placeholder="First name" value={name} onChange={(e) => setName(e.target.value)} className="rounded-md border border-border bg-background px-3 py-2 text-sm" />
+          <input aria-label="Surname" placeholder="Surname" value={surname} onChange={(e) => setSurname(e.target.value)} className="rounded-md border border-border bg-background px-3 py-2 text-sm" />
+          <input aria-label="Work email" required type="email" placeholder="Work email" value={email} onChange={(e) => setEmail(e.target.value)} className="rounded-md border border-border bg-background px-3 py-2 text-sm" />
+          <Button type="submit" size="sm" disabled={busy} className="h-auto">{busy ? "Creating…" : "Invite"}</Button>
+        </form>
+        {error && <p role="alert" className="text-sm text-signal-critical">{error}</p>}
+        {result && (
+          <div className="space-y-2 rounded-lg bg-signal-positive-subtle p-3 text-sm">
+            <p>
+              {result.emailed
+                ? <>Account created and an invite emailed to <strong>{result.email}</strong>. If it doesn&apos;t arrive, send this message instead:</>
+                : <>Account created for <strong>{result.email}</strong>. Email isn&apos;t set up, so send this message yourself (Slack is fine):</>}
+            </p>
+            <p className="rounded-md bg-background p-2 text-xs break-all">{message}</p>
+            <Button size="sm" variant="outline" onClick={() => { void navigator.clipboard.writeText(message).then(() => setCopied(true)); }}>
+              {copied ? "Copied" : "Copy message"}
+            </Button>
+            <p className="text-xs text-muted-foreground">The link works once and lasts 7 days. Their Basil starts empty and only ever sees their own accounts.</p>
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+

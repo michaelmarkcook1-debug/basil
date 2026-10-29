@@ -6,6 +6,9 @@ import { useSearchParams } from "next/navigation";
 function ResetPasswordForm() {
   const params      = useSearchParams();
   const token       = params.get("token") ?? "";
+  // An invite link (lib/auth/invite.ts): welcome copy, and choosing a
+  // password signs them straight in and starts onboarding.
+  const welcome     = params.get("welcome") === "1";
 
   const [password,  setPassword]  = useState("");
   const [confirm,   setConfirm]   = useState("");
@@ -30,6 +33,16 @@ function ResetPasswordForm() {
     });
 
     if (res.ok) {
+      if (welcome) {
+        const { username } = (await res.json().catch(() => ({}))) as { username?: string }; // ci-ok: missing username → fall through to the sign-in screen
+        if (username) {
+          const login = await fetch("/api/auth", {
+            method: "POST", headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ username, password }),
+          });
+          if (login.ok) { window.location.replace("/onboarding"); return; }
+        }
+      }
       setDone(true);
     } else {
       const data = await res.json().catch(() => ({}));
@@ -80,10 +93,12 @@ function ResetPasswordForm() {
         className="text-xl font-semibold text-white mb-1 text-center"
         style={{ fontFamily: "var(--font-fraunces), Georgia, serif" }}
       >
-        Set a new password
+        {welcome ? "Welcome to Basil" : "Set a new password"}
       </h2>
       <p className="text-white/40 text-sm text-center mb-6">
-        This link expires in 1 hour and can only be used once.
+        {welcome
+          ? "Choose a password to finish setting up. Next, Basil asks you to sign in to Google and Slack — that's all."
+          : "This link expires in 1 hour and can only be used once."}
       </p>
 
       <form onSubmit={handleSubmit} className="space-y-4">

@@ -21,6 +21,7 @@ interface IntegrationStatus {
   google: { state: string };
   microsoft: { state: string };
   slack: { state: string };
+  zoom?: { state: string };
 }
 
 // ── Constants ──────────────────────────────────────────────────────────────────
@@ -238,8 +239,9 @@ export default function OnboardingPage() {
     if (connected === "google"    || error === "google_auth")    setStep(4);
     if (connected === "microsoft" || error === "microsoft_auth") setStep(5);
     if (connected === "slack"     || error === "slack_auth")     setStep(6);
+    if (connected === "zoom")                                    setStep(TOTAL_STEPS - 1);
 
-    if (connected === "google" || connected === "microsoft" || connected === "slack") {
+    if (connected === "google" || connected === "microsoft" || connected === "slack" || connected === "zoom") {
       setJustConnected((prev) => new Set([...prev, connected]));
     }
 
@@ -792,6 +794,7 @@ export default function OnboardingPage() {
           [isConnected("google"),    "Google Gmail & Calendar connected"],
           [isConnected("microsoft"), "Microsoft 365 connected"],
           [isConnected("slack"),     "Slack connected"],
+          [isConnected("zoom"),      "Zoom connected"],
         ]
           .filter(([cond]) => cond)
           .map(([, label]) => (
@@ -812,6 +815,18 @@ export default function OnboardingPage() {
             connect now
           </a>{" "}
           to unlock email & calendar features.
+        </div>
+      )}
+
+      {/* Zoom is optional: recaps of meetings you host reach Basil through Gmail
+          anyway; connecting adds who attended and recordings' transcripts. */}
+      {!isConnected("zoom") && (
+        <div className="rounded-lg p-3 text-xs mb-3" style={{ background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.08)", color: "var(--c-auth-muted)" }}>
+          Use Zoom?{" "}
+          <a href={`/api/auth/zoom?from=${encodeURIComponent("/onboarding?connected=zoom")}`} className="underline hover:opacity-80 transition-opacity">
+            Connect it too
+          </a>{" "}
+          (optional) — Basil then knows who was on each call.
         </div>
       )}
 

@@ -48,7 +48,9 @@ export async function POST(req: Request) {
   try {
     await changePassword(username, newPassword);
     await forceFlushSnapshot(); // persist updated sessionVersion so new password survives cold start
-    return NextResponse.json({ ok: true });
+    // The username lets a just-invited user be signed straight in (they hold
+    // the one-time link, so it tells them nothing they could not already use).
+    return NextResponse.json({ ok: true, username });
   } catch (e) {
     console.error("[reset-password] Failed:", e instanceof Error ? e.message : e); // ci-ok: route prefix only — not logging a password value
     // The claim succeeded but the password write did not. Hand the token back

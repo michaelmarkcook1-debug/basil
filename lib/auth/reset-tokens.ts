@@ -30,7 +30,8 @@ const RESET_LOCK = "secure-reset-tokens";
  * Returns the raw (unhashed) token string for inclusion in a reset URL.
  * The raw token is never persisted — only its SHA-256 hash is stored.
  */
-export async function createResetToken(username: string, email: string): Promise<string> {
+/** `ttlMs`: an invite link lasts days (lib/auth/invite.ts); a reset link the default hour. */
+export async function createResetToken(username: string, email: string, ttlMs: number = TTL_MS): Promise<string> {
   return withLock(RESET_LOCK, async () => {
     const now = Date.now();
     const records = await readResetTokenRecords(true);
@@ -48,7 +49,7 @@ export async function createResetToken(username: string, email: string): Promise
       tokenHash: hashResetToken(rawToken),
       username,
       email,
-      expiresAt: new Date(now + TTL_MS).toISOString(),
+      expiresAt: new Date(now + ttlMs).toISOString(),
       used: false,
     };
 
