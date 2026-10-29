@@ -5,6 +5,8 @@ import { forceFlushSnapshot } from "@/lib/storage/persistent";
 import { autoRegisterGoogleWebhooks } from "@/lib/google/register-webhooks";
 import { triggerOnboardingBackfill } from "@/lib/onboarding/backfill";
 import { verifyOAuthState, clearOAuthStateCookie } from "@/lib/auth/oauth-state";
+import { getGmailAddress } from "@/lib/google/gmail";
+import { rememberOwnAddress } from "@/lib/self-identity";
 
 // GET /api/auth/google/callback — handles Google OAuth callback
 export async function GET(req: Request) {
@@ -17,7 +19,9 @@ export async function GET(req: Request) {
   }
 
   const from = req.headers.get("cookie")?.match(/basil_auth_from=([^;]+)/)?.[1] ?? "";
-  const successDest = from === "onboarding" ? "/onboarding?connected=google" : "/dashboard/settings?connected=google";
+  const successDest = from === "onboarding" ? "/onboarding?connected=google"
+    : from === "today" ? "/dashboard?connected=google"
+    : "/dashboard/settings?connected=google";
   const errorDest   = from === "onboarding" ? "/onboarding?error=google_auth" : "/dashboard/settings?error=oauth_failed";
 
   // Helper to produce a clean redirect and clear the transient cookies regardless of outcome
@@ -60,6 +64,13 @@ export async function GET(req: Request) {
     // Force-flush so tokens survive a cold start on the very next request.
     await forceFlushSnapshot();
     console.log(`[google/callback] Tokens saved for user ${username}. Redirecting to ${successDest}`);
+
+    // The connected mailbox is the user's own, even when it is not the address
+    // they sign in to Basil with (a colleague invited on a personal email who
+    // connects their work Google). Remembered as an alias so their own mail is
+    // recognised as theirs.
+    const connectedAs = await getGmailAddress(username);
+    if (await rememberOwnAddress(username, connectedAs)) console.log(`[google/callback] ${username}: recorded the connected Gmail address as their own`);
 
     // ── Auto-register push webhooks ──────────────────────────────────────────
     // Fire-and-forget — do not block the redirect. Errors are logged but never

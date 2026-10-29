@@ -25,6 +25,7 @@ export async function GET(req: Request) {
   const from = req.headers.get("cookie")?.match(/basil_slack_from=([^;]+)/)?.[1] ?? "";
   const successDest = from === "onboarding"
     ? "/onboarding?connected=slack"
+    : from === "today" ? "/dashboard?connected=slack"
     : "/dashboard/settings?connected=slack";
   const errorDest = from === "onboarding"
     ? "/onboarding?error=slack_auth"

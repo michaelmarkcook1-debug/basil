@@ -38,6 +38,7 @@ import { Orbit, TONE, orbitTone, type OrbitPerson, type SentimentRow } from "@/c
 import { WaitingPanel, NextDaysPanel } from "@/components/today/v2/side-panels";
 import { WorkPanel, type ProjectLite } from "@/components/today/v2/work-panel";
 import { ReadOfTheDay } from "@/components/today/v2/read-of-the-day";
+import { ConnectPrompt } from "@/components/today/connect-prompt";
 
 async function swrFetch(url: string) {
   const r = await fetch(url, { cache: "no-store" });
@@ -180,6 +181,8 @@ export default function Today() {
     <div className="wire basil-dots relative min-h-full overflow-hidden">
       <span aria-hidden className="pointer-events-none absolute -right-40 -top-56 h-[560px] w-[760px] rounded-full" style={{ background: "radial-gradient(closest-side, rgba(212,185,120,.32), transparent 72%)" }} />
       <div className="relative mx-auto flex w-full max-w-[78rem] flex-col gap-7 px-4 py-6 sm:px-8 sm:py-10">
+
+        <ConnectPrompt />
 
         {/* 1 — The read, beside your orbit */}
         <div className="flex flex-wrap items-stretch gap-7">

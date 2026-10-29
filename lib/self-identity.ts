@@ -10,7 +10,7 @@
  * the owning username so identity is always user-scoped.
  */
 
-import { findByUsername } from "@/lib/users";
+import { findByUsername, updateUser } from "@/lib/users";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -200,3 +200,25 @@ export function isSelf(
 export function stripSelf(list: string[], identity: SelfIdentity): string[] {
   return list.filter((x) => !isSelf(x, identity));
 }
+
+/**
+ * Remember an address the user just connected (their work Gmail when they sign
+ * in to Basil with a personal one) as their own, so mail from it is never
+ * treated as a stranger, a phantom contact or a reply owed. Idempotent; never throws.
+ */
+export async function rememberOwnAddress(username: string, address: string | null | undefined): Promise<boolean> {
+  const a = address?.trim().toLowerCase();
+  if (!a || !a.includes("@")) return false;
+  try {
+    const user = await findByUsername(username);
+    if (!user) return false;
+    const known = [user.email, ...(user.aliasEmails ?? [])].map((e) => e?.trim().toLowerCase());
+    if (known.includes(a)) return false;
+    await updateUser(username, { aliasEmails: [...(user.aliasEmails ?? []), a] });
+    return true;
+  } catch (e) {
+    console.warn("[self-identity] could not remember connected address:", e instanceof Error ? e.message : e);
+    return false;
+  }
+}
+

@@ -70,3 +70,30 @@ test("a new account never falls back to the owner's Google or Slack", () => {
   assert.match(src("lib/google/auth.ts"), /const envRaw = isEnvCredentialOwner\(username\) \? process\.env\.GOOGLE_TOKENS : undefined;/);
   assert.match(src("lib/slack/client.ts"), /const envOk      = isEnvCredentialOwner\(username\);/);
 });
+
+test("connecting Google records that mailbox as the user's own (signed in with a personal email, connected a work one)", async () => {
+  const users = { guy: { username: "guy", email: "guy_saunders@hotmail.com", name: "Guy", surname: "Saunders", aliasEmails: [] } };
+  const updates = [];
+  const S = loadTs("lib/self-identity.ts", { "@/lib/users": {
+    findByUsername: async (u) => users[u] ?? null,
+    updateUser: async (u, patch) => { updates.push(patch); Object.assign(users[u], patch); },
+  } });
+  assert.equal(await S.rememberOwnAddress("guy", "Guy@TalentGenius.io"), true);
+  assert.equal(JSON.stringify(users.guy.aliasEmails), JSON.stringify(["guy@talentgenius.io"]));
+  assert.equal(await S.rememberOwnAddress("guy", "guy@talentgenius.io"), false, "idempotent");
+  assert.equal(await S.rememberOwnAddress("guy", "guy_saunders@hotmail.com"), false, "the sign-in address is already his");
+  assert.equal(S.isSelf("guy@talentgenius.io", await S.getSelfIdentity("guy")), true);
+  const cb = src("app/api/auth/google/callback/route.ts");
+  assert.match(cb, /const connectedAs = await getGmailAddress\(username\);\s*if \(await rememberOwnAddress\(username, connectedAs\)\)/);
+});
+
+test("Today asks for Google and Slack until they are connected, and each returns to Today", () => {
+  const c = src("components/today/connect-prompt.tsx");
+  assert.match(c, /const mail = data\.google\?\.state === "connected" \|\| data\.microsoft\?\.state === "connected";/);
+  assert.match(c, /if \(mail && slack\) return null;/);
+  assert.match(c, /href="\/api\/auth\/google\?from=today"/);
+  assert.match(c, /href="\/api\/auth\/slack\/oauth\?from=today"/);
+  assert.match(src("app/dashboard/page.tsx"), /<ConnectPrompt \/>/);
+  assert.match(src("app/api/auth/google/callback/route.ts"), /: from === "today" \? "\/dashboard\?connected=google"/);
+  assert.match(src("app/api/auth/slack/callback/route.ts"), /: from === "today" \? "\/dashboard\?connected=slack"/);
+});
