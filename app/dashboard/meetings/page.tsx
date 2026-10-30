@@ -1,25 +1,31 @@
 "use client";
 
 /**
- * Meeting prep (restyled 2026-10-14: cream canvas, navy chrome, live data
- * graphics — see docs/design/visual-system.md).
+ * Calendar (was "Meeting prep"; restyled 2026-10-14: cream canvas, navy
+ * chrome, live data graphics — see docs/design/visual-system.md).
+ *
+ * 2026-10-30: meetings can be cancelled (organiser) or declined and removed
+ * (guest) with the right people told, and anything not yet accepted — an
+ * invitation you haven't answered, a "maybe", or your own meeting nobody has
+ * said yes to — is drawn differently from a settled meeting.
  *
  * Top to bottom: the page hero, the Upcoming / Past tabs, "Your next four
  * days" (meeting time per day, drawn only from the calendar events this page
  * already loads), the quick picker, then the meetings grouped by day.
  *
- * Presentation only: the fetches, handlers, state and routes are unchanged.
  */
 
 import { preparationReasons, localDate } from "@/lib/today/executive";
-import { RsvpControls } from "@/components/calendar/rsvp-controls";
+import { RsvpControls, type Rsvp } from "@/components/calendar/rsvp-controls";
+import { meetingState, statePill, type MeetingState, type PillTone } from "@/lib/calendar/meeting-state";
+import { CancelMeetingDialog, type CancellableEvent, type CancelOutcome } from "@/components/calendar/cancel-meeting";
 import { useEffect, useState, useMemo, useCallback } from "react";
 import { DataState } from "@/components/ui/data-state";
 import { NewEventDialog } from "@/app/dashboard/schedule/components/NewEventDialog";
 import { useRouter } from "next/navigation";
 import { Skeleton } from "@/components/ui/skeleton";
 import { PageHero, BTN_PRIMARY, BTN_SECONDARY } from "@/components/basil/page-hero";
-import { CalendarCheck, Video, Users, ChevronDown, ChevronUp, Plus, Sparkles, Unplug, Search, Check, AlertTriangle, MapPin } from "lucide-react";
+import { CalendarCheck, Video, Users, ChevronDown, ChevronUp, Plus, Sparkles, Unplug, Search, Check, AlertTriangle, MapPin, Trash2 } from "lucide-react";
 import { formatTime } from "@/lib/utils";
 import { DEFAULT_TIMEZONE } from "@/lib/datetime";
 import { localHours, hhmm } from "@/lib/today/visual-data";
@@ -46,6 +52,9 @@ interface CalEvent {
   /** Also already in the /api/calendar/upcoming response — read for the chips. */
   location?: string;
   videoLink?: string;
+  /** Everyone else's answers (lib/google/calendar.ts guestTally). */
+  guests?: { total: number; accepted: number; tentative: number; declined: number; waiting: number };
+  recurring?: boolean;
 }
 
 /** The meeting has already ended — nothing left to answer. */
@@ -109,6 +118,20 @@ const RSVP_SKIN = [
   "[&_[data-variant=outline]]:border-[var(--w-rule-strong)] [&_[data-variant=outline]]:bg-[var(--w-flimsy)] [&_[data-variant=outline]]:text-[color:var(--w-ink)] [&_[data-variant=outline]:hover]:border-[#C8A96B]",
   "[&_[data-variant=ghost]]:text-[color:var(--w-carbon)]",
 ].join(" ");
+
+const PILL_TONE: Record<PillTone, string> = {
+  invite: "border-[1.5px] border-[#2F5FA8] bg-[#2F5FA814] text-[#2F5FA8]",
+  maybe: "border-[1.5px] border-dashed border-[#5E4A1F] bg-[#C8A96B26] text-[#5E4A1F]",
+  waiting: "border-[1.5px] border-[#C8A96B] bg-[#C8A96B26] text-[#5E4A1F]",
+  declined: "border border-[var(--w-rule)] bg-[var(--w-tray)] text-[#4B5568]",
+};
+
+/** The card's left edge carries the same signal as the four-day graphic. */
+const CARD_EDGE: Partial<Record<MeetingState, string>> = {
+  invite: "border-l-[5px] border-l-[#2F5FA8]",
+  tentative: "border-l-[5px] border-l-[#5E4A1F]",
+  awaiting: "border-l-[5px] border-l-[#C8A96B]",
+};
 
 function initials(name: string): string {
   const base = name.includes("@") ? name.split("@")[0].replace(/[._-]+/g, " ") : name;
@@ -176,7 +199,7 @@ const LANE_GAP = 4;
 const TRACK_PAD = 4;
 const at = (h: number) => ((h - AXIS_START) / AXIS_SPAN) * 100;
 
-type MarkKind = "meeting" | "invite" | "declined";
+type MarkKind = MeetingState;
 
 interface DayMark {
   id: string;
@@ -208,12 +231,16 @@ interface DayRow {
 const MARK_STYLE: Record<MarkKind, React.CSSProperties> = {
   meeting: { background: "#10213F", color: "#F6F1E7", border: "1px solid #10213F" },
   invite: { background: "#FFFDF8", color: "#2F5FA8", border: "2px solid #2F5FA8" },
+  tentative: { background: "#FBF4E4", color: "#5E4A1F", border: "2px dashed #5E4A1F" },
+  awaiting: { background: "repeating-linear-gradient(135deg, #10213F 0 7px, #2A3E66 7px 14px)", color: "#F6F1E7", border: "2px solid #C8A96B" },
   declined: { background: "#F6F1E7", color: "#4B5568", border: "1.5px dashed #8A8F99" },
 };
 
 const MARK_STATE: Record<MarkKind, string> = {
   meeting: "",
   invite: ", not answered yet",
+  tentative: ", you said maybe",
+  awaiting: ", no guest has accepted yet",
   declined: ", declined",
 };
 
@@ -249,9 +276,7 @@ function buildFourDays(events: CalEvent[], now: Date): DayRow[] {
     const sameDay = localDate(new Date(e.end), TZ) === row.key;
     const t = sameDay ? localHours(e.end, TZ) : 24;
     if (!(t > s)) continue;
-    const kind: MarkKind = e.myResponseStatus === "declined"
-      ? "declined"
-      : e.myResponseStatus === "needsAction" && !e.isOrganizer ? "invite" : "meeting";
+    const kind = meetingState(e);
     if (kind === "declined") row.declined++;
     else { row.count++; row.minutes += (t - s) * 60; }
     const cs = Math.max(s, AXIS_START), ct = Math.min(t, AXIS_END);
@@ -285,7 +310,7 @@ function buildFourDays(events: CalEvent[], now: Date): DayRow[] {
   return rows;
 }
 
-function NextFourDays({ events }: { events: CalEvent[] }) {
+function NextFourDays({ events, onCancel }: { events: CalEvent[]; onCancel: (e: CalEvent) => void }) {
   const { rows, nowH } = useMemo(() => {
     const now = new Date();
     return { rows: buildFourDays(events, now), nowH: localHours(now.toISOString(), TZ) };
@@ -308,6 +333,8 @@ function NextFourDays({ events }: { events: CalEvent[] }) {
         <span className="flex flex-wrap gap-4 text-[12px] text-[color:var(--w-ink-soft)]">
           <span className="inline-flex items-center gap-1.5"><span aria-hidden className="h-2.5 w-3.5 rounded-[3px] bg-[#10213F]" />Meeting</span>
           <span className="inline-flex items-center gap-1.5"><span aria-hidden className="h-2.5 w-3.5 rounded-[3px] border-2 border-[#2F5FA8] bg-[var(--w-flimsy)]" />Not answered</span>
+          <span className="inline-flex items-center gap-1.5"><span aria-hidden className="h-2.5 w-3.5 rounded-[3px] border-2 border-dashed border-[#5E4A1F] bg-[#FBF4E4]" />Maybe</span>
+          <span className="inline-flex items-center gap-1.5"><span aria-hidden className="h-2.5 w-3.5 rounded-[3px] border-2 border-[#C8A96B]" style={{ background: MARK_STYLE.awaiting.background }} />No one accepted yet</span>
           <span className="inline-flex items-center gap-1.5"><span aria-hidden className="h-2.5 w-3.5 rounded-[3px] border-[1.5px] border-dashed border-[#8A8F99] bg-[var(--w-paper)]" />Declined</span>
         </span>
       </div>
@@ -408,7 +435,11 @@ function NextFourDays({ events }: { events: CalEvent[] }) {
                 ? "You declined this one."
                 : focus.mk.kind === "invite"
                   ? `You have not answered this invitation yet. ${focus.mk.who}.`
-                  : `${focus.mk.who}.`}
+                  : focus.mk.kind === "tentative"
+                    ? `You said maybe. ${focus.mk.who}.`
+                    : focus.mk.kind === "awaiting"
+                      ? `${focus.mk.who}. No one has accepted yet.`
+                      : `${focus.mk.who}.`}
             </span>
           </div>
           {focus.mk.href && (
@@ -416,6 +447,15 @@ function NextFourDays({ events }: { events: CalEvent[] }) {
               Open prep
             </Link>
           )}
+          {(() => {
+            const ev = events.find((e) => e.id === focus.mk.id);
+            if (!ev || focus.mk.kind === "declined" || isPast(ev.end)) return null;
+            return (
+              <button type="button" onClick={() => onCancel(ev)} className={`${BTN_SECONDARY} hover:border-[var(--w-stamp)] hover:text-[color:var(--w-stamp)]`}>
+                <Trash2 className="h-4 w-4" aria-hidden /> {ev.isOrganizer ? "Cancel" : "Decline and remove"}
+              </button>
+            );
+          })()}
         </div>
       ) : (
         <p className="text-[15px] text-[color:var(--w-ink-soft)]">
@@ -866,6 +906,21 @@ export default function MeetingsPage() {
   const [activeTab, setActiveTab] = useState<"upcoming" | "past">("upcoming");
   const [newEventOpen, setNewEventOpen] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
+  const [cancelling, setCancelling] = useState<CalEvent | null>(null);
+
+  const flash = (text: string) => { setToast(text); setTimeout(() => setToast(null), 6000); };
+
+  /** An answer given on a card redraws the graphic and the flag straight away. */
+  const onAnswered = (id: string, status: Rsvp) =>
+    setEvents((prev) => prev.map((e) => (e.id === id ? { ...e, myResponseStatus: status } : e)));
+
+  const onCancelled = (out: CancelOutcome, ev: CancellableEvent) => {
+    setEvents((prev) => prev.filter((e) => e.id !== ev.id));
+    const told = out.told.length === 0 ? "" : out.told.length === 1 ? ` ${out.told[0]} has been told.` : ` ${out.told.length} guests have been told.`;
+    const head = out.role === "organiser" ? `Cancelled "${ev.summary}".` : `Declined "${ev.summary}" and removed it.`;
+    const noteFail = out.role === "organiser" && out.told.length > 0 && !out.noteSent && out.noteGiven ? " Your note did not send — Google's cancellation still went." : "";
+    flash(head + told + noteFail);
+  };
 
   return (
     <div className="wire basil-dots relative min-h-full overflow-hidden">
@@ -883,6 +938,12 @@ export default function MeetingsPage() {
           setTimeout(() => setToast(null), 5000);
         }}
       />
+      <CancelMeetingDialog
+        event={cancelling}
+        open={cancelling !== null}
+        onOpenChange={(v) => { if (!v) setCancelling(null); }}
+        onDone={onCancelled}
+      />
       {toast && (
         <div role="status" className="fixed bottom-5 right-5 z-50 flex max-w-sm items-start gap-2 rounded-2xl bg-[#10213F] px-4 py-3 text-[14px] text-[#F6F1E7] shadow-lg">
           <Check className="mt-0.5 h-4 w-4 shrink-0 text-[#D4B978]" aria-hidden />
@@ -892,11 +953,11 @@ export default function MeetingsPage() {
 
       <div className="relative mx-auto flex w-full max-w-[78rem] flex-col gap-7 px-4 py-6 sm:px-8 sm:py-10">
         <PageHero
-          eyebrow={connected ? `Calendar · ${rangeLabel}` : "Calendar"}
-          title="Meeting prep"
+          eyebrow={connected ? `Meetings & prep · ${rangeLabel}` : "Meetings & prep"}
+          title="Calendar"
           subtitle={activeTab === "upcoming"
             ? connected
-              ? `Showing ${rangeLabel}. Click any meeting to generate a prep cheatsheet.`
+              ? `Showing ${rangeLabel}. Open a meeting to prep for it, answer an invite, or cancel.`
               : "Connect Google Calendar to see upcoming meetings."
             : "Recaps of meetings Basil has analysed."}
           actions={
@@ -909,7 +970,7 @@ export default function MeetingsPage() {
         {/* ── Tab strip ─────────────────────────────────────────────────────── */}
         <div className="basil-rise flex flex-wrap items-center gap-2" style={{ animationDelay: "80ms" }}>
           {([
-            { id: "upcoming", label: "Upcoming meetings", count: events.length },
+            { id: "upcoming", label: "Upcoming", count: events.length },
             { id: "past",     label: "Past intelligence",  count: pastMeetings.length },
           ] as const).map((tab) => {
             const active = activeTab === tab.id;
@@ -1058,7 +1119,7 @@ export default function MeetingsPage() {
           <div className="flex flex-col gap-7">
 
             {/* The shape of the next four days — drawn from the events above */}
-            {events.length > 0 && <NextFourDays events={events} />}
+            {events.length > 0 && <NextFourDays events={events} onCancel={setCancelling} />}
 
             {/* Quick picker — jump to any meeting's prep page directly */}
             {events.length > 0 && <CalendarMeetingPicker events={events} />}
@@ -1093,6 +1154,8 @@ export default function MeetingsPage() {
                     const preppable = isPrepWorthy(event);
                     const names = event.attendees ?? [];
                     const place = placeOf(event);
+                    const state = meetingState(event);
+                    const pill = statePill(event);
                     const body = (
                       <>
                         {/* Time block */}
@@ -1107,7 +1170,14 @@ export default function MeetingsPage() {
 
                         {/* Title + meta */}
                         <div className="flex min-w-0 flex-[1_1_220px] flex-col gap-2">
-                          <h3 className="text-[16px] font-semibold leading-snug text-[color:var(--w-ink)]">{event.summary}</h3>
+                          <div className="flex flex-wrap items-center gap-2">
+                            <h3 className="text-[16px] font-semibold leading-snug text-[color:var(--w-ink)]" style={{ textDecoration: state === "declined" ? "line-through" : "none" }}>{event.summary}</h3>
+                            {pill && (
+                              <span className={`inline-flex min-h-[24px] items-center rounded-full px-2.5 text-[12px] font-semibold ${PILL_TONE[pill.tone]}`}>
+                                {pill.text}
+                              </span>
+                            )}
+                          </div>
                           <div className="flex flex-wrap items-center gap-2.5">
                             {names.length > 0 && (
                               <span className="flex min-w-0 items-center gap-2">
@@ -1143,18 +1213,36 @@ export default function MeetingsPage() {
                     );
                     // Answer the invitation right here. Kept OUTSIDE the prep link
                     // so a click on Yes/No never opens the cheatsheet instead.
-                    const rsvp = !event.isOrganizer && !isPast(event.end) ? (
-                      <div className={`border-t border-[var(--w-tray)] pt-3 ${RSVP_SKIN}`}>
+                    const upcoming = !isPast(event.end);
+                    const cancel = upcoming && state !== "declined" ? (
+                      <button
+                        type="button"
+                        onClick={() => setCancelling(event)}
+                        className="inline-flex min-h-[44px] items-center gap-1.5 rounded-xl px-3 text-[13px] font-medium text-[color:var(--w-ink-soft)] transition-colors hover:bg-[var(--w-stamp-tint)] hover:text-[color:var(--w-stamp)]"
+                      >
+                        <Trash2 className="h-4 w-4" aria-hidden />
+                        {event.isOrganizer ? "Cancel meeting" : "Decline and remove"}
+                      </button>
+                    ) : null;
+                    const rsvp = !event.isOrganizer && upcoming ? (
+                      <div className={RSVP_SKIN}>
                         <RsvpControls
                           compact={event.myResponseStatus !== "needsAction"}
                           event={{ ...event, myResponseStatus: event.myResponseStatus ?? "needsAction" }}
+                          onChanged={(st) => onAnswered(event.id, st)}
                         />
+                      </div>
+                    ) : null;
+                    const footer = rsvp || cancel ? (
+                      <div className="flex flex-wrap items-center justify-between gap-2 border-t border-[var(--w-tray)] pt-3">
+                        {rsvp ?? <span />}
+                        {cancel}
                       </div>
                     ) : null;
                     return (
                       <article
                         key={event.id}
-                        className={`basil-rise ${preppable ? "basil-lift" : ""} ${CARD} flex flex-col gap-3 p-4 sm:p-5`}
+                        className={`basil-rise ${preppable ? "basil-lift" : ""} ${CARD} ${CARD_EDGE[state] ?? ""} flex flex-col gap-3 p-4 sm:p-5`}
                         style={{ animationDelay: `${280 + Math.min(order.get(event.id) ?? 0, 12) * 70}ms` }}
                       >
                         {preppable ? (
@@ -1167,7 +1255,7 @@ export default function MeetingsPage() {
                         ) : (
                           <div className="flex flex-wrap items-center gap-4">{body}</div>
                         )}
-                        {rsvp}
+                        {footer}
                       </article>
                     );
                   })}

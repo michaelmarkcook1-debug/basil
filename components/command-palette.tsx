@@ -47,7 +47,7 @@ const NAV_DESTINATIONS = [
   // The 5 primary surfaces first, labels matching the sidebar exactly.
   { label: "Today",         href: "/dashboard",           icon: Home,         keywords: "dashboard home overview radar feed briefing" },
   { label: "Linear",        href: "/dashboard/linear",    icon: Zap,          keywords: "issues tickets engineering bugs project management" },
-  { label: "Meetings",      href: "/dashboard/meetings",  icon: CalendarCheck,keywords: "prep brief cheatsheet upcoming calendar" },
+  { label: "Calendar",      href: "/dashboard/meetings",  icon: CalendarCheck,keywords: "meetings prep brief cheatsheet upcoming cancel invites" },
   { label: "People",        href: "/dashboard/contacts",  icon: Users,        keywords: "contacts people directory relationships" },
   { label: "Commitments",   href: "/dashboard/actions",   icon: ListTodo,     keywords: "tasks todo workspace actions" },
   { label: "AI Tools",   href: "/dashboard/ai-projects", icon: Zap,        keywords: "ai tools projects project management claude code github vercel grok perplexity codex chatgpt openai" },

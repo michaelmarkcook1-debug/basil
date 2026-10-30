@@ -18,7 +18,7 @@ import { PM_ENTRY, inProjectManagement } from "@/lib/project-management/views";
 const TABS = [
   { href: "/dashboard",            label: "Today",    icon: Sparkles },
   { href: PM_ENTRY,                label: "Projects", icon: FolderKanban },
-  { href: "/dashboard/meetings",   label: "Meetings", icon: CalendarCheck },
+  { href: "/dashboard/meetings",   label: "Calendar", icon: CalendarCheck },
   { href: "/dashboard/contacts",   label: "People",   icon: Users },
 ] as const;
 

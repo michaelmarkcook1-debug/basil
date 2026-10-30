@@ -39,7 +39,7 @@ import { PM_ENTRY, inProjectManagement } from "@/lib/project-management/views";
 const PRIMARY_NAV = [
   { href: "/dashboard",           label: "Today",        icon: Sparkles },
   { href: PM_ENTRY,               label: "Project management", icon: FolderKanban },
-  { href: "/dashboard/meetings",  label: "Meetings",     icon: CalendarCheck },
+  { href: "/dashboard/meetings",  label: "Calendar",     icon: CalendarCheck },
   { href: "/dashboard/contacts",  label: "People",       icon: Users },
   { href: "/dashboard/actions",   label: "Commitments",  icon: CheckSquare },
 ] as const;

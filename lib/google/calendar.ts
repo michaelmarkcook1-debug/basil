@@ -26,6 +26,26 @@ export interface CalendarEvent {
   /** Who sent the invitation — addressee for a proposed new time. */
   organizerName?: string;
   organizerEmail?: string;
+  /** How everyone else on the invite has answered (you, rooms and resources excluded). */
+  guests?: GuestTally;
+  /** One occurrence of a repeating meeting — cancelling it leaves the others. */
+  recurring?: boolean;
+}
+
+export interface GuestTally { total: number; accepted: number; tentative: number; declined: number; waiting: number }
+
+/** Count the other guests' answers. Pure — exported for tests. */
+export function guestTally(attendees: ReadonlyArray<{ self?: boolean | null; resource?: boolean | null; responseStatus?: string | null }> | null | undefined): GuestTally {
+  const t: GuestTally = { total: 0, accepted: 0, tentative: 0, declined: 0, waiting: 0 };
+  for (const a of attendees ?? []) {
+    if (a.self || a.resource) continue;
+    t.total++;
+    if (a.responseStatus === "accepted") t.accepted++;
+    else if (a.responseStatus === "tentative") t.tentative++;
+    else if (a.responseStatus === "declined") t.declined++;
+    else t.waiting++;
+  }
+  return t;
 }
 
 function cleanSummary(summary: string): string {
@@ -106,6 +126,8 @@ function mapEvent(
       .map((a: any) => ({ name: a.displayName || "", email: (a.email || "").toLowerCase() })), // eslint-disable-line @typescript-eslint/no-explicit-any
     organizerName: e.organizer?.displayName || undefined,
     organizerEmail: e.organizer?.email || undefined,
+    guests: guestTally(e.attendees),
+    recurring: Boolean(e.recurringEventId),
   };
 }
 
@@ -600,11 +622,78 @@ export async function updateCalendarEvent(
   });
 }
 
-export async function deleteCalendarEvent(username: string, eventId: string): Promise<void> {
+// ── Cancelling ────────────────────────────────────────────────────────────────
+
+/** Organiser: the meeting is called off for everyone. Guest: you decline and it
+ *  leaves your calendar. Bystander: invited through a group, so there is no
+ *  answer to send — it just leaves your calendar. */
+export type CancelRole = "organiser" | "guest" | "bystander";
+
+interface RawEventPeople {
+  organizer?: { self?: boolean | null; email?: string | null } | null;
+  attendees?: ReadonlyArray<{ self?: boolean | null; resource?: boolean | null; email?: string | null; responseStatus?: string | null }> | null;
+}
+
+/** Who cancelling would tell. Pure — exported for tests. */
+export function cancelPlan(ev: RawEventPeople): { role: CancelRole; guests: string[]; organizerEmail?: string } {
+  const attendees = ev.attendees ?? [];
+  const guests = attendees
+    .filter((a) => !a.self && !a.resource && a.email && a.responseStatus !== "declined")
+    .map((a) => a.email!.toLowerCase());
+  if (!ev.organizer || ev.organizer.self) return { role: "organiser", guests };
+  const organizerEmail = ev.organizer.email?.toLowerCase() || undefined;
+  return { role: attendees.some((a) => a.self) ? "guest" : "bystander", guests, organizerEmail };
+}
+
+export interface CancelResult { role: CancelRole; summary: string; told: string[]; noteSent: boolean }
+
+/**
+ * Cancel a meeting, or take yourself out of one, and tell the people it affects.
+ *
+ * The plain DELETE used to remove the event silently: guests of a meeting you
+ * called off got no notice, and an organiser never heard you were not coming.
+ * Google's own cancellation notice carries no message from you, so a note is
+ * sent to the guests as a short email from your Gmail; a guest's note rides on
+ * the decline, which the organiser sees on their copy.
+ */
+export async function cancelEvent(
+  username: string,
+  eventId: string,
+  opts: { notify: boolean; note?: string },
+): Promise<CancelResult> {
   const auth = await getAuthedClient(username);
   if (!auth) throw new Error("Google Calendar not connected");
   const calendar = google.calendar({ version: "v3", auth });
-  await calendar.events.delete({ calendarId: "primary", eventId });
+  const { data: ev } = await calendar.events.get({ calendarId: "primary", eventId });
+  const plan = cancelPlan(ev);
+  const summary = ev.summary || "the meeting";
+  const note = (opts.note ?? "").trim().slice(0, 2000);
+
+  if (plan.role === "organiser") {
+    const tell = opts.notify && plan.guests.length > 0;
+    await calendar.events.delete({ calendarId: "primary", eventId, sendUpdates: tell ? "all" : "none" });
+    let noteSent = false;
+    if (tell && note) {
+      const when = ev.start?.dateTime && ev.end?.dateTime ? ` (${formatSlot(ev.start.dateTime, ev.end.dateTime, ev.start.timeZone || "Europe/London")})` : "";
+      try {
+        await sendEmail(username, plan.guests.join(", "), `Cancelled: ${oneLine(summary, 150)}${when}`, note);
+        noteSent = true;
+      } catch (e) {
+        // The meeting is already cancelled and the guests told; only the note failed. Reported back as noteSent:false.
+        console.warn("[calendar] cancellation note not sent:", e instanceof Error ? e.message : e);
+      }
+    }
+    return { role: "organiser", summary, told: tell ? plan.guests : [], noteSent };
+  }
+
+  if (plan.role === "guest") {
+    await respondToEvent(username, eventId, { response: "declined", comment: note || undefined, notify: opts.notify });
+    await calendar.events.delete({ calendarId: "primary", eventId, sendUpdates: "none" });
+    return { role: "guest", summary, told: opts.notify && plan.organizerEmail ? [plan.organizerEmail] : [], noteSent: false };
+  }
+
+  await calendar.events.delete({ calendarId: "primary", eventId, sendUpdates: "none" });
+  return { role: "bystander", summary, told: [], noteSent: false };
 }
 
 
@@ -641,7 +730,7 @@ const oneLine = (s: string, max: number) => s.replace(/[\r\n]+/g, " ").trim().sl
 export async function respondToEvent(
   username: string,
   eventId: string,
-  opts: { response: RsvpResponse; comment?: string },
+  opts: { response: RsvpResponse; comment?: string; notify?: boolean },
 ): Promise<RespondedEvent> {
   const auth = await getAuthedClient(username);
   if (!auth) throw new Error("Google Calendar not connected");
@@ -658,7 +747,7 @@ export async function respondToEvent(
   await calendar.events.patch({
     calendarId: "primary",
     eventId,
-    sendUpdates: "all",
+    sendUpdates: opts.notify === false ? "none" : "all",
     requestBody: { attendees: updated },
   });
   return {

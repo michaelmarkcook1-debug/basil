@@ -342,7 +342,7 @@ export default function MeetingPrepPage() {
           href="/dashboard/meetings"
           className="inline-flex min-h-[44px] items-center gap-1.5 self-start text-[14px] font-medium text-[color:var(--w-carbon)] no-underline hover:underline"
         >
-          <ArrowLeft className="h-4 w-4" aria-hidden /> Back to meetings
+          <ArrowLeft className="h-4 w-4" aria-hidden /> Back to calendar
         </Link>
 
         {/* Header — the meeting, then who's in it */}

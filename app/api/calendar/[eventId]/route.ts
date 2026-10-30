@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { isGoogleConnected } from "@/lib/google/auth";
-import { updateCalendarEvent, deleteCalendarEvent } from "@/lib/google/calendar";
+import { updateCalendarEvent, cancelEvent } from "@/lib/google/calendar";
 import { emitAuditEvent } from "@/lib/events/audit";
 import { getSessionUser } from "@/lib/auth";
 
@@ -46,9 +46,11 @@ export async function PATCH(
   }
 }
 
-// DELETE /api/calendar/[eventId]  — delete an event
+// DELETE /api/calendar/[eventId]  — cancel a meeting (organiser) or leave it (guest).
+// Body (optional): { notify?: boolean = true, note?: string }. Telling people is
+// the default: a cancel the guests never hear about is the failure this replaces.
 export async function DELETE(
-  _req: Request,
+  req: Request,
   { params }: { params: Promise<{ eventId: string }> }
 ) {
   const username = await getSessionUser();
@@ -61,21 +63,30 @@ export async function DELETE(
   const { eventId } = await params;
   if (!eventId) return NextResponse.json({ error: "Missing eventId" }, { status: 400 });
 
-  try {
-    await deleteCalendarEvent(username, eventId);
+  const body = (await req.json().catch(() => ({}))) as { notify?: unknown; note?: unknown }; // ci-ok: no body (Schedule's delete) → defaults
+  const notify = body?.notify !== false;
+  const note = typeof body?.note === "string" ? body.note : undefined;
 
+  try {
+    const result = await cancelEvent(username, eventId, { notify, note });
+    const verb = result.role === "organiser" ? "Cancelled" : "Left";
     await emitAuditEvent({
       username,
       source: "calendar",
-      headline: `Deleted event ${eventId}`,
-      context: "",
-      rationale: "Deleted the event on the Schedule page.",
-      tags: ["calendar", "deleted"],
+      headline: `${verb} "${result.summary}"`,
+      context: [
+        result.told.length ? `Told: ${result.told.join(", ")}` : "No one notified",
+        note && `Note: ${note.slice(0, 300)}`,
+        result.role === "organiser" && note && notify && !result.noteSent && "The note email failed to send",
+      ].filter(Boolean).join("\n"),
+      rationale: result.role === "organiser"
+        ? "Cancelled the meeting from Basil; Google sent the cancellation."
+        : "Declined and removed the meeting from Basil.",
+      tags: ["calendar", result.role === "organiser" ? "cancelled" : "declined"],
     });
-
-    return NextResponse.json({ success: true });
+    return NextResponse.json({ success: true, ...result });
   } catch (e) {
-    console.error("Calendar delete error:", e);
-    return NextResponse.json({ error: "Failed to delete event" }, { status: 500 });
+    console.error("Calendar cancel error:", e);
+    return NextResponse.json({ error: "The meeting was not cancelled. Try again, or cancel it in Google Calendar." }, { status: 500 });
   }
 }
