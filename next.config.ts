@@ -29,7 +29,9 @@ const securityHeaders = [
       "style-src 'self' 'unsafe-inline'",
       "img-src 'self' data: blob: https://img.youtube.com https://lh3.googleusercontent.com",
       "font-src 'self'",
-      "connect-src 'self' https://accounts.google.com https://oauth2.googleapis.com https://ai-gateway.vercel.sh",
+      // vercel.com/api/blob/: Uploads send files straight from the browser to
+      // Blob storage (lib/uploads); path-scoped so nothing else on vercel.com is reachable.
+      "connect-src 'self' https://accounts.google.com https://oauth2.googleapis.com https://ai-gateway.vercel.sh https://vercel.com/api/blob/",
       "frame-src https://www.youtube.com",
       "object-src 'none'",
       "base-uri 'self'",

@@ -154,3 +154,9 @@ test("uploads are filed like meetings: their own event source, labelled notes, r
   assert.match(src("lib/email/process-gmail-message.ts"), /content: `\[\$\{opts\.label \?\? "Zoom meeting"\} — \$\{extract\.meetingTitle\}\]/);
   assert.match(src("app/api/memory/recent-meetings/route.ts"), /m\.content\.startsWith\("\[Recording —"\)/);
 });
+
+test("the security policy lets the browser upload to Blob storage (and nothing else on vercel.com)", () => {
+  const n = src("next.config.ts");
+  assert.match(n, /"connect-src 'self' [^"]*https:\/\/vercel\.com\/api\/blob\/"/, "without it the upload is blocked in the browser after the token succeeds");
+  assert.doesNotMatch(n, /connect-src[^"]*https:\/\/vercel\.com[ "]/, "not the whole of vercel.com");
+});
