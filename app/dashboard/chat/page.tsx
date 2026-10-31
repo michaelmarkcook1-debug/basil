@@ -7,7 +7,7 @@ import {
   lastAssistantMessageIsCompleteWithApprovalResponses,
   type UIMessage,
 } from "ai";
-import { useState, useRef, useEffect, useCallback, Suspense } from "react";
+import { useState, useRef, useEffect, useLayoutEffect, useCallback, Suspense } from "react";
 
 /**
  * The SDK ships two helpers — one fires when all tools have executed
@@ -28,6 +28,7 @@ import { TrustLine, UndoTool } from "@/components/chat/trust";
 import useSWR from "swr";
 import { Button } from "@/components/ui/button";
 import { downscaleImage } from "@/lib/images/downscale";
+import { pastedText, pastedFiles } from "@/lib/chat/paste";
 import { Markdown } from "@/components/ui/markdown";
 import { Textarea } from "@/components/ui/textarea";
 import { ScrollArea } from "@/components/ui/scroll-area";
@@ -492,13 +493,8 @@ function ChatPageInner() {
     }
   }
 
-  const handleFileChange = useCallback(async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const files = Array.from(e.target.files ?? []);
-    if (!files.length) return;
-    // Reset the input immediately — we're about to await, and the element is
-    // reused. (Also lets the same file be re-attached after removal.)
-    if (fileInputRef.current) fileInputRef.current.value = "";
-
+  /** Stage attachments from any source — the file picker or a paste. */
+  const stageFiles = useCallback(async (files: File[]) => {
     // Downscale BEFORE staging. Attachments are inlined as base64 and the whole
     // history is resent every turn, so an oversized screenshot doesn't just
     // fail its own send — it poisons every later message in the conversation.
@@ -513,6 +509,48 @@ function ChatPageInner() {
     }));
     setStagedFiles((prev) => [...prev, ...newStaged]);
   }, []);
+
+  const handleFileChange = useCallback(async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = Array.from(e.target.files ?? []);
+    if (!files.length) return;
+    // Reset the input immediately — we're about to await, and the element is
+    // reused. (Also lets the same file be re-attached after removal.)
+    if (fileInputRef.current) fileInputRef.current.value = "";
+    await stageFiles(files);
+  }, [stageFiles]);
+
+  /**
+   * Paste into the message box. A screenshot or copied file has nowhere to go
+   * in a textarea, so it used to vanish without a word; it is now attached.
+   * Text is put in at the cursor by hand rather than left to the browser, so a
+   * paste from Slack, Gmail or a document always lands — including clipboards
+   * that carry only HTML. When the clipboard holds both (a spreadsheet range
+   * copies as text AND a picture of itself), the text wins.
+   */
+  const handlePaste = useCallback((e: React.ClipboardEvent<HTMLTextAreaElement>) => {
+    const cd = e.clipboardData;
+    if (!cd) return;
+    const text = pastedText(cd);
+    const files = text ? [] : pastedFiles(cd);
+    if (!text && files.length === 0) return;
+    e.preventDefault();
+    if (files.length > 0) { void stageFiles(files); return; }
+    const el = e.currentTarget;
+    const start = el.selectionStart ?? el.value.length;
+    const end = el.selectionEnd ?? start;
+    pasteCaret.current = { el, at: start + text.length };
+    setInput(el.value.slice(0, start) + text + el.value.slice(end));
+  }, [stageFiles]);
+
+  // Re-rendering a controlled textarea puts the cursor at the end; after a
+  // paste it belongs just after the pasted text.
+  const pasteCaret = useRef<{ el: HTMLTextAreaElement; at: number } | null>(null);
+  useLayoutEffect(() => {
+    const p = pasteCaret.current;
+    if (!p) return;
+    pasteCaret.current = null;
+    p.el.selectionStart = p.el.selectionEnd = p.at;
+  }, [input]);
 
   const removeFile = useCallback((id: string) => {
     setStagedFiles((prev) => {
@@ -729,6 +767,7 @@ function ChatPageInner() {
           value={input}
           onChange={(e) => setInput(e.target.value)}
           onKeyDown={handleKeyDown}
+          onPaste={handlePaste}
           placeholder="Ask me anything..."
           enterKeyHint="send"
           autoComplete="off"
