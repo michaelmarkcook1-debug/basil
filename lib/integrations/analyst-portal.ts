@@ -33,7 +33,7 @@ export async function meetingSummaries(request: Request, deps: Dependencies): Pr
         id: m.id, title, summary: m.content, createdAt: m.createdAt, updatedAt: m.updatedAt,
         sourceRef: m.sourceRef ?? null, expiresAt: m.expiresAt ?? null,
         expired: !m.pinned && !!m.expiresAt && Date.parse(m.expiresAt) < now,
-        needsReview: m.needsReview !== false, confidence: m.confidence ?? null,
+        needsReview: typeof m.needsReview === 'boolean' ? m.needsReview : null, confidence: m.confidence ?? null,
       };
     }).filter((m: {summary: string}) => !/^\[Zoom meeting[^\]]*\]\s*\d{4}-\d{2}-\d{2}\.\s*Duration:/.test(m.summary))
       .sort((a: {updatedAt: string}, b: {updatedAt: string}) => Date.parse(b.updatedAt) - Date.parse(a.updatedAt));

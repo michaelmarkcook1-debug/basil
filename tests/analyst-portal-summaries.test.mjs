@@ -27,7 +27,7 @@ test('response selects summaries, excludes other memory and preserves uncertaint
     {...record,id:'email',content:'Private email context'}, {...record,id:'metadata',content:'[Zoom meeting — Fixture] 2026-10-01. Duration: 5 min. Attendees: fixture.'}]}));
   const body=await r.json();assert.equal(body.summaries.length,1);assert.equal(body.account,'fixture-account');
   assert.equal(body.summaries[0].summary,record.content);assert.equal(body.summaries[0].confidence,null);
-  assert.equal(body.summaries[0].needsReview,true);assert.equal(body.summaries[0].expired,true);
+  assert.equal(body.summaries[0].needsReview,null);assert.equal(body.summaries[0].expired,true);
   assert.equal(r.headers.get('cache-control'),'private, no-store');assert.ok(!JSON.stringify(body).includes('privateTranscript'));
 });
 test('storage errors and wrong shape are unavailable, not empty successful data',async()=>{
