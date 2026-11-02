@@ -84,7 +84,7 @@ test("connecting Google records that mailbox as the user's own (signed in with a
   assert.equal(await S.rememberOwnAddress("guy", "guy_saunders@hotmail.com"), false, "the sign-in address is already his");
   assert.equal(S.isSelf("guy@talentgenius.io", await S.getSelfIdentity("guy")), true);
   const cb = src("app/api/auth/google/callback/route.ts");
-  assert.match(cb, /const connectedAs = await getGmailAddress\(username\);\s*if \(await rememberOwnAddress\(username, connectedAs\)\)/);
+  assert.match(cb, /const connectedAs = await getGmailAddress\(username\);[\s\S]*?if \(await rememberOwnAddress\(username, connectedAs\)\)/);
 });
 
 test("Today asks for Google and Slack until they are connected, and each returns to Today", () => {

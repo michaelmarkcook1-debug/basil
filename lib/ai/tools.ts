@@ -459,7 +459,7 @@ export function buildAssistantTools(
         });
 
         // Michael's busy summary (in his timezone, for display)
-        const michaelBusyLocal = myBusyBlocks.map((b) => {
+        const myBusyLocal = myBusyBlocks.map((b) => {
           const s = new Date(b.start).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit", timeZone: timezone });
           const e = new Date(b.end).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit", timeZone: timezone });
           return `${s}–${e}`;
@@ -525,9 +525,9 @@ export function buildAssistantTools(
 
         return {
           date,
-          michael: {
+          you: {
             timezone,
-            busyBlocks: michaelBusyLocal.length ? michaelBusyLocal : ["(free all day)"],
+            busyBlocks: myBusyLocal.length ? myBusyLocal : ["(free all day)"],
             note: "Fetched directly from primary Google Calendar — includes Focus time and all holds.",
           },
           attendees: people,

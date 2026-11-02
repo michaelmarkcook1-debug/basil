@@ -5,7 +5,7 @@ import { eventFromIngest } from "@/lib/events/rules";
 import { publish } from "@/lib/events/bus";
 import type { IngestPayload } from "@/lib/events/types";
 import { shouldClassifySlack } from "@/lib/slack/classify-slack";
-import { resolveSlackUserByTeam, resolveSlackUser } from "@/lib/webhooks/resolve-user";
+import { resolveSlackUserByTeam } from "@/lib/webhooks/resolve-user";
 import { writeDeadLetter } from "@/lib/webhooks/dead-letter";
 import { start } from "workflow/api";
 import { ingestSlackWorkflow } from "@/lib/jobs/workflows/ingest-slack";
@@ -107,23 +107,22 @@ export async function POST(req: Request) {
       return NextResponse.json({ ok: true });
     }
 
-    let resolved = await resolveSlackUserByTeam(teamId, parsed.enterprise_id);
+    // Route by workspace, then by the Slack user the event was delivered for.
+    // Two Basil users can share one workspace (same team_id); the old
+    // first-connected fallback would hand one of them the other's events.
+    const authorizedSlackUsers = [
+      ...(parsed.authorizations ?? []).filter((a) => !a.is_bot && a.user_id).map((a) => a.user_id as string),
+      ...(parsed.authed_users ?? []),
+    ];
+    const resolved = await resolveSlackUserByTeam(teamId, parsed.enterprise_id, authorizedSlackUsers);
 
-    // Fallback: Slack was connected via env-var tokens (SLACK_BOT_TOKEN) rather
-    // than OAuth, so no teamId is stored in the persistent config. In a
-    // single-user deployment this is safe — just use the first Slack-connected user.
     if (resolved === null) {
-      const fallback = await resolveSlackUser();
-      if (!fallback) {
-        await writeDeadLetter(
-          "slack",
-          { type: inner.type, channel: inner.channel, team_id: teamId },
-          `No user has Slack workspace ${teamId} connected`
-        );
-        return NextResponse.json({ ok: true });
-      }
-      console.warn(`[slack-webhook] teamId ${teamId} not stored; using first-match fallback user (env-var tokens). Re-connect Slack via OAuth to eliminate this warning.`);
-      resolved = fallback;
+      await writeDeadLetter(
+        "slack",
+        { type: inner.type, channel: inner.channel, team_id: teamId },
+        `No user has Slack workspace ${teamId} connected`
+      );
+      return NextResponse.json({ ok: true });
     }
 
     if (resolved === "ambiguous") {
@@ -208,6 +207,10 @@ interface UnknownSlackPayload {
   team_id?: string;
   /** Enterprise Grid ID — present only on Enterprise Grid payloads (e.g. "E0XXXXXXXXX"). */
   enterprise_id?: string | null;
+  /** The installation(s) the event was delivered for; user_id is the Slack user behind a user token. */
+  authorizations?: { team_id?: string; user_id?: string; is_bot?: boolean }[];
+  /** Legacy field: Slack users the event was delivered for. */
+  authed_users?: string[];
 }
 
 interface SlackInnerEvent {

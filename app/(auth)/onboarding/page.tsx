@@ -42,6 +42,7 @@ const PRIORITIES = [
 ];
 
 const TOTAL_STEPS = 8;
+const GOOGLE_TAKEN = "That Google account is already connected to another person's Basil. Choose your own account in Google's sign-in screen.";
 
 const DEMO_VIDEO_ID = process.env.NEXT_PUBLIC_DEMO_VIDEO_ID ?? "";
 
@@ -236,7 +237,9 @@ export default function OnboardingPage() {
     const connected = params.get("connected");
     const error     = params.get("error");
 
-    if (connected === "google"    || error === "google_auth")    setStep(4);
+    if (connected === "google"    || error === "google_auth" || error === "google_taken") setStep(4);
+    if (error === "google_taken") setSaveError(GOOGLE_TAKEN);
+    else if (error === "google_auth") setSaveError("Google didn't connect. Try again.");
     if (connected === "microsoft" || error === "microsoft_auth") setStep(5);
     if (connected === "slack"     || error === "slack_auth")     setStep(6);
     if (connected === "zoom")                                    setStep(TOTAL_STEPS - 1);

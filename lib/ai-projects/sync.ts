@@ -9,6 +9,7 @@ import { fetchGrokProjects } from "./platforms/grok";
 import type { AIProject, AIProjectsData, Platform } from "./types";
 import { isLinearConnected } from "@/lib/linear/client";
 import { getAIPlatformKey } from "@/lib/ai-platforms/credentials";
+import { isEnvCredentialOwner } from "@/lib/auth/env-credential-owner";
 
 /** Find words ≥6 chars that are shared between two project names */
 function sharedWords(a: string, b: string): string[] {
@@ -65,12 +66,15 @@ export async function syncProjects(username: string): Promise<AIProjectsData> {
     }),
   ]);
 
-  const vercelToken = process.env.VERCEL_TOKEN;
+  // The deployment's VERCEL_TOKEN (and the server's ~/.claude folder) are the
+  // owner's, so only the owner sees what they list.
+  const owner = isEnvCredentialOwner(username);
+  const vercelToken = owner ? process.env.VERCEL_TOKEN : undefined;
 
   // Fetch all platforms in parallel
   const [claudeCodeProjects, githubProjects, vercelProjects, linearProjects, openaiProjects, perplexityProjects, grokProjects] =
     await Promise.all([
-      fetchClaudeCodeProjects(),
+      owner ? fetchClaudeCodeProjects() : Promise.resolve([]),
       githubToken ? fetchGithubProjects(githubToken) : Promise.resolve([]),
       vercelToken ? fetchVercelProjects(vercelToken) : Promise.resolve([]),
       linearConnected ? fetchLinearProjects(username) : Promise.resolve([]),

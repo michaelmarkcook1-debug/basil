@@ -10,7 +10,9 @@
 import { getUsers } from "@/lib/users";
 import { getWatchState as getGoogleWatchState } from "@/lib/google/watch-state";
 import { getWatchState as getMicrosoftWatchState } from "@/lib/microsoft/watch-state";
-import { getSlackConfig } from "@/lib/slack/client";
+import { getSlackConfig, getSlackUserClientForUser } from "@/lib/slack/client";
+import { isZoomConnected } from "@/lib/zoom/auth";
+import { getSelfIdentity } from "@/lib/self-identity";
 
 /**
  * Resolve which user owns a Gmail watch by matching the notification's
@@ -115,17 +117,31 @@ export async function resolveSlackUser(): Promise<string | null> {
  */
 export async function resolveSlackUserByTeam(
   teamId: string,
-  enterpriseId?: string | null
+  enterpriseId?: string | null,
+  /**
+   * Slack user ids the event was delivered for (event_callback
+   * `authorizations[].user_id` where !is_bot, plus legacy `authed_users`).
+   * Two Basil users in one workspace share a team_id; this is what tells
+   * their events apart.
+   */
+  authorizedSlackUsers: readonly string[] = [],
 ): Promise<string | "ambiguous" | null> {
   if (!teamId) return null;
 
   const users = await getUsers();
-  const matches: string[] = [];
+  const matches: { username: string; authUserId?: string; legacy: boolean }[] = [];
 
   for (const user of users) {
     try {
       const config = await getSlackConfig(user.username);
-      if (!config.teamId) continue;
+      if (!config.teamId) {
+        // Connected by env tokens or before workspace metadata was stored: the
+        // workspace is unknown, so it is a candidate. Counting it means a
+        // colleague who connects the same workspace makes routing ambiguous
+        // rather than inheriting every event (2026-11-02).
+        if (config.botToken || config.userToken) matches.push({ username: user.username, legacy: true });
+        continue;
+      }
 
       const teamMatches = config.teamId === teamId;
       const enterpriseMatches =
@@ -134,7 +150,7 @@ export async function resolveSlackUserByTeam(
         config.enterpriseId === enterpriseId;
 
       if (teamMatches && enterpriseMatches) {
-        matches.push(user.username);
+        matches.push({ username: user.username, authUserId: config.authUserId, legacy: false });
       }
     } catch {
       // Skip users whose Slack config can't be read
@@ -142,6 +158,64 @@ export async function resolveSlackUserByTeam(
   }
 
   if (matches.length === 0) return null;
-  if (matches.length === 1) return matches[0];
+
+  // Prefer the user the event was authorised for: they can see it by definition.
+  const authed = new Set(authorizedSlackUsers.filter(Boolean));
+  if (authed.size > 0 && matches.length > 1) {
+    for (const m of matches) if (m.legacy && !m.authUserId) m.authUserId = await slackSelfId(m.username);
+    const mine = matches.filter((m) => m.authUserId && authed.has(m.authUserId));
+    if (mine.length === 1) return mine[0].username;
+  }
+
+  if (matches.length === 1) return matches[0].username;
   return "ambiguous";
+}
+
+/** Slack user id behind a user's own token (auth.test), for configs that never stored it. */
+const slackSelfIdCache = new Map<string, string | undefined>();
+async function slackSelfId(username: string): Promise<string | undefined> {
+  if (slackSelfIdCache.has(username)) return slackSelfIdCache.get(username);
+  let id: string | undefined;
+  try {
+    const web = await getSlackUserClientForUser(username);
+    id = web ? ((await web.auth.test()).user_id as string | undefined) : undefined;
+  } catch (e) {
+    console.warn(`[slack-webhook] auth.test failed for ${username}:`, e instanceof Error ? e.message : e);
+  }
+  slackSelfIdCache.set(username, id);
+  return id;
+}
+
+/**
+ * Find the Basil user who owns a Zoom webhook event.
+ * Matches host_email to a connected user. The old "first connected user"
+ * fallback is a cross-tenant data-injection bug: with 2+ Zoom users it would
+ * attribute anyone's meeting to whoever happened to connect first. So we only
+ * fall back when there is EXACTLY ONE Zoom-connected user (unambiguous — the
+ * single-user case); with multiple, an unmatched host resolves to null (no-op).
+ */
+export async function resolveZoomUser(hostEmail?: string): Promise<string | null> {
+  const users = await getUsers();
+
+  const zoomUsers: string[] = [];
+  for (const user of users) {
+    if (await isZoomConnected(user.username)) zoomUsers.push(user.username);
+  }
+
+  // Match the meeting host to a Basil user by any of their own addresses
+  // (login email plus the mailboxes they connected), not just the login email.
+  if (hostEmail) {
+    const host = hostEmail.toLowerCase();
+    for (const u of users) {
+      const own = new Set([u.username.toLowerCase(), (u.email ?? "").toLowerCase()]);
+      for (const e of (await getSelfIdentity(u.username)).emails) own.add(e.toLowerCase());
+      // The host is a Basil user: theirs or nobody's. Before 2026-11-02 a
+      // colleague's meeting fell through to the single Zoom-connected user.
+      if (own.has(host)) return zoomUsers.includes(u.username) ? u.username : null;
+    }
+  }
+
+  // A host address no Basil user owns (e.g. a Zoom login on another address)
+  // is attributed only when exactly one account has Zoom connected.
+  return zoomUsers.length === 1 ? zoomUsers[0] : null;
 }

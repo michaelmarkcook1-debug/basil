@@ -118,6 +118,8 @@ export async function POST(req: Request) {
   // Resolve user timezone early — used for date arithmetic and system prompt.
   const settings = await getSettings(username).catch(() => null); // ci-ok: settings optional, null falls back to defaults
   const tz = settings?.timezone || "Europe/London";
+  // Whose meeting this is — the prompt names the signed-in user, not the owner.
+  const who = settings?.name?.trim().split(/\s+/)[0] || username;
 
   // Fetch user contacts and AI-generated overrides from the server store so
   // meeting prep always reflects the latest profile data without the client
@@ -495,16 +497,16 @@ export async function POST(req: Request) {
           .join("\n")
       : null;
 
-  const extraBlock = formatExtraContextBlock(extra);
+  const extraBlock = formatExtraContextBlock(extra, who);
 
-  const promptText = `Generate a meeting prep cheatsheet for Michael — sharp, opinionated, the kind of note a great chief of staff slides across before he walks in. Match the depth of a senior exec's handwritten pre-meeting notes.
+  const promptText = `Generate a meeting prep cheatsheet for ${who} — sharp, opinionated, the kind of note a great chief of staff slides across before he walks in. Match the depth of a senior exec's handwritten pre-meeting notes.
 
 Meeting: ${title}
 Date/Time: ${date} at ${time} UK
 Attendees:
 ${attendeeProfiles}
 
-## EARLIER TODAY — MICHAEL'S OWN CALENDAR (all events that already happened today before this one)
+## EARLIER TODAY — ${who.toUpperCase()}'S OWN CALENDAR (all events that already happened today before this one)
 ${earlierTodayBlock}
 
 ## CARRY-IN EMAIL (last ${CARRY_IN_HOURS} hours, any sender — signal that may bleed into this meeting)
@@ -535,7 +537,7 @@ ${attendeeMemoryBlock || "No memory notes on file for these attendees."}
 ## BLOCKER MEMORY — ITEMS FLAGGED AS BLOCKED OR AT RISK IN THE LAST 30 DAYS (from memory store — explicit, source-backed)
 ${blockersMemoryBlock || "No blockers flagged in memory."}
 ${extraBlock ? `\n${extraBlock}` : ""}
-## SIGNAL DENSITY — ${totalSignal} relevant item(s) found across email, Slack, and Zoom${relevantDecisions.length > 0 ? `, plus ${relevantDecisions.length} relevant decision(s)` : ""}${relevantActions.length > 0 ? `, plus ${relevantActions.length} open action(s)` : ""}${extraBlock ? ", plus extra context Michael attached" : ""}.
+## SIGNAL DENSITY — ${totalSignal} relevant item(s) found across email, Slack, and Zoom${relevantDecisions.length > 0 ? `, plus ${relevantDecisions.length} relevant decision(s)` : ""}${relevantActions.length > 0 ? `, plus ${relevantActions.length} open action(s)` : ""}${extraBlock ? `, plus extra context ${who} attached` : ""}.
 ${totalSignal < 3 && !extraBlock ? "⚠️ LOW SIGNAL: You have very little hard evidence for this meeting. Keep topicsToRaise SHORT (1–3 entries) and generic-but-honest. Do NOT manufacture topics to fill space. Watch Outs may say 'Low carry-in signal — go in open-minded.'" : ""}
 
 ## How Basil writes meeting prep — match this shape precisely
@@ -564,11 +566,11 @@ ${totalSignal < 3 && !extraBlock ? "⚠️ LOW SIGNAL: You have very little hard
 
 ## Factual guardrails — non-negotiable
 
-Michael walks into meetings with what you write. Don't make him look ill-informed.
+${who} walks into meetings with what you write. Don't make him look ill-informed.
 
 - fromTodaysCalls + topicsToRaise + thingsToLand + watchOuts: every specific claim traceable to a line in the CARRY-IN, RECENT, ZOOM SUMMARIES, LOGGED DECISIONS, or EXTRA CONTEXT blocks above, or to the EARLIER TODAY calendar. If you can't trace it, don't claim it.
-- When Michael attached EXTRA CONTEXT (notes, files, a folder), treat it as FIRST-CLASS signal. Weave it into topicsToRaise and thingsToLand — reference by filename if relevant. Those attachments usually represent what Michael is actually thinking about going into the meeting.
-- Zoom summaries are GOLD — they contain what was actually said on prior calls. When a topic traces to a Zoom summary, say so in the context field (e.g. "per Tuesday's Zoom summary, Sam Rivera committed to...") so Michael can audit.
+- When ${who} attached EXTRA CONTEXT (notes, files, a folder), treat it as FIRST-CLASS signal. Weave it into topicsToRaise and thingsToLand — reference by filename if relevant. Those attachments usually represent what ${who} is actually thinking about going into the meeting.
+- Zoom summaries are GOLD — they contain what was actually said on prior calls. When a topic traces to a Zoom summary, say so in the context field (e.g. "per Tuesday's Zoom summary, Sam Rivera committed to...") so ${who} can audit.
 - LOGGED DECISIONS are prior calls that are ALREADY MADE — do not surface them as open questions. Instead: (1) use them as context in topicsToRaise when they're directly relevant ("we decided X in [meeting], so the question is now Y"); (2) add a watchOut if a relevant decision may be challenged or re-litigated in this meeting; (3) reference them in thingsToLand if this meeting should confirm or act on a prior decision's follow-ups.
 - OPEN ACTIONS are real tracked commitments from the Action Tracker. OVERDUE or stalled actions involving meeting attendees are prime candidates for topicsToRaise ("Sam Rivera has an overdue action from last week — check status") or thingsToLand ("Confirm action X is unblocked before EOD"). Never invent actions not in this block.
 - RELATIONSHIP MEMORY contains facts and notes accumulated over prior interactions. Use them to enrich attendeeInsights and topicsToRaise — treat them as reliable background, not as grounds for inventing new claims.
@@ -576,7 +578,7 @@ Michael walks into meetings with what you write. Don't make him look ill-informe
 - suggestedQuestions: every question must trace to a concrete signal — an overdue action, a prior decision's follow-up, a Zoom commitment, or a blocker memory. "Ask how it's going" is never acceptable. Omit the field rather than invent questions.
 - unresolvedRisks: only populate from explicit evidence in the source blocks. If nothing is flagged, return [].
 - attendeeInsights.style draws on the persona background for the operating profile. That's appropriate — personas describe how people *operate*, which is exactly what this field captures. Never invent a current thread or belief.
-- **LOW SIGNAL discipline**: if SIGNAL DENSITY above is low, produce a SHORTER prep. Fewer topics, each one honestly sourced from whatever signal DOES exist. An accurate 2-topic prep beats a fabricated 5-topic prep every time. When in doubt, say "no carry-in signal" in watchOuts — that's MORE useful to Michael than invented context.
+- **LOW SIGNAL discipline**: if SIGNAL DENSITY above is low, produce a SHORTER prep. Fewer topics, each one honestly sourced from whatever signal DOES exist. An accurate 2-topic prep beats a fabricated 5-topic prep every time. When in doubt, say "no carry-in signal" in watchOuts — that's MORE useful to ${who} than invented context.
 - If a block says "No recent…" or "No Zoom…" or "No relevant decisions found", do NOT invent claims scoped to that block. Say nothing, or flag the absence as a watch-out.
 - Do NOT invent deal stages, prospect names, company names, pending decisions, or commitments.
 - Empty arrays are acceptable. If earlier today was quiet, fromTodaysCalls: []. If no recent signal, topicsToRaise: []. Better a sparse prep than a fabricated one.

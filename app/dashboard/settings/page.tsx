@@ -1092,6 +1092,8 @@ export default function SettingsPage() {
         errorMessage = `Microsoft redirect URI mismatch — add ${appUrl}/api/auth/microsoft/callback to your Azure app's redirect URIs`;
       } else if (error === "microsoft_credentials") {
         errorMessage = "Microsoft client credentials rejected — check MICROSOFT_CLIENT_ID and MICROSOFT_CLIENT_SECRET";
+      } else if (error === "google_taken") {
+        errorMessage = "That Google account is already connected to another person's Basil. Choose your own account in Google's sign-in screen.";
       } else if (error === "microsoft_auth") {
         errorMessage = "Microsoft connection failed — check your Azure app configuration";
       } else {

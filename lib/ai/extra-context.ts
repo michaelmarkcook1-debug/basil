@@ -480,18 +480,18 @@ export async function parseExtraContext(
  * Build the "## EXTRA CONTEXT" block for a prompt. Returns empty string if
  * nothing was supplied so prompts stay clean when unused.
  */
-export function formatExtraContextBlock(ctx: ExtraContext): string {
+export function formatExtraContextBlock(ctx: ExtraContext, who = "the user"): string {
   if (!ctx.notes && !ctx.textBlock && ctx.fileParts.length === 0) return "";
 
   const parts: string[] = [];
   parts.push(
-    "## EXTRA CONTEXT FROM MICHAEL",
-    "Michael attached this context for you to weigh when you write. Treat it as LIVE DATA — on par with the other data blocks above. Quote from it when useful. Never invent beyond it.",
+    `## EXTRA CONTEXT FROM ${who.toUpperCase()}`,
+    `${who} attached this context for you to weigh when you write. Treat it as LIVE DATA — on par with the other data blocks above. Quote from it when useful. Never invent beyond it.`,
     ""
   );
 
   if (ctx.notes) {
-    parts.push("### Michael's notes", ctx.notes, "");
+    parts.push(`### ${who}'s notes`, ctx.notes, "");
   }
 
   if (ctx.textBlock) {
@@ -512,9 +512,9 @@ export function formatExtraContextBlock(ctx: ExtraContext): string {
       .map((s) => `- ${s.name} (${s.reason})`)
       .join("\n");
     parts.push(
-      "### Files Michael attached but Basil couldn't use",
+      `### Files ${who} attached but Basil couldn't use`,
       list,
-      "(You may mention these briefly in your output if relevant — 'Michael also attached X but I couldn't parse it.')",
+      `(You may mention these briefly in your output if relevant — '${who} also attached X but I couldn't parse it.')`,
       ""
     );
   }

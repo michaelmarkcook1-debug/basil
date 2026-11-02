@@ -135,7 +135,7 @@ function formatReadBlock(summaries: ReadSummary[], tz = "Europe/London"): string
   return `=== READ.AI MEETING SUMMARIES (last 14 days, ${summaries.length} found) ===\n${lines.join("\n")}\n`;
 }
 
-function formatSlackBlock(messages: SlackMessage[], tz = "Europe/London"): string {
+function formatSlackBlock(messages: SlackMessage[], tz = "Europe/London", who = "the user"): string {
   if (messages.length === 0)
     return "=== RECENT SLACK MESSAGES ===\n(No messages found)\n";
 
@@ -145,7 +145,7 @@ function formatSlackBlock(messages: SlackMessage[], tz = "Europe/London"): strin
       month: "short",
       timeZone: tz,
     });
-    const mention = m.isMention ? " [MENTIONS MICHAEL]" : "";
+    const mention = m.isMention ? ` [MENTIONS ${who.toUpperCase()}]` : "";
     return `- ${date} ${m.channel} — ${m.author}: ${m.text.substring(0, 220)}${mention}`;
   });
 
@@ -160,6 +160,8 @@ export async function POST() {
 
   const settings    = await getSettings(username).catch(() => null); // ci-ok: settings optional, null falls back to defaults
   const tz          = settings?.timezone || "Europe/London";
+  // Whose digest this is — the prompt names the signed-in user, not the owner.
+  const who         = settings?.name?.trim().split(/\s+/)[0] || username;
 
   const now = new Date();
   // Align windows to the start of the current calendar week (Monday) in user's timezone,
@@ -526,8 +528,8 @@ export async function POST() {
     formatCalendarBlock(pastEvents, "PAST 7 DAYS — CALENDAR"),
     formatCalendarBlock(upcomingEvents, "NEXT 7 DAYS — CALENDAR"),
     formatEmailBlock(emails, "RECENT EMAILS (last 7 days)"),
-    formatSlackBlock(slackMessages),
-    `=== WHAT MICHAEL ALREADY DID (his OWN sent email + his OWN Slack messages) ===
+    formatSlackBlock(slackMessages, tz, who),
+    `=== WHAT ${who.toUpperCase()} ALREADY DID (his OWN sent email + his OWN Slack messages) ===
 RESOLUTION EVIDENCE. Read this BEFORE writing blockers. It exists so settled work
 is never reported as outstanding. It is NOT a source of new actions or
 commitments — do not mine it for work to add.
@@ -588,7 +590,7 @@ JSON. Each field is free-form text (paragraphs, bullets, numbered lists) or null
   "majorMeetings": "Key meetings, 1:1s, and calls from the past 7 days. Who was there, what came out of it, what the signal means. Draw from PAST 7 DAYS CALENDAR and Zoom/Read.ai summaries. Cross-reference Slack/email threads involving the same people. Null if no meetings in the data.",
   "whatChanged": "What moved this week. Actions completed. Momentum made or lost. Work shipped or advanced. Draw from COMPLETED THIS WEEK and OPENED THIS WEEK actions, calendar, and Zoom/Read.ai recaps. Name specific items. Null if nothing evident.",
   "decisionsLog": "Decisions logged or clearly implied in the past 7-14 days. Each decision traceable to a line in the live data. Include rationale and follow-on consequences where present. Draw from RECENT DECISIONS block and Zoom/Read.ai summaries. Null if none.",
-  "blockers": "What's stuck. Overdue actions. Stalled threads. Risks raised but unresolved. Items that need a nudge or decision to unblock. Draw from OVERDUE, STALLED, and blocker-language in emails/Slack/memory. Be specific — name the item, the owner, and why it matters. Null if nothing is genuinely blocked.\\n\\nBEFORE listing anything here, check it against WHAT MICHAEL ALREADY DID. Classify every candidate into exactly one of three states:\\n  (a) CLOSED — Michael explicitly stated it is finished ('sorted', 'done', 'sent it over', marked [STATED COMPLETE]), OR the counterparty confirmed receipt/resolution. OMIT IT ENTIRELY from blockers. Do not mention it as outstanding anywhere.\\n  (b) IN FLIGHT — Michael sent something that addresses it but no confirmation has come back. Do NOT call this blocked or say it is 'sitting on his desk'. Report it as awaiting the other side, naming what he sent and when, e.g. 'You sent the revised pricing to Olivia on 24 July — no reply in 2 days.' The signal is THEIR silence, not his inaction.\\n  (c) GENUINELY BLOCKED — no outbound action from Michael addresses it. Only these belong under blockers.\\nAsserting that Michael has not done something he has already done is the single worst error you can make in this brief: it burns his attention on settled work and makes him distrust every other line. When the evidence is ambiguous, prefer (b) over (c).",
+  "blockers": "What's stuck. Overdue actions. Stalled threads. Risks raised but unresolved. Items that need a nudge or decision to unblock. Draw from OVERDUE, STALLED, and blocker-language in emails/Slack/memory. Be specific — name the item, the owner, and why it matters. Null if nothing is genuinely blocked.\\n\\nBEFORE listing anything here, check it against WHAT ${who.toUpperCase()} ALREADY DID. Classify every candidate into exactly one of three states:\\n  (a) CLOSED — ${who} explicitly stated it is finished ('sorted', 'done', 'sent it over', marked [STATED COMPLETE]), OR the counterparty confirmed receipt/resolution. OMIT IT ENTIRELY from blockers. Do not mention it as outstanding anywhere.\\n  (b) IN FLIGHT — ${who} sent something that addresses it but no confirmation has come back. Do NOT call this blocked or say it is 'sitting on his desk'. Report it as awaiting the other side, naming what he sent and when, e.g. 'You sent the revised pricing to Olivia on 24 July — no reply in 2 days.' The signal is THEIR silence, not his inaction.\\n  (c) GENUINELY BLOCKED — no outbound action from ${who} addresses it. Only these belong under blockers.\\nAsserting that ${who} has not done something he has already done is the single worst error you can make in this brief: it burns his attention on settled work and makes him distrust every other line. When the evidence is ambiguous, prefer (b) over (c).",
   "relationshipSignals": "Cross-source signals about people and accounts. Who appeared in multiple channels this week? Any relationship that's warming, cooling, or needs attention? Any account activity worth noting? Draw from calendar attendees, email senders, Slack participants, and memory notes. Null if no cross-source signal.",
   "nextWeekNeeds": "What next week requires. Meetings that need prep. Open threads to close. Decisions that are ripening. Items from DUE NEXT 7 DAYS and NEXT 7 DAYS CALENDAR. Basil's one or two priorities for the user's attention. Null if nothing notable upcoming."
 }

@@ -7,6 +7,8 @@ import { triggerOnboardingBackfill } from "@/lib/onboarding/backfill";
 import { verifyOAuthState, clearOAuthStateCookie } from "@/lib/auth/oauth-state";
 import { getGmailAddress } from "@/lib/google/gmail";
 import { rememberOwnAddress } from "@/lib/self-identity";
+import { otherOwnerOf } from "@/lib/google/account-owner";
+import { deleteIntegrationToken } from "@/lib/storage/secure-token-store";
 
 // GET /api/auth/google/callback — handles Google OAuth callback
 export async function GET(req: Request) {
@@ -65,11 +67,22 @@ export async function GET(req: Request) {
     await forceFlushSnapshot();
     console.log(`[google/callback] Tokens saved for user ${username}. Redirecting to ${successDest}`);
 
+    const connectedAs = await getGmailAddress(username);
+
+    // A Google account belongs to one Basil user. If another user already owns
+    // this address, undo the connection before anything reads the mailbox.
+    const owner = await otherOwnerOf(connectedAs, username);
+    if (owner) {
+      await deleteIntegrationToken(username, "google");
+      await forceFlushSnapshot();
+      console.warn(`[google/callback] ${username} tried to connect a Google account that belongs to ${owner}; tokens discarded.`);
+      return redirect(from === "onboarding" ? "/onboarding?error=google_taken" : "/dashboard/settings?error=google_taken");
+    }
+
     // The connected mailbox is the user's own, even when it is not the address
     // they sign in to Basil with (a colleague invited on a personal email who
     // connects their work Google). Remembered as an alias so their own mail is
     // recognised as theirs.
-    const connectedAs = await getGmailAddress(username);
     if (await rememberOwnAddress(username, connectedAs)) console.log(`[google/callback] ${username}: recorded the connected Gmail address as their own`);
 
     // ── Auto-register push webhooks ──────────────────────────────────────────

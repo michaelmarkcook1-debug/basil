@@ -84,11 +84,11 @@ const GEN_BRIEFING_RATE_LIMIT = 5; // Briefings are expensive — 5 per minute p
  * invented filler. Honest brevity is still correct when a section is genuinely
  * empty; the goal is to stop the model defaulting to thin output on a rich day.
  */
-const BRIEFING_DEPTH_DIRECTIVE = `
+const briefingDepthDirective = (who: string) => `
 
 ---
 BRIEFING MODE — override the terse-by-default posture for THIS task only:
-- You are writing Michael's morning briefing as a sharp chief of staff, not a chat reply. Be thorough and specific.
+- You are writing ${who}'s morning briefing as a sharp chief of staff, not a chat reply. Be thorough and specific.
 - For every section that HAS source data, write 3-5 substantive bullets. Name people, accounts, and email subjects explicitly. Cross-reference signals across sources (calendar + email + Slack + Zoom/Read.ai + memory) into single, reasoned items.
 - Each item should say what it is AND why it matters now — earn the reader's attention with insight, not just a list.
 - Depth must come from the SOURCE DATA only. Never invent names, numbers, or events to fill space. A section with no real signal stays short and honest ("Inbox quiet") — do not pad it.
@@ -243,6 +243,8 @@ export async function POST(req: Request) {
 
   const settings  = await getSettings(username).catch(() => null); // ci-ok: settings optional, null falls back to defaults
   const tz        = settings?.timezone || "Europe/London";
+  // Whose briefing this is — every signed-in user gets their own, by name.
+  const who       = settings?.name?.trim().split(/\s+/)[0] || username;
 
   const today = new Date().toLocaleDateString("en-GB", {
     timeZone: tz,
@@ -585,7 +587,7 @@ export async function POST(req: Request) {
     ? formatProjectRadar(projectTruthResult.projects)
     : "Project Truth Layer unavailable.";
 
-  const extraBlock = formatExtraContextBlock(extra);
+  const extraBlock = formatExtraContextBlock(extra, who);
 
   // ── Signal density (for LOW SIGNAL discipline) ─────────────────────────
   const totalSignal =
@@ -787,7 +789,7 @@ ${emailBlock}
 ### SLACK — last 48h
 ${slackBlock}
 
-### WHAT MICHAEL ALREADY DID — last 7 days (his OWN sent email + his OWN Slack messages)
+### WHAT ${who.toUpperCase()} ALREADY DID — last 7 days (his OWN sent email + his OWN Slack messages)
 This is RESOLUTION EVIDENCE. It exists so you never report settled work as
 outstanding. It is NOT a source of new actions, commitments, or signals — do not
 mine it for work to add.
@@ -812,7 +814,7 @@ ${personaBlock}
 
 ## Briefing structure
 
-Write the way a great chief of staff would: opinionated, specific, cross-referenced. Michael scans this before his day begins.
+Write the way a great chief of staff would: opinionated, specific, cross-referenced. ${who} scans this before his day begins.
 
 **criticalToday** — 3-5 items that genuinely need attention today. Cross-source: if an overdue action also appears in an email thread, that is ONE item not two. If an attendee also sent a DM, that is ONE item. Rank by real urgency — not by which source listed it first. If there is nothing critical today, say so honestly ("Routine day — nothing critical.").
 
@@ -841,8 +843,8 @@ Every name, company, email subject, Slack quote, action text, decision, and comm
 - Relationship memory notes are accumulated facts about people — use them to enrich peopleAndAccounts and meetingsNeedingPrep. Never invent claims beyond what the memory says.
 - PROJECT RADAR is a source-attributed heuristic. Use it to explain active projects, but do not claim a project is blocked unless a listed risk/blocker says so.
 - Signal density today: ${totalSignal} live source item(s)${recentMemories.length > 0 ? ` + ${recentMemories.length} memory note(s)` : ""}. When signal exists, go deep — 3-5 substantive, person-named, cross-referenced bullets per populated section. Only when signal is genuinely near-zero should the briefing be short; an honest 2-item brief beats padded fabrication, but a busy day deserves a thorough one.
-- Items marked [UNCONFIRMED] or "UNCONFIRMED — awaiting review" are candidates Basil identified from signals but Michael has not yet verified. Present these as tentative ("may have been decided", "worth checking", "appears to") — never as confirmed facts or firm commitments.
-${extraBlock ? "- Extra context Michael provided is FIRST-CLASS signal — weave into the relevant sections, reference by filename where applicable.\n" : ""}
+- Items marked [UNCONFIRMED] or "UNCONFIRMED — awaiting review" are candidates Basil identified from signals but ${who} has not yet verified. Present these as tentative ("may have been decided", "worth checking", "appears to") — never as confirmed facts or firm commitments.
+${extraBlock ? `- Extra context ${who} provided is FIRST-CLASS signal — weave into the relevant sections, reference by filename where applicable.\n` : ""}
 ---
 
 ## Output shape
@@ -855,7 +857,7 @@ Return ONLY valid JSON, no markdown code fences:
   "decisionsToWatch": "Recent decisions with pending follow-ups + any new decisions implied by today's data. Null if nothing.",
   "meetingsNeedingPrep": "Today's meetings with prep context. Null if no meetings with meaningful attendees.",
   "peopleAndAccounts": "Cross-source relationship signals. Null if no genuine cross-source signals.",
-  "inboxSlack": "Remaining inbox/Slack highlights. Null if nothing further worth Michael's attention."
+  "inboxSlack": "Remaining inbox/Slack highlights. Null if nothing further worth ${who}'s attention."
 }`;
 
   // If we have binary file parts (PDFs, images), use the messages API so they
@@ -892,7 +894,7 @@ Return ONLY valid JSON, no markdown code fences:
       maxOutputTokens: MAX_TOKENS.long,
       // Task prompt, not the chat prompt: no tool manuals, and personality notes
       // only for people the day's data actually names.
-      system: (await getTaskSystemPrompt(username, tz, { memories: 25, personasFor: promptText, maxPersonas: 12 })) + BRIEFING_DEPTH_DIRECTIVE,
+      system: (await getTaskSystemPrompt(username, tz, { memories: 25, personasFor: promptText, maxPersonas: 12 })) + briefingDepthDirective(who),
       ...(messages ? { messages } : { prompt: promptText }),
     }, "long", { username, feature: "briefing" });
   } catch (e) {

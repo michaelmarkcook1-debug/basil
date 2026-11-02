@@ -3,8 +3,7 @@ import { createHmac } from "node:crypto";
 import { createEvent, hasExternalId } from "@/lib/events/store";
 import { eventFromIngest } from "@/lib/events/rules";
 import { publish } from "@/lib/events/bus";
-import { isZoomConnected } from "@/lib/zoom/auth";
-import { getUsers } from "@/lib/users";
+import { resolveZoomUser } from "@/lib/webhooks/resolve-user";
 import { writeDeadLetter } from "@/lib/webhooks/dead-letter";
 import { start } from "workflow/api";
 import { ingestZoomWorkflow } from "@/lib/jobs/workflows/ingest-zoom";
@@ -49,37 +48,6 @@ function verifyZoomSignature(opts: {
 }
 
 // ── User resolution ───────────────────────────────────────────────────────────
-
-/**
- * Find the Basil user who owns a Zoom webhook event.
- * Matches host_email to a connected user. The old "first connected user"
- * fallback is a cross-tenant data-injection bug: with 2+ Zoom users it would
- * attribute anyone's meeting to whoever happened to connect first. So we only
- * fall back when there is EXACTLY ONE Zoom-connected user (unambiguous — the
- * single-user case); with multiple, an unmatched host resolves to null (no-op).
- */
-async function resolveZoomUser(hostEmail?: string): Promise<string | null> {
-  const users = await getUsers();
-
-  const zoomUsers: string[] = [];
-  for (const user of users) {
-    if (await isZoomConnected(user.username)) zoomUsers.push(user.username);
-  }
-
-  // Try to match the meeting host email to a connected Zoom user.
-  if (hostEmail) {
-    const host = hostEmail.toLowerCase();
-    const match = users.find(
-      (u) =>
-        zoomUsers.includes(u.username) &&
-        (u.username.toLowerCase() === host || u.email?.toLowerCase() === host),
-    );
-    if (match) return match.username;
-  }
-
-  // Only fall back when attribution is unambiguous (a single Zoom account).
-  return zoomUsers.length === 1 ? zoomUsers[0] : null;
-}
 
 // ── Handler ───────────────────────────────────────────────────────────────────
 
