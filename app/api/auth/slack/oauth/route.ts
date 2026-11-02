@@ -28,12 +28,21 @@ const BOT_SCOPES = [
   "chat:write",
 ].join(",");
 
-// User scopes — needed for search (only available with user token)
+// User scopes — the reader works from the user's own token: it lists the
+// conversations they are in (conversations.list → the :read scopes), reads
+// them (:history) and searches (search:read, user tokens only). Without the
+// :read scopes every OAuth-connected user got missing_scope on every fetch
+// (2026-11-02, Guy's first connect); the owner's env token had them.
 const USER_SCOPES = [
+  "channels:read",
   "channels:history",
+  "groups:read",
   "groups:history",
+  "im:read",
   "im:history",
+  "mpim:read",
   "mpim:history",
+  "users:read",
   "search:read",
 ].join(",");
 

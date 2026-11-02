@@ -121,3 +121,12 @@ test("briefing, digest, meeting prep, Stig and extra context name the signed-in 
   }
   assert.doesNotMatch(src("lib/ai/tools.ts"), /^\s+michael: \{/m, "the availability tool reports 'you', not 'michael'");
 });
+
+test("Slack connected by OAuth can list what it reads: the user token asks for the :read scopes too", () => {
+  const scopes = src("app/api/auth/slack/oauth/route.ts").match(/const USER_SCOPES = \[([\s\S]*?)\]/)[1];
+  for (const s of ["channels:read", "groups:read", "im:read", "mpim:read", "channels:history", "im:history", "search:read"]) {
+    assert.ok(scopes.includes(`"${s}"`), `user token must request ${s}`);
+  }
+  // The reader lists conversations with the user's token when it has one.
+  assert.match(src("lib/slack/client.ts"), /const web = userWeb \|\| botWeb;/);
+});
