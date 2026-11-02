@@ -75,6 +75,23 @@ function dailyCapUsd(): number | null { return numEnv("AI_GLOBAL_DAILY_USD"); }
  * as accounts are added.
  */
 function perUserDailyCapUsd(): number | null { return numEnv("AI_PER_USER_DAILY_USD"); }
+
+/**
+ * This user's daily cap: the limit an admin set for them in /admin
+ * (User.aiDailyUsd), else the AI_PER_USER_DAILY_USD default. 0 turns their AI
+ * off. Imported lazily so the guard stays loadable without the user store; an
+ * unreadable record falls back to the default, never to "no limit".
+ */
+async function userDailyCapUsd(username: string): Promise<number | null> {
+  try {
+    const { findByUsername } = await import("@/lib/users");
+    const v = (await findByUsername(username))?.aiDailyUsd;
+    if (typeof v === "number" && Number.isFinite(v) && v >= 0) return v;
+  } catch (e) {
+    console.warn(`[spend-guard] ${username}'s own limit unreadable; using the default:`, e instanceof Error ? e.message : e);
+  }
+  return perUserDailyCapUsd();
+}
 function isHardStopped(): boolean { return process.env.AI_SPEND_HARD_STOP === "true"; }
 
 /** Counter TTL — ~70 days so the previous period's counter self-expires. */
@@ -260,7 +277,7 @@ export async function reserveSpend(meter: SpendMeter, kind: ModelKind): Promise<
   const day = currentDay();
   const gc = globalCapUsd();
   const dc = dailyCapUsd();
-  const udc = perUserDailyCapUsd();
+  const udc = await userDailyCapUsd(meter.username);
   // Per-user cap: the plan entitlement (meter.userMonthlyUsd) takes precedence
   // over the global env default.
   const uc = meter.userMonthlyUsd ?? userCapUsd();
@@ -447,7 +464,7 @@ export async function reserveFlatSpend(meter: SpendMeter, usd: number): Promise<
   const family: PriceFamily = meter.family ?? "transcribe";
   const period = currentPeriod();
   const day = currentDay();
-  const gc = globalCapUsd(), dc = dailyCapUsd(), udc = perUserDailyCapUsd();
+  const gc = globalCapUsd(), dc = dailyCapUsd(), udc = await userDailyCapUsd(meter.username);
   const uc = meter.userMonthlyUsd ?? userCapUsd();
   const base = { username: meter.username, feature: meter.feature, family, period, day };
   if ((gc === null && uc === null && dc === null && udc === null) || usd <= 0) return { ...base, reservedUsd: 0, heldKeys: [] };
@@ -526,7 +543,7 @@ export async function checkSpendBudget(username: string): Promise<SpendStatus> {
   const gc = globalCapUsd();
   const uc = userCapUsd();
   const dc = dailyCapUsd();
-  const udc = perUserDailyCapUsd();
+  const udc = await userDailyCapUsd(username);
   if (gc === null && uc === null && dc === null && udc === null) return { ok: true };
   const period = currentPeriod();
   const day = currentDay();
@@ -589,7 +606,7 @@ export interface SpendSummary {
   perUserDailyCapUsd: number | null;
   hardStopped: boolean;
   /** `usd` is month-to-date; `todayUsd` is what the per-user daily cap acts on. */
-  perUser: { username: string; usd: number; todayUsd: number }[];
+  perUser: { username: string; usd: number; todayUsd: number; dailyCapUsd: number | null }[];
 }
 
 /** Month-to-date spend summary for the admin panel. */
@@ -600,20 +617,20 @@ export interface SpendSummary {
 export async function getUserSpendToday(username: string): Promise<{ usd: number; capUsd: number | null; day: string }> {
   const day = currentDay();
   const usd = await getCounter(userDailyKey(username, day)).catch(() => 0);
-  return { usd, capUsd: perUserDailyCapUsd(), day };
+  return { usd, capUsd: await userDailyCapUsd(username), day };
 }
 
 export async function getSpendSummary(usernames: string[]): Promise<SpendSummary> {
   const period = currentPeriod();
   const globalUsd = await getCounter(globalKey(period)).catch(() => 0);
   const day = currentDay();
-  const perUser: { username: string; usd: number; todayUsd: number }[] = [];
+  const perUser: { username: string; usd: number; todayUsd: number; dailyCapUsd: number | null }[] = [];
   for (const username of usernames) {
     const usd = await getCounter(userKey(username, period)).catch(() => 0);
     // Today's spend for this user — the figure the per-user daily cap acts on,
     // so the summary shows the same number the guard is enforcing against.
     const todayUsd = await getCounter(userDailyKey(username, day)).catch(() => 0);
-    if (usd > 0 || todayUsd > 0) perUser.push({ username, usd, todayUsd });
+    perUser.push({ username, usd, todayUsd, dailyCapUsd: await userDailyCapUsd(username) });
   }
   perUser.sort((a, b) => b.usd - a.usd);
   return {

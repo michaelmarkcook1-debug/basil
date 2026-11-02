@@ -44,6 +44,12 @@ export interface User {
   aliasEmails?: string[];
   /** When true the account is suspended — all sessions are rejected immediately. */
   disabled?: boolean;
+  /**
+   * This person's daily AI budget in USD, set by an admin in /admin. Unset →
+   * the AI_PER_USER_DAILY_USD default; 0 → their AI is off. Read by
+   * lib/ai/spend-guard.ts.
+   */
+  aiDailyUsd?: number;
   /** Incremented on password change or admin revocation to invalidate existing JWTs. */
   sessionVersion?: number;
 }
@@ -274,6 +280,18 @@ export async function setUserDisabled(username: string, disabled: boolean): Prom
     if (idx === -1) throw new Error("User not found");
     const copy = [...users];
     copy[idx] = { ...copy[idx], disabled };
+    return copy;
+  });
+}
+
+/** Set (or with null, clear back to the default) a user's daily AI budget in USD. */
+export async function setUserAiDailyLimit(username: string, usd: number | null): Promise<void> {
+  await mutateUserRecords((users) => {
+    const idx = users.findIndex((u) => u.username.toLowerCase() === username.toLowerCase());
+    if (idx === -1) throw new Error("User not found");
+    const copy = [...users];
+    const { aiDailyUsd: _old, ...rest } = copy[idx];
+    copy[idx] = usd === null ? rest : { ...rest, aiDailyUsd: usd };
     return copy;
   });
 }

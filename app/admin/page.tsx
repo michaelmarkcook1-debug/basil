@@ -31,7 +31,11 @@ interface AdminUser {
   onboardingCompleted?: boolean;
   disabled?: boolean;
   sessionVersion?: number;
+  aiDailyUsd?: number;
 }
+
+/** Today's AI spend per user and the daily limit each is held to (/api/admin/ai-spend). */
+interface SpendRow { username: string; todayUsd: number; dailyCapUsd: number | null }
 
 type ConfirmAction =
   | { type: "revoke"; user: AdminUser }
@@ -113,16 +117,48 @@ export default function AdminPage() {
   const [flagsLoading, setFlagsLoading] = useState(true);
   const [togglingFlag, setTogglingFlag] = useState<string | null>(null);
 
+  // ── Per-user AI budget ────────────────────────────────────────────────────
+  const [spend, setSpend] = useState<Record<string, SpendRow>>({});
+  const [defaultDailyUsd, setDefaultDailyUsd] = useState<number | null>(null);
+  const [limitDraft, setLimitDraft] = useState<Record<string, string>>({});
+  const [limitError, setLimitError] = useState<Record<string, string>>({});
+
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const r = await fetch("/api/admin/users");
+      const [r, s] = await Promise.all([fetch("/api/admin/users"), fetch("/api/admin/ai-spend")]);
       const data = await r.json();
       setUsers(data.users ?? []);
+      if (s.ok) {
+        const sum = await s.json() as { perUser?: SpendRow[]; perUserDailyCapUsd?: number | null };
+        setSpend(Object.fromEntries((sum.perUser ?? []).map((row) => [row.username.toLowerCase(), row])));
+        setDefaultDailyUsd(sum.perUserDailyCapUsd ?? null);
+      }
     } finally {
       setLoading(false);
     }
   }, []);
+
+  async function saveLimit(user: AdminUser, value: number | null) {
+    setActing(user.id);
+    setLimitError((e) => ({ ...e, [user.id]: "" }));
+    try {
+      const r = await fetch(`/api/admin/users/${user.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "set-ai-limit", aiDailyUsd: value }),
+      });
+      if (!r.ok) {
+        const out = await r.json().catch(() => ({})) as { error?: string };
+        setLimitError((e) => ({ ...e, [user.id]: out.error || "The limit was not saved." }));
+        return;
+      }
+      setLimitDraft((d) => { const { [user.id]: _gone, ...rest } = d; return rest; });
+      await load();
+    } finally {
+      setActing(null);
+    }
+  }
 
   const loadFlags = useCallback(async () => {
     setFlagsLoading(true);
@@ -291,6 +327,55 @@ export default function AdminPage() {
                             Last login: {formatDatetime(user.lastLoginAt)}
                           </span>
                         </div>
+
+                        {user.id !== "env-admin" && (() => {
+                          const row = spend[user.username.toLowerCase()];
+                          const cap = row?.dailyCapUsd ?? (user.aiDailyUsd ?? defaultDailyUsd);
+                          const own = typeof user.aiDailyUsd === "number";
+                          const draft = limitDraft[user.id] ?? (own ? String(user.aiDailyUsd) : "");
+                          const parsed = draft.trim() === "" ? null : Number(draft);
+                          const valid = parsed === null || (Number.isFinite(parsed) && parsed >= 0 && parsed <= 100);
+                          return (
+                            <div className="mt-2.5 flex flex-wrap items-center gap-2 text-xs">
+                              <span className="flex items-center gap-1 text-muted-foreground">
+                                <Zap className="h-3 w-3 shrink-0" />
+                                AI today: ${(row?.todayUsd ?? 0).toFixed(2)}
+                                {cap === null ? " · no daily limit" : ` of $${cap.toFixed(2)}`}
+                                {cap === 0 ? " (AI off)" : ""}
+                                {own ? "" : " (default)"}
+                              </span>
+                              <label className="flex items-center gap-1">
+                                <span className="sr-only">Daily AI limit for {user.name} in dollars</span>
+                                <span className="text-muted-foreground">Daily limit $</span>
+                                <input
+                                  type="number" inputMode="decimal" min={0} max={100} step={0.5}
+                                  value={draft}
+                                  placeholder={defaultDailyUsd === null ? "none" : String(defaultDailyUsd)}
+                                  onChange={(e) => setLimitDraft((d) => ({ ...d, [user.id]: e.target.value }))}
+                                  className="h-7 w-20 rounded-md border border-border bg-background px-2 text-xs"
+                                />
+                              </label>
+                              <Button
+                                variant="outline" size="sm" className="h-7 px-2 text-xs"
+                                disabled={!valid || acting === user.id || (parsed === (own ? user.aiDailyUsd : null))}
+                                onClick={() => saveLimit(user, parsed)}
+                              >
+                                Save
+                              </Button>
+                              {own && (
+                                <Button
+                                  variant="ghost" size="sm" className="h-7 px-2 text-xs text-muted-foreground"
+                                  disabled={acting === user.id}
+                                  onClick={() => saveLimit(user, null)}
+                                >
+                                  Use default
+                                </Button>
+                              )}
+                              {!valid && <span className="text-destructive">$0–$100</span>}
+                              {limitError[user.id] && <span role="alert" className="text-destructive">{limitError[user.id]}</span>}
+                            </div>
+                          );
+                        })()}
                       </div>
 
                       {/* Actions */}

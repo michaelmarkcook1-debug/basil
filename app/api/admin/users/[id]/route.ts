@@ -1,12 +1,12 @@
 /**
  * Admin user management endpoints (all require admin session).
  *
- * PATCH /api/admin/users/[id]   — update disabled flag
+ * PATCH /api/admin/users/[id]   — disable / enable / revoke, or set-ai-limit
  * DELETE /api/admin/users/[id]  — delete user
  */
 import { NextResponse } from "next/server";
 import { getSessionUser } from "@/lib/auth";
-import { getUsers, isAdminUser, setUserDisabled, deleteUser, revokeUserSessions } from "@/lib/users";
+import { getUsers, isAdminUser, setUserDisabled, setUserAiDailyLimit, deleteUser, revokeUserSessions } from "@/lib/users";
 import { purgeUserData } from "@/lib/storage/persistent";
 import { revokeSiriToken } from "@/lib/auth/siri-tokens";
 
@@ -49,6 +49,17 @@ export async function PATCH(req: Request, { params }: Params) {
   if (body.action === "enable") {
     await setUserDisabled(target.username, false);
     return NextResponse.json({ success: true, action: "enabled" });
+  }
+
+  if (body.action === "set-ai-limit") {
+    // { aiDailyUsd: number } sets this person's daily AI budget; null puts them
+    // back on the default. 0 switches their AI off.
+    const v = body.aiDailyUsd;
+    if (v !== null && !(typeof v === "number" && Number.isFinite(v) && v >= 0 && v <= 100)) {
+      return NextResponse.json({ error: "Give a daily limit between $0 and $100, or clear it." }, { status: 400 });
+    }
+    await setUserAiDailyLimit(target.username, v === null ? null : Math.round(v * 100) / 100);
+    return NextResponse.json({ success: true, action: "set-ai-limit", aiDailyUsd: v });
   }
 
   return NextResponse.json({ error: "Unknown action" }, { status: 400 });
