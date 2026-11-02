@@ -27,7 +27,9 @@ import { createActionTracked } from "@/lib/actions/store";
 import { ownerOfMeetingNote } from "@/lib/actions/utils";
 import { createDecisionTracked, linkActionToDecision } from "@/lib/decisions/store";
 import { createMemoryTracked } from "@/lib/memory/store";
-import { listUserContacts } from "@/lib/contacts/user-store";
+import { listUserContacts, addUserContactToStore, slugifyContactId } from "@/lib/contacts/user-store";
+import { getContactSuppressions, isSuppressed } from "@/lib/contacts/suppressions";
+import { findContactByEmail, findContactByName } from "@/lib/contacts-lookup";
 import { updateEvent } from "@/lib/events/store";
 import { canonicalSelfName, getSelfIdentity, isSelf, normaliseOwner, selfInContext } from "@/lib/self-identity";
 import {
@@ -51,6 +53,24 @@ import { getFlags } from "@/core/feature-flags";
 import { runGmailShadow } from "@/core/ingestion/shadow-runner";
 import { normalizeGmailSignal } from "@/core/signals/normalizers/gmail.normalizer";
 import { enrichAndWriteSignal } from "@/core/ingestion/signal-pipeline";
+
+// ── Bot identity check (mirrors suggest route) ────────────────────────────────
+
+const BOT_PATTERNS = [
+  /^slackbot$/i, /^google\s+calendar$/i, /^notion$/i, /^linear$/i,
+  /^github$/i, /^loom$/i, /^zoom$/i, /^claude$/i, /^posthog$/i,
+  /^reclaim/i, /^asana$/i, /noreply/i, /no-reply/i, /^mailer-?daemon/i,
+  /automation/i, /notifications?@/i, /\bbot\b/i,
+];
+
+function isBotSender(nameOrEmail: string): boolean {
+  return BOT_PATTERNS.some((p) => p.test(nameOrEmail));
+}
+
+// ── Strip relay suffix ("Malcolm Frank (via Google Docs)" → "Malcolm Frank") ──
+function stripRelaySuffix(name: string): string {
+  return name.replace(/\s*\(via [^)]*\)\s*$/i, "").trim();
+}
 
 // ── HTML stripper ─────────────────────────────────────────────────────────────
 
@@ -165,6 +185,60 @@ export async function processRegularEmail(opts: ProcessEmailOpts): Promise<void>
     // content only (past the hash gate above), costs no AI call, and never
     // throws — see enrichContactLinkedIn for the attribution safeguards.
     void enrichContactLinkedIn(username, senderEmail, rawBody);
+
+    // Auto-add new senders as contact stubs. Runs fire-and-forget so it never
+    // delays email classification. Only fires when all of:
+    //   - sender email is known (From: header parsed successfully)
+    //   - sender is not the user themselves
+    //   - sender is not a bot/noreply/automation address
+    //   - sender is not already in contacts (by email or name)
+    //   - sender is not in the suppression list (user previously deleted them)
+    if (senderEmail) {
+      const senderDisplayName = stripRelaySuffix(from.replace(/^"|"$/g, "").trim()) || senderEmail;
+      if (!isBotSender(senderDisplayName) && !isBotSender(senderEmail)) {
+        void (async () => {
+          try {
+            const [knownContacts, suppressed, selfId] = await Promise.all([
+              listUserContacts(username).catch(() => []),
+              getContactSuppressions(username).catch(() => ({ emails: [], names: [], ids: [] })),
+              getSelfIdentity(username).catch(() => ({ emails: [] as string[], names: [] as string[] })),
+            ]);
+            if (isSelf(senderEmail, selfId)) return;
+            if (
+              !findContactByEmail(senderEmail!, knownContacts) &&
+              !findContactByName(senderDisplayName, knownContacts) &&
+              !isSuppressed(suppressed, senderDisplayName, senderEmail)
+            ) {
+              const id = slugifyContactId(senderEmail!);
+              await addUserContactToStore(username, {
+                id,
+                name: senderDisplayName,
+                email: senderEmail,
+                initials: senderDisplayName.split(" ").map((w) => w[0]).filter(Boolean).slice(0, 2).join("").toUpperCase(),
+                color: "",
+                title: "",
+                company: "",
+                tags: ["auto-added"],
+                status: "pending",
+                type: "external",
+                directory: "work",
+                relationship: "",
+                companyContext: "",
+                personality: "",
+                whatMakesThemTick: "",
+                watchOut: "",
+                recentActivity: "",
+                activitySource: "email",
+                lastInteraction: date.slice(0, 10),
+              });
+              console.log(`[email-process] auto-added contact: ${senderDisplayName} <${senderEmail}>`);
+            }
+          } catch (e) {
+            console.error("[email-process] auto-add contact failed:", e);
+          }
+        })();
+      }
+    }
 
     const intel = await classifyEmail({ username, subject, from, date, snippet: "", body });
 
