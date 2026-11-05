@@ -92,6 +92,9 @@ const toolIcons: Record<string, typeof Calendar> = {
   replyToEmail: Mail,
   respondToInvite: Calendar,
   scheduleMeeting: Calendar,
+  setOutOfOffice: Mail,
+  checkOutOfOffice: Mail,
+  turnOffOutOfOffice: Mail,
   sendSlackMessage: Hash,
   searchDrive: FileText,
   listLinearIssues: ListTodo,
@@ -142,6 +145,12 @@ function formatToolInput(toolName: string, input: Record<string, unknown>): stri
     }
     case "scheduleMeeting":
       return `${input.title}\n${input.date} at ${input.startTime} (${input.duration}min)\nAttendees: ${(input.attendees as string[])?.join(", ")}\nVideo: ${input.meetingLink ? String(input.meetingLink) : "your meeting link from Settings, if one is saved"}`;
+    case "setOutOfOffice": {
+      const who = input.contactsOnly ? "people in your contacts" : input.domainOnly ? "people at your company" : "everyone who emails you";
+      return `Gmail auto-reply ON, ${input.start} to ${input.end} (inclusive)\nReplies to: ${who}${input.blockCalendar ? "\nCalendar: Out-of-office block that declines new invitations" : ""}\nSubject: ${input.subject}\n\n${input.message}`;
+    }
+    case "turnOffOutOfOffice":
+      return "Turn the Gmail auto-reply OFF";
     case "sendSlackMessage":
       return `Channel: ${input.channel}\n\n${input.message}`;
     default: {

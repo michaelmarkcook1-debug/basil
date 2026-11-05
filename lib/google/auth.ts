@@ -7,12 +7,15 @@ const SCOPES = [
   "https://www.googleapis.com/auth/calendar",
   "https://www.googleapis.com/auth/gmail.modify",
   "https://www.googleapis.com/auth/drive.readonly",
+  // Gmail's out-of-office auto-reply (users.settings.updateVacation).
+  "https://www.googleapis.com/auth/gmail.settings.basic",
 ];
 
 export const GOOGLE_SCOPE = {
   calendar: "https://www.googleapis.com/auth/calendar",
   gmail:    "https://www.googleapis.com/auth/gmail.modify",
   drive:    "https://www.googleapis.com/auth/drive.readonly",
+  gmailSettings: "https://www.googleapis.com/auth/gmail.settings.basic",
 } as const;
 
 export type GoogleTokens = {

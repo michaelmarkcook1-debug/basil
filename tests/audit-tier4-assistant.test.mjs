@@ -162,6 +162,7 @@ test("AI-02 scheduleMeeting forwards the resolved timezone to the calendar adapt
     ai, zod: require("zod"),
     "@/lib/security/sensitive": loadTs("lib/security/sensitive.ts"),
     "@/lib/web/search": noop, "@/lib/google/auth": { isGoogleConnected: async () => true },
+    "@/lib/google/out-of-office": {},
     "@/lib/google/calendar": { createCalendarEvent: async (_u, params) => { booked = params; return { id: "evt", htmlLink: "https://calendar.invalid/evt" }; }, getTodayEvents: async () => [], getEventsForDate: async () => [], getEventsForDateRange: async () => [], checkFreeBusy: async () => ({}) },
     "@/lib/google/gmail": noop, "@/lib/google/drive": noop, "@/lib/slack/client": noop,
     "@/lib/memory/store": noop, "@/lib/actions/store": noop, "@/lib/decisions/store": noop,

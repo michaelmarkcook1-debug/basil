@@ -102,7 +102,7 @@ function toolsModule() {
     ai, zod: require("zod"),
     "@/lib/security/sensitive": loadTs("lib/security/sensitive.ts"),
     "@/lib/web/search": noop, "@/lib/google/auth": { isGoogleConnected: async () => true },
-    "@/lib/google/calendar": noop, "@/lib/google/gmail": noop, "@/lib/google/drive": noop, "@/lib/slack/client": noop,
+    "@/lib/google/calendar": noop, "@/lib/google/out-of-office": noop, "@/lib/google/gmail": noop, "@/lib/google/drive": noop, "@/lib/slack/client": noop,
     "@/lib/memory/store": noop, "@/lib/actions/store": noop, "@/lib/decisions/store": noop,
     "@/lib/events/audit": { emitAuditEvent: async () => {} }, "@/lib/linear/sync-actions": noop, "@/lib/linear/client": noop,
     "@/lib/contacts-lookup": { findContactByName: () => undefined, timezoneFromLocation: () => undefined }, "@/lib/contacts/user-store": noop, "@/lib/uploads/store": noop, "@/lib/uploads/search": noop,

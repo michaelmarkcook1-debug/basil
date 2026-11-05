@@ -5,6 +5,7 @@ import { z } from "zod";
 import { webSearch, fetchPageContent } from "@/lib/web/search";
 import { isGoogleConnected } from "@/lib/google/auth";
 import { getSettings } from "@/lib/settings/store";
+import { setOutOfOffice, getOutOfOffice, clearOutOfOffice } from "@/lib/google/out-of-office";
 import { getTodayEvents, createCalendarEvent, getEventsForDate, getEventsForDateRange, checkFreeBusy, respondToEvent, proposeNewTime } from "@/lib/google/calendar";
 import { getRecentEmails, searchEmails, createDraft, getEmailBody, replyToEmail, sendEmail as sendGmail } from "@/lib/google/gmail";
 import { searchDriveFiles } from "@/lib/google/drive";
@@ -586,6 +587,70 @@ export function buildAssistantTools(
           };
         } catch (e) {
           return { error: `Failed to create event: ${e instanceof Error ? e.message : "Unknown error"}` };
+        }
+      },
+    }),
+
+    // ── OUT OF OFFICE ──
+    // Gmail's auto-reply plus an optional Calendar block. Every result is what
+    // Google holds after the write (read back), so "it's on" is proven, not
+    // assumed. Before 2026-11-03 Basil could only hand over instructions.
+
+    setOutOfOffice: tool({
+      description: `Turn on ${name}'s Gmail out-of-office auto-reply for a date range, and optionally add a Calendar "Out of office" block that declines new invitations for those days. Shows the details for approval first. The result is read back from Gmail and Calendar — report exactly what it says (dates, subject, message, who gets it), which is the proof it is on. Dates are in ${name}'s timezone (${timezone}); "today" is fine as the first day.`,
+      inputSchema: z.object({
+        ...APPROVAL_META,
+        start: z.string().describe("First day away, YYYY-MM-DD"),
+        end: z.string().describe("Last day away (inclusive), YYYY-MM-DD"),
+        subject: z.string().describe("Auto-reply subject, e.g. 'Out of office'"),
+        message: z.string().describe(`The auto-reply text, in ${name}'s voice, signed as ${name}`),
+        contactsOnly: z.boolean().optional().describe("Only reply to people in Google contacts"),
+        domainOnly: z.boolean().optional().describe(`Only reply to people at ${name}'s own company domain`),
+        blockCalendar: z.boolean().optional().describe("Also add a Calendar 'Out of office' block that declines new invitations for those days"),
+      }),
+      needsApproval: !delegated.has("setOutOfOffice"),
+      execute: async ({ start, end, subject, message, contactsOnly, domainOnly, blockCalendar }) => {
+        if (!(await isGoogleConnected(username))) return { error: "Google is not connected. Connect it in Settings first." };
+        try {
+          const state = await setOutOfOffice(username, { start, end, subject, message, contactsOnly, domainOnly, blockCalendar, timezone });
+          await emitAuditEvent({ username,
+            source: "email",
+            headline: `Out of office on: ${state.firstDay} to ${state.lastDay}`,
+            context: `Subject: ${state.subject}\nCalendar block: ${state.calendarBlock ? "yes" : "no"}`,
+            rationale: `${name} approved the out-of-office in chat.`,
+            tags: ["gmail", "out-of-office"],
+          });
+          return { status: state.autoReplyOn ? "out_of_office_on" : "not_confirmed", verifiedFromGoogle: state };
+        } catch (e) {
+          return { error: e instanceof Error ? e.message : "Could not set the out-of-office." };
+        }
+      },
+    }),
+
+    checkOutOfOffice: tool({
+      description: `Read ${name}'s current Gmail out-of-office auto-reply straight from Gmail: whether it is on, its dates, subject and message. Use it to prove a change took effect or to answer "is my out-of-office on?".`,
+      inputSchema: z.object({}),
+      execute: async () => {
+        if (!(await isGoogleConnected(username))) return { error: "Google is not connected." };
+        try {
+          return { verifiedFromGoogle: await getOutOfOffice(username, timezone) };
+        } catch (e) {
+          return { error: e instanceof Error ? e.message : "Could not read the out-of-office." };
+        }
+      },
+    }),
+
+    turnOffOutOfOffice: tool({
+      description: `Turn off ${name}'s Gmail out-of-office auto-reply. Shows for approval first; the result is read back from Gmail.`,
+      inputSchema: z.object({ ...APPROVAL_META }),
+      needsApproval: !delegated.has("turnOffOutOfOffice"),
+      execute: async () => {
+        if (!(await isGoogleConnected(username))) return { error: "Google is not connected." };
+        try {
+          const state = await clearOutOfOffice(username, timezone);
+          return { status: state.autoReplyOn ? "still_on" : "out_of_office_off", verifiedFromGoogle: state };
+        } catch (e) {
+          return { error: e instanceof Error ? e.message : "Could not turn off the out-of-office." };
         }
       },
     }),
