@@ -42,9 +42,12 @@ test("top tiers run Opus 5; mid + data-gathering stay cheap", () => {
   // the spend log showed classify:slack at 2,438 calls / 19.4M input tokens a
   // month — 79% of a day's $18.53 on a day the owner never opened the app.
   // ~7,957-in/159-out per call is bulk categorisation, not reasoning.
+  // REVISED 2026-11-10 (owner-approved): Haiku 4.5 → Haiku 5.5 after a
+  // production bench on 63 real threads and emails — about a sixth of the cost
+  // per call and no invented actions from test or automated mail.
   assert.ok(
-    /balanced:\s*process\.env\.ANTHROPIC_MODEL_BALANCED\s*\?\?\s*"claude-haiku-4-5-20251001"/.test(table),
-    "mid tier must resolve to Haiku 4.5 — it is the highest-VOLUME tier, so it dominates the bill"
+    /balanced:\s*process\.env\.ANTHROPIC_MODEL_BALANCED\s*\?\?\s*"claude-haiku-5-5"/.test(table),
+    "mid tier must resolve to Haiku 5.5 — it is the highest-VOLUME tier, so it dominates the bill"
   );
   assert.ok(/fast:\s*process\.env\.ANTHROPIC_MODEL_FAST\s*\?\?\s*"claude-haiku-4-5-20251001"/.test(table),
     "fast (data-gathering) must stay on Haiku — Opus there is pure waste");

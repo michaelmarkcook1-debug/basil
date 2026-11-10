@@ -147,7 +147,15 @@ export const ANTHROPIC_MODEL_IDS: Record<ModelKind, string> = {
   // Only what that tier RESOLVES to moved. Dial it back up with
   // ANTHROPIC_MODEL_BALANCED (claude-sonnet-5 ≈ $3/$15, claude-opus-5 ≈ $5/$25)
   // with no deploy if classification quality regresses.
-  balanced: process.env.ANTHROPIC_MODEL_BALANCED ?? "claude-haiku-4-5-20251001",
+  //
+  // 2026-11-10: Haiku 4.5 → Haiku 5.5 (owner-approved). Benched in production
+  // on 63 real Slack threads and emails: Haiku 5.5 invented no actions from
+  // test and automated mail where 4.5 invented nine, and costs about a sixth
+  // per call ($0.0007 against $0.0044 for a Slack thread). It reports lower
+  // confidence (about 0.7 where 4.5 says 0.9), which is why the FYI filing bar
+  // moved to 0.7 first — see INFORMATIONAL_MIN_CONFIDENCE. No effort is sent:
+  // its default benched better than "low", which missed a direct question.
+  balanced: process.env.ANTHROPIC_MODEL_BALANCED ?? "claude-haiku-5-5",
   // 2026-09-25: Opus 5 → Opus 5.5 (owner request). Direct id verified 200
   // against the production key; $4/$20 per M vs Opus 5's $5/$25.
   default:  process.env.ANTHROPIC_MODEL_DEFAULT  ?? "claude-opus-5-5",

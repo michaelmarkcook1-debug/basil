@@ -122,7 +122,7 @@ export function familyForTier(kind: ModelKind): PriceFamily {
     // Categorisation moved off Opus 5 on 2026-07-30 (owner-approved, cost):
     // classify:slack was 79% of a day's spend at ~7,957-in/159-out per call.
     // Tier assignment is unchanged — only the model the tier resolves to.
-    case "balanced": return "haiku";  // categorization (haiku 4.5 @ effort low)
+    case "balanced": return "haiku55"; // categorization (haiku 5.5, 2026-11-10)
     case "default": return "opus55";  // contextual + reasoning (opus-5.5)
     case "long": return "sonnet55";   // briefing, digest, meeting prep (sonnet-5.5 @ effort high, 2026-11-10)
   }

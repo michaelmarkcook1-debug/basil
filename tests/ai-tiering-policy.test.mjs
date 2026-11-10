@@ -68,7 +68,9 @@ test("price families match the real per-tier model rates", () => {
   const body = fn.slice(0, fn.indexOf("\n}") + 2);
   assert.ok(/case "fast": return "haiku"/.test(body), "fast prices as haiku");
   // REVISED 2026-07-30 (owner-approved): the mid tier is Haiku, not Opus 5.
-  assert.ok(/case "balanced": return "haiku"/.test(body), "balanced prices as haiku");
+  // REVISED 2026-11-10: the mid tier runs Haiku 5.5 and is priced as such.
+  assert.ok(/case "balanced": return "haiku55"/.test(body), "balanced prices as haiku 5.5");
+  assert.ok(/haiku55:\s*\{\s*inputPerM:\s*0\.1,\s*outputPerM:\s*0\.5\s*\}/.test(pricing), "haiku-5.5 = $0.10/$0.50");
   assert.ok(/return "opus55"/.test(body), "default/long price as opus-5.5 (2026-09-25)");
 });
 
