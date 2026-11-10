@@ -25,13 +25,19 @@ const cfg = read("lib/ai/model-config.ts");
 test("top tiers run Opus 5; mid + data-gathering stay cheap", () => {
   const start = cfg.indexOf("export const ANTHROPIC_MODEL_IDS");
   const table = cfg.slice(start, cfg.indexOf("\n};", start));
-  // Top tier — what a human actually reads — stays on Opus 5.
-  for (const tier of ["default", "long"]) {
-    assert.ok(
-      new RegExp(`${tier}:\\s*process\\.env\\.ANTHROPIC_MODEL_${tier.toUpperCase()}\\s*\\?\\?\\s*"claude-opus-5-5"`).test(table),
-      `${tier} tier must resolve to claude-opus-5-5 (direct-API form of anthropic/claude-opus-5.5)`
-    );
-  }
+  // The assistant's own tier (default) stays on Opus 5.5.
+  assert.ok(
+    /default:\s*process\.env\.ANTHROPIC_MODEL_DEFAULT\s*\?\?\s*"claude-opus-5-5"/.test(table),
+    "default tier must resolve to claude-opus-5-5 (direct-API form of anthropic/claude-opus-5.5)"
+  );
+  // REVISED 2026-11-10 (owner-approved, cost): the long tier — daily briefing,
+  // digest, meeting prep — moved to Sonnet 5.5 at HIGH effort after a
+  // production bench on the same briefing prompt: Sonnet @ high matched Opus @
+  // medium for $0.094 against $0.183.
+  assert.ok(
+    /long:\s*process\.env\.ANTHROPIC_MODEL_LONG\s*\?\?\s*"claude-sonnet-5-5"/.test(table),
+    "long tier must resolve to claude-sonnet-5-5"
+  );
   // REVISED 2026-07-30 (owner-approved, cost). The mid tier came OFF Opus 5:
   // the spend log showed classify:slack at 2,438 calls / 19.4M input tokens a
   // month — 79% of a day's $18.53 on a day the owner never opened the app.
@@ -59,8 +65,10 @@ test("effort is set ONLY for tiers whose model supports it", () => {
   assert.ok(!/\bbalanced:/.test(map),
     "balanced runs Haiku, which rejects `effort` — it must have NO entry here; " +
     "re-add it only if ANTHROPIC_MODEL_BALANCED goes back to an Opus model");
-  assert.ok(/default:.*"medium"/.test(map) && /long:.*"medium"/.test(map),
-    "top tier runs at effort medium (owner decision 2026-09-25, was high)");
+  assert.ok(/default:.*"medium"/.test(map),
+    "the assistant's tier runs at effort medium (owner decision 2026-09-25, was high)");
+  assert.ok(/long:.*"high"/.test(map),
+    "the long tier runs Sonnet 5.5 at effort HIGH — at medium its briefing lost detail (bench 2026-11-10); model and effort move together");
   assert.ok(!/\bfast:/.test(map),
     "fast must not set effort (it runs Haiku, where the control is meaningless)");
 });

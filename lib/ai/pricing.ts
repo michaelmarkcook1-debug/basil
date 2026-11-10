@@ -22,7 +22,7 @@ import { RESERVE_OUTPUT_TOKENS } from "./model-config";
 
 /** Model families we price. */
 export type PriceFamily =
-  | "opus" | "opus5" | "opus55" | "sonnet" | "haiku" | "gpt5"
+  | "opus" | "opus5" | "opus55" | "sonnet" | "sonnet55" | "haiku" | "haiku55" | "gpt5"
   | "gpt56luna" | "gpt56terra" | "gpt56sol"
   /** Audio transcription — priced per minute, so its events carry usd directly. */
   | "transcribe";
@@ -44,6 +44,9 @@ export const FAMILY_PRICING: Record<PriceFamily, { inputPerM: number; outputPerM
   opus55: { inputPerM: 4,    outputPerM: 20 },
   sonnet: { inputPerM: 3,    outputPerM: 15 }, // claude-sonnet-4.x / sonnet-5
   haiku:  { inputPerM: 1,    outputPerM: 5 },  // claude-haiku-4.5
+  // Rates read from platform.claude.com/docs/en/about-claude/pricing on 2026-11-10.
+  sonnet55: { inputPerM: 2,   outputPerM: 10 },  // claude-sonnet-5.5 — the long tier
+  haiku55:  { inputPerM: 0.1, outputPerM: 0.5 }, // claude-haiku-5.5 (prompts up to 100k tokens)
   gpt5:   { inputPerM: 1.25, outputPerM: 10 }, // gpt-5.4 (legacy OpenAI fallback)
   gpt56luna:  { inputPerM: 1,   outputPerM: 6 },  // data gathering
   gpt56terra: { inputPerM: 2.5, outputPerM: 15 }, // categorization
@@ -120,8 +123,8 @@ export function familyForTier(kind: ModelKind): PriceFamily {
     // classify:slack was 79% of a day's spend at ~7,957-in/159-out per call.
     // Tier assignment is unchanged — only the model the tier resolves to.
     case "balanced": return "haiku";  // categorization (haiku 4.5 @ effort low)
-    case "default":
-    case "long": return "opus55";     // contextual + reasoning (opus-5.5 @ effort high)
+    case "default": return "opus55";  // contextual + reasoning (opus-5.5)
+    case "long": return "sonnet55";   // briefing, digest, meeting prep (sonnet-5.5 @ effort high, 2026-11-10)
   }
 }
 

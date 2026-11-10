@@ -151,7 +151,14 @@ export const ANTHROPIC_MODEL_IDS: Record<ModelKind, string> = {
   // 2026-09-25: Opus 5 → Opus 5.5 (owner request). Direct id verified 200
   // against the production key; $4/$20 per M vs Opus 5's $5/$25.
   default:  process.env.ANTHROPIC_MODEL_DEFAULT  ?? "claude-opus-5-5",
-  long:     process.env.ANTHROPIC_MODEL_LONG     ?? "claude-opus-5-5",
+  // 2026-11-10: the long tier (daily briefing, digest, meeting prep) moved from
+  // Opus 5.5 @ medium to Sonnet 5.5 @ HIGH (owner-approved). Benched in
+  // production on the same briefing prompt: Sonnet @ high made the same
+  // connections as Opus for $0.094 against $0.183; Sonnet @ medium was a notch
+  // less sharp, so model and effort move together (see ANTHROPIC_EFFORT). Id
+  // confirmed by live 200s from the production key during that bench. Ask Basil
+  // and the operational read are pinned separately (getChatModel) and stay on Opus.
+  long:     process.env.ANTHROPIC_MODEL_LONG     ?? "claude-sonnet-5-5",
 };
 
 /**
@@ -183,7 +190,9 @@ const ANTHROPIC_EFFORT: Partial<Record<ModelKind, AnthropicEffort>> = {
   // Top tier is what a human reads: think hard.
   // 2026-09-25: high → medium (owner request) — less reasoning spend per call.
   default:  (process.env.ANTHROPIC_EFFORT_DEFAULT  as AnthropicEffort) ?? "medium",
-  long:     (process.env.ANTHROPIC_EFFORT_LONG     as AnthropicEffort) ?? "medium",
+  // 2026-11-10: high, paired with the long tier's move to Sonnet 5.5 — at
+  // medium Sonnet's briefing lost detail Opus kept; at high it did not.
+  long:     (process.env.ANTHROPIC_EFFORT_LONG     as AnthropicEffort) ?? "high",
 };
 
 /**

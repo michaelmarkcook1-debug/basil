@@ -4,20 +4,21 @@
 // 2026-10-13. Now: one lean call, reused for 3 hours, then reused while the
 // sources are unchanged; rebuilt on a new day or on Refresh.
 import test from "node:test";
+import fs from "node:fs";
 import assert from "node:assert/strict";
-import { loadTs } from "./_helpers/load-ts.mjs";
+import { loadTs, makeLock } from "./_helpers/load-ts.mjs";
 
 const HOUR = 3_600_000;
 const TZ = "Europe/London";
 
-function engine({ cached = null, pack = "# pack\nGenerated: X\nSlack: Ed asked about pricing" } = {}) {
+function engine({ cached = null, pack = "# pack\nGenerated: X\nSlack: Ed asked about pricing", buildMs = 0 } = {}) {
   const calls = { model: [], context: 0, writes: [] };
   let store = cached;
   class SpendCapError extends Error {}
   const E = loadTs("lib/stig/engine.ts", {
     ai: { stepCountIs: (n) => ({ n }) },
     "@/lib/ai/model-config": { getChatModel: () => "opus", MAX_TOKENS: { default: 2000 }, PROVIDER_MODE: "direct" },
-    "@/lib/ai/generate": { generateTextSafe: async (opts, kind, meter) => { calls.model.push({ opts, kind, meter }); return { text: "Your first move: reply to Ed." }; } },
+    "@/lib/ai/generate": { generateTextSafe: async (opts, kind, meter) => { calls.model.push({ opts, kind, meter }); if (buildMs) await new Promise((r) => setTimeout(r, buildMs)); return { text: "Your first move: reply to Ed." }; } },
     "@/lib/ai/spend-guard": { SpendCapError },
     "@/lib/ai/system-prompt": {
       getSystemPrompt: async () => { throw new Error("the full chat prompt must not be used for the read"); },
@@ -32,6 +33,7 @@ function engine({ cached = null, pack = "# pack\nGenerated: X\nSlack: Ed asked a
     "@/lib/stig/intent": { analyseIntent: () => ({ isBroad: false }) },
     "@/lib/stig/error-mapper": { mapProviderError: (e) => ({ userMessage: String(e), code: "x" }) },
     "@/lib/stig/budget": { WORKSPACE_CONTEXT_BUDGET: 15000 },
+    "@/lib/storage/lock": makeLock(),
     "@/lib/generate-cache/store": {
       readGenerateCache: async () => store,
       writeGenerateCache: async (_u, type, content, opts) => { calls.writes.push({ type, opts }); store = { content, generatedAt: content.generatedAt, inputHash: opts.inputHash }; },
@@ -102,4 +104,28 @@ test("the pack's own timestamp does not count as a change", () => {
   const { E } = engine();
   assert.equal(E.sourcePackFingerprint("m", "# p\nGenerated: 10:00\nSlack: x"), E.sourcePackFingerprint("m", "# p\nGenerated: 11:45\nSlack: x"));
   assert.notEqual(E.sourcePackFingerprint("m", "# p\nGenerated: 10:00\nSlack: x"), E.sourcePackFingerprint("m", "# p\nGenerated: 10:00\nSlack: y"));
+});
+
+// 15 of 54 builds in Oct–Nov 2026 were same-minute duplicates: the page asked
+// again before the first build had stored anything, and each ask paid in full.
+test("two requests at once build once: the second waits and reuses the first one's read", async () => {
+  const t = engine({ buildMs: 15 });
+  const [a, b] = await Promise.all([t.E.runStigBriefing("michael", "session"), t.E.runStigBriefing("michael", "session")]);
+  assert.equal(t.calls.model.length, 1, "one paid build, not two");
+  assert.equal(a.cached, false);
+  assert.equal(b.cached, true);
+  assert.equal(b.briefing, a.briefing);
+});
+
+test("Refresh pressed twice builds once; a later Refresh still rebuilds", async () => {
+  const t = engine({ buildMs: 15 });
+  await Promise.all([
+    t.E.runStigBriefing("michael", "session", { refresh: true }),
+    t.E.runStigBriefing("michael", "session", { refresh: true }),
+  ]);
+  assert.equal(t.calls.model.length, 1, "the second Refresh was already answered by the first build");
+  await new Promise((r) => setTimeout(r, 5));
+  await t.E.runStigBriefing("michael", "session", { refresh: true });
+  assert.equal(t.calls.model.length, 2, "a Refresh asked after the build finished gets a new one");
+  assert.match(fs.readFileSync(new URL("../lib/stig/engine.ts", import.meta.url), "utf8"), /withLock\(`stig-read:\$\{username\}`/, "the lock is per user");
 });

@@ -134,6 +134,19 @@ export interface SlackIntelligence {
  */
 export const MIN_SLACK_MATERIALIZE_CONFIDENCE = 0.35;
 
+/**
+ * Confidence an FYI ("informational") thread needs before it is filed.
+ *
+ * 0.7, was 0.8 (2026-11-10). The bar was tuned to Haiku 4.5, which says 0.9 for
+ * almost anything it understands. Haiku 5.5 reports about 0.7 for the same
+ * threads and reserves 0.3–0.5 for one-liners it cannot place ("Let's use
+ * them", a bare link). Benched on 20 real threads, the 0.8 bar filed 17 from
+ * Haiku 4.5 and 5 from Haiku 5.5 — so a model switch alone would have stopped
+ * most FYI threads reaching memory. 0.7 keeps what both models call a clear
+ * FYI and still drops what the newer one is unsure of.
+ */
+export const INFORMATIONAL_MIN_CONFIDENCE = 0.7;
+
 /** Categories whose outputs are written to stores above MIN_CONFIDENCE. */
 export const SLACK_MATERIALIZE_CATEGORIES = new Set<SlackSignalCategory>([
   "action_assigned",
@@ -399,10 +412,12 @@ export function shouldMaterializeSlack(intel: SlackIntelligence): boolean {
   if (intel.confidence < MIN_SLACK_MATERIALIZE_CONFIDENCE) return false;
   if (SLACK_MATERIALIZE_CATEGORIES.has(intel.category)) return true;
 
-  // informational: only materialize when confident AND has named entities worth storing
+  // informational: file it when it carries a concrete action or decision, or
+  // when the model is reasonably sure and it names someone worth remembering.
   if (intel.category === "informational") {
+    if (intel.actions.length > 0 || intel.decisions.length > 0) return true;
     return (
-      intel.confidence >= 0.8 &&
+      intel.confidence >= INFORMATIONAL_MIN_CONFIDENCE &&
       (intel.people.length > 0 || intel.companies.length > 0) &&
       intel.keyContext.length > 0
     );

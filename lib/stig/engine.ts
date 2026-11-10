@@ -12,6 +12,7 @@ import { buildStigContext, formatStigContextBudgeted } from "@/lib/stig/context"
 import { analyseIntent } from "@/lib/stig/intent";
 import { mapProviderError } from "@/lib/stig/error-mapper";
 import { WORKSPACE_CONTEXT_BUDGET } from "@/lib/stig/budget";
+import { withLock } from "@/lib/storage/lock";
 import type { StigAskRequest, StigAskResult, StigBriefingResult, StigMode } from "@/lib/stig/types";
 
 function normaliseMode(mode: unknown, voice: boolean | undefined): StigMode {
@@ -223,16 +224,40 @@ export async function benchStigBriefing(
   }));
 }
 
+/**
+ * A build takes 30–60s, and until it lands nothing is stored — so a second
+ * request in that window (the Briefing page opened twice, or left and
+ * reopened) used to start another full-price build. 15 of 54 builds in
+ * Oct–Nov 2026 were same-minute duplicates. One build per user at a time: the
+ * second request waits, then finds the first one's read and reuses it.
+ *
+ * The lock outlives a normal build; if a build somehow runs past it, the cost
+ * is one duplicate, never a wrong read. Waiters outlast the lock (320 × 500ms).
+ */
+const READ_BUILD_LOCK = { ttlMs: 150_000, retries: 320, waitMs: 500 } as const;
+
 export async function runStigBriefing(
   username: string,
   authMode: "session" | "token",
   opts: { refresh?: boolean } = {},
+): Promise<StigBriefingResult> {
+  const asked = Date.now();
+  return withLock(`stig-read:${username}`, () => buildOrReuseStigBriefing(username, opts, asked), READ_BUILD_LOCK);
+}
+
+async function buildOrReuseStigBriefing(
+  username: string,
+  opts: { refresh?: boolean },
+  asked: number,
 ): Promise<StigBriefingResult> {
   const settings = await getSettings(username);
   const timezone = settings.timezone || "Europe/London";
   const now = Date.now();
   const cached = await readGenerateCache<StigBriefingResult>(username, "stig-briefing", { fresh: true });
   const stored = cached?.content ? { generatedAt: cached.generatedAt, inputHash: cached.inputHash } : null;
+
+  // Built while this request waited its turn: that IS the fresh read, even for Refresh.
+  if (cached?.content && Date.parse(cached.generatedAt) > asked) return { ...cached.content, cached: true };
 
   let decision = stigBriefingDecision(stored, now, timezone, opts);
   if (decision === "reuse" && cached) return { ...cached.content, cached: true };
@@ -258,7 +283,8 @@ export async function runStigBriefing(
   const fresh: StigBriefingResult = {
     ok: true,
     briefing,
-    generatedAt: new Date(now).toISOString(),
+    // When it finished, so a request that waited on this build can tell it is newer than its own ask.
+    generatedAt: new Date().toISOString(),
     sources: context.sources ?? [],
   };
   await writeGenerateCache(username, "stig-briefing", fresh, { inputHash, ttlMs: 24 * 60 * 60 * 1000 })

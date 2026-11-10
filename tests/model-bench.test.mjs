@@ -46,7 +46,7 @@ test("outside a bench every tier resolves to its production model and effort", a
   assert.equal(sent[0].model, cfg.ANTHROPIC_MODEL_IDS.balanced);
   assert.equal(sent[0].output_config?.effort, undefined);
   assert.equal(sent[1].model, cfg.ANTHROPIC_MODEL_IDS.long);
-  assert.equal(sent[1].output_config?.effort, "medium");
+  assert.equal(sent[1].output_config?.effort, "high");
   assert.equal(sent[2].model, cfg.CHAT_MODEL_ANTHROPIC_ID);
   assert.equal(sent[2].output_config?.effort, cfg.CHAT_EFFORT);
 });
@@ -76,19 +76,19 @@ test("a variant swaps the model for its tier, in that call chain only, and recor
 test("effort: the variant's own, else the candidate's default, else production's", async () => {
   const { cfg, sent } = harness();
   const run = (kind, variant, model) => cfg.runModelBench(kind, variant, () => ask(model()));
-  await run("long", { label: "a", model: "claude-sonnet-5-5", effort: "high" }, () => cfg.getDirectAnthropicModel("long"));
-  await run("long", { label: "b", model: "claude-sonnet-5-5" }, () => cfg.getDirectAnthropicModel("long"));
+  await run("long", { label: "a", model: "claude-opus-5-5", effort: "medium" }, () => cfg.getDirectAnthropicModel("long"));
+  await run("long", { label: "b", model: "claude-opus-5-5" }, () => cfg.getDirectAnthropicModel("long"));
   await run("long", { label: "c", effort: "low" }, () => cfg.getDirectAnthropicModel("long"));
   const base = await run("long", { label: "production" }, () => cfg.getDirectAnthropicModel("long"));
   assert.deepEqual(sent.map((b) => [b.model, b.output_config?.effort]), [
-    ["claude-sonnet-5-5", "high"],
-    ["claude-sonnet-5-5", undefined],
+    ["claude-opus-5-5", "medium"],
+    ["claude-opus-5-5", undefined],
     [cfg.ANTHROPIC_MODEL_IDS.long, "low"],
-    [cfg.ANTHROPIC_MODEL_IDS.long, "medium"],
+    [cfg.ANTHROPIC_MODEL_IDS.long, "high"],
   ]);
   assert.equal(base.calls.length, 1, "the production arm is measured too");
   // A variant for one tier leaves the other tiers alone.
-  await run("long", { label: "d", model: "claude-sonnet-5-5" }, () => cfg.getDirectAnthropicModel("balanced"));
+  await run("long", { label: "d", model: "claude-opus-5-5" }, () => cfg.getDirectAnthropicModel("balanced"));
   assert.equal(sent.at(-1).model, cfg.ANTHROPIC_MODEL_IDS.balanced);
 });
 

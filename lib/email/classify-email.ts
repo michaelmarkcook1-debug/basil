@@ -135,6 +135,14 @@ export interface EmailIntelligence {
 export const MIN_MATERIALIZE_CONFIDENCE = 0.35;
 
 /**
+ * Confidence an FYI ("informational_only") email needs before it is filed.
+ * 0.7, was 0.8 (2026-11-10) — see INFORMATIONAL_MIN_CONFIDENCE in
+ * lib/slack/classify-slack.ts: Haiku 5.5 reports about 0.7 where Haiku 4.5
+ * reported 0.9, and on 20 real emails the 0.8 bar filed 18 against 10.
+ */
+export const INFORMATIONAL_MIN_CONFIDENCE = 0.7;
+
+/**
  * Categories whose outputs are written to stores when confidence meets the
  * minimum threshold.  `informational_only` is only materialized at >=0.8
  * and only if there are people/companies that give it relationship standing.
@@ -400,11 +408,13 @@ export function shouldMaterialize(intel: EmailIntelligence): boolean {
   if (intel.confidence < MIN_MATERIALIZE_CONFIDENCE) return false;
   if (MATERIALIZE_CATEGORIES.has(intel.category)) return true;
 
-  // informational_only: only when confident AND has named people/companies
-  // that give it standing as a relationship signal worth storing.
+  // informational_only: file it when it carries a concrete action or decision,
+  // or when the model is reasonably sure and it names people/companies that
+  // give it standing as a relationship signal worth storing.
   if (intel.category === "informational_only") {
+    if (intel.actions.length > 0 || intel.decisions.length > 0) return true;
     return (
-      intel.confidence >= 0.8 &&
+      intel.confidence >= INFORMATIONAL_MIN_CONFIDENCE &&
       (intel.people.length > 0 || intel.companies.length > 0) &&
       intel.keyContext.length > 0
     );
