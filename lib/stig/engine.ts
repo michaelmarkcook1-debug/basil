@@ -1,7 +1,7 @@
 import "server-only";
 
 import { stepCountIs, type ModelMessage } from "ai";
-import { getChatModel, MAX_TOKENS, PROVIDER_MODE } from "@/lib/ai/model-config";
+import { getChatModel, MAX_TOKENS, PROVIDER_MODE, runModelBench, type BenchCall, type BenchVariant } from "@/lib/ai/model-config";
 import { generateTextSafe } from "@/lib/ai/generate";
 import { SpendCapError } from "@/lib/ai/spend-guard";
 import { getSystemPrompt, getTaskSystemPrompt } from "@/lib/ai/system-prompt";
@@ -174,6 +174,55 @@ export function sourcePackFingerprint(username: string, sourcePack: string): str
   return computeInputHash(username, sourcePack.replace(/^Generated: .*$/m, ""));
 }
 
+/** The read's instructions. Shared by the live read and the model bench. */
+async function stigBriefingSystem(username: string, timezone: string, name: string): Promise<string> {
+  return `${await getTaskSystemPrompt(username, timezone, { memories: 10, focus: { text: BRIEFING_QUESTION } })}
+
+## The Stig — operating read
+You are writing Basil's live operating read for ${firstNameFrom(name)}.
+- Slack is the primary operating signal. The Project Truth Layer is the canonical view of active projects.
+- Use only the source pack as evidence. Never pretend disconnected or empty sources contain data; if a source is empty or erroring, say so briefly and move on.
+- Never claim to have sent messages, changed calendars, or connected apps.
+- Prioritise judgment, next moves, and what needs doing now.
+
+${modeInstruction("briefing")}`;
+}
+
+/** The one model call that writes the read. */
+function writeStigBriefing(username: string, system: string, sourcePack: string) {
+  return generateTextSafe({
+    model: getChatModel("long"),
+    maxOutputTokens: MAX_TOKENS.default,
+    system,
+    prompt: `${sourcePack}\n\n# User request\n${BRIEFING_QUESTION}`,
+    ...(PROVIDER_MODE === "vercel_gateway" && {
+      providerOptions: { gateway: { tags: ["feature:stig-api", "mode:briefing", "env:production"] } },
+    }),
+  }, "long", { username, feature: "stig:briefing" });
+}
+
+/**
+ * Model bench: write the read once per variant from the SAME source pack.
+ * Nothing is stored, so the live read on the Briefing page is untouched.
+ */
+export async function benchStigBriefing(
+  username: string,
+  variants: BenchVariant[],
+): Promise<Array<{ label: string; text?: string; error?: string; calls: BenchCall[] }>> {
+  const settings = await getSettings(username);
+  const timezone = settings.timezone || "Europe/London";
+  const sourcePack = formatStigContextBudgeted(await buildStigContext(username, timezone), WORKSPACE_CONTEXT_BUDGET);
+  const system = await stigBriefingSystem(username, timezone, settings.name);
+  return Promise.all(variants.map(async (v) => {
+    try {
+      const { result, calls } = await runModelBench("long", v, () => writeStigBriefing(username, system, sourcePack));
+      return { label: v.label, text: result.text, calls };
+    } catch (err) {
+      return { label: v.label, error: err instanceof Error ? err.message : String(err), calls: [] };
+    }
+  }));
+}
+
 export async function runStigBriefing(
   username: string,
   authMode: "session" | "token",
@@ -195,29 +244,11 @@ export async function runStigBriefing(
   if (decision === "check-inputs") decision = stigBriefingDecision(stored, now, timezone, { inputHash });
   if (decision === "reuse" && cached) return { ...cached.content, cached: true };
 
-  const system = `${await getTaskSystemPrompt(username, timezone, { memories: 10, focus: { text: BRIEFING_QUESTION } })}
-
-## The Stig — operating read
-You are writing Basil's live operating read for ${firstNameFrom(settings.name)}.
-- Slack is the primary operating signal. The Project Truth Layer is the canonical view of active projects.
-- Use only the source pack as evidence. Never pretend disconnected or empty sources contain data; if a source is empty or erroring, say so briefly and move on.
-- Never claim to have sent messages, changed calendars, or connected apps.
-- Prioritise judgment, next moves, and what needs doing now.
-
-${modeInstruction("briefing")}`;
+  const system = await stigBriefingSystem(username, timezone, settings.name);
 
   let briefing: string;
   try {
-    const result = await generateTextSafe({
-      model: getChatModel("long"),
-      maxOutputTokens: MAX_TOKENS.default,
-      system,
-      prompt: `${sourcePack}\n\n# User request\n${BRIEFING_QUESTION}`,
-      ...(PROVIDER_MODE === "vercel_gateway" && {
-        providerOptions: { gateway: { tags: ["feature:stig-api", "mode:briefing", "env:production"] } },
-      }),
-    }, "long", { username, feature: "stig:briefing" });
-    briefing = result.text;
+    briefing = (await writeStigBriefing(username, system, sourcePack)).text;
   } catch (err) {
     if (err instanceof SpendCapError) throw err;
     const mapped = mapProviderError(err);

@@ -74,7 +74,7 @@ function stripRelaySuffix(name: string): string {
 
 // ── HTML stripper ─────────────────────────────────────────────────────────────
 
-function stripHtml(s: string): string {
+export function stripHtml(s: string): string {
   return s
     .replace(/<style[^>]*>[\s\S]*?<\/style>/gi, "")
     .replace(/<script[^>]*>[\s\S]*?<\/script>/gi, "")

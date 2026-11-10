@@ -19,7 +19,7 @@ import { redactSensitive, redactDeep } from "@/lib/security/sensitive";
 import { type ModelMessage } from "ai";
 import { generateTextSafe } from "@/lib/ai/generate";
 import { SpendCapError, spendCapResponse } from "@/lib/ai/spend-guard";
-import { getTextModel, MAX_TOKENS } from "@/lib/ai/model-config";
+import { getTextModel, MAX_TOKENS, parseBenchVariants, runModelBench } from "@/lib/ai/model-config";
 import { getTaskSystemPrompt } from "@/lib/ai/system-prompt";
 import { parseAndValidate } from "@/lib/ai/parse-json";
 import { BriefingOutputSchema } from "@/lib/ai/schemas";
@@ -32,6 +32,7 @@ import {
   type SlackMessage,
 } from "@/lib/slack/client";
 import { getSessionUser } from "@/lib/auth";
+import { isAdminUser } from "@/lib/users";
 import { resolveCronUser } from "@/lib/cron/identity";
 import { listActions, isActionStalled } from "@/lib/actions/store";
 import { listDecisions } from "@/lib/decisions/store";
@@ -880,23 +881,45 @@ Return ONLY valid JSON, no markdown code fences:
         ]
       : undefined;
 
+  // Task prompt, not the chat prompt: no tool manuals, and personality notes
+  // only for people the day's data actually names.
+  const system = (await getTaskSystemPrompt(username, tz, { memories: 25, personasFor: promptText, maxPersonas: 12 })) + briefingDepthDirective(who);
+  // Briefings run on the TOP tier ("long" → Opus when Claude is available,
+  // else the strongest configured fallback). The daily brief is the surface
+  // Michael reads first — reasoning quality matters more than token cost here.
+  // (Previously down-tiered to Sonnet "balanced" to save ~5x; that produced
+  // visibly thin briefings, so it's reverted.) The generic chat persona is
+  // appended with a briefing-specific DEPTH directive so the model is told to
+  // go deep, rather than defaulting to the terse output Ask-Basil rewards.
+  const writeBriefing = () => generateTextSafe({
+    model: getTextModel("long"),
+    maxOutputTokens: MAX_TOKENS.long,
+    system,
+    ...(messages ? { messages } : { prompt: promptText }),
+  }, "long", { username, feature: "briefing" });
+
+  // Model bench (?bench=[…], an admin's own session only): write the briefing
+  // once per variant from this same prompt and return them side by side.
+  // Returns here, so nothing is stored and the live briefing is untouched.
+  const benchVariants = !isCronCall && isAdminUser(username)
+    ? parseBenchVariants(new URL(req.url).searchParams.get("bench"))
+    : null;
+  if (benchVariants) {
+    const bench = await Promise.all(benchVariants.map(async (v) => {
+      try {
+        const { result: r, calls } = await runModelBench("long", v, writeBriefing);
+        const parsed = parseAndValidate(r.text, BriefingOutputSchema, "[briefing-bench]");
+        return { label: v.label, calls, ...(parsed.ok ? { briefing: redactDeep(parsed.data).value } : { unparsed: r.text }) };
+      } catch (e) {
+        return { label: v.label, calls: [], error: e instanceof Error ? e.message : String(e) };
+      }
+    }));
+    return Response.json({ bench });
+  }
+
   let result: Awaited<ReturnType<typeof generateTextSafe>>;
   try {
-    // Briefings run on the TOP tier ("long" → Opus when Claude is available,
-    // else the strongest configured fallback). The daily brief is the surface
-    // Michael reads first — reasoning quality matters more than token cost here.
-    // (Previously down-tiered to Sonnet "balanced" to save ~5x; that produced
-    // visibly thin briefings, so it's reverted.) The generic chat persona is
-    // appended with a briefing-specific DEPTH directive so the model is told to
-    // go deep, rather than defaulting to the terse output Ask-Basil rewards.
-    result = await generateTextSafe({
-      model: getTextModel("long"),
-      maxOutputTokens: MAX_TOKENS.long,
-      // Task prompt, not the chat prompt: no tool manuals, and personality notes
-      // only for people the day's data actually names.
-      system: (await getTaskSystemPrompt(username, tz, { memories: 25, personasFor: promptText, maxPersonas: 12 })) + briefingDepthDirective(who),
-      ...(messages ? { messages } : { prompt: promptText }),
-    }, "long", { username, feature: "briefing" });
+    result = await writeBriefing();
   } catch (e) {
     if (e instanceof SpendCapError) {
       return spendCapResponse(e);

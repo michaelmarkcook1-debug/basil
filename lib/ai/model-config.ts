@@ -43,6 +43,7 @@ import { createAnthropic } from "@ai-sdk/anthropic";
 import { createOpenAI } from "@ai-sdk/openai";
 import type { LanguageModel, LanguageModelMiddleware } from "ai";
 import type { LanguageModelV3, LanguageModelV3StreamPart } from "@ai-sdk/provider";
+import { AsyncLocalStorage } from "node:async_hooks";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -515,9 +516,15 @@ function resolveChatPrimaryModel(kind: ModelKind): LanguageModel {
   if (anthropicKey) {
     // Pinned Opus 5 at CHAT_EFFORT. Effort is applied via transformParams so it
     // rides along on every call without each route passing providerOptions.
+    const bench = benchRuns.getStore();
+    const modelId = bench?.overrides[kind]?.model ?? CHAT_MODEL_ANTHROPIC_ID;
+    const effort = benchEffort(bench, kind, CHAT_EFFORT);
     return wrapLanguageModel({
-      model: createAnthropic({ apiKey: anthropicKey })(CHAT_MODEL_ANTHROPIC_ID) as LanguageModelV3,
-      middleware: anthropicEffortMiddleware(CHAT_EFFORT),
+      model: createAnthropic({ apiKey: anthropicKey })(modelId) as LanguageModelV3,
+      middleware: [
+        ...(effort ? [anthropicEffortMiddleware(effort)] : []),
+        ...(bench ? [benchRecorderMiddleware(bench, modelId)] : []),
+      ],
     });
   }
   // No Anthropic key configured — keep the assistant alive on OpenAI rather than
@@ -548,21 +555,121 @@ export function getDirectAnthropicModel(kind: ModelKind = "default"): LanguageMo
   const _ak = ["ANTHROPIC", "API", "KEY"].join("_");
   const key = process.env.BASIL_LLM_KEY ?? process.env[_ak];
   if (!key) return null;
-  const modelId = ANTHROPIC_MODEL_IDS[kind];
+  const bench = benchRuns.getStore();
+  const modelId = bench?.overrides[kind]?.model ?? ANTHROPIC_MODEL_IDS[kind];
   const model = createAnthropic({ apiKey: key })(modelId);
 
   // Apply reasoning EFFORT where configured. Baked into the model itself so it
   // applies at EVERY call site — generateTextSafe, and the chat middleware's
   // fallback.doStream(params) — without each caller passing providerOptions.
   const middleware: LanguageModelMiddleware[] = [];
-  const effort = ANTHROPIC_EFFORT[kind];
+  const effort = benchEffort(bench, kind, ANTHROPIC_EFFORT[kind]);
   if (effort) middleware.push(anthropicEffortMiddleware(effort));
   if (needsNativeStructuredOutput(modelId)) middleware.push(nativeStructuredOutputMiddleware());
+  if (bench) middleware.push(benchRecorderMiddleware(bench, modelId));
   if (middleware.length === 0) return model;
   return wrapLanguageModel({
     model: model as LanguageModelV3,
     middleware,
   });
+}
+
+// ── Model bench ───────────────────────────────────────────────────────────────
+//
+// Owner rule (2026-10-29): when Anthropic ships a model, every tier is re-tested
+// on Basil's own prompts through the production code path before it is switched.
+// The production key cannot be read back, so the test has to run in production:
+// runModelBench() swaps the model (and effort) a tier resolves to for ONE async
+// call chain and records what each Anthropic call used. Nothing outside that
+// chain sees the swap, and with no bench running these functions change nothing.
+
+/** One arm of a comparison. No model and no effort = production settings. */
+export interface BenchVariant {
+  label: string;
+  /** Direct Anthropic model id to run instead of the tier's own. */
+  model?: string;
+  /** Effort to send. With a model and no effort, the model's own default applies. */
+  effort?: AnthropicEffort;
+}
+
+/** What one Anthropic call inside a bench actually used. */
+export interface BenchCall {
+  modelId: string;
+  ms: number;
+  inputTokens: number;
+  outputTokens: number;
+  /** Portion of outputTokens spent thinking (billed as output). */
+  reasoningTokens: number;
+  cacheReadTokens: number;
+  cacheWriteTokens: number;
+}
+
+interface BenchRun {
+  overrides: Partial<Record<ModelKind, BenchVariant>>;
+  calls: BenchCall[];
+}
+
+// On globalThis so every bundle of this module in one function shares the store.
+const benchGlobal = globalThis as { __basilModelBench?: AsyncLocalStorage<BenchRun> };
+const benchRuns: AsyncLocalStorage<BenchRun> = (benchGlobal.__basilModelBench ??= new AsyncLocalStorage<BenchRun>());
+
+/** Run `fn` with `variant` standing in for `kind`; returns its result and the calls it made. */
+export async function runModelBench<T>(
+  kind: ModelKind,
+  variant: BenchVariant,
+  fn: () => Promise<T>,
+): Promise<{ result: T; calls: BenchCall[] }> {
+  const run: BenchRun = { overrides: variant.model || variant.effort ? { [kind]: variant } : {}, calls: [] };
+  const result = await benchRuns.run(run, fn);
+  return { result, calls: run.calls };
+}
+
+/** The effort a tier sends: the variant's, else the candidate model's default, else production's. */
+function benchEffort(bench: BenchRun | undefined, kind: ModelKind, production: AnthropicEffort | undefined): AnthropicEffort | undefined {
+  const variant = bench?.overrides[kind];
+  if (!variant) return production;
+  return variant.effort ?? (variant.model ? undefined : production);
+}
+
+function benchRecorderMiddleware(run: BenchRun, modelId: string): LanguageModelMiddleware {
+  const n = (v: unknown) => (typeof v === "number" && Number.isFinite(v) ? v : 0);
+  return {
+    specificationVersion: "v3",
+    async wrapGenerate({ doGenerate }) {
+      const started = Date.now();
+      const result = await doGenerate();
+      const u = result.usage;
+      run.calls.push({
+        modelId,
+        ms: Date.now() - started,
+        inputTokens: n(u?.inputTokens?.total),
+        outputTokens: n(u?.outputTokens?.total),
+        reasoningTokens: n(u?.outputTokens?.reasoning),
+        cacheReadTokens: n(u?.inputTokens?.cacheRead),
+        cacheWriteTokens: n(u?.inputTokens?.cacheWrite),
+      });
+      return result;
+    },
+  };
+}
+
+const BENCH_EFFORTS: readonly AnthropicEffort[] = ["low", "medium", "high", "max"];
+
+/** Validate the variants a bench request names. Null when the request names none or any is malformed. */
+export function parseBenchVariants(raw: unknown): BenchVariant[] | null {
+  let list: unknown = raw;
+  if (typeof raw === "string") {
+    try { list = JSON.parse(raw); } catch { return null; }
+  }
+  if (!Array.isArray(list) || list.length === 0 || list.length > 5) return null;
+  const out: BenchVariant[] = [];
+  for (const v of list as Array<Record<string, unknown>>) {
+    if (!v || typeof v.label !== "string" || !/^[\w .@+-]{1,40}$/.test(v.label)) return null;
+    if (v.model !== undefined && (typeof v.model !== "string" || !/^claude-[a-z0-9-]{3,60}$/.test(v.model))) return null;
+    if (v.effort !== undefined && !BENCH_EFFORTS.includes(v.effort as AnthropicEffort)) return null;
+    out.push({ label: v.label, ...(v.model ? { model: v.model as string } : {}), ...(v.effort ? { effort: v.effort as AnthropicEffort } : {}) });
+  }
+  return out;
 }
 
 /** Middleware that pins `providerOptions.anthropic.effort` on every call. */
