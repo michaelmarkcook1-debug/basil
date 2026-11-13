@@ -313,7 +313,7 @@ export async function POST(req: Request) {
     contactsResult,
   ] = await Promise.all([
     getTodayEvents(username, tz).catch((err) => {
-      console.error("Calendar fetch failed:", err);
+      console.error("Calendar fetch failed:", err instanceof Error ? err.message : String(err));
       return null;
     }),
     // 20 emails gives enough signal to split unread / read meaningfully; more

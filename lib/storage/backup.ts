@@ -42,7 +42,34 @@ const BLOB: BlobApi = { list, copy, del };
 /** Append-only immutable events: copied when new, never again. */
 const INCREMENTAL = new Set(["spend"]);
 const INCREMENTAL_DAYS = 3;
-const COPY_CONCURRENCY = 8;
+// 8 tripped Blob's rate limit ("Too many requests … try again in 60 seconds")
+// and the whole night's backup failed on 2026-11-13.
+const COPY_CONCURRENCY = 4;
+
+/** Blob's rate-limit error: BlobServiceRateLimited, or its message. */
+export function isRateLimited(err: unknown): boolean {
+  const e = err as { name?: string; message?: string } | null;
+  return e?.name === "BlobServiceRateLimited" || /too many requests/i.test(e?.message ?? "");
+}
+
+/**
+ * Run a Blob call, waiting out a rate limit (the error's retryAfter, else 30s)
+ * up to three times, never past the deadline. Other errors are thrown as before.
+ */
+export async function withRateLimitRetry<T>(fn: () => Promise<T>, deadline: number, sleep: (ms: number) => Promise<void> = (ms) => new Promise((r) => setTimeout(r, ms))): Promise<T> {
+  for (let attempt = 0; ; attempt++) {
+    try {
+      return await fn();
+    } catch (err) {
+      if (!isRateLimited(err) || attempt >= 3) throw err;
+      const after = Number((err as { retryAfter?: unknown }).retryAfter);
+      const wait = (Number.isFinite(after) && after > 0 ? after : 30) * 1000;
+      if (Date.now() + wait >= deadline) throw err;
+      console.warn(`[backup] Blob rate limit — waiting ${Math.round(wait / 1000)}s before retrying`);
+      await sleep(wait);
+    }
+  }
+}
 
 export interface BackupResult {
   copied: number;
@@ -76,7 +103,7 @@ export async function backupAllUsers(
   const recentCutoff = now - INCREMENTAL_DAYS * 86_400_000;
   let copied = 0, failed = 0;
 
-  const top = await api.list({ prefix: `${PREFIX}/`, mode: "folded", limit: 1000 });
+  const top = await withRateLimitRetry(() => api.list({ prefix: `${PREFIX}/`, mode: "folded", limit: 1000 }), deadline);
   const folders = (top.folders ?? [])
     .map((f) => f.slice(PREFIX.length + 1).replace(/\/$/, ""))
     .filter((name) => !NOT_BACKED_UP.has(`${PREFIX}/${name}`));
@@ -89,9 +116,9 @@ export async function backupAllUsers(
       while (i < blobs.length && Date.now() < deadline) {
         const b = blobs[i++];
         try {
-          await api.copy(b.url, backupPrefix + b.pathname.slice(PREFIX.length + 1), {
+          await withRateLimitRetry(() => api.copy(b.url, backupPrefix + b.pathname.slice(PREFIX.length + 1), {
             access: "private", addRandomSuffix: false, allowOverwrite: true,
-          });
+          }), deadline);
           copied++;
         } catch (err) {
           failed++;
@@ -109,7 +136,7 @@ export async function backupAllUsers(
     let cursor: string | undefined;
     do {
       if (Date.now() >= deadline) return { copied, failed, complete: false, backupPrefix };
-      const page = await api.list({ prefix: `${PREFIX}/${folder}/`, cursor, limit: 1000 });
+      const page = await withRateLimitRetry(() => api.list({ prefix: `${PREFIX}/${folder}/`, cursor, limit: 1000 }), deadline);
       const blobs = INCREMENTAL.has(folder)
         ? page.blobs.filter((b) => new Date(b.uploadedAt).getTime() >= recentCutoff)
         : page.blobs;
@@ -138,7 +165,7 @@ export async function pruneBackups(
   const api = opts.api ?? BLOB;
   const deadline = opts.deadline ?? Date.now() + 120_000;
   let deleted = 0;
-  const top = await api.list({ prefix: `${BACKUP_ROOT}/`, mode: "folded", limit: 1000 });
+  const top = await withRateLimitRetry(() => api.list({ prefix: `${BACKUP_ROOT}/`, mode: "folded", limit: 1000 }), deadline);
   const stale = (top.folders ?? [])
     .map((f) => ({ folder: f, date: f.slice(BACKUP_ROOT.length + 1, BACKUP_ROOT.length + 11) }))
     .filter((x) => /^\d{4}-\d{2}-\d{2}$/.test(x.date) && x.date < cutoffKey)
@@ -147,10 +174,10 @@ export async function pruneBackups(
     let cursor: string | undefined;
     do {
       if (Date.now() >= deadline) return { deleted, complete: false };
-      const page = await api.list({ prefix: folder, cursor, limit: 1000 });
+      const page = await withRateLimitRetry(() => api.list({ prefix: folder, cursor, limit: 1000 }), deadline);
       for (let k = 0; k < page.blobs.length; k += 500) {
         const chunk = page.blobs.slice(k, k + 500);
-        await api.del(chunk.map((b) => b.url));
+        await withRateLimitRetry(() => api.del(chunk.map((b) => b.url)), deadline);
         deleted += chunk.length;
       }
       cursor = page.hasMore ? page.cursor : undefined;

@@ -433,6 +433,8 @@ export interface AgeingBuckets {
   next7: ActionItem[];
   /** Open, no due date, untouched for 30+ days. Not overdue — forgotten. */
   stalled: ActionItem[];
+  /** Marked "Ongoing" by the user and not yet due a check-in: in hand, not overdue. */
+  ongoing?: ActionItem[];
   total: number;
 }
 
@@ -444,9 +446,11 @@ export function bucketCommitments(actions: ActionItem[], now: Date = new Date(),
   const stalledBefore = new Date(now.getTime() - STALLED_DAYS * 86400_000).toISOString();
 
   const open = actions.filter((a) => a.status !== "done");
-  const b: AgeingBuckets = { overdue: [], today: [], next7: [], stalled: [], total: open.length };
+  const b: AgeingBuckets = { overdue: [], today: [], next7: [], stalled: [], ongoing: [], total: open.length };
 
   for (const a of open) {
+    // In hand: not overdue until its check-in date comes round.
+    if (a.ongoing && (!a.followUpDate || a.followUpDate.slice(0, 10) > today)) { b.ongoing!.push(a); continue; }
     const due = a.dueDate?.slice(0, 10);
     if (a.status === "overdue" || (due && due < today)) b.overdue.push(a);
     else if (due === today) b.today.push(a);

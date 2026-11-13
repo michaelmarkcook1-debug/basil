@@ -198,7 +198,7 @@ async function computeContactActivity(username: string): Promise<ActivityPayload
           const prev = await getEventsForMonth(username, prevYear, prevMonth);
           return [...prev, ...current];
         } catch (e) {
-          console.error("Calendar fetch failed:", e);
+          console.error("Calendar fetch failed:", e instanceof Error ? e.message : String(e));
           return [];
         }
       })(),

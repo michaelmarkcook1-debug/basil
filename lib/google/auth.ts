@@ -292,7 +292,8 @@ export async function getAuthedClient(username: string) {
         await saveIntegrationToken(username, "google", { ...tokens, ...updated as GoogleTokens });
       }
     } catch (err) {
-      console.error("[google/auth] getAuthedClient token refresh failed:", err);
+      // Message only: the whole googleapis error carries the refresh token in its request body.
+      console.error("[google/auth] getAuthedClient token refresh failed:", err instanceof Error ? err.message : String(err));
       // Return the client anyway — the API call will surface the real error
     }
   }

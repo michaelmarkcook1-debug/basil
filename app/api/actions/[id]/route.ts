@@ -35,6 +35,8 @@ const PatchSchema = z.object({
   eisenhowerReason: z.string().optional(),
   eisenhowerClassifiedAt: z.string().optional(),
   notes: z.string().optional(),
+  /** "Ongoing" on Today: in hand. Basil checks in again at the follow-up date. */
+  ongoing: z.boolean().optional(),
 });
 
 export async function PATCH(
@@ -53,7 +55,18 @@ export async function PATCH(
     const confirming = parsed.data.needsReview === false
       ? (await listActions(username)).find((a) => a.id === id)?.needsReview === true
       : false;
-    const updated = await updateAction(username, id, parsed.data);
+    const patch: Record<string, unknown> = { ...parsed.data };
+    if (parsed.data.ongoing === true) {
+      patch.ongoingSince = new Date().toISOString();
+      // Check in again in a week unless the user already set a later follow-up.
+      if (!parsed.data.followUpDate) patch.followUpDate = new Date(Date.now() + 7 * 86_400_000).toISOString().slice(0, 10);
+    }
+    // Reopening something Basil (or a sweep) closed: it is the user's again.
+    if (parsed.data.status === "open") {
+      patch.archivedReason = undefined;
+      patch.closedByBasil = undefined;
+    }
+    const updated = await updateAction(username, id, patch as Parameters<typeof updateAction>[2]);
     if (!updated) {
       console.warn(`[actions/${id}] PATCH: not found`);
       return NextResponse.json({ error: "not_found" }, { status: 404 });

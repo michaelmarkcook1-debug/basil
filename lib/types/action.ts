@@ -42,6 +42,17 @@ export interface ActionItem {
     | "meeting-note";
   /** When resolve-threads last re-read this action's source conversation. */
   threadCheckedAt?: string;
+  /** When lib/actions/check-done.ts last looked for evidence that this is finished. */
+  doneCheckedAt?: string;
+  /** Closed by Basil (done elsewhere, or its moment passed) rather than by the user; the note says why. */
+  closedByBasil?: boolean;
+  /**
+   * The user marked it "Ongoing": in hand, not forgotten. Shown as ongoing
+   * rather than overdue, and checked in on again at its follow-up date.
+   */
+  ongoing?: boolean;
+  /** When the user last marked it ongoing. */
+  ongoingSince?: string;
   /**
    * Set when this action is a promise the user made in their own sent mail
    * ("I'll send the deck by Friday") — lib/commitments/capture.ts.

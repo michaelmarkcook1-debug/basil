@@ -75,3 +75,20 @@ test("the cron prunes only after a complete backup, inside the function's time l
   assert.match(src, /const good = backup\.complete && backup\.failed === 0;/);
   assert.match(src, /const prune = good\s*\? await pruneBackups/);
 });
+
+test("a Blob rate limit is waited out and retried, not the end of the night's backup (2026-11-13)", async () => {
+  let calls = 0;
+  const waits = [];
+  const out = await B.withRateLimitRetry(async () => {
+    calls++;
+    if (calls < 3) throw Object.assign(new Error("Vercel Blob: Too many requests please lower the number of concurrent requests - try again in 60 seconds."), { name: "BlobServiceRateLimited", retryAfter: 2 });
+    return "ok";
+  }, Date.now() + 600_000, async (ms) => { waits.push(ms); });
+  assert.equal(out, "ok");
+  assert.equal(JSON.stringify(waits), JSON.stringify([2000, 2000]));
+  await assert.rejects(B.withRateLimitRetry(async () => { throw new Error("boom"); }, Date.now() + 600_000, async () => {}), /boom/, "other errors are not retried");
+  await assert.rejects(
+    B.withRateLimitRetry(async () => { throw Object.assign(new Error("Too many requests"), { retryAfter: 60 }); }, Date.now() + 1_000, async () => {}),
+    /Too many requests/, "never waits past the deadline",
+  );
+});

@@ -20,6 +20,7 @@
  */
 
 import useSWR from "swr";
+import { PromiseRow } from "@/components/today/promise-row";
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import type { TodayFeedResponse, TodayFeedItem } from "@/lib/today/types";
@@ -132,7 +133,26 @@ export default function Today() {
     ...buckets.today.map((a) => ({ a, due: "Due today", color: "#8F3F0E" })),
     // A date-only due date is a calendar day, not UTC midnight (which showed a day early in the Americas).
     ...buckets.next7.map((a) => ({ a, due: a.dueDate ? `Due ${formatDueDay(a.dueDate, timeZone, { weekday: "short", day: "numeric", month: "short" })}` : "This week", color: "#4B5568" })),
+    // In hand (the user pressed Ongoing): listed after what is due, never as overdue.
+    ...(buckets.ongoing ?? []).map((a) => ({ a, due: "Ongoing", color: "#4B5568" })),
   ].slice(0, 4) : []), [buckets, timeZone]);
+
+  // Tidy the list when Today opens: asks already settled in their thread, done
+  // elsewhere (what the user sent since), or whose moment has passed are closed
+  // (app/api/actions/resolve-threads). Each action is checked at most once a day.
+  const [autoClosed, setAutoClosed] = useState<{ id: string; text: string; why: string }[]>([]);
+  useEffect(() => {
+    let live = true;
+    fetch("/api/actions/resolve-threads", { method: "POST" })
+      .then((r) => { if (!r.ok) throw new Error(`tidy-up ${r.status}`); return r.json(); })
+      .then((d: { closed?: number; closedItems?: { id: string; text: string; why: string }[] } | null) => {
+        if (!live || !d?.closed) return;
+        setAutoClosed(d.closedItems ?? []);
+        void refreshActions();
+      })
+      .catch((e) => console.warn("[today] tidy-up check failed:", e instanceof Error ? e.message : e));
+    return () => { live = false; };
+  }, [refreshActions]);
 
   // ── People: the orbit, and who each card is about ─────────────────────────
   const selfLower = (selfName ?? "").toLowerCase();
@@ -308,14 +328,14 @@ export default function Today() {
               ) : promised.length === 0 ? (
                 <p className="text-[14px] text-[color:var(--w-ink-soft)]">Nothing due this week.</p>
               ) : promised.map(({ a, due, color }) => (
-                <Link key={a.id} href="/dashboard/actions" className="flex items-start gap-3.5 border-t border-[var(--w-tray)] py-3 text-[color:var(--w-ink)] no-underline">
-                  <span className="mt-1.5 h-2 w-2 shrink-0 rounded-full" style={{ background: color }} />
-                  <span className="flex flex-col gap-1">
-                    <span className="text-[15px] leading-snug">{a.text}</span>
-                    <span className="text-[13px] text-[color:var(--w-ink-soft)]"><span className="font-semibold" style={{ color }}>{due}</span> · from {a.source}</span>
-                  </span>
-                </Link>
+                <PromiseRow key={a.id} action={a} due={due} color={color} onChanged={() => refreshActions()} />
               ))}
+              {autoClosed.length > 0 && (
+                <p role="status" className="border-t border-[var(--w-tray)] pt-3 text-[13px] text-[color:var(--w-ink-soft)]">
+                  Basil closed {autoClosed.length} {autoClosed.length === 1 ? "ask that looks" : "asks that look"} done or past.{" "}
+                  <Link href="/dashboard/actions" className="font-medium underline underline-offset-2" style={{ color: "var(--w-carbon)" }}>Check them</Link>
+                </p>
+              )}
             </section>
           </div>
 

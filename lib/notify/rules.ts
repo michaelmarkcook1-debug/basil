@@ -65,6 +65,11 @@ export function dueReminders(actions: readonly ActionItem[], today: string, tz: 
     if (isWaitingOnOthers(a, selfNames)) continue;
     const follow = localDay(a.followUpDate, tz);
     const due = localDay(a.dueDate, tz);
+    // Marked ongoing: no overdue nagging, just the weekly check-in.
+    if (a.ongoing) {
+      if (follow && follow <= today) out.push({ id: a.id, text: a.text, reason: "follow-up", date: follow });
+      continue;
+    }
     if (due && due < today) out.push({ id: a.id, text: a.text, reason: "overdue", date: due });
     else if (due === today) out.push({ id: a.id, text: a.text, reason: "due-today", date: due });
     else if (follow && follow <= today) out.push({ id: a.id, text: a.text, reason: "follow-up", date: follow });

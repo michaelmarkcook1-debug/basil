@@ -21,6 +21,7 @@ import { getTodayEvents, getEventsForMonth } from "@/lib/google/calendar";
 import { getEmailBody, getRecentEmails, searchEmails } from "@/lib/google/gmail";
 import { ZOOM_DIGEST_GMAIL_QUERY, coveredByHostedRecap, digestMeetingRef, digestMeetingText, digestNotesOnly, isPersonalMeeting, isZoomDigest, parseZoomDigest, type DigestMeeting } from "@/lib/zoom/digest";
 import { resolveThreadActions } from "@/lib/actions/resolve-threads";
+import { checkDoneActions } from "@/lib/actions/check-done";
 import { captureSentPromises } from "@/lib/commitments/capture";
 import { getRecentSlackMessages } from "@/lib/slack/client";
 import { getMutedSourceKeys } from "@/lib/learning/store";
@@ -1163,6 +1164,18 @@ export async function POST(req: Request) {
       if (actionsAutoCompleted > 0) await forceFlushSnapshot();
     } catch (err) {
       console.error("[poll-ingest] thread resolution failed:", err);
+    }
+  });
+
+  // ── Asks already done elsewhere, or whose moment passed ──────────────────
+  // Every open action of the user's (meetings and chat too, not just threads):
+  // what they sent since, and whether its date has gone (lib/actions/check-done.ts).
+  after(async () => {
+    try {
+      const { closed } = await checkDoneActions(username);
+      if (closed.length > 0) await forceFlushSnapshot();
+    } catch (err) {
+      console.error("[poll-ingest] done-check failed:", err);
     }
   });
 
