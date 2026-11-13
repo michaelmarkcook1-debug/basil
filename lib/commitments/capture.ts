@@ -6,6 +6,7 @@ import { readUserStore, updateUserStore } from "@/lib/storage/user-store";
 import { getSettings } from "@/lib/settings/store";
 import { getTaskSystemPrompt } from "@/lib/ai/system-prompt";
 import { generateTextSafe } from "@/lib/ai/generate";
+import { SpendCapError } from "@/lib/ai/spend-guard";
 import { getTextModel } from "@/lib/ai/model-config";
 import { parseAndValidate } from "@/lib/ai/parse-json";
 import { isCalendarInvitation } from "@/lib/email/triage";
@@ -93,13 +94,21 @@ export interface CaptureDeps {
 
 /**
  * Scan recent sent mail for promises and file each as an action to confirm.
- * Idempotent: every scanned message id is remembered, so a message is read once.
+ * Idempotent: a message id is remembered once it has been read to a verdict —
+ * no promise wording, or its promises extracted and filed — so it is read once.
+ *
+ * A message whose read FAILED (body fetch, spend cap, provider error, an answer
+ * that does not parse, a failed save) is left unrecorded so the next scan
+ * retries it while it is still inside the look-back window. It used to be
+ * marked before the extraction ran, so any failure lost that email's promises
+ * for good (2026-11-10 bug pass, B2). The spend cap stops the scan outright:
+ * every later message would fail the same way.
  */
 export async function captureSentPromises(
   username: string,
   opts: { force?: boolean; maxMessages?: number } = {},
   deps: CaptureDeps = {},
-): Promise<{ skipped?: "recent"; scanned: number; candidates: number; created: number }> {
+): Promise<{ skipped?: "recent"; scanned: number; candidates: number; created: number; failed?: number; stopped?: "spend-cap" }> {
   const now = deps.now ?? Date.now();
   const state = await readUserStore<ScanState>(username, STATE_FILE, EMPTY, { fresh: true });
   if (!opts.force && state.lastRunAt && now - Date.parse(state.lastRunAt) < MIN_INTERVAL_MINUTES * 60_000) {
@@ -114,15 +123,16 @@ export async function captureSentPromises(
   const settings = await getSettings(username);
   const first = settings.name.split(" ")[0] || settings.name;
   const today = new Date(now).toISOString().slice(0, 10);
-  let candidates = 0, created = 0;
+  let candidates = 0, created = 0, failed = 0;
+  let stopped: "spend-cap" | undefined;
   const done: string[] = [];
 
   for (const m of fresh) {
     try {
       const raw = deps.body ? await deps.body(username, m.id) : (await getEmailBody(username, m.id)).body;
       const own = redactSensitive(ownText(raw)).text;
-      done.push(m.id);
-      if (!own || !looksLikePromise(own)) continue;
+      // Nothing that could be a promise: a deliberate skip, recorded.
+      if (!own || !looksLikePromise(own)) { done.push(m.id); continue; }
       candidates++;
       const prompt = extractionPrompt(first, { to: m.to, subject: m.subject, date: m.date }, own, today);
       const text = deps.extract
@@ -134,7 +144,8 @@ export async function captureSentPromises(
             prompt,
           }, "fast", { username, feature: "promise-capture" })).text;
       const parsed = parseAndValidate(text, Extracted, "[promise-capture]");
-      if (!parsed.ok) continue;
+      // An answer that does not parse is a failed read, not "no promises".
+      if (!parsed.ok) { failed++; continue; }
       for (const c of parsed.data.commitments.slice(0, 5)) {
         const due = c.dueDate && /^\d{4}-\d{2}-\d{2}$/.test(c.dueDate) ? c.dueDate : undefined;
         const { created: isNew } = await createActionTracked(username, {
@@ -150,7 +161,16 @@ export async function captureSentPromises(
         });
         if (isNew) created++;
       }
+      // Read to a verdict and every promise filed (createActionTracked dedupes
+      // by sourceRef, so a retry after a partial save does not double up).
+      done.push(m.id);
     } catch (err) {
+      failed++;
+      if (err instanceof SpendCapError) {
+        console.warn(`[promise-capture] ${username}: AI budget reached (${err.scope}) — stopping; unread messages are retried next scan`);
+        stopped = "spend-cap";
+        break;
+      }
       console.warn(`[promise-capture] message ${m.id} failed:`, err instanceof Error ? err.message : err);
     }
   }
@@ -160,5 +180,6 @@ export async function captureSentPromises(
     lastRunAt: new Date(now).toISOString(),
   }), EMPTY);
   if (created) console.log(`[promise-capture] ${username}: ${created} promise(s) from ${candidates} of ${fresh.length} sent message(s)`);
-  return { scanned: fresh.length, candidates, created };
+  if (failed) console.warn(`[promise-capture] ${username}: ${failed} message(s) not read to a verdict — left for the next scan`);
+  return { scanned: fresh.length, candidates, created, ...(failed ? { failed } : {}), ...(stopped ? { stopped } : {}) };
 }

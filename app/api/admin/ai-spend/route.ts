@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { getSessionUser } from "@/lib/auth";
 import { getUsers, isAdminUser } from "@/lib/users";
-import { getSpendSummary } from "@/lib/ai/spend-guard";
+import { getSpendSummary, resetUserSpendToday } from "@/lib/ai/spend-guard";
 
 /**
  * GET /api/admin/ai-spend
@@ -36,4 +36,29 @@ export async function GET(req: Request) {
   const summary = await getSpendSummary(users.map((u) => u.username));
 
   return NextResponse.json(summary);
+}
+
+/**
+ * POST /api/admin/ai-spend  { action: "reset-today", username }
+ *
+ * Gives one user their full daily AI limit back for the rest of today (UTC).
+ * Admin session only. The spend log is untouched, so nothing is lost from
+ * the monthly totals.
+ */
+export async function POST(req: Request) {
+  const admin = await getSessionUser();
+  if (!admin) return NextResponse.json({ error: "Unauthorised" }, { status: 401 });
+  if (!isAdminUser(admin)) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+
+  const body = await req.json().catch(() => ({})) as { action?: unknown; username?: unknown };
+  if (body.action !== "reset-today" || typeof body.username !== "string") {
+    return NextResponse.json({ error: 'Send { action: "reset-today", username }.' }, { status: 400 });
+  }
+  const wanted = body.username.toLowerCase();
+  const target = (await getUsers()).find((u) => u.username.toLowerCase() === wanted);
+  if (!target) return NextResponse.json({ error: "User not found" }, { status: 404 });
+
+  const out = await resetUserSpendToday(target.username);
+  console.info(`[admin/ai-spend] ${admin} reset ${target.username}'s AI spend for ${out.day} (was $${out.clearedUsd.toFixed(2)})`);
+  return NextResponse.json({ ok: true, username: target.username, ...out });
 }

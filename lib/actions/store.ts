@@ -35,6 +35,8 @@ export {
   UNTOUCHED_ARCHIVE_DAYS,
 } from "./utils";
 import { isUntouchedStale as untouchedStale } from "./utils";
+import { getWorkCalendar } from "@/lib/away/store";
+import { awayOn, dayIn, pausedDays } from "@/lib/away/calendar";
 
 const ACTIONS_FILE = "sage-actions.json";
 
@@ -315,6 +317,21 @@ function mergeExistingDuplicates(items: ActionItem[]): { items: ActionItem[]; ch
 
 export async function listActions(username: string, options?: { fresh?: boolean }): Promise<ActionItem[]> {
   const items = await readAll(username, options);
+  // The user's working calendar (stored values only; never waits on Google).
+  // While they are away nothing is archived or purged for age, and days away
+  // never count toward an age rule — leave must not close what they never saw.
+  const workCal = await getWorkCalendar(username, { refresh: "never" }).catch((e) => {
+    console.warn("[actions] working calendar unreadable, age rules count every day:", e instanceof Error ? e.message : e);
+    return null;
+  });
+  const localToday = workCal ? dayIn(Date.now(), workCal.timezone) : today();
+  const awayNow = !!workCal && !!awayOn(localToday, workCal);
+  const awayDaysSince = workCal
+    ? (iso: string) => {
+        const t = Date.parse(iso);
+        return Number.isFinite(t) ? pausedDays(dayIn(t, workCal.timezone), localToday, workCal) : 0;
+      }
+    : undefined;
 
   // ── Dedup cleanup pass ──────────────────────────────────────────────────────
   // Catches duplicates that slipped through before the improved dedup logic.
@@ -396,8 +413,15 @@ export async function listActions(username: string, options?: { fresh?: boolean 
     if ((a.source ?? "manual") === "manual") return false; // user-created → always keep
     const owner = (a.owner ?? "").trim().toLowerCase();
     if (owner !== "" && owner !== "unknown") return false; // has an identified owner
+    // Never while the user is away, and not for an item whose overdue days
+    // were all days away: it fell due while they could not act on it.
+    if (awayNow) return false;
+    if (a.dueDate && awayDaysSince) {
+      const overdueDays = Math.round((Date.parse(`${localToday}T00:00:00Z`) - Date.parse(`${a.dueDate.slice(0, 10)}T00:00:00Z`)) / 86_400_000);
+      if (overdueDays - awayDaysSince(a.dueDate) <= 0) return false;
+    }
     // No identified owner + overdue → unverifiable, surface as noise → drop
-    const t2 = today();
+    const t2 = localToday;
     return a.status === "overdue" || (a.status === "open" && !!a.dueDate && a.dueDate < t2);
   }
 
@@ -421,7 +445,8 @@ export async function listActions(username: string, options?: { fresh?: boolean 
   }
   const personalOnly = deduped.filter((a) => !isNotMine(a));
 
-  const t = today();
+  // "Today" in the user's timezone: in UTC, things turned overdue in the US evening.
+  const t = localToday;
   // Compute overdue on-the-fly (not persisted) so stale data files don't matter
   const withOverdue = personalOnly.map((a) =>
     a.status === "open" && a.dueDate && a.dueDate < t
@@ -434,7 +459,7 @@ export async function listActions(username: string, options?: { fresh?: boolean 
   // passed 14+ days ago and were never manually acknowledged are moved to
   // "done".  The original window is long closed; showing them as critical
   // indefinitely creates noise rather than signal.
-  const staleOverdue = withOverdue.filter((a) => isOverdueStale(a));
+  const staleOverdue = awayNow ? [] : withOverdue.filter((a) => isOverdueStale(a, awayDaysSince));
   if (staleOverdue.length > 0) {
     const staleIds = new Set(staleOverdue.map((a) => a.id));
     withLock(lockKey(username), async () => {
@@ -524,14 +549,14 @@ export async function listActions(username: string, options?: { fresh?: boolean 
   // An action Basil extracted from a message, which nobody has touched in 30
   // days, belongs to a conversation that has moved on. Left open, hundreds of
   // them buried the live work. Archived (status done + reason), not deleted.
-  const untouched = afterExpired.filter((a) => untouchedStale(a));
+  const untouched = awayNow ? [] : afterExpired.filter((a) => untouchedStale(a, Date.now(), awayDaysSince));
   if (untouched.length > 0) {
     const untouchedIds = new Set(untouched.map((a) => a.id));
     withLock(lockKey(username), async () => {
       const current = await readAll(username, { fresh: true });
       let changed = false;
       const archived = current.map((a) => {
-        if (!untouchedIds.has(a.id) || a.status === "done" || !untouchedStale(a)) return a;
+        if (!untouchedIds.has(a.id) || a.status === "done" || !untouchedStale(a, Date.now(), awayDaysSince)) return a;
         changed = true;
         return { ...a, status: "done" as const, archivedReason: "stale-untouched" as const, updatedAt: new Date().toISOString() };
       });

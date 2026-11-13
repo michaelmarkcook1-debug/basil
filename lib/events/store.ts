@@ -137,6 +137,51 @@ export async function createEvent(
 }
 
 /**
+ * Create the event unless one with the same external reference already exists.
+ *
+ * hasExternalId() followed by createEvent() is a check-then-act race: the check
+ * reads outside the lock, so two notifications for the same message arriving
+ * together (Slack sends `message` AND `app_mention` for one post; Zoom sends
+ * meeting.ended and recording.completed back to back; a webhook and the cron
+ * overlap) both see "not seen" and both append — and both pay to classify it.
+ * Here the check and the append share one lock and one fresh read.
+ *
+ *   { created: true,  event }   new event, stored — the caller owns follow-up work
+ *   { created: false, event }   an event with this ref already existed; it is returned
+ *
+ * An event with no external reference cannot be deduped and is always created.
+ */
+export async function createEventIfNew(
+  username: string,
+  e: Omit<BasilEvent, "id" | "createdAt" | "updatedAt">
+): Promise<{ created: boolean; event: BasilEvent }> {
+  const refs = [e.sourceRef, e.externalId].filter((r): r is string => !!r);
+  if (refs.length === 0) return { created: true, event: await createEvent(username, e) };
+
+  const now = new Date().toISOString();
+  const unified: BasilEvent = {
+    ...e,
+    sourceRef: e.sourceRef ?? e.externalId,
+    externalId: e.externalId ?? e.sourceRef,
+    id: randomUUID(),
+    createdAt: now,
+    updatedAt: now,
+  };
+
+  return withLock(lockKey(username), async () => {
+    const all = await readAll(username, { fresh: true });
+    // Both fields, as hasExternalId does: legacy rows may carry only one.
+    const existing = all.find(
+      (x) => (!!x.sourceRef && refs.includes(x.sourceRef)) || (!!x.externalId && refs.includes(x.externalId))
+    );
+    if (existing) return { created: false, event: existing };
+    all.push(unified);
+    await writeAll(username, all);
+    return { created: true, event: unified };
+  });
+}
+
+/**
  * Patch any subset of mutable fields on an event.
  * Automatically keeps sourceRef and externalId in sync if either is provided.
  */

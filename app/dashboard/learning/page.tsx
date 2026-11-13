@@ -30,7 +30,14 @@ interface CategoryPrior {
   disposition: Disposition;
 }
 
-const fetcher = (u: string) => fetch(u).then((r) => (r.ok ? r.json() : { preferences: [], priors: [] }));
+// Fetchers throw on a failed response. They used to return an empty profile
+// (or null), so an outage read as "Still learning your patterns" / "Nothing to
+// show yet" — an empty state that was really an error.
+async function fetcher(u: string) {
+  const r = await fetch(u);
+  if (!r.ok) throw new Error(`${u} → ${r.status}`);
+  return r.json();
+}
 
 interface ToolTrust {
   tool: string; approved: number; denied: number; auto: number; edited: number;
@@ -40,7 +47,20 @@ interface TrustMonth {
   month: string; approved: number; denied: number; auto: number; approvalRate: number | null; edits: number; meanEditDistance: number | null;
 }
 interface TrustResponse { summary: Record<string, ToolTrust>; delegations: { tool: string; since: string }[]; offers: string[]; reversible: string[]; months: TrustMonth[] }
-const trustFetcher = (u: string) => fetch(u).then((r) => (r.ok ? r.json() : null));
+const trustFetcher = fetcher;
+
+function LoadFailed({ onRetry }: { onRetry: () => void }) {
+  return (
+    <div role="alert" className="rounded-xl border border-signal-critical-border bg-signal-critical-subtle px-4 py-5 text-center text-sm text-signal-critical">
+      This did not load. Try again.
+      <button onClick={onRetry} className="ml-2 font-semibold underline">Retry</button>
+    </div>
+  );
+}
+
+function Loading() {
+  return <div className="h-16 animate-pulse rounded-xl border border-border/50 bg-card/40" aria-label="Loading" />;
+}
 const humanize = (tool: string) => tool.replace(/^event:/, "").replace(/([A-Z])/g, " $1").trim().toLowerCase();
 const pct = (n: number | null) => (n === null ? "—" : `${Math.round(n * 100)}%`);
 const monthLabel = (m: string) => new Date(`${m}-01T00:00:00Z`).toLocaleDateString("en-GB", { month: "short", year: "2-digit", timeZone: "UTC" });
@@ -58,33 +78,43 @@ function titleCase(s: string): string {
 }
 
 export default function LearningProfilePage() {
-  const { data } = useSWR<{ preferences: SourcePreference[]; priors: CategoryPrior[] }>(
+  const { data, error: profileError } = useSWR<{ preferences: SourcePreference[]; priors: CategoryPrior[] }>(
     "/api/learning/profile",
     fetcher,
     { revalidateOnFocus: false }
   );
   const [busy, setBusy] = useState<string | null>(null);
-  const { data: trust } = useSWR<TrustResponse | null>("/api/trust", trustFetcher, { revalidateOnFocus: false });
+  // A failed Restore / Reset / Stop asking — these used to fail silently.
+  const [actionError, setActionError] = useState<string | null>(null);
+  const { data: trust, error: trustError } = useSWR<TrustResponse>("/api/trust", trustFetcher, { revalidateOnFocus: false });
 
   async function setTrust(tool: string, action: "delegate" | "revoke") {
     setBusy(`trust:${tool}`);
+    setActionError(null);
     try {
-      await fetch("/api/trust", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ tool, action }) });
+      const res = await fetch("/api/trust", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ tool, action }) });
+      if (!res.ok) throw new Error(String(res.status));
       await mutate("/api/trust");
-    } catch { /* ignore */ } finally { setBusy(null); }
+    } catch (err) {
+      console.warn("[learning] trust change failed:", err);
+      setActionError("That change was not saved. Try again.");
+    } finally { setBusy(null); }
   }
 
   async function act(op: string, target: { sourceKey?: string; taskClass?: string }, key: string) {
     setBusy(key);
+    setActionError(null);
     try {
-      await fetch("/api/learning/profile", {
+      const res = await fetch("/api/learning/profile", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ op, ...target }),
       });
+      if (!res.ok) throw new Error(String(res.status));
       await Promise.all([mutate("/api/learning/profile"), mutate("/api/today"), mutate("/api/learning/suggestions")]);
-    } catch {
-      /* ignore */
+    } catch (err) {
+      console.warn("[learning] profile change failed:", err);
+      setActionError("That change was not saved. Try again.");
     } finally {
       setBusy(null);
     }
@@ -92,6 +122,8 @@ export default function LearningProfilePage() {
 
   const preferences = data?.preferences ?? [];
   const priors = (data?.priors ?? []).filter((p) => p.disposition !== "neutral" || p.total >= 3);
+  const retryProfile = () => { void mutate("/api/learning/profile"); };
+  const retryTrust = () => { void mutate("/api/trust"); };
 
   return (
     <div className="wire relative mx-auto max-w-3xl px-6 py-8 lg:px-8 space-y-8">
@@ -107,10 +139,21 @@ export default function LearningProfilePage() {
         </div>
       </header>
 
+      {actionError && (
+        <div role="alert" className="flex items-center gap-2 rounded-xl border border-signal-critical-border bg-signal-critical-subtle px-4 py-2.5 text-sm text-signal-critical">
+          {actionError}
+          <button onClick={() => setActionError(null)} className="ml-auto text-xs underline">Dismiss</button>
+        </div>
+      )}
+
       {/* ── Muted & demoted sources ──────────────────────────────────────── */}
       <section>
         <h2 className="mb-3 text-xs font-semibold uppercase tracking-[0.14em] text-muted-foreground/70">Sources you&apos;ve tuned</h2>
-        {preferences.length === 0 ? (
+        {!data && profileError ? (
+          <LoadFailed onRetry={retryProfile} />
+        ) : !data ? (
+          <Loading />
+        ) : preferences.length === 0 ? (
           <div className="rounded-xl border border-border/50 bg-card/40 px-4 py-6 text-center text-sm text-muted-foreground">
             No sources muted or lowered yet. When you keep dismissing one, Basil will offer to quiet it.
           </div>
@@ -148,7 +191,11 @@ export default function LearningProfilePage() {
       {/* ── Category priors ──────────────────────────────────────────────── */}
       <section>
         <h2 className="mb-3 text-xs font-semibold uppercase tracking-[0.14em] text-muted-foreground/70">How you handle each kind of task</h2>
-        {priors.length === 0 ? (
+        {!data && profileError ? (
+          <LoadFailed onRetry={retryProfile} />
+        ) : !data ? (
+          <Loading />
+        ) : priors.length === 0 ? (
           <div className="rounded-xl border border-border/50 bg-card/40 px-4 py-6 text-center text-sm text-muted-foreground">
             <Sparkles className="mx-auto mb-2 h-4 w-4 text-[color:var(--w-carbon)]" />
             Still learning your patterns. Keep using Done / Push / Delegate on the home and they&apos;ll show up here.
@@ -191,7 +238,9 @@ export default function LearningProfilePage() {
           Only reversible actions can be delegated, and only after you have approved them ten times in a row. Every delegated run is recorded and can be undone. Outward-facing actions — email, Slack, calendar invitations — always ask.
         </p>
         {(() => {
-          const summary = trust?.summary ?? {};
+          if (!trust && trustError) return <LoadFailed onRetry={retryTrust} />;
+          if (!trust) return <Loading />;
+          const summary = trust.summary ?? {};
           const tools = Object.values(summary).filter((t) => !t.tool.startsWith("event:")).sort((a, b) => (b.approved + b.denied + b.auto) - (a.approved + a.denied + a.auto));
           if (tools.length === 0) {
             return (
@@ -247,7 +296,11 @@ export default function LearningProfilePage() {
         <p className="mb-3 text-xs text-muted-foreground">
           Counted from what actually happened — approvals, denials, drafts you edited before sending — not from anything Basil says about itself. Month 1 next to month 6 is the number that matters.
         </p>
-        {!trust?.months?.length ? (
+        {!trust && trustError ? (
+          <LoadFailed onRetry={retryTrust} />
+        ) : !trust ? (
+          <Loading />
+        ) : !trust.months?.length ? (
           <div className="rounded-xl border border-border/50 bg-card/40 px-4 py-6 text-center text-sm text-muted-foreground">
             No decisions recorded yet.
           </div>

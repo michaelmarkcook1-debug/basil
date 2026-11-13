@@ -10,6 +10,7 @@ import { getSessionUser } from "@/lib/auth";
 import { computeTodayFeed, presentFeed } from "@/lib/today/feed";
 import type { TodayFeedResponse } from "@/lib/today/types";
 import { warmEmailViews } from "@/lib/email/view-cache";
+import { getTodayAway } from "@/lib/away/store";
 // after() background refreshes run on the same invocation, so the budget must
 // cover a full fan-out recompute — mirrors contacts/activity.
 export const maxDuration = 120;
@@ -55,12 +56,17 @@ export async function GET(req: NextRequest) {
   try {
     // fresh: read Blob, not the per-instance /tmp copy — the whole point is a
     // cache that's shared across instances.
-    const cached = await readGenerateCache<TodayFeedResponse>(username, "today-feed", { fresh: true });
+    // Away status is read on every request, never cached with the feed: it
+    // changes at midnight and when the user says they are going or back.
+    const [cached, away] = await Promise.all([
+      readGenerateCache<TodayFeedResponse>(username, "today-feed", { fresh: true }),
+      getTodayAway(username),
+    ]);
 
     if (cached?.content) {
       if (isCacheValid(cached)) {
         warmEmails(username, cached.content);
-        return NextResponse.json({ ...presentFeed(cached.content, { full }), cache: "hit" });
+        return NextResponse.json({ ...presentFeed(cached.content, { full }), away, cache: "hit" });
       }
       // Stale: hand back what we have immediately, refresh after the response.
       after(async () => {
@@ -75,7 +81,7 @@ export async function GET(req: NextRequest) {
           console.error("[today] background refresh failed:", e instanceof Error ? e.message : e);
         }
       });
-      return NextResponse.json({ ...presentFeed(cached.content, { full }), cache: "stale" });
+      return NextResponse.json({ ...presentFeed(cached.content, { full }), away, cache: "stale" });
     }
 
     // Cold start — pay for it once.
@@ -85,7 +91,7 @@ export async function GET(req: NextRequest) {
       ttlMs: TODAY_FEED_TTL_MS,
     }).catch((e) => console.error("[today] cache write failed:", e));
     warmEmails(username, fresh);
-    return NextResponse.json({ ...presentFeed(fresh, { full }), cache: "miss" });
+    return NextResponse.json({ ...presentFeed(fresh, { full }), away, cache: "miss" });
   } catch (err) {
     console.error("[today]", err);
     return NextResponse.json({ error: "Failed to build today feed." }, { status: 500 });

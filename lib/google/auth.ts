@@ -87,6 +87,22 @@ export async function exchangeCode(code: string, username: string): Promise<Goog
 }
 
 /**
+ * The user's OWN stored Google token record — no env-var fallback — taken
+ * before a reconnect, so a reconnect that is refused (the account belongs to
+ * another Basil user, or cannot be verified) can put it back with
+ * restoreGoogleTokens instead of leaving the user disconnected.
+ */
+export async function snapshotGoogleTokens(username: string): Promise<GoogleTokens | null> {
+  return getIntegrationToken<GoogleTokens>(username, "google");
+}
+
+/** Put back a snapshot taken by snapshotGoogleTokens. */
+export async function restoreGoogleTokens(username: string, snapshot: GoogleTokens): Promise<void> {
+  await saveIntegrationToken(username, "google", snapshot);
+  _googleStatusCache.delete(username);
+}
+
+/**
  * Read stored Google OAuth tokens for a specific user.
  * Strictly user-scoped — no global fallback to prevent data bleed across users.
  */

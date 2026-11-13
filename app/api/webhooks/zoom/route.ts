@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { createHmac } from "node:crypto";
-import { createEvent, hasExternalId } from "@/lib/events/store";
+import { createEventIfNew, hasExternalId } from "@/lib/events/store";
 import { eventFromIngest } from "@/lib/events/rules";
 import { publish } from "@/lib/events/bus";
 import { resolveZoomUser } from "@/lib/webhooks/resolve-user";
@@ -139,23 +139,31 @@ export async function POST(req: Request): Promise<Response> {
     return NextResponse.json({ ok: true, skipped: true });
   }
 
-  // Create a BasilEvent stub so the UI shows something immediately
+  // Create a BasilEvent stub so the UI shows something immediately — or find
+  // the one that exists. meeting.ended and recording.completed arrive back to
+  // back and both pass the check above; createEventIfNew re-checks inside the
+  // lock so only one of them creates the event and starts the workflow.
   let basilEventId: string | undefined;
-  if (!alreadyProcessed) {
-    try {
-      const topic = obj.topic ?? "Zoom Meeting";
-      const shaped = eventFromIngest({
-        source: "zoom",
-        externalId,
-        title: topic,
-        body: `${event === "meeting.ended" ? "Meeting ended" : "Recording available"}: ${topic}`,
-      });
-      const basilEvent = await createEvent(webhookUsername, shaped);
+  try {
+    const topic = obj.topic ?? "Zoom Meeting";
+    const shaped = eventFromIngest({
+      source: "zoom",
+      externalId,
+      title: topic,
+      body: `${event === "meeting.ended" ? "Meeting ended" : "Recording available"}: ${topic}`,
+    });
+    const { created, event: basilEvent } = await createEventIfNew(webhookUsername, shaped);
+    if (created) {
       publish(basilEvent);
-      basilEventId = basilEvent.id;
-    } catch (e) {
-      console.error("[zoom-webhook] createEvent failed:", e instanceof Error ? e.message : e);
+    } else if (!forceReprocess) {
+      console.log(`[zoom-webhook] ${event} meetingId=${meetingId} already ingested — skipping`);
+      return NextResponse.json({ ok: true, skipped: true });
     }
+    // Pass the existing event on a transcript re-run too: with an empty id the
+    // workflow created a second event for the same meeting.
+    basilEventId = basilEvent.id;
+  } catch (e) {
+    console.error("[zoom-webhook] createEvent failed:", e instanceof Error ? e.message : e);
   }
 
   // Kick off durable workflow to fetch full meeting data and run intelligence pipeline

@@ -95,7 +95,7 @@ test("the browser replays 26-vs-401: it drops server deletions instead of re-upl
     if (init?.method === "POST") { posts.push(JSON.parse(init.body)); return new Response("{}", { status: 201 }); }
     return new Response(JSON.stringify({ contacts: work, deletedIds: wa.map((c) => c.id) }), { status: 200 });
   };
-  const C = loadTs("lib/user-contacts.ts", { "./sync/channel": { emitChange: () => {} } }, {}, { window: {}, localStorage, fetch });
+  const C = loadTs("lib/user-contacts.ts", { "./sync/channel": { emitChange: () => {} }, "./session-user": { scopedKey: (k) => k } }, {}, { window: {}, localStorage, fetch });
   const shown = await C.loadUserContactsFromServer();
   assert.equal(shown.map((c) => c.id).join(","), "w0,w1,w2", "the People page shows only what the server has");
   assert.equal(posts.length, 0, "nothing is re-uploaded");
@@ -116,7 +116,7 @@ function clientWith(status) {
   const localStorage = { getItem: (k) => ls.get(k) ?? null, setItem: (k, v) => ls.set(k, String(v)), removeItem: (k) => ls.delete(k) };
   const calls = [];
   const fetch = async (url, init) => { calls.push(`${init?.method ?? "GET"} ${url}`); return new Response(null, { status }); };
-  const C = loadTs("lib/user-contacts.ts", { "./sync/channel": { emitChange: () => {} } }, {}, { window: {}, localStorage, fetch });
+  const C = loadTs("lib/user-contacts.ts", { "./sync/channel": { emitChange: () => {} }, "./session-user": { scopedKey: (k) => k } }, {}, { window: {}, localStorage, fetch });
   return { C, ls, calls };
 }
 

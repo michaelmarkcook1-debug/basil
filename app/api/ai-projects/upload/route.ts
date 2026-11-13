@@ -11,7 +11,7 @@
 
 import { NextResponse } from "next/server";
 import { getSessionUser } from "@/lib/auth";
-import { readProjectsStore, writeProjectsStore } from "@/lib/ai-projects/store";
+import { updateProjectsStore } from "@/lib/ai-projects/store";
 import { classifyCategory, scoreImportance, generateSummary } from "@/lib/ai-projects/classifier";
 import { PLATFORM_LABELS } from "@/lib/ai-projects/types";
 import type { AIProject, Platform } from "@/lib/ai-projects/types";
@@ -69,47 +69,53 @@ export async function POST(req: Request) {
   }
 
   const now = new Date().toISOString();
-  const store = await readProjectsStore(username);
 
-  const existingById = new Map<string, AIProject>();
-  for (const proj of store.projects) {
-    existingById.set(proj.id, proj);
-  }
+  // Locked read-modify-write on a fresh copy (2026-11-10 bug pass, C3): an
+  // unlocked whole-file write here raced the 30-minute sync and a hide/rename.
+  let imported = 0;
+  await updateProjectsStore(username, (store) => {
+    const existingById = new Map<string, AIProject>();
+    for (const proj of store.projects) {
+      existingById.set(proj.id, proj);
+    }
 
-  const newProjects: AIProject[] = items.map((item) => {
-    const id = `${p}:${item.externalId}`;
-    const existing = existingById.get(id);
-    const lastActiveAt = item.lastActiveAt ?? now;
-    const category = classifyCategory(item.name);
-    const importance = scoreImportance(lastActiveAt, category);
-    return {
-      id,
+    const newProjects: AIProject[] = items.map((item) => {
+      const id = `${p}:${item.externalId}`;
+      const existing = existingById.get(id);
+      const lastActiveAt = item.lastActiveAt ?? now;
+      const category = classifyCategory(item.name);
+      const importance = scoreImportance(lastActiveAt, category);
+      return {
+        id,
+        platform: p,
+        externalId: item.externalId,
+        name: item.name,
+        createdAt: existing?.createdAt ?? lastActiveAt,
+        lastActiveAt,
+        category: existing?.categoryOverride ?? category,
+        importance: existing?.importanceOverride ?? importance,
+        summary: generateSummary({ name: item.name, platform: p, category }),
+        hidden: existing?.hidden ?? false,
+        categoryOverride: existing?.categoryOverride,
+        importanceOverride: existing?.importanceOverride,
+        syncedAt: now,
+      } satisfies AIProject;
+    });
+    imported = newProjects.length;
+
+    const otherProjects = store.projects.filter((proj) => proj.platform !== p);
+    const platforms = { ...store.platforms };
+    platforms[p] = {
       platform: p,
-      externalId: item.externalId,
-      name: item.name,
-      createdAt: existing?.createdAt ?? lastActiveAt,
-      lastActiveAt,
-      category: existing?.categoryOverride ?? category,
-      importance: existing?.importanceOverride ?? importance,
-      summary: generateSummary({ name: item.name, platform: p, category }),
-      hidden: existing?.hidden ?? false,
-      categoryOverride: existing?.categoryOverride,
-      importanceOverride: existing?.importanceOverride,
-      syncedAt: now,
-    } satisfies AIProject;
+      label: PLATFORM_LABELS[p],
+      connected: true,
+      scraped: true,
+      lastSyncedAt: now,
+      itemCount: newProjects.length,
+      error: undefined,
+    };
+    return { ...store, platforms, projects: [...otherProjects, ...newProjects] };
   });
 
-  const otherProjects = store.projects.filter((proj) => proj.platform !== p);
-  store.platforms[p] = {
-    platform: p,
-    label: PLATFORM_LABELS[p],
-    connected: true,
-    scraped: true,
-    lastSyncedAt: now,
-    itemCount: newProjects.length,
-    error: undefined,
-  };
-  await writeProjectsStore(username, { ...store, projects: [...otherProjects, ...newProjects] });
-
-  return NextResponse.json({ ok: true, platform: p, imported: newProjects.length });
+  return NextResponse.json({ ok: true, platform: p, imported });
 }

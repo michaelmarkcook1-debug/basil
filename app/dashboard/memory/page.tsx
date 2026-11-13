@@ -143,7 +143,7 @@ export default function MemoryPage() {
     clearDraft: clearImportText,
   } = usePersistentDraft<string>("memory-import", { defaultValue: "" });
   const [importing, setImporting]             = useState(false);
-  const [importResult, setImportResult]       = useState<{ count: number } | null>(null);
+  const [importResult, setImportResult]       = useState<{ count: number; warning?: string } | null>(null);
   const [importError, setImportError]         = useState<string | null>(null);
   const [importTabWarning, setImportTabWarning] = useState(false); // tab went hidden mid-extraction
 
@@ -245,9 +245,15 @@ export default function MemoryPage() {
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Import failed");
-      setImportResult({ count: data.imported });
-      clearImportText();
-      setLoadedFileNames([]);
+      // Partial (some parts unread or failed): what was read is saved, and the
+      // text stays so the rest can be tried again (app/api/memory/import).
+      if (data.partial) {
+        setImportResult({ count: data.imported ?? 0, warning: typeof data.warning === "string" ? data.warning : "Some of the text could not be read. Try again for the rest." });
+      } else {
+        setImportResult({ count: data.imported });
+        clearImportText();
+        setLoadedFileNames([]);
+      }
       load();
     } catch (err) {
       const msg = err instanceof Error ? err.message : "Something went wrong";
@@ -352,24 +358,33 @@ export default function MemoryPage() {
   // ── Purge competitive intelligence facts ─────────────────────────────────
   const [purgingCI, setPurgingCI] = useState(false);
   const [purgeResult, setPurgeResult] = useState<{ removed: number; kept: number } | null>(null);
+  const [purgeError, setPurgeError] = useState(false);
 
   async function handlePurgeCI() {
     setPurgingCI(true);
     setPurgeResult(null);
+    setPurgeError(false);
+    // Was: no res.ok check, so a 500 body ({ error }) rendered as
+    // "Removed undefined outdated facts".
     try {
       const res = await fetch("/api/memory/purge-ci", { method: "POST" });
-      const data = await res.json() as { removed: number; kept: number };
-      setPurgeResult(data);
+      if (!res.ok) throw new Error(String(res.status));
+      const data = await res.json() as { removed?: unknown; kept?: unknown };
+      if (typeof data.removed !== "number" || typeof data.kept !== "number") throw new Error("bad response");
+      setPurgeResult({ removed: data.removed, kept: data.kept });
       if (data.removed > 0) load();
-    } catch {
-      // silent — not critical
+    } catch (err) {
+      console.warn("[memory] purge failed:", err);
+      setPurgeError(true);
     } finally {
       setPurgingCI(false);
     }
   }
 
   // ── Edit ──────────────────────────────────────────────────────────────────
-  async function handleEdit(id: string, patch: { content: string; kind: MemoryKind; entity?: string; pinned?: boolean }) {
+  // Resolves true when the server saved it. The row keeps its editor open (with
+  // the typed text) on false — it used to close and discard the edit silently.
+  async function handleEdit(id: string, patch: { content: string; kind: MemoryKind; entity?: string; pinned?: boolean }): Promise<boolean> {
     const previous = memories ?? [];
     // Optimistic update
     setMemories(previous.map((m) => m.id === id ? { ...m, ...patch, updatedAt: new Date().toISOString() } : m));
@@ -382,14 +397,16 @@ export default function MemoryPage() {
       });
       if (!res.ok) {
         setMemories(previous);
-        return;
+        return false;
       }
       const data = await res.json();
       // Apply server-confirmed version
-      setMemories((prev) => prev ? prev.map((m) => m.id === id ? data.memory : m) : prev);
+      if (data?.memory) setMemories((prev) => prev ? prev.map((m) => m.id === id ? data.memory : m) : prev);
       notify();
+      return true;
     } catch {
       setMemories(previous);
+      return false;
     }
   }
 
@@ -418,8 +435,10 @@ export default function MemoryPage() {
         )}
       </header>
 
-      {/* Error banner */}
-      {loadError && (
+      {/* Error banner — only when there IS something cached to show. A failed
+          first load (memories === null) gets the error state in the list below
+          instead of skeletons that never resolve. */}
+      {loadError && memories !== null && (
         <div className="flex items-center gap-3 rounded-lg bg-signal-warning-subtle border border-signal-warning-border px-4 py-3">
           <AlertTriangle className="h-4 w-4 text-signal-warning shrink-0" />
           <p className="text-sm text-signal-warning">
@@ -481,6 +500,12 @@ export default function MemoryPage() {
             : `Removed ${purgeResult.removed} outdated fact${purgeResult.removed === 1 ? "" : "s"} (competitive/market data). ${purgeResult.kept} memories kept.`}
         </div>
       )}
+      {purgeError && (
+        <div role="alert" className="flex items-center gap-2 rounded-lg border border-signal-critical-border bg-signal-critical-subtle px-3 py-2 text-xs text-signal-critical">
+          <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
+          Clean facts did not run. Try again.
+        </div>
+      )}
 
       {/* ── Sticky extraction banner — shown whenever importing, even if panel is scrolled ── */}
       {importing && (
@@ -535,7 +560,17 @@ export default function MemoryPage() {
             </div>
           )}
 
-          {importResult ? (
+          {importResult?.warning ? (
+            <div role="status" className="rounded-lg border border-signal-warning-border bg-signal-warning-subtle px-4 py-3">
+              <p className="text-sm font-medium text-signal-warning">
+                {importResult.count} memor{importResult.count === 1 ? "y" : "ies"} saved, but not all of the text was read.
+              </p>
+              <p className="mt-0.5 text-xs text-muted-foreground">{importResult.warning}</p>
+              <button onClick={() => setImportResult(null)} className="mt-1 text-xs text-signal-warning underline">
+                Back to the text
+              </button>
+            </div>
+          ) : importResult ? (
             <div className="flex items-center gap-3 rounded-lg bg-signal-positive-subtle border border-signal-positive-border px-4 py-3">
               <CheckCircle2 className="h-5 w-5 text-signal-positive shrink-0" />
               <div>
@@ -692,7 +727,19 @@ export default function MemoryPage() {
       )}
 
       {/* List */}
-      {memories === null ? (
+      {memories === null && loadError ? (
+        <div role="alert" className="rounded-2xl basil-card p-10 text-center space-y-3">
+          <AlertTriangle className="h-8 w-8 mx-auto text-signal-warning" />
+          <p className="text-sm text-foreground">Memories did not load. Try again.</p>
+          <button
+            onClick={() => { setLoadError(false); void load(); }}
+            className="inline-flex items-center gap-1.5 rounded-lg border border-border bg-background text-sm font-medium px-4 py-2 hover:bg-muted transition text-muted-foreground"
+          >
+            <RefreshCw className="h-4 w-4" />
+            Retry
+          </button>
+        </div>
+      ) : memories === null ? (
         <div className="space-y-2">
           {[0, 1, 2, 3].map((i) => (
             <div key={i} className="h-16 rounded-lg bg-muted/40 animate-pulse" />
@@ -795,7 +842,7 @@ function MemoryRow({
 }: {
   memory: Memory;
   onDelete: (id: string) => void;
-  onEdit: (id: string, patch: { content: string; kind: MemoryKind; entity?: string; pinned?: boolean }) => Promise<void>;
+  onEdit: (id: string, patch: { content: string; kind: MemoryKind; entity?: string; pinned?: boolean }) => Promise<boolean>;
 }) {
   const s = KIND_STYLE[memory.kind];
   const Icon = s.Icon;
@@ -811,38 +858,46 @@ function MemoryRow({
   const [editEntity, setEditEntity] = useState(memory.entity ?? "");
   const [editKind, setEditKind] = useState<MemoryKind>(memory.kind);
   const [saving, setSaving] = useState(false);
+  const [editError, setEditError] = useState<string | null>(null);
   const contentRef = useRef<HTMLTextAreaElement>(null);
 
   function startEdit() {
     setEditContent(memory.content);
     setEditEntity(memory.entity ?? "");
     setEditKind(memory.kind);
+    setEditError(null);
     setEditing(true);
     setConfirmDelete(false);
     setTimeout(() => contentRef.current?.focus(), 0);
   }
 
   async function saveEdit() {
-    if (!editContent.trim()) return;
+    if (!editContent.trim() || saving) return;
     setSaving(true);
-    await onEdit(memory.id, {
+    setEditError(null);
+    const ok = await onEdit(memory.id, {
       content: editContent.trim(),
       kind: editKind,
       entity: editEntity.trim() || undefined,
     });
     setSaving(false);
+    // A failed save keeps the editor open with the typed text.
+    if (!ok) { setEditError("That was not saved. Try again."); return; }
     setEditing(false);
   }
 
   function cancelEdit() {
+    setEditError(null);
     setEditing(false);
   }
 
   // Pinned: always loaded into the prompt, never expires. The user's call.
   async function togglePin() {
     setSaving(true);
-    await onEdit(memory.id, { content: memory.content, kind: memory.kind, entity: memory.entity, pinned: !memory.pinned });
+    setEditError(null);
+    const ok = await onEdit(memory.id, { content: memory.content, kind: memory.kind, entity: memory.entity, pinned: !memory.pinned });
     setSaving(false);
+    if (!ok) setEditError(memory.pinned ? "Not unpinned. Try again." : "Not pinned. Try again.");
   }
   const expiresInDays = memory.kind === "context" && memory.expiresAt && !memory.pinned
     ? Math.ceil((new Date(memory.expiresAt).getTime() - Date.now()) / 86_400_000)
@@ -919,6 +974,12 @@ function MemoryRow({
           />
         )}
 
+        {editError && (
+          <p role="alert" className="text-xs text-signal-critical flex items-center gap-1.5">
+            <AlertTriangle className="h-3 w-3 shrink-0" /> {editError}
+          </p>
+        )}
+
         <div className="flex items-center gap-2">
           <button
             onClick={saveEdit}
@@ -988,6 +1049,9 @@ function MemoryRow({
           </span>
         </div>
         <p className="text-sm text-foreground/90 leading-relaxed">{memory.content}</p>
+        {editError && (
+          <p role="alert" className="mt-1 text-xs text-signal-critical">{editError}</p>
+        )}
       </div>
 
       {/* Action buttons */}

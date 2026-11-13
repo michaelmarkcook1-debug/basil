@@ -21,6 +21,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { relativeTime } from "@/lib/utils";
+import { slackReadFailed } from "@/lib/dashboard/reliability";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -407,7 +408,15 @@ export default function SlackCommandPage() {
         cache: "no-store",
         signal: controller.signal,
       });
-      const body = await res.json() as CommandResponse;
+      const body = await res.json().catch(() => null) as CommandResponse | null; // ci-ok: unreadable body is handled as an error just below
+      // A 500 { status: "error" } (or any non-2xx / unreadable body) used to be
+      // stored as the response with no message, so the page showed only its
+      // header. Treat it as an error with a message and Retry.
+      if (slackReadFailed(res.ok, body)) {
+        setResponse(null);
+        setError("Slack could not be read just now. Try again.");
+        return;
+      }
       setResponse(body);
     } catch (e) {
       if (e instanceof Error && e.name === "AbortError") {
@@ -460,9 +469,13 @@ export default function SlackCommandPage() {
       </header>
 
       {/* Generic error (not a state-panel error) */}
-      {error && status === "error" && (
-        <div className="rounded-xl border border-destructive/40 bg-destructive/5 px-5 py-4 text-sm text-destructive">
-          {error}
+      {status === "error" && (
+        <div role="alert" className="flex flex-wrap items-center gap-3 rounded-xl border border-destructive/40 bg-destructive/5 px-5 py-4 text-sm text-destructive">
+          <span>{error || "Slack could not be read just now. Try again."}</span>
+          <Button onClick={() => void load()} disabled={loading} variant="outline" size="sm" className="gap-2">
+            <RefreshCw className="h-3.5 w-3.5" />
+            Retry
+          </Button>
         </div>
       )}
 

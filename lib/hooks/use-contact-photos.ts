@@ -39,7 +39,10 @@ export function useContactPhotos(emails: string[]): Record<string, string> {
 
     const qs = encodeURIComponent(pending.join(","));
     fetch(`/api/contacts/photos?emails=${qs}`)
-      .then((r) => r.json())
+      .then((r) => {
+        if (!r.ok) throw new Error(`photos ${r.status}`);
+        return r.json();
+      })
       .then((data: { photos?: Record<string, string> }) => {
         const incoming = data.photos ?? {};
         // Populate cache and merge into local state
@@ -49,8 +52,11 @@ export function useContactPhotos(emails: string[]): Record<string, string> {
         setPhotos((prev) => ({ ...prev, ...incoming }));
       })
       .catch(() => {
-        // On error, cache as null so we don't retry on every render
-        for (const e of pending) photoCache.set(e, null);
+        // A failed fetch is NOT "no photo". Caching null here hid these photos
+        // for the rest of the session (until a hard reload). Leave them
+        // uncached so the next mount or change of list asks again. The effect
+        // only re-runs when the pending set changes, so this cannot loop.
+        prevPendingKey.current = "";
       });
   }, [pendingKey]); // eslint-disable-line react-hooks/exhaustive-deps
 

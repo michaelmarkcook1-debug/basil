@@ -33,6 +33,12 @@ export interface Briefing {
   /** Remaining inbox and Slack highlights not already surfaced above. */
   inboxSlack:          string | null;
   generatedAt: string;
+  /**
+   * True when the model's answer could not be parsed: criticalToday then holds
+   * the raw text and every other section is null. Never cached; a reader should
+   * label it (or, for delivery, skip it) rather than present it as a briefing.
+   */
+  unparsed?: true;
   extraContextSummary?: string;
   /** Signal counts used to generate this briefing — used by the trust UX. */
   dataSources?: {

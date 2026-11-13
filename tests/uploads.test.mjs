@@ -160,3 +160,14 @@ test("the security policy lets the browser upload to Blob storage (and nothing e
   assert.match(n, /"connect-src 'self' [^"]*https:\/\/vercel\.com\/api\/blob\/"/, "without it the upload is blocked in the browser after the token succeeds");
   assert.doesNotMatch(n, /connect-src[^"]*https:\/\/vercel\.com[ "]/, "not the whole of vercel.com");
 });
+
+test("an upload still 'in progress' 20 minutes after its last update is marked failed when the list is read", () => {
+  const now = Date.parse("2026-11-10T12:00:00Z");
+  const at = (min) => new Date(now - min * 60_000).toISOString();
+  assert.equal(S.isStalledUpload({ status: "transcribing", updatedAt: at(21) }, now), true, "the function died; nothing else will mark it");
+  assert.equal(S.isStalledUpload({ status: "analysing", updatedAt: at(5) }, now), false, "still within a run");
+  assert.equal(S.isStalledUpload({ status: "ready", updatedAt: at(600) }, now), false);
+  assert.equal(S.isStalledUpload({ status: "failed", updatedAt: at(600) }, now), false);
+  assert.equal(S.isStalledUpload({ status: "uploaded", updatedAt: "garbage" }, now), false);
+  assert.match(fs.readFileSync(new URL("../app/api/uploads/route.ts", import.meta.url), "utf8"), /await failStalledUploads\(username\);\s*return NextResponse\.json\(\{ uploads: await listUploads/);
+});

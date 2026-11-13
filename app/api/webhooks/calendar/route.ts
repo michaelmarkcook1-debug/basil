@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { google, calendar_v3 } from "googleapis";
 import { getAuthedClient } from "@/lib/google/auth";
-import { createEvent } from "@/lib/events/store";
+import { createEventIfNew } from "@/lib/events/store";
 import { eventFromIngest } from "@/lib/events/rules";
 import { publish } from "@/lib/events/bus";
 import { getWatchState, updateCalendar } from "@/lib/google/watch-state";
@@ -67,22 +67,43 @@ export async function POST(req: Request) {
       return NextResponse.json({ ok: true, seeded: true });
     }
 
-    const res = await cal.events.list({
-      calendarId: "primary",
-      syncToken,
-      maxResults: 50,
-    });
-
-    for (const e of res.data.items || []) {
-      handleCalendarChange(webhookUsername, e);
+    // Page through the delta until Google hands back nextSyncToken. With more
+    // changes than maxResults it returns nextPageToken and NO sync token, so
+    // the single call this replaced never saved a new token and re-read — and
+    // re-created — the same first 50 changes on every later notification.
+    const items: calendar_v3.Schema$Event[] = [];
+    let pageToken: string | undefined;
+    let nextSyncToken: string | undefined;
+    for (let page = 0; page < MAX_SYNC_PAGES; page++) {
+      const res = await cal.events.list({
+        calendarId: "primary",
+        syncToken,
+        maxResults: 250,
+        ...(pageToken ? { pageToken } : {}),
+      });
+      items.push(...(res.data.items || []));
+      nextSyncToken = res.data.nextSyncToken || undefined;
+      pageToken = res.data.nextPageToken || undefined;
+      if (!pageToken) break;
     }
 
-    if (res.data.nextSyncToken) {
-      await updateCalendar(webhookUsername, { syncToken: res.data.nextSyncToken });
+    // Awaited, in order, BEFORE the token moves. Unawaited, the token was saved
+    // while the writes were still in flight (or cut off when the response
+    // went), losing changes for good. A throw here leaves the token where it
+    // was; the re-read on the next push is deduped per change.
+    let created = 0;
+    for (const e of items) {
+      if (await handleCalendarChange(webhookUsername, e)) created++;
+    }
+
+    if (nextSyncToken) {
+      await updateCalendar(webhookUsername, { syncToken: nextSyncToken });
     }
     return NextResponse.json({
       ok: true,
-      processed: (res.data.items || []).length,
+      processed: items.length,
+      created,
+      ...(nextSyncToken ? {} : { partial: true }),
     });
   } catch (e) {
     // 410 GONE → token invalid, need to re-seed.
@@ -95,7 +116,18 @@ export async function POST(req: Request) {
   }
 }
 
-async function handleCalendarChange(username: string, ev: calendar_v3.Schema$Event) {
+/** Safety stop for the delta pager: 40 × 250 changes per notification. */
+const MAX_SYNC_PAGES = 40;
+
+/** One stored event per change: the same change read twice (a retry, a re-read
+ *  after a failure) is the same id; a later edit of the event is a new one. */
+function calendarChangeRef(ev: calendar_v3.Schema$Event): string | undefined {
+  if (!ev.id) return undefined;
+  return `gcal:${ev.id}:${ev.updated ?? ev.etag ?? ""}`;
+}
+
+/** Returns true when a new event was stored (false: this change was already in). */
+async function handleCalendarChange(username: string, ev: calendar_v3.Schema$Event): Promise<boolean> {
   const summary = ev.summary || "(untitled)";
   const status = ev.status || "confirmed";
   const organizer = ev.organizer?.displayName || ev.organizer?.email || "";
@@ -106,10 +138,12 @@ async function handleCalendarChange(username: string, ev: calendar_v3.Schema$Eve
 
   const shaped = eventFromIngest({
     source: "calendar",
+    externalId: calendarChangeRef(ev),
     title: status === "cancelled" ? `Cancelled: ${summary}` : summary,
     body,
     from: organizer,
   });
-  const created = await createEvent(username, shaped);
-  publish(created);
+  const { created, event } = await createEventIfNew(username, shaped);
+  if (created) publish(event);
+  return created;
 }

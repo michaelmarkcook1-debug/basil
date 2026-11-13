@@ -821,6 +821,14 @@ export default function OnboardingPage() {
         </div>
       )}
 
+      <div className="rounded-lg p-3 text-xs mb-3" style={{ background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.08)", color: "var(--c-auth-muted)" }}>
+        Put Basil on your phone and computer:{" "}
+        <a href="/install" target="_blank" rel="noopener" className="underline hover:opacity-80 transition-opacity">
+          get the app
+        </a>{" "}
+        — it installs from your browser, no App Store.
+      </div>
+
       {/* Zoom is optional: recaps of meetings you host reach Basil through Gmail
           anyway; connecting adds who attended and recordings' transcripts. */}
       {!isConnected("zoom") && (

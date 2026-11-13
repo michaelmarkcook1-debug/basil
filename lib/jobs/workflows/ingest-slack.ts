@@ -56,7 +56,7 @@ async function processSlackStep(username: string, payload: IngestSlackPayload): 
   const unchanged = await isHashUnchanged(username, externalId, contentHash);
   if (unchanged) {
     console.log(`[ingest-slack] ${externalId} unchanged (hash match) — skipping`);
-    void appendAuditEntries(username, [
+    await appendAuditEntries(username, [
       auditSkipped(externalId, "action", `Slack content unchanged for ${externalId}`),
     ]);
     return;
@@ -71,8 +71,18 @@ async function processSlackStep(username: string, payload: IngestSlackPayload): 
     date,
   });
 
+  // A FAILED classification is not "nothing here" — see poll-ingest. Leaving
+  // the hash unrecorded keeps it eligible for the morning reprocess retry.
+  if (intel.classificationFailed) {
+    console.warn(
+      `[ingest-slack] ${externalId} classification FAILED — ` +
+      `not recording hash so it retries once AI is healthy`
+    );
+    return;
+  }
+
   if (!shouldMaterializeSlack(intel)) {
-    void recordIngest(username, { sourceRef: externalId, hash: contentHash });
+    await recordIngest(username, { sourceRef: externalId, hash: contentHash });
     return;
   }
 
@@ -97,14 +107,14 @@ async function processSlackStep(username: string, payload: IngestSlackPayload): 
     .filter((e) => e.itemType === "memory" && e.itemId)
     .map((e) => e.itemId!);
 
-  void recordIngest(username, {
+  await recordIngest(username, {
     sourceRef: externalId,
     hash: contentHash,
     actionIds,
     decisionIds,
     memoryIds,
   });
-  void appendAuditEntries(username, result.auditEntries);
+  await appendAuditEntries(username, result.auditEntries);
 
   // ── Primitive pipeline (Week 3 gated) ────────────────────────────────────
   // signalEvent_shadow → observe + log diffs (old path remains authoritative)

@@ -33,6 +33,8 @@ import {
 } from "@/lib/slack/client";
 import { getSessionUser } from "@/lib/auth";
 import { isAdminUser } from "@/lib/users";
+import { getWorkCalendar } from "@/lib/away/store";
+import { awayStatus, daysBetween, shortDay } from "@/lib/away/calendar";
 import { resolveCronUser } from "@/lib/cron/identity";
 import { listActions, isActionStalled } from "@/lib/actions/store";
 import { listDecisions } from "@/lib/decisions/store";
@@ -257,6 +259,20 @@ export async function POST(req: Request) {
   // Derive today's date string in the user's timezone (avoids UTC midnight drift)
   const todayDate = new Date().toLocaleDateString("en-CA", { timeZone: tz });
 
+  // How far back the briefing reads: since the start of the last working day
+  // the user was not away. Tuesday reads from Monday; Monday reads the weekend
+  // from Friday; the first day back reads the whole absence. It read a fixed
+  // two days until 2026-11-10, so a fortnight's leave came back as "the last
+  // 48 hours". Two days minimum, three weeks at most.
+  const workCal = await getWorkCalendar(username, { refresh: "never" }).catch((e) => {
+    console.warn("[briefing] working calendar unreadable, reading the usual two days:", e instanceof Error ? e.message : e);
+    return null;
+  });
+  const dayStatus = workCal ? awayStatus(todayDate, workCal) : null;
+  const sinceDay = dayStatus && (dayStatus.state === "working" || dayStatus.state === "back") ? dayStatus.since : null;
+  const gapDays = sinceDay ? Math.min(21, Math.max(2, daysBetween(sinceDay, todayDate))) : 2;
+  const returning = dayStatus?.state === "back" ? dayStatus.period : null;
+
   // Accept multipart FormData (extra context) or no body (simple trigger).
   let extra: ExtraContext = {
     notes: "",
@@ -300,13 +316,14 @@ export async function POST(req: Request) {
       console.error("Calendar fetch failed:", err);
       return null;
     }),
-    // 20 emails gives enough signal to split unread / read meaningfully
-    getRecentEmails(username, 20).catch((err) => {
+    // 20 emails gives enough signal to split unread / read meaningfully; more
+    // after a weekend or an absence, so the gap is not cut at the newest 20.
+    getRecentEmails(username, gapDays > 2 ? Math.min(60, 10 * gapDays) : 20, gapDays).catch((err) => {
       console.error("Email fetch failed:", err);
       return null;
     }),
     // 25 messages — DMs and @mentions surfaced first inside the block
-    getRecentSlackMessages(username, 25).catch((err) => {
+    getRecentSlackMessages(username, gapDays > 7 ? Math.min(60, 25 + 3 * gapDays) : 25, Math.max(7, gapDays)).catch((err) => {
       console.error("Slack fetch failed:", err);
       return null;
     }),
@@ -314,7 +331,7 @@ export async function POST(req: Request) {
     // source. Without this the brief cannot see the user solving anything by
     // email and reports settled work as blocked. 7 days so a blocker raised
     // last week can still be matched to the reply that closed it.
-    getSentEmails(username, 25, 7).catch((err) => {
+    getSentEmails(username, gapDays > 7 ? 40 : 25, Math.max(7, gapDays)).catch((err) => {
       console.error("Sent-mail fetch failed:", err);
       return null;
     }),
@@ -327,12 +344,12 @@ export async function POST(req: Request) {
       return [];
     }),
     // 8 summaries from the last 7 days — richer Zoom context for today's attendees
-    getZoomSummariesFromGmail(username, 7, 8).catch((err) => {
+    getZoomSummariesFromGmail(username, Math.max(7, gapDays), gapDays > 7 ? 12 : 8).catch((err) => {
       console.error("Zoom summaries fetch failed:", err);
       return [];
     }),
     // 6 Read.ai meeting recaps from the last 7 days
-    getReadSummariesFromGmail(username, 7, 6).catch((err) => {
+    getReadSummariesFromGmail(username, Math.max(7, gapDays), gapDays > 7 ? 10 : 6).catch((err) => {
       console.error("Read.ai summaries fetch failed:", err);
       return [] as ReadSummary[];
     }),
@@ -496,8 +513,9 @@ export async function POST(req: Request) {
       ? otherOpenActions.map(fmtAction).join("\n")
       : "";
 
-  // ── Decisions — active, last 14 days ────────────────────────────────────
-  const fourteenDaysAgo = new Date(Date.now() - 14 * 24 * 60 * 60 * 1000);
+  // ── Decisions — active, last 14 days (or the whole absence, if longer) ────
+  const decisionWindowDays = Math.max(14, gapDays + 1);
+  const fourteenDaysAgo = new Date(Date.now() - decisionWindowDays * 24 * 60 * 60 * 1000);
   const activeDecisions = decisionsResult
     .filter(
       (d) =>
@@ -509,11 +527,11 @@ export async function POST(req: Request) {
         new Date(b.updatedAt ?? b.date ?? "").getTime() -
         new Date(a.updatedAt ?? a.date ?? "").getTime()
     )
-    .slice(0, 10);
+    .slice(0, returning ? 15 : 10);
 
   const decisionsBlock =
     activeDecisions.length === 0
-      ? "No decisions logged in the last 14 days."
+      ? `No decisions logged in the last ${decisionWindowDays} days.`
       : activeDecisions
           .map((d) => {
             const reviewFlag = d.needsReview ? "[UNCONFIRMED] " : "";
@@ -753,11 +771,28 @@ Adjust sections: meetingsNeedingPrep = the PRIMARY section — go deep on the ne
   };
 
   const firstName = settings?.name?.split(" ")[0] ?? "the user";
+  // After an absence or a weekend the sources reach back further (gapDays), and
+  // the model is told why, so the first briefing back reads as a catch-up.
+  const catchUpBlock = returning && sinceDay
+    ? `## WELCOME BACK
+${firstName} was away from ${shortDay(returning.start)} to ${shortDay(returning.end)}${returning.cover ? `, with ${returning.cover} covering` : ""}. Today is the first working day back, and the sources above reach back to ${shortDay(sinceDay)}, the last working day before the absence.
+- criticalToday: what must be handled first now that ${firstName} is back.
+- followUps: who is still waiting on ${firstName}, by person, oldest first.
+- decisionsToWatch: what was decided while ${firstName} was away.
+- Say in one line what resolved itself during the absence, so it can be skipped.
+- meetingsNeedingPrep: meetings moved, added or declined during the absence, where the data shows it.
+- Commitments that fell due during the absence are not failures. Say they need new dates; do not call them overdue.
+`
+    : briefingType === "morning" && sinceDay && gapDays > 2
+      ? `## CATCH-UP
+The sources reach back to ${shortDay(sinceDay)}, the last working day, so include anything that arrived over the weekend or bank holiday.
+`
+      : "";
   const promptText = `Generate ${firstName}'s ${briefingType} briefing for ${today}.
 Goal: 3-minute executive read. Not a log — intelligence. Tell ${firstName} what to do today, who to respond to, what to watch, and what to prepare for.
 
 ${BRIEFING_TYPE_FRAMING[briefingType]}
-
+${catchUpBlock}
 ---
 
 ${sourceStatusBlock}
@@ -963,9 +998,12 @@ Return ONLY valid JSON, no markdown code fences:
       sourceAttribution: sourceAttributionData,
     };
   } else {
-    // Parse failure — return raw text in criticalToday so the UI shows something
+    // Parse failure — return raw text in criticalToday so the UI shows something,
+    // marked `unparsed` so a reader (page, delivery) can tell it is not a real
+    // briefing. It is NOT cached below (2026-11-10 bug pass, B4).
     briefingData = {
-      criticalToday: result.text,
+      criticalToday: redactSensitive(result.text).text,
+      unparsed: true,
       projectRadar: null,
       followUps: null,
       decisionsToWatch: null,
@@ -981,23 +1019,30 @@ Return ONLY valid JSON, no markdown code fences:
 
   // Persist to the generate-cache store (isolated from critical app state).
   // A cold-start cache miss is acceptable — regeneration is the fallback.
-  try {
-    const inputHash = computeInputHash(
-      username,
-      todayDate,
-      String(actionsResult.length),
-      String(decisionsResult.length),
-      String(memoriesResult.length),
-    );
-    // Key the cache by briefing TYPE — the 5 types (morning / midday / evening /
-    // etc.) previously shared one "briefing" slot, so generating one overwrote the
-    // others and the home's "Full briefing" could silently render meeting-prep text.
-    await writeGenerateCache(username, `briefing-${briefingType}`, briefingData, {
-      inputHash,
-      ttlMs: BRIEFING_TTL_MS,
-    });
-  } catch (e) {
-    console.warn("[briefing] Failed to cache briefing:", e instanceof Error ? e.message : e);
+  // Only a briefing that parsed is cached: the raw model text used to be saved
+  // for 24h as if valid, replacing yesterday's good briefing and suppressing a
+  // retry for the rest of the day.
+  if (parseResult.ok) {
+    try {
+      const inputHash = computeInputHash(
+        username,
+        todayDate,
+        String(actionsResult.length),
+        String(decisionsResult.length),
+        String(memoriesResult.length),
+      );
+      // Key the cache by briefing TYPE — the 5 types (morning / midday / evening /
+      // etc.) previously shared one "briefing" slot, so generating one overwrote the
+      // others and the home's "Full briefing" could silently render meeting-prep text.
+      await writeGenerateCache(username, `briefing-${briefingType}`, briefingData, {
+        inputHash,
+        ttlMs: BRIEFING_TTL_MS,
+      });
+    } catch (e) {
+      console.warn("[briefing] Failed to cache briefing:", e instanceof Error ? e.message : e);
+    }
+  } else {
+    console.warn(`[briefing] ${username}: model output did not parse — returned unformatted, not cached`);
   }
 
   return Response.json(briefingData);

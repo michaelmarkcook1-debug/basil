@@ -175,7 +175,7 @@ export async function processRegularEmail(opts: ProcessEmailOpts): Promise<void>
     const unchanged = await isHashUnchanged(username, sourceRef, contentHash);
     if (unchanged) {
       console.log(`[email-process] ${externalId} unchanged (hash match) — skipping`);
-      void appendAuditEntries(username, [
+      await appendAuditEntries(username, [
         auditSkipped(sourceRef, "action", `Content hash unchanged for ${externalId}`),
       ]);
       return;
@@ -272,7 +272,7 @@ export async function processRegularEmail(opts: ProcessEmailOpts): Promise<void>
 
     if (!shouldMaterialize(intel)) {
       // Record in index so we don't re-classify this message on the next poll
-      void recordIngest(username, { sourceRef, hash: contentHash });
+      await recordIngest(username, { sourceRef, hash: contentHash });
       return;
     }
 
@@ -298,8 +298,8 @@ export async function processRegularEmail(opts: ProcessEmailOpts): Promise<void>
       .filter((e) => e.itemType === "memory" && e.itemId)
       .map((e) => e.itemId!);
 
-    void recordIngest(username, { sourceRef, hash: contentHash, actionIds, decisionIds, memoryIds });
-    void appendAuditEntries(username, result.auditEntries);
+    await recordIngest(username, { sourceRef, hash: contentHash, actionIds, decisionIds, memoryIds });
+    await appendAuditEntries(username, result.auditEntries);
 
     // ── Write back-links on the originating BasilEvent ────────────────────────
     // This lets the Events feed show "spawned 2 actions, 1 decision" per event.
@@ -308,7 +308,7 @@ export async function processRegularEmail(opts: ProcessEmailOpts): Promise<void>
       if (actionIds[0]) backLink.actionId = actionIds[0];
       if (decisionIds[0]) backLink.decisionId = decisionIds[0];
       if (memoryIds[0]) backLink.memoryId = memoryIds[0];
-      void updateEvent(username, eventId, backLink).catch(() => { /* ci-ok: back-link is UI-only, durable records already written */ });
+      await updateEvent(username, eventId, backLink).catch(() => { /* ci-ok: back-link is UI-only, durable records already written */ });
     }
 
     if (result.actionsCreated + result.decisionsCreated + result.memoriesCreated > 0) {
@@ -363,7 +363,7 @@ export async function processRegularEmail(opts: ProcessEmailOpts): Promise<void>
   } catch (err) {
     const errMsg = err instanceof Error ? err.message : String(err);
     console.error(`[email-process] failed for ${externalId}:`, errMsg);
-    void appendAuditEntries(username, [
+    await appendAuditEntries(username, [
       auditFailed(externalId, "action", errMsg, `processRegularEmail failed for ${externalId}`),
     ]);
   }
@@ -414,8 +414,11 @@ export interface ProcessZoomEmailOpts {
  *  - Per-attendee touchpoints → Memory store (kind:"person", for contact recency)
  *
  * Called fire-and-forget after the event record is created.
+ *
+ * Resolves `{ extractionFailed: true }` when the AI extraction failed (nothing
+ * recorded, so a later run retries); callers that report status can surface it.
  */
-export async function processZoomEmail(opts: ProcessZoomEmailOpts): Promise<void> {
+export async function processZoomEmail(opts: ProcessZoomEmailOpts): Promise<{ extractionFailed: true } | void> {
   const { gmailId, externalId, eventId, subject, dateFallback, username } = opts;
 
   if (!username) {
@@ -447,13 +450,22 @@ export async function processZoomEmail(opts: ProcessZoomEmailOpts): Promise<void
     const unchanged = await isHashUnchanged(username, sourceRef, contentHash);
     if (unchanged) {
       console.log(`[zoom-process] ${externalId} unchanged (hash match) — skipping`);
-      void appendAuditEntries(username, [
+      await appendAuditEntries(username, [
         auditSkipped(sourceRef, "action", `Zoom content hash unchanged for ${externalId}`),
       ]);
       return;
     }
 
     const extract = await extractZoomMeeting(plainBody, { subject, date }, username);
+    // A FAILED extraction is not "nothing here" — recording its hash below the
+    // review floor would write the meeting off for good. Leave it unrecorded.
+    if (extract.failed) {
+      console.warn(
+        `[zoom-process] ${externalId} extraction FAILED — ` +
+        `not recording hash so it retries once AI is healthy`
+      );
+      return { extractionFailed: true };
+    }
     // Who "me" is in THIS meeting: a bare "Mike" is the user only when the
     // notes don't also mention Michael or another Mike.
     // No attendee list here: names extracted from a summary are not Zoom's
@@ -476,7 +488,7 @@ export async function processZoomEmail(opts: ProcessZoomEmailOpts): Promise<void
       console.log(
         `[zoom-process] confidence=${extract.confidence} below floor (${ZOOM_REVIEW_FLOOR}) — skipping materialization`
       );
-      void recordIngest(username, { sourceRef, hash: contentHash });
+      await recordIngest(username, { sourceRef, hash: contentHash });
       return;
     }
 
@@ -793,18 +805,18 @@ export async function processZoomEmail(opts: ProcessZoomEmailOpts): Promise<void
       .filter((e) => e.itemType === "memory" && e.itemId)
       .map((e) => e.itemId!);
 
-    void recordIngest(username, {
+    await recordIngest(username, {
       sourceRef,
       hash: contentHash,
       actionIds: zoomActionIds,
       decisionIds: zoomDecisionIds,
       memoryIds: zoomMemoryIds,
     });
-    void appendAuditEntries(username, zoomAuditEntries);
+    await appendAuditEntries(username, zoomAuditEntries);
   } catch (err) {
     const errMsg = err instanceof Error ? err.message : String(err);
     console.error(`[zoom-process] failed for ${externalId}:`, errMsg);
-    void appendAuditEntries(username, [
+    await appendAuditEntries(username, [
       auditFailed(externalId, "action", errMsg, `processZoomEmail failed for ${externalId}`),
     ]);
   }

@@ -9,16 +9,27 @@ function lockKey(username: string): string {
   return `decisions:${username}`;
 }
 
-async function readAll(username: string): Promise<Decision[]> {
-  return readUserStore<Decision[]>(username, DECISIONS_FILE, []);
+/**
+ * ⚠️ EVERY read that feeds a read-modify-write MUST pass `{ fresh: true }`
+ * (same rule as lib/actions/store.ts).
+ *
+ * Without it the read comes from the per-instance /tmp cache, which has no
+ * TTL: the lock serialises the write, but the list being written was read from
+ * a snapshot that may be minutes old — so an edit on one instance erased a
+ * decision another instance had just created, or brought back one it had
+ * deleted (2026-11-10 bug pass, C1). Only listDecisions may skip it; its
+ * caller decides its own freshness.
+ */
+async function readAll(username: string, options?: { fresh?: boolean }): Promise<Decision[]> {
+  return readUserStore<Decision[]>(username, DECISIONS_FILE, [], options);
 }
 
 async function writeAll(username: string, items: Decision[]): Promise<void> {
   await writeUserStore(username, DECISIONS_FILE, items);
 }
 
-export async function listDecisions(username: string): Promise<Decision[]> {
-  const items = await readAll(username);
+export async function listDecisions(username: string, options?: { fresh?: boolean }): Promise<Decision[]> {
+  const items = await readAll(username, options);
   // Fall back to createdAt when date is absent or invalid to avoid NaN in sort.
   return items.sort(
     (a, b) =>
@@ -161,7 +172,7 @@ export interface CreateDecisionInput {
  */
 export async function createDecision(username: string, input: CreateDecisionInput): Promise<Decision> {
   return withLock(lockKey(username), async () => {
-    const items = await readAll(username);
+    const items = await readAll(username, { fresh: true });
     const now = new Date().toISOString();
 
     // ── Dedup check ────────────────────────────────────────────────────────
@@ -256,7 +267,7 @@ export async function updateDecision(
   >
 ): Promise<Decision | null> {
   return withLock(lockKey(username), async () => {
-    const items = await readAll(username);
+    const items = await readAll(username, { fresh: true });
     const idx = items.findIndex((d) => d.id === id);
     if (idx === -1) return null;
     items[idx] = { ...items[idx], ...patch, updatedAt: new Date().toISOString() };
@@ -274,7 +285,7 @@ export async function linkActionToDecision(
   actionId: string
 ): Promise<Decision | null> {
   return withLock(lockKey(username), async () => {
-    const items = await readAll(username);
+    const items = await readAll(username, { fresh: true });
     const idx = items.findIndex((d) => d.id === decisionId);
     if (idx === -1) return null;
     const existing = items[idx].linkedActionIds ?? [];
@@ -291,7 +302,7 @@ export async function linkActionToDecision(
 
 export async function deleteDecision(username: string, id: string): Promise<boolean> {
   return withLock(lockKey(username), async () => {
-    const items = await readAll(username);
+    const items = await readAll(username, { fresh: true });
     const next = items.filter((d) => d.id !== id);
     if (next.length === items.length) return false;
     await writeAll(username, next);
@@ -315,7 +326,7 @@ export async function createDecisionTracked(
   username: string,
   input: CreateDecisionInput
 ): Promise<CreateDecisionResult> {
-  const before = await readAll(username);
+  const before = await readAll(username, { fresh: true });
   const existingIds = new Set(before.map((d) => d.id));
   const item = await createDecision(username, input);
   return { item, created: !existingIds.has(item.id) };
@@ -323,7 +334,7 @@ export async function createDecisionTracked(
 
 export async function bulkImport(username: string, incoming: Decision[]): Promise<number> {
   return withLock(lockKey(username), async () => {
-    const items = await readAll(username);
+    const items = await readAll(username, { fresh: true });
     const existingIds = new Set(items.map((d) => d.id));
     let added = 0;
     for (const d of incoming) {

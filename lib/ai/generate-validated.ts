@@ -36,6 +36,7 @@ import type { LanguageModel } from "ai";
 import type { ProviderOptions } from "@ai-sdk/provider-utils";
 import type { ModelKind } from "@/lib/ai/model-config";
 import { reserveSpend, commitSpend, releaseSpend, SpendCapError, type SpendMeter } from "@/lib/ai/spend-guard";
+import { attemptTimeoutMs } from "@/lib/ai/generate";
 
 // ── Error type ─────────────────────────────────────────────────────────────────
 
@@ -141,11 +142,23 @@ export async function generateValidated<T>(opts: Opts<T>): Promise<T> {
         system,
         prompt: opts.prompt,
         providerOptions,
+        // The same per-tier ceiling generateTextSafe uses. Without one a hung
+        // provider held the function (and the reservation) until the platform
+        // killed it (2026-11-10 bug pass).
+        abortSignal: AbortSignal.timeout(attemptTimeoutMs(opts.meterKind ?? "default")),
       });
       if (reservation) await commitSpend(reservation, result.usage);
       return result.output as T;
     } catch (callErr) {
-      if (reservation) await releaseSpend(reservation);
+      if (reservation) {
+        // An answer that came back but did not validate was still paid for:
+        // NoObjectGeneratedError carries its usage, so commit that. Refunding
+        // it in full under-counted real spend against the daily cap (D5).
+        // Anything else (transport error, timeout) has no known usage: refund.
+        const usage = NoObjectGeneratedError.isInstance(callErr) ? callErr.usage : undefined;
+        if (usage && ((usage.inputTokens ?? 0) > 0 || (usage.outputTokens ?? 0) > 0)) await commitSpend(reservation, usage);
+        else await releaseSpend(reservation);
+      }
       throw callErr;
     }
   }

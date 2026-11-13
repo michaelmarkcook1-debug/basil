@@ -40,7 +40,7 @@ function fakeGoogle({ message, event, selfEmail = "me@fixture.invalid" } = {}) {
   const auth = { getAuthedClient: async () => ({}) };
   const gmailMod = loadTs("lib/google/gmail.ts", { "@/lib/self-identity": { getSelfIdentity: async () => ({ emails: ["me@self.invalid", "alias@self.invalid"], names: ["me"] }) }, googleapis, "./auth": auth });
   const calMod = loadTs("lib/google/calendar.ts", {
-    googleapis, "./auth": auth, "./gmail": gmailMod,
+    googleapis, "./auth": auth, "./gmail": gmailMod, "@/lib/away/calendar": loadTs("lib/away/calendar.ts"),
     "@/lib/self-identity": { getSelfIdentity: async () => ({ emails: [selfEmail], names: [] }), stripSelf: (a) => a },
   });
   return { gmail: gmailMod, cal: calMod, sent, patched };
@@ -211,6 +211,12 @@ function rsvpRoute(respondToEvent) {
     "@/lib/google/auth": { isGoogleConnected: async () => true },
     "@/lib/auth": { getSessionUser: async () => "u" },
     "@/lib/google/calendar": { respondToEvent, NotAnAttendeeError: class NotAnAttendeeError extends Error {} },
+    // The route answers through lib/calendar/writes (routes "ms:" ids to Outlook); a Google id reaches respondToEvent.
+    "@/lib/calendar/writes": {
+      respondToEvent, NotAnAttendeeError: class NotAnAttendeeError extends Error {},
+      CalendarNotConnectedError: class CalendarNotConnectedError extends Error {},
+      CALENDAR_NAME: { google: "Google Calendar", microsoft: "Microsoft 365 calendar" }, eventProvider: () => "google",
+    },
     "@/lib/events/audit": { emitAuditEvent: async () => null },
   });
 }

@@ -67,7 +67,8 @@ test("no signal and no notes: the prompt says so and forbids invention", () => {
 });
 
 test("the route reads 90 days, fetches bodies, brings the prior profile and notes, and honours the switch", () => {
-  const r = src("app/api/contacts/generate-profile/route.ts");
+  // The generation moved out of the route on 2026-11-10 so Ask Basil can call it.
+  const r = src("lib/contacts/generate-profile.ts");
   assert.match(r, /const WINDOW_DAYS = 90/);
   assert.match(r, /getRecentEmails\(username, 400, WINDOW_DAYS\)/, "not the 2-day default any more");
   assert.match(r, /getRecentSlackMessages\(username, 2500, WINDOW_DAYS\)/, "same call as the tone read → served from its cache");

@@ -161,90 +161,57 @@ export async function exchangeCode(code: string, username: string, appBaseUrl?: 
 /**
  * Read stored Microsoft OAuth tokens for a specific user.
  * Strictly user-scoped — no global fallback to prevent data bleed across users.
+ *
+ * A record with a blank access token but a refresh token is still returned:
+ * the refresh token is what renews it. Returning null for it (before
+ * 2026-11-10) meant one failed refresh — even a Microsoft blip — left Outlook
+ * and Teams dead until the user reconnected (bug B10).
  */
 export async function getStoredTokens(username: string): Promise<MicrosoftTokens | null> {
   const tokens = await getIntegrationToken<MicrosoftTokens>(username, "microsoft");
-  if (tokens?.access_token) return tokens;
+  if (tokens?.access_token || tokens?.refresh_token) return tokens;
   return null;
 }
 
-// ── Access token (auto-refresh) ───────────────────────────────────────────────
-
 /**
- * Returns a valid access token for the user, refreshing automatically if within
- * 5 minutes of expiry. Returns null if no tokens are stored or refresh fails.
+ * True when Microsoft 365 is connected (a usable token record is stored) and,
+ * when `need` is given, its scope covers that service. A record with no scope
+ * string is treated as covering everything rather than silently hiding it.
  */
-export async function getAccessToken(username: string): Promise<string | null> {
-  const tokens = await getStoredTokens(username);
-  if (!tokens) return null;
-
-  // Still valid — not within 5-minute expiry window
-  if (tokens.expires_at > Date.now() + 5 * 60 * 1000) {
-    return tokens.access_token;
-  }
-
-  // No refresh token — cannot renew
-  if (!tokens.refresh_token) return null;
-
-  try {
-    const res = await fetch(getTokenEndpoint(), {
-      method:  "POST",
-      headers: { "Content-Type": "application/x-www-form-urlencoded" },
-      body:    new URLSearchParams({
-        client_id:     process.env.MICROSOFT_CLIENT_ID || "",
-        client_secret: process.env.MICROSOFT_CLIENT_SECRET || "",
-        refresh_token: tokens.refresh_token,
-        grant_type:    "refresh_token",
-        scope:         SCOPES,
-      }),
-    });
-
-    if (!res.ok) {
-      const body = await res.text().catch(() => "");
-      console.error(`[microsoft-auth] Token refresh failed HTTP ${res.status}: ${body.slice(0, 200)}`);
-      return null;
-    }
-
-    const data = await res.json() as {
-      access_token:  string;
-      refresh_token?: string;
-      expires_in:    number;
-      scope:         string;
-      token_type:    string;
-    };
-
-    const refreshed: MicrosoftTokens = {
-      access_token:  data.access_token,
-      refresh_token: data.refresh_token || tokens.refresh_token,
-      expires_at:    Date.now() + data.expires_in * 1000,
-      scope:         data.scope || tokens.scope,
-      token_type:    data.token_type,
-    };
-
-    await saveIntegrationToken(username, "microsoft", refreshed);
-    return refreshed.access_token;
-  } catch (err) {
-    console.error("[microsoft-auth] Token refresh error:", err instanceof Error ? err.message : err);
-    return null;
-  }
+export async function isMicrosoftConnected(username: string, need?: "calendar" | "mail" | "send"): Promise<boolean> {
+  const tokens = await getStoredTokens(username).catch(() => null); // ci-ok: an unreadable token store means "not connected"
+  if (!tokens) return false;
+  if (!need || !tokens.scope?.trim()) return true;
+  const granted = tokens.scope.split(/[\s,]+/).map((s) => s.split("/").pop()!.toLowerCase());
+  const wanted = need === "calendar" ? ["calendars.readwrite", "calendars.read"]
+    : need === "send" ? ["mail.send"]
+    : ["mail.read", "mail.readwrite"];
+  return wanted.some((w) => granted.includes(w));
 }
 
-// ── Graph fetch helpers ───────────────────────────────────────────────────────
+/**
+ * A refresh failure that will never succeed on retry: the refresh token is
+ * revoked or expired (invalid_grant) or the app credentials are wrong
+ * (invalid_client). Anything else — 5xx, 429, a network error, a malformed
+ * reply — is temporary and must not wipe the stored token. Pure — exported for tests.
+ */
+export function isPermanentRefreshFailure(status: number, body: string): boolean {
+  if (status !== 400 && status !== 401) return false;
+  let code = "";
+  try { code = String((JSON.parse(body) as { error?: unknown }).error ?? ""); } catch { /* not JSON */ }
+  if (!code) code = /invalid_grant|invalid_client/.exec(body)?.[0] ?? "";
+  return code === "invalid_grant" || code === "invalid_client";
+}
 
 /**
- * Unconditionally refresh the access token using the stored refresh_token,
- * bypassing the cached `expires_at` check.  Called on 401 responses to recover
- * from server-side token invalidation (password change, conditional access,
- * admin revoke) that makes a locally-valid-looking token rejected by Graph.
- *
- * On refresh failure: writes `expires_at: 0` so that the next
- * `getMicrosoftConnectionStatus` call returns `token_expired` and the Settings
- * page prompts the user to re-authorise.
+ * Exchange the refresh token for a new access token and store it.
+ * On a permanent failure the access token is blanked (expires_at 0) so the
+ * Settings page asks the user to re-authorise; the refresh token stays, so the
+ * record is still read and the next call tries again. A temporary failure
+ * leaves the stored tokens untouched.
  */
-async function forceRefreshToken(username: string): Promise<string | null> {
-  const tokens = await getStoredTokens(username);
-  if (!tokens?.refresh_token) return null;
-
+async function refreshAccessToken(username: string, tokens: MicrosoftTokens, label: string): Promise<string | null> {
+  if (!tokens.refresh_token) return null;
   try {
     const res = await fetch(getTokenEndpoint(), {
       method:  "POST",
@@ -260,13 +227,16 @@ async function forceRefreshToken(username: string): Promise<string | null> {
 
     if (!res.ok) {
       const body = await res.text().catch(() => "");
-      console.error(`[microsoft-auth] Force-refresh failed HTTP ${res.status}: ${body.slice(0, 200)}`);
-      // Mark token as expired so status page shows "re-authorize" prompt
-      await saveIntegrationToken(username, "microsoft", {
-        ...tokens,
-        access_token: "",
-        expires_at:   0,
-      });
+      const permanent = isPermanentRefreshFailure(res.status, body);
+      console.error(`[microsoft-auth] ${label} failed HTTP ${res.status} (${permanent ? "permanent" : "temporary"}): ${body.slice(0, 200)}`);
+      if (permanent) {
+        // Mark token as expired so status page shows "re-authorize" prompt
+        await saveIntegrationToken(username, "microsoft", {
+          ...tokens,
+          access_token: "",
+          expires_at:   0,
+        });
+      }
       return null;
     }
 
@@ -287,12 +257,56 @@ async function forceRefreshToken(username: string): Promise<string | null> {
     };
 
     await saveIntegrationToken(username, "microsoft", refreshed);
-    console.log("[microsoft-auth] Force-refresh succeeded — new token stored");
     return refreshed.access_token;
   } catch (err) {
-    console.error("[microsoft-auth] Force-refresh error:", err instanceof Error ? err.message : err);
+    console.error(`[microsoft-auth] ${label} error:`, err instanceof Error ? err.message : err);
     return null;
   }
+}
+
+// ── Access token (auto-refresh) ───────────────────────────────────────────────
+
+/**
+ * Returns a valid access token for the user, refreshing automatically if within
+ * 5 minutes of expiry (or blank). Returns null if no tokens are stored or the
+ * refresh fails and the stored token has actually expired.
+ */
+export async function getAccessToken(username: string): Promise<string | null> {
+  const tokens = await getStoredTokens(username);
+  if (!tokens) return null;
+
+  // Still valid — not within 5-minute expiry window
+  if (tokens.access_token && tokens.expires_at > Date.now() + 5 * 60 * 1000) {
+    return tokens.access_token;
+  }
+
+  // No refresh token — cannot renew
+  if (!tokens.refresh_token) return tokens.access_token && tokens.expires_at > Date.now() ? tokens.access_token : null;
+
+  const fresh = await refreshAccessToken(username, tokens, "Token refresh");
+  if (fresh) return fresh;
+  // A temporary refresh failure inside the 5-minute window: the old token still works until it expires.
+  return tokens.access_token && tokens.expires_at > Date.now() ? tokens.access_token : null;
+}
+
+// ── Graph fetch helpers ───────────────────────────────────────────────────────
+
+/**
+ * Unconditionally refresh the access token using the stored refresh_token,
+ * bypassing the cached `expires_at` check.  Called on 401 responses to recover
+ * from server-side token invalidation (password change, conditional access,
+ * admin revoke) that makes a locally-valid-looking token rejected by Graph.
+ *
+ * Only a permanent failure (invalid_grant / invalid_client) writes
+ * `expires_at: 0`, so that `getMicrosoftConnectionStatus` returns
+ * `token_expired` and the Settings page prompts the user to re-authorise.
+ */
+async function forceRefreshToken(username: string): Promise<string | null> {
+  const tokens = await getStoredTokens(username);
+  if (!tokens?.refresh_token) return null;
+  const fresh = await refreshAccessToken(username, tokens, "Force-refresh");
+  if (fresh) console.log("[microsoft-auth] Force-refresh succeeded — new token stored");
+  return fresh;
 }
 
 /**
@@ -366,7 +380,9 @@ export async function getMicrosoftConnectionStatus(username: string): Promise<In
   try {
     // Step 1: check whether tokens are stored at all.
     const tokens = await getStoredTokens(username);
-    if (!tokens?.access_token) {
+    // A blanked access token with a refresh token is "expired", not "disconnected":
+    // step 2 tries the refresh and reports token_expired if it fails.
+    if (!tokens) {
       return { id: "microsoft", state: "disconnected", lastCheckedAt: now };
     }
 

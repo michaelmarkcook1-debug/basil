@@ -9,7 +9,7 @@
 export const maxDuration = 300;
 
 import { NextResponse, after } from "next/server";
-import { createEvent, hasExternalId, listEvents, updateEvent, compactEvents } from "@/lib/events/store";
+import { createEventIfNew, hasExternalId, listEvents, updateEvent, compactEvents } from "@/lib/events/store";
 import { forceFlushSnapshot } from "@/lib/storage/persistent";
 import { writeUserStore, readUserStore } from "@/lib/storage/user-store";
 import { HEALTH_META_FILE, type HealthMeta } from "@/lib/system/health";
@@ -194,8 +194,12 @@ export async function POST(req: Request) {
   }
 
   const [emails, slacks, calEvents, zoomEmails, outlookEmails, teamsMessages, selfIdentity, mutedSources] = await Promise.all([
-    track("email", getRecentEmails(username, 20)),
-    track("slack", getRecentSlackMessages(username, 30)),
+    // Same windows (2 days of inbox, 7 of Slack), deeper reads: the newest 20 /
+    // 30 lost anything older on a busy day. Already-seen items stop at the
+    // externalId check below and content-hash dedupe stops re-classification,
+    // so only genuinely new content costs anything.
+    track("email", getRecentEmails(username, 60)),
+    track("slack", getRecentSlackMessages(username, 100)),
     track("calendar", getTodayEvents(username)),
     // Direct + FORWARDED Zoom recaps. The canonical query is from:-restricted
     // to Zoom's domains, so a summary a colleague forwards (their address, not
@@ -598,9 +602,12 @@ export async function POST(req: Request) {
   }> = [];
 
   for (const p of payloads) {
+    // Cheap cached pre-check first; createEventIfNew re-checks inside the lock
+    // so a webhook landing the same message meanwhile cannot make a duplicate.
     if (p.externalId && (await hasExternalId(username, p.externalId))) continue;
     const shaped = eventFromIngest(p);
-    const event = await createEvent(username, shaped);
+    const { created, event } = await createEventIfNew(username, shaped);
+    if (!created) continue;
     publish(event);
     ingested++;
     if (event.disposition === "draft" && event.draft) {
@@ -727,7 +734,7 @@ export async function POST(req: Request) {
           const slackUnchanged = await isHashUnchanged(username, slackSourceRef, slackContentHash);
           if (slackUnchanged) {
             console.log(`[poll-ingest] slack ${slackSourceRef} unchanged — skipping`);
-            void appendAuditEntries(username, [
+            await appendAuditEntries(username, [
               auditSkipped(slackSourceRef, "action", `Slack content unchanged for ${slackSourceRef}`),
             ]);
             continue;
@@ -755,7 +762,7 @@ export async function POST(req: Request) {
           }
 
           if (!shouldMaterializeSlack(intel)) {
-            void recordIngest(username, { sourceRef: slackSourceRef, hash: slackContentHash });
+            await recordIngest(username, { sourceRef: slackSourceRef, hash: slackContentHash });
             continue;
           }
 
@@ -774,14 +781,14 @@ export async function POST(req: Request) {
           const slackActionIds = result.auditEntries.filter((e) => e.itemType === "action" && e.itemId).map((e) => e.itemId!);
           const slackDecisionIds = result.auditEntries.filter((e) => e.itemType === "decision" && e.itemId).map((e) => e.itemId!);
           const slackMemoryIds = result.auditEntries.filter((e) => e.itemType === "memory" && e.itemId).map((e) => e.itemId!);
-          void recordIngest(username, {
+          await recordIngest(username, {
             sourceRef: slackSourceRef,
             hash: slackContentHash,
             actionIds: slackActionIds,
             decisionIds: slackDecisionIds,
             memoryIds: slackMemoryIds,
           });
-          void appendAuditEntries(username, result.auditEntries);
+          await appendAuditEntries(username, result.auditEntries);
 
           // ── SignalEvent write (mirrors ingestSlackWorkflow) ─────────────────
           // poll-ingest is the primary data path (cron every 15 min). Without
@@ -836,7 +843,7 @@ export async function POST(req: Request) {
             if (slackActionIds[0]) slackBackLink.actionId = slackActionIds[0];
             if (slackDecisionIds[0]) slackBackLink.decisionId = slackDecisionIds[0];
             if (slackMemoryIds[0]) slackBackLink.memoryId = slackMemoryIds[0];
-            void updateEvent(username, eventId, slackBackLink).catch(() => {/* non-fatal */});
+            await updateEvent(username, eventId, slackBackLink).catch(() => {/* non-fatal */});
           }
 
           // Update contact lastInteraction so the Contacts tab stays current
@@ -871,7 +878,7 @@ export async function POST(req: Request) {
           const teamsUnchanged = await isHashUnchanged(username, teamsSourceRef, teamsContentHash);
           if (teamsUnchanged) {
             console.log(`[poll-ingest] teams ${teamsSourceRef} unchanged — skipping`);
-            void appendAuditEntries(username, [
+            await appendAuditEntries(username, [
               auditSkipped(teamsSourceRef, "action", `Teams content unchanged for ${teamsSourceRef}`),
             ]);
             continue;
@@ -896,7 +903,7 @@ export async function POST(req: Request) {
           }
 
           if (!shouldMaterializeTeams(intel)) {
-            void recordIngest(username, { sourceRef: teamsSourceRef, hash: teamsContentHash });
+            await recordIngest(username, { sourceRef: teamsSourceRef, hash: teamsContentHash });
             continue;
           }
 
@@ -913,7 +920,7 @@ export async function POST(req: Request) {
           const teamsActionIds = result.auditEntries?.filter((e) => e.itemType === "action" && e.itemId).map((e) => e.itemId!) ?? [];
           const teamsDecisionIds = result.auditEntries?.filter((e) => e.itemType === "decision" && e.itemId).map((e) => e.itemId!) ?? [];
           const teamsMemoryIds = result.auditEntries?.filter((e) => e.itemType === "memory" && e.itemId).map((e) => e.itemId!) ?? [];
-          void recordIngest(username, {
+          await recordIngest(username, {
             sourceRef: teamsSourceRef,
             hash: teamsContentHash,
             actionIds: teamsActionIds,
@@ -921,7 +928,7 @@ export async function POST(req: Request) {
             memoryIds: teamsMemoryIds,
           });
           if (result.auditEntries?.length) {
-            void appendAuditEntries(username, result.auditEntries);
+            await appendAuditEntries(username, result.auditEntries);
           }
 
           // Back-links on the originating BasilEvent
@@ -930,7 +937,7 @@ export async function POST(req: Request) {
             if (teamsActionIds[0]) teamsBackLink.actionId = teamsActionIds[0];
             if (teamsDecisionIds[0]) teamsBackLink.decisionId = teamsDecisionIds[0];
             if (teamsMemoryIds[0]) teamsBackLink.memoryId = teamsMemoryIds[0];
-            void updateEvent(username, eventId, teamsBackLink).catch(() => {/* non-fatal */});
+            await updateEvent(username, eventId, teamsBackLink).catch(() => {/* non-fatal */});
           }
 
         } catch (err) {
@@ -998,8 +1005,10 @@ export async function POST(req: Request) {
   for (const p of zoomPayloads) {
     if (p.externalId && (await hasExternalId(username, p.externalId))) continue;
 
+    // The Gmail webhook creates the same gmail:<id> event; only the creator extracts.
     const shaped = eventFromIngest(p);
-    const event = await createEvent(username, shaped);
+    const { created, event } = await createEventIfNew(username, shaped);
+    if (!created) continue;
     publish(event);
     zoomIngested++;
 
@@ -1068,7 +1077,7 @@ export async function POST(req: Request) {
     }
     const queued: Array<{ m: DigestMeeting; ref: string; gmailId: string; eventId: string }> = [];
     for (const f of fresh) {
-      const event = await createEvent(username, eventFromIngest({
+      const { created, event } = await createEventIfNew(username, eventFromIngest({
         source: "zoom_email",
         externalId: f.ref,
         title: f.m.title,
@@ -1076,6 +1085,8 @@ export async function POST(req: Request) {
         from: f.m.host,
         date: f.m.date,
       }));
+      // An overlapping run got here first; it owns the extraction.
+      if (!created) continue;
       publish(event);
       queued.push({ ...f, eventId: event.id });
     }
@@ -1246,13 +1257,21 @@ export async function POST(req: Request) {
         const sourceRef = `zoom-api:${meeting.id}`;
         if (processedRefs.has(sourceRef)) continue;
 
-        const [participants, recording] = await Promise.all([
-          getMeetingParticipants(username, meeting.uuid),
-          Promise.resolve(recordingMap.get(meeting.id)),
-        ]);
+        // A meeting that yields only memories (no transcript, or nothing
+        // actionable in one) left no action or decision behind, so it was
+        // re-run — model call included — on every poll for three days. The
+        // ingest marker records WHAT was processed: a transcript that turns up
+        // later changes the hash, so the meeting gets one more pass with it.
+        const recording = recordingMap.get(meeting.id);
+        const transcript = recording?.transcript?.trim() ?? "";
+        const zoomHash = hashContent(sourceRef, transcript.length > 100 ? transcript : "");
+        if (await isHashUnchanged(username, sourceRef, zoomHash)) continue;
 
-        await processZoomMeeting({ username, meeting, participants, recording });
+        const participants = await getMeetingParticipants(username, meeting.uuid);
+        const result = await processZoomMeeting({ username, meeting, participants, recording });
         processed++;
+        // A failed extraction is not a verdict: leave it unmarked so it retries.
+        if (!result.extractionFailed) await recordIngest(username, { sourceRef, hash: zoomHash });
       }
 
       if (processed > 0) {

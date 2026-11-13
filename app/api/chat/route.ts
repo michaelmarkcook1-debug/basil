@@ -32,6 +32,7 @@ import { reserveSpend, commitSpend, releaseSpend, SpendCapError, spendCapRespons
 import { getEntitlement } from "@/lib/billing/entitlement-store";
 import { effectiveKind } from "@/lib/ai/tiering";
 import { CHAT_PRICE_FAMILY, costUsd, type TokenUsage } from "@/lib/ai/pricing";
+import { trustFromMessages } from "@/lib/ai/injection-guard";
 import { getDelegations, recordApprovalResponses, recordDelegatedRuns } from "@/lib/trust/ledger";
 
 /**
@@ -52,6 +53,20 @@ import { getDelegations, recordApprovalResponses, recordDelegatedRuns } from "@/
 const MAX_BODY_BYTES = 4_000_000;
 // Per-user: 30 AI calls per minute (generous for normal use, blocks runaway loops)
 const CHAT_RATE_LIMIT = 30;
+
+/** Sum two step usages field by field, keeping the cache split for pricing. */
+function addUsage(a: TokenUsage, b: TokenUsage | undefined): TokenUsage {
+  if (!b) return a;
+  const n = (x?: number) => x ?? 0;
+  return {
+    inputTokens: n(a.inputTokens) + n(b.inputTokens),
+    outputTokens: n(a.outputTokens) + n(b.outputTokens),
+    inputTokenDetails: {
+      cacheReadTokens: n(a.inputTokenDetails?.cacheReadTokens) + n(b.inputTokenDetails?.cacheReadTokens),
+      cacheWriteTokens: n(a.inputTokenDetails?.cacheWriteTokens) + n(b.inputTokenDetails?.cacheWriteTokens),
+    },
+  };
+}
 
 export async function POST(req: Request) {
   const contentLength = req.headers.get("content-length");
@@ -171,11 +186,38 @@ export async function POST(req: Request) {
   // release the same reservation (which would corrupt the counter).
   let spendSettled = false;
 
+  // Usage of the tool-loop steps that COMPLETED. A stream that errors after
+  // paid steps used to refund the whole hold, under-counting real spend
+  // against the daily cap (2026-11-10 bug pass, D5); failure now commits this.
+  let paidUsage: TokenUsage = {};
+  let paidSteps = 0;
+  const settleFailure = () => {
+    if (spendSettled) return;
+    spendSettled = true;
+    void (paidSteps > 0 ? commitSpend(reservation, paidUsage) : releaseSpend(reservation));
+  };
+
+  // Model resolution, building the tools and constructing the stream can still
+  // throw, and until the stream exists nothing else settles the hold — it sat
+  // against the daily cap until midnight UTC (D6). Anything built through this
+  // returns the hold before the error propagates.
+  const releaseOnThrow = async <T>(build: () => T): Promise<T> => {
+    try {
+      return build();
+    } catch (err) {
+      if (!spendSettled) {
+        spendSettled = true;
+        await releaseSpend(reservation).catch((e) => console.error("[api/chat] release after stream setup failure failed:", e instanceof Error ? e.message : e));
+      }
+      throw err;
+    }
+  };
+
   // Log the model that ACTUALLY serves this reply. The assistant's own claims
   // about which model it is are unreliable (LLMs guess at their identity), and
   // the dispatch traces were separately mislabelling everything as Haiku — so
   // this line is the single source of truth for "what is Ask Basil running?".
-  const chatModel = getChatModel(chatKind);
+  const chatModel = await releaseOnThrow(() => getChatModel(chatKind));
   console.info(
     `[api/chat] model=${typeof chatModel === "string" ? chatModel : chatModel.modelId} ` +
     `provider=${PROVIDER_MODE} tier=${chatKind}`
@@ -201,12 +243,12 @@ export async function POST(req: Request) {
   const spentAcross = (steps: readonly { usage?: TokenUsage }[]) =>
     steps.reduce((sum, st) => sum + costUsd(CHAT_PRICE_FAMILY, st.usage), 0);
 
-  const result = streamText({
+  const result = await releaseOnThrow(() => streamText({
     model: chatModel,
     maxOutputTokens: MAX_TOKENS[chatKind],
     system,
     messages: modelMessages,
-    tools: buildAssistantTools(username, firstName, timezone, { delegated }),
+    tools: buildAssistantTools(username, firstName, timezone, { delegated, trust: trustFromMessages(messages) }),
     prepareStep: cacheLatestStep,
     stopWhen: [
       stepCountIs(8),
@@ -220,6 +262,11 @@ export async function POST(req: Request) {
         return true;
       },
     ],
+    // Count each completed step's usage so a later failure can settle at it.
+    onStepFinish: ({ usage }) => {
+      paidSteps++;
+      paidUsage = addUsage(paidUsage, usage);
+    },
     // Reconcile the reservation to ACTUAL token usage once the stream finishes.
     // totalUsage aggregates across all tool-loop steps.
     onFinish: ({ totalUsage, finishReason, steps }) => {
@@ -249,8 +296,9 @@ export async function POST(req: Request) {
       spendSettled = true;
       void commitSpend(reservation, totalUsage);
     },
-    // If the model errors before producing usage, return the reservation so a
-    // failed call costs nothing. LOG the error — previously this was silent, so
+    // If the model errors, settle at the usage of the steps that completed —
+    // or return the whole reservation when none did, so a call that failed
+    // before any step costs nothing. LOG the error — previously this was silent, so
     // a model failure (bad id, provider outage) surfaced only as a client-side
     // crash with a bare 200 and no server trace to diagnose from.
     onError: ({ error }) => {
@@ -267,27 +315,20 @@ export async function POST(req: Request) {
         try { detail = JSON.stringify(error); } catch { detail = String(error); }
       }
       console.error(`[api/chat] streamText error (${chatKind}/${PROVIDER_MODE}): ${detail?.slice(0, 600)}`);
-      if (spendSettled) return;
-      spendSettled = true;
-      void releaseSpend(reservation);
+      settleFailure();
     },
     ...(PROVIDER_MODE === "vercel_gateway" && {
       providerOptions: {
         gateway: { tags: ["feature:chat", "env:production"] },
       },
     }),
-  });
+  }));
 
   // Pull the stream to completion on the SERVER regardless of the client. If the
   // client disconnects mid-stream, onFinish would otherwise never fire and the
   // spend reservation would leak (stay counted at worst-case forever). consumeStream
-  // guarantees onFinish (commit) or onError (release) runs. Fire-and-forget.
-  void Promise.resolve(result.consumeStream()).catch(() => {
-    if (!spendSettled) {
-      spendSettled = true;
-      void releaseSpend(reservation);
-    }
-  });
+  // guarantees onFinish (commit) or onError (settle) runs. Fire-and-forget.
+  void Promise.resolve(result.consumeStream()).catch(() => settleFailure());
 
   return result.toUIMessageStreamResponse();
 }

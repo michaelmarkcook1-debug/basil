@@ -1,12 +1,31 @@
 "use client";
 
 import { useEffect } from "react";
+import { rememberInstallPrompt, type DeferredInstallPrompt } from "@/lib/pwa/install";
 
 /**
  * Registers the Basil service worker on mount.
  * Rendered once in the root layout — must be a Client Component.
  */
 export function ServiceWorkerRegister() {
+  // Chrome and Edge offer a one-tap install exactly once, early in the page's
+  // life. Keep the offer so the install page and the "Get the app" card can
+  // use it later; without this they could only show manual steps.
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const onOffer = (e: Event) => {
+      e.preventDefault();
+      rememberInstallPrompt(e as DeferredInstallPrompt);
+    };
+    const onInstalled = () => rememberInstallPrompt(null);
+    window.addEventListener("beforeinstallprompt", onOffer);
+    window.addEventListener("appinstalled", onInstalled);
+    return () => {
+      window.removeEventListener("beforeinstallprompt", onOffer);
+      window.removeEventListener("appinstalled", onInstalled);
+    };
+  }, []);
+
   useEffect(() => {
     if (typeof window === "undefined" || !("serviceWorker" in navigator)) return;
 

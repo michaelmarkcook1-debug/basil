@@ -60,7 +60,13 @@ import { DraftSavedIndicator } from "@/components/ui/draft-saved-indicator";
 import { TrustReviewPrompt } from "@/components/ui/trust-ui";
 import { ExplorePanel } from "@/components/explore-panel";
 import { daysSince } from "@/lib/today/visual-data";
+import { addDays, dayInZone } from "@/lib/dashboard/day";
+import { restoreRemoved, revertField } from "@/lib/dashboard/reliability";
+import { scopedKey } from "@/lib/session-user";
 
+// The pre-server-sync localStorage list. Read only under the signed-in user's
+// scoped key: the bare "sage-actions" key is shared by everyone on the browser,
+// so migrating it could merge another person's actions into this account (A9).
 const LEGACY_STORAGE_KEY = "sage-actions";
 
 interface ActionFormDraft {
@@ -856,13 +862,26 @@ function sortByPriority(a: ActionItem, b: ActionItem): number {
 function ActionsSyncButton({ onSynced }: { onSynced?: () => void }) {
   const [syncing, setSyncing] = useState(false);
   const [done, setDone] = useState(false);
+  const [failed, setFailed] = useState(false);
   return (
     <button
       type="button"
       disabled={syncing}
       onClick={async () => {
         setSyncing(true);
-        try { await fetch("/api/events/poll-ingest", { method: "POST" }); } catch { /* ignore */ }
+        setFailed(false);
+        // Was `try { await fetch(...) } catch { /* ignore */ }` then an
+        // unconditional setDone(true): a 500 or an offline phone still said
+        // "Syncing in background…". Same pattern as the memory/decisions pages.
+        try {
+          const res = await fetch("/api/events/poll-ingest", { method: "POST" });
+          if (!res.ok) throw new Error(String(res.status));
+        } catch (err) {
+          console.warn("[actions] sync failed:", err);
+          setSyncing(false);
+          setFailed(true);
+          return;
+        }
         setSyncing(false);
         setDone(true);
         onSynced?.();
@@ -874,22 +893,26 @@ function ActionsSyncButton({ onSynced }: { onSynced?: () => void }) {
       className={BTN_SECONDARY}
     >
       <RefreshCw className={`h-4 w-4 ${syncing ? "animate-spin" : ""}`} aria-hidden />
-      {done ? "Syncing in background…" : syncing ? "Syncing…" : "Sync recent activity"}
+      {failed ? "Sync failed — tap to retry"
+        : done ? "Syncing in background…"
+        : syncing ? "Syncing…"
+        : "Sync recent activity"}
     </button>
   );
 }
 
 // ── Completed actions sidebar ─────────────────────────────────────────────────
 
-function CompletedActionsPanel({ items, todayStr }: { items: ActionItem[]; todayStr: string }) {
-  const yesterday = new Date(Date.now() - 86_400_000).toISOString().split("T")[0];
+function CompletedActionsPanel({ items, todayStr, timeZone }: { items: ActionItem[]; todayStr: string; timeZone?: string }) {
+  // Days in the user's timezone, not UTC (C5).
+  const yesterday = addDays(todayStr, -1);
 
   // Group by completion date (updatedAt), most recent first
   const grouped = new Map<string, ActionItem[]>();
   for (const a of [...items].sort(
     (x, y) => new Date(y.updatedAt).getTime() - new Date(x.updatedAt).getTime()
   )) {
-    const key = a.updatedAt.split("T")[0];
+    const key = dayInZone(a.updatedAt, timeZone) || a.updatedAt.split("T")[0];
     if (!grouped.has(key)) grouped.set(key, []);
     grouped.get(key)!.push(a);
   }
@@ -1238,10 +1261,16 @@ export default function ActionsPage() {
   // Whose action is it: someone else's commitment ("Carter to send…") is
   // waiting-on — tracked under its own filter, never in your list or counts.
   const [selfName, setSelfName] = useState<string | null>(null);
+  // The user's settings timezone: "today", "this week" and overdue are their
+  // calendar days, not UTC's (C5). Until it loads, the browser's zone is used.
+  const [timeZone, setTimeZone] = useState<string | undefined>(undefined);
   useEffect(() => {
     fetch("/api/settings", { cache: "no-store" })
       .then((r) => (r.ok ? r.json() : null))
-      .then((j: { name?: string } | null) => { if (j?.name) setSelfName(j.name); })
+      .then((j: { name?: string; timezone?: string } | null) => {
+        if (j?.name) setSelfName(j.name);
+        if (j?.timezone) setTimeZone(j.timezone);
+      })
       .catch(() => { /* without a name, every action is shown as yours — never hidden */ });
   }, []);
   // "timeline" (default) | "category" | "matrix" view
@@ -1299,7 +1328,12 @@ export default function ActionsPage() {
     if (!undoEntry) return;
     if (undoTimeoutRef.current) clearTimeout(undoTimeoutRef.current);
     setUndoEntry(null);
-    await undoEntry.restore();
+    try {
+      await undoEntry.restore();
+    } catch (err) {
+      console.error("[actions] undo failed:", err);
+      setMutationError("Undo did not go through.");
+    }
     notify();
     await refresh();
   }
@@ -1346,7 +1380,8 @@ export default function ActionsPage() {
       if (!migratedRef.current && typeof window !== "undefined") {
         migratedRef.current = true;
         try {
-          const raw = window.localStorage.getItem(LEGACY_STORAGE_KEY);
+          const legacyKey = scopedKey(LEGACY_STORAGE_KEY);
+          const raw = window.localStorage.getItem(legacyKey);
           if (raw) {
             const parsed = JSON.parse(raw) as ActionItem[];
             if (Array.isArray(parsed) && parsed.length > 0) {
@@ -1363,7 +1398,7 @@ export default function ActionsPage() {
                 throw new Error(`legacy action import failed (${res.status})`);
               }
             }
-            window.localStorage.removeItem(LEGACY_STORAGE_KEY);
+            window.localStorage.removeItem(legacyKey);
           }
         } catch {
           /* API is authoritative */
@@ -1403,8 +1438,17 @@ export default function ActionsPage() {
     return () => document.removeEventListener("visibilitychange", onVisible);
   }, [refresh]);
 
+  // Save is disabled while a create is in flight (a double-click made two
+  // actions) and a failure is shown in the form (it used to show nothing).
+  const [adding, setAdding] = useState(false);
+  const [addError, setAddError] = useState<string | null>(null);
+  // A failed delete or notes edit, shown as a short banner.
+  const [mutationError, setMutationError] = useState<string | null>(null);
+
   async function handleAdd() {
-    if (!form.text.trim()) return;
+    if (!form.text.trim() || adding) return;
+    setAdding(true);
+    setAddError(null);
     try {
       const res = await fetch("/api/actions", {
         method: "POST",
@@ -1425,6 +1469,9 @@ export default function ActionsPage() {
     } catch (err) {
       console.error("[actions] handleAdd failed:", err);
       // Keep form text so user doesn't lose their input
+      setAddError("That was not saved. Try again.");
+    } finally {
+      setAdding(false);
     }
   }
 
@@ -1466,6 +1513,8 @@ export default function ActionsPage() {
 
   async function handleDelete(id: string) {
     const target = actions.find((a) => a.id === id);
+    const targetIndex = actions.findIndex((a) => a.id === id);
+    setMutationError(null);
 
     // Optimistic: remove from UI and cache immediately — no flash / accidental restore
     setActions((prev) => {
@@ -1474,7 +1523,29 @@ export default function ActionsPage() {
       return next;
     });
 
-    // Allow undo for 5 s before the delete is permanent
+    // The server must confirm before Undo is offered. It used to be offered
+    // first and the DELETE's result ignored: a failed delete still vanished,
+    // and Undo then POSTed a copy — a duplicate of an action that never left.
+    let deleted = false;
+    try {
+      const res = await fetch(`/api/actions/${id}`, { method: "DELETE" });
+      deleted = res.ok;
+    } catch {
+      deleted = false;
+    }
+    if (!deleted) {
+      if (target) {
+        setActions((prev) => {
+          const next = restoreRemoved(prev, target, targetIndex);
+          dashboardCache.set("actions", next);
+          return next;
+        });
+      }
+      setMutationError("That was not deleted. Try again.");
+      return;
+    }
+
+    // Allow undo for 5 s
     if (target) {
       pushUndo({
         label: `"${target.text.slice(0, 45)}" deleted`,
@@ -1486,7 +1557,7 @@ export default function ActionsPage() {
             return next;
           });
           // Re-create via API (new ID, but all content preserved)
-          await fetch("/api/actions", {
+          const res = await fetch("/api/actions", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({
@@ -1499,11 +1570,11 @@ export default function ActionsPage() {
               status:   target.status === "done" ? "open" : target.status,
             }),
           });
+          if (!res.ok) throw new Error(`undo failed: ${res.status}`);
         },
       });
     }
 
-    await fetch(`/api/actions/${id}`, { method: "DELETE" });
     // Background sync to other tabs
     notify();
   }
@@ -1522,16 +1593,33 @@ export default function ActionsPage() {
   }
 
   async function handleNotes(id: string, notes: string) {
+    const previousNotes = actions.find((a) => a.id === id)?.notes;
     // Optimistic update — reflect notes immediately in local state and cache
     const patched = actions.map((a) => (a.id === id ? { ...a, notes } : a));
     setActions(patched);
     dashboardCache.set("actions", patched);
 
-    await fetch(`/api/actions/${id}`, {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ notes }),
-    });
+    let ok = false;
+    try {
+      const res = await fetch(`/api/actions/${id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ notes }),
+      });
+      ok = res.ok;
+    } catch {
+      ok = false;
+    }
+    if (!ok) {
+      // Roll back, then throw so the notes panel keeps the text and says it
+      // was not saved (it used to look saved).
+      setActions((prev) => {
+        const next = revertField(prev, id, "notes", previousNotes);
+        dashboardCache.set("actions", next);
+        return next;
+      });
+      throw new Error("notes not saved");
+    }
   }
 
   async function handleClassify() {
@@ -1602,7 +1690,9 @@ export default function ActionsPage() {
     }
   }
 
-  const todayStr = new Date().toISOString().split("T")[0];
+  // The user's calendar day (settings timezone), not the UTC one — in New York
+  // after 19:00 the UTC day is already tomorrow and today's actions read overdue.
+  const todayStr = dayInZone(new Date(), timeZone);
 
   // Batch-fetch headshots for all action owners that map to known contacts
   const ownerEmails = useMemo(() => {
@@ -1686,7 +1776,7 @@ export default function ActionsPage() {
   // Counted from YOUR open commitments with the same rules the groups use, but
   // before search and the status filter — choosing a segment narrows the list
   // without the graphic collapsing to that one segment.
-  const weekEndStr = new Date(Date.now() + 7 * 86_400_000).toISOString().split("T")[0];
+  const weekEndStr = addDays(todayStr, 7);
   const load = countLoad(actions.filter((a) => !isTheirs(a)), todayStr, weekEndStr);
   const loadTotal = load.overdue + load.today + load.week + load.laterDated + load.noDate;
   const nowDate = new Date();
@@ -1772,6 +1862,16 @@ export default function ActionsPage() {
           }
         />
 
+        {mutationError && (
+          <div role="alert" className="flex items-center gap-2 rounded-xl border border-[var(--w-stamp)] bg-[var(--w-flimsy)] px-4 py-2.5 text-[14px] text-[color:var(--w-stamp)]">
+            <AlertTriangle className="h-4 w-4 shrink-0" aria-hidden />
+            <span>{mutationError}</span>
+            <button type="button" onClick={() => setMutationError(null)} className="ml-auto flex h-8 w-8 items-center justify-center rounded-lg" aria-label="Dismiss">
+              <X className="h-3.5 w-3.5" />
+            </button>
+          </div>
+        )}
+
         {/* Add form */}
         {form.showForm && (
           <section aria-label="Add an action" className="basil-rise flex flex-col gap-3 rounded-[20px] border border-[var(--w-rule)] bg-[var(--w-flimsy)] p-5 sm:p-6">
@@ -1821,11 +1921,15 @@ export default function ActionsPage() {
                 <option value="chat">Chat</option>
               </select>
             </div>
+            {addError && (
+              <p role="alert" className="text-[14px] text-[color:var(--w-stamp)]">{addError}</p>
+            )}
             <div className="flex flex-wrap items-center gap-2">
-              <button type="button" onClick={handleAdd} className={BTN_PRIMARY}>
-                Save
+              <button type="button" onClick={handleAdd} disabled={adding || !form.text.trim()} className={BTN_PRIMARY}>
+                {adding ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden /> : null}
+                {adding ? "Saving…" : "Save"}
               </button>
-              <button type="button" onClick={clearForm} className={BTN_SECONDARY}>
+              <button type="button" onClick={() => { setAddError(null); clearForm(); }} className={BTN_SECONDARY}>
                 Cancel
               </button>
               <DraftSavedIndicator saved={formDraftSaved} className="ml-1" />
@@ -2252,7 +2356,7 @@ export default function ActionsPage() {
         )}
         </div>{/* end left column */}
         {!loading && done.length > 0 && (
-          <CompletedActionsPanel items={done} todayStr={todayStr} />
+          <CompletedActionsPanel items={done} todayStr={todayStr} timeZone={timeZone} />
         )}
         </div>{/* end grid */}
       </div>

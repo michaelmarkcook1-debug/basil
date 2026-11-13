@@ -14,7 +14,7 @@
  * secret — multi-tenant safe.
  */
 
-import { NextResponse } from "next/server";
+import { NextResponse, after } from "next/server";
 import crypto from "node:crypto";
 import { getUsers } from "@/lib/users";
 import { getLinearConfig } from "@/lib/linear/client";
@@ -122,10 +122,16 @@ export async function POST(req: Request) {
     return new NextResponse("forbidden", { status: 403 });
   }
 
-  // 3. Dedupe via delivery UUID.
-  const externalId = payload.delivery
-    ? `linear:delivery:${payload.delivery}`
-    : `linear:${payload.type}:${(payload.data?.id as string) ?? "unknown"}:${payload.action ?? ""}`;
+  // 3. Dedupe via delivery UUID. Linear sends it as the Linear-Delivery header;
+  //    the body field is kept for older payloads. Now that the dedupe actually
+  //    matches, the fallback must not merge DIFFERENT events: without the
+  //    event's own timestamps every later update to an issue would read as a
+  //    repeat of the first one and be dropped.
+  const deliveryId = req.headers.get("linear-delivery") || payload.delivery;
+  const externalId = deliveryId
+    ? `linear:delivery:${deliveryId}`
+    : `linear:${payload.type}:${(payload.data?.id as string) ?? "unknown"}:${payload.action ?? ""}:` +
+      `${payload.createdAt ?? ""}:${(payload.data?.updatedAt as string) ?? ""}`;
 
   if (await hasExternalId(owner.username, externalId)) {
     return NextResponse.json({ ok: true, skipped: "duplicate delivery" });
@@ -145,6 +151,9 @@ export async function POST(req: Request) {
   // emitAuditEvent supplies the disposition/priority/status defaults and
   // wraps in a try/catch — failures here are logged but never 500 (Linear
   // would retry indefinitely and hammer us).
+  // externalId is what makes the dedupe above work: the record used to carry
+  // the id only in its tags, so hasExternalId never matched and every repeat
+  // delivery was treated as new.
   await emitAuditEvent({
     username: owner.username,
     source: "manual", // EventSource doesn't include "linear" yet; the tags + sourceRef carry the real provenance.
@@ -152,17 +161,25 @@ export async function POST(req: Request) {
     context: `Linear push event — ${payload.type ?? "Unknown"} ${payload.action ?? ""}`,
     rationale: `Received from Linear webhook${payload.url ? ` (${payload.url})` : ""}`,
     tags: ["linear", "webhook", payload.type ?? "unknown", payload.action ?? "unknown", externalId],
+    externalId,
   });
 
   // Issue state may have changed — reconcile against live Linear state so any
   // Basil action sourced from a now-closed/reassigned issue is auto-marked
-  // done. `force: true` bypasses the TTL because pushes are reality.
+  // done. `force: true` bypasses the TTL because pushes are reality. Runs after
+  // the response, via after() so the instance stays alive until it finishes —
+  // a bare un-awaited promise could be cut off when the response went out.
   if (payload.type === "Issue") {
-    syncLinearActionStates(owner.username, { force: true }).catch((err) => {
-      console.warn(
-        "[webhooks/linear] state-sync failed:",
-        err instanceof Error ? err.message : err
-      );
+    const ownerName = owner.username;
+    after(async () => {
+      try {
+        await syncLinearActionStates(ownerName, { force: true });
+      } catch (err) {
+        console.warn(
+          "[webhooks/linear] state-sync failed:",
+          err instanceof Error ? err.message : err
+        );
+      }
     });
   }
 

@@ -15,6 +15,8 @@ function sentimentModule(toneSentiment) {
   const calls = { model: 0 };
   const S = loadTs("lib/contacts/sentiment.ts", {
     zod: require("zod"),
+    "@/lib/privacy/store": { getPrivacyOrClosed: async () => ({ profiling: true, optedOut: {} }), getPrivacy: async () => ({ profiling: true, optedOut: {} }), assertProfilingAllowed: async () => {} },
+    "@/lib/privacy/rules": loadTs("lib/privacy/rules.ts"),
     "@/lib/storage/user-store": { readUserStore: async (_u, _f, fb) => fb, updateUserStore: async (_u, _f, mut, fb) => mut(fb) },
     "@/lib/events/store": { listEvents: async () => [] },
     "@/lib/contacts/user-store": { listUserContacts: async () => [{ id: "c1", name: "Priya Shah" }] },
@@ -52,6 +54,8 @@ test("on: the same refresh does read the relationship", async () => {
 test("off: tone shifts noticed by the message classifiers are not stored", async () => {
   let writes = 0;
   const T = loadTs("lib/contacts/tone-store.ts", {
+    "@/lib/privacy/store": { getPrivacyOrClosed: async () => ({ profiling: true, optedOut: {} }), getPrivacy: async () => ({ profiling: true, optedOut: {} }), assertProfilingAllowed: async () => {} },
+    "@/lib/privacy/rules": loadTs("lib/privacy/rules.ts"),
     "@/lib/contacts-data": { sampleContacts: () => [] },
     "@/lib/contacts/user-store": { listUserContacts: async () => [{ id: "c1", name: "Priya Shah" }] },
     "@/lib/contacts/overrides-store": { appendToneObservation: async () => { writes++; } },

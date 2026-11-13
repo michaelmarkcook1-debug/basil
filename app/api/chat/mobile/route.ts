@@ -26,6 +26,7 @@ export const maxDuration = 300;
 import { stepCountIs, convertToModelMessages, type UIMessage } from "ai";
 import { generateTextSafe } from "@/lib/ai/generate";
 import { repairOrphanedToolCalls } from "@/lib/ai/repair-history";
+import { trustFromMessages } from "@/lib/ai/injection-guard";
 import { getDelegations, recordApprovalResponses, recordDelegatedRuns } from "@/lib/trust/ledger";
 import { SpendCapError, spendCapResponse } from "@/lib/ai/spend-guard";
 import { getEntitlement } from "@/lib/billing/entitlement-store";
@@ -62,7 +63,22 @@ export interface MobileApproval {
 const MAX_BODY_BYTES = 4_000_000;
 const MOBILE_CHAT_RATE_LIMIT = 30; // per user per minute — shared with web chat
 
+// The model call is a tool loop of up to 5 steps, and its per-attempt ceiling
+// used to be the tier's (25–55s, sized for ONE model call), so a normal loop
+// was aborted part-way — after approved tools had run — and replayed on the
+// fallback provider (2026-11-10 bug pass, A7). The ceiling is now sized to
+// this route's budget: what is left of maxDuration after setup, less a margin
+// for the reply, split across the two attempts that may run (the fallback runs
+// only when the primary made no progress at all).
+const RESPONSE_MARGIN_MS = 15_000;
+const MIN_ATTEMPT_MS = 30_000;
+function attemptCeilingMs(startedAt: number): number {
+  const left = maxDuration * 1000 - RESPONSE_MARGIN_MS - (Date.now() - startedAt);
+  return Math.max(MIN_ATTEMPT_MS, Math.floor(left / 2));
+}
+
 export async function POST(req: Request) {
+  const startedAt = Date.now();
   const contentLength = req.headers.get("content-length");
   if (contentLength && parseInt(contentLength, 10) > MAX_BODY_BYTES) {
     return Response.json({ error: "Request body too large — try a smaller image, or start a new chat to clear attachment history" }, { status: 413 });
@@ -130,7 +146,7 @@ export async function POST(req: Request) {
       maxOutputTokens: MAX_TOKENS[chatKind],
       system: cachedSystem(instructions),
       messages,
-      tools: buildAssistantTools(username, firstName, timezone, { delegated }),
+      tools: buildAssistantTools(username, firstName, timezone, { delegated, trust: trustFromMessages(uiMessages) }),
       prepareStep: cacheLatestStep,
       // generateTextSafe appends the spend ceiling: the loop stops when its
       // accumulated cost reaches the one-step reservation, whatever this says.
@@ -148,7 +164,7 @@ export async function POST(req: Request) {
       family: CHAT_PRICE_FAMILY,
       userMonthlyUsd: entitlement.aiMonthlyUsd,
       maxSteps: 5,
-    });
+    }, { attemptTimeoutMs: attemptCeilingMs(startedAt) });
 
     void recordDelegatedRuns(username, result.steps, delegated).catch((e) =>
       console.warn("[api/chat/mobile] could not record delegated runs:", e instanceof Error ? e.message : e));
@@ -181,6 +197,15 @@ export async function POST(req: Request) {
       return spendCapResponse(e);
     }
     console.error("[api/chat/mobile] generateText failed:", e);
+    // Failed after a step or a tool had already run (lib/ai/generate.ts
+    // GenerationAfterProgressError — matched by its flag, not instanceof): an
+    // action may have gone through, so a blind "try again" could repeat it.
+    if ((e as { afterProgress?: unknown } | null)?.afterProgress === true) {
+      return Response.json(
+        { error: "The reply failed part-way, after an action may already have run. Check (for example your sent mail or calendar) before asking again.", partial: true },
+        { status: 502 }
+      );
+    }
     return Response.json(
       { error: "AI request failed. Please try again." },
       { status: 500 }

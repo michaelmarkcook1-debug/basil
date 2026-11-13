@@ -65,6 +65,8 @@ export interface TodayChangeItem extends TodayItemBase {
 export interface TodayFollowupItem extends TodayItemBase {
   kind: "followup";
   followup: PendingFollowup;
+  /** From one of the user's key people — while they are away, only these break through. */
+  fromKeyContact?: boolean;
 }
 
 export interface TodayLinearItem extends TodayItemBase {
@@ -73,6 +75,21 @@ export interface TodayLinearItem extends TodayItemBase {
 }
 
 export type TodayFeedItem = TodayChangeItem | TodayFollowupItem | TodayLinearItem;
+
+/** Where the user stands today (lib/away). Added by the route, never cached with the feed. */
+export interface TodayAway {
+  state: "working" | "non-working" | "away" | "back";
+  /** YYYY-MM-DD in the user's timezone. */
+  today: string;
+  reason?: "weekend" | "bank-holiday";
+  period?: { id: string; start: string; end: string; source: "calendar" | "basil"; label?: string; cover?: string };
+  /** While away: the first working day back. */
+  returnDay?: string;
+  /** The first day back: where commitments that fell due are moved by default. */
+  redateTo?: string;
+  /** The next absence starting within two weeks. */
+  upcoming?: { start: string; end: string; label?: string };
+}
 
 /** GET /api/today response. */
 export interface TodayFeedResponse {
@@ -97,6 +114,8 @@ export interface TodayFeedResponse {
   degraded?: string[];
   /** ISO8601 of when this response was generated. */
   generatedAt: string;
+  /** Away status for today. Absent when it could not be read. */
+  away?: TodayAway;
   /**
    * Per-source availability so the UI can distinguish "not connected" from
    * "connected but nothing pending". One failing integration must not blank the

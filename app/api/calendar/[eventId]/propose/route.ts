@@ -2,14 +2,15 @@
  * POST /api/calendar/[eventId]/propose — propose a new time for an invitation.
  * Body: { start: ISO, end: ISO, note?: string, response?: "tentative"|"declined", emailOrganizer?: boolean }
  *
- * Google's API has no "propose a new time" endpoint, so this answers Maybe (or
- * No) with the proposal in the note the organiser sees, and emails the
- * organiser the proposal (lib/google/calendar.ts proposeNewTime).
+ * Google's API has no "propose a new time" endpoint, so for a Google event this
+ * answers Maybe (or No) with the proposal in the note the organiser sees, and
+ * emails the organiser the proposal (lib/google/calendar.ts proposeNewTime).
+ * An Outlook event ("ms:" id) gets Outlook's own proposed new time
+ * (lib/calendar/writes.ts routes by the event's provider).
  */
 import { NextResponse } from "next/server";
-import { isGoogleConnected } from "@/lib/google/auth";
 import { getSessionUser } from "@/lib/auth";
-import { proposeNewTime, NotAnAttendeeError } from "@/lib/google/calendar";
+import { proposeNewTime, NotAnAttendeeError, CalendarNotConnectedError } from "@/lib/calendar/writes";
 import { getSettings } from "@/lib/settings/store";
 import { resolveTimezone } from "@/lib/timezone";
 import { emitAuditEvent } from "@/lib/events/audit";
@@ -18,9 +19,6 @@ import { checkRateLimitDurable } from "@/lib/rate-limit";
 export async function POST(req: Request, { params }: { params: Promise<{ eventId: string }> }) {
   const username = await getSessionUser();
   if (!username) return NextResponse.json({ error: "Unauthorised" }, { status: 401 });
-  if (!(await isGoogleConnected(username))) {
-    return NextResponse.json({ error: "Google Calendar not connected." }, { status: 401 });
-  }
   const rl = await checkRateLimitDurable(`calendar:propose:${username}`, 10);
   if (!rl.allowed) return NextResponse.json({ error: "Too many proposals — try again shortly." }, { status: 429 });
   const { eventId } = await params;
@@ -54,6 +52,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ eventId
     });
     return NextResponse.json({ success: true, status: response, emailedTo: out.emailedTo ?? null });
   } catch (e) {
+    if (e instanceof CalendarNotConnectedError) return NextResponse.json({ error: e.message }, { status: 401 });
     if (e instanceof NotAnAttendeeError) return NextResponse.json({ error: e.message }, { status: 409 });
     if (e instanceof RangeError) return NextResponse.json({ error: e.message }, { status: 400 });
     console.error("[calendar/propose] failed:", e instanceof Error ? e.message : e);

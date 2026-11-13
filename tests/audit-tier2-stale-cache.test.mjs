@@ -115,7 +115,7 @@ test("#2 memory: createMemoryTracked reports a dedupe hit as not-created even wh
 
 function overrideInstances() {
   const store = durableStore();
-  const load = () => { const inst = store.instance(); return loadTs("lib/contacts/overrides-store.ts", { "@/lib/events/lock": inst.lock, "@/lib/storage/user-store": inst.mocks }); };
+  const load = () => { const inst = store.instance(); return loadTs("lib/contacts/overrides-store.ts", { "@/lib/privacy/store": { getPrivacyOrClosed: async () => ({ profiling: true, optedOut: {} }) }, "@/lib/privacy/rules": loadTs("lib/privacy/rules.ts"), "@/lib/events/lock": inst.lock, "@/lib/storage/user-store": inst.mocks }); };
   return { a: load(), b: load(), durable: () => store.durable("fixture", "sage-contact-overrides.json") ?? {} };
 }
 

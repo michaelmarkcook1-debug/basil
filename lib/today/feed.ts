@@ -5,7 +5,9 @@
  * be exercised through the HTTP handler. It is a pure server lib now: the
  * route authenticates, caches, and calls these two functions.
  */
-import { computeDeltas } from "@/lib/delta/compute";
+import { computeDeltas, buildKeyContactSet } from "@/lib/delta/compute";
+import { getWorkCalendar } from "@/lib/away/store";
+import { dayIn, pausedDays, workingHoursBetween, type WorkCalendar } from "@/lib/away/calendar";
 import { SEVERITY_WEIGHT, CATEGORY_CONFIG, type ChangeSeverity, type ChangeEvent } from "@/lib/delta/types";
 import { getSinceDate } from "@/lib/delta/store";
 import { listActions } from "@/lib/actions/store";
@@ -88,6 +90,17 @@ export async function computeTodayFeed(username: string): Promise<TodayFeedRespo
       listMemories(username).catch((e) => { console.warn("[today] memories failed:", e instanceof Error ? e.message : e); return []; }),
       getSelfIdentity(username).catch(() => ({ emails: [] as string[], names: [] as string[] })),
     ]);
+    // Days off and leave do not count against anyone (lib/away). Stored values
+    // only — the route refreshes the calendar read; this must not wait on Google.
+    const workCal: WorkCalendar | null = await getWorkCalendar(username, { refresh: "never" }).catch((e) => {
+      console.warn("[today] working calendar unreadable, clocks count every day:", e instanceof Error ? e.message : e);
+      return null;
+    });
+    const nowMs = Date.now();
+    const todayDay = workCal ? dayIn(nowMs, workCal.timezone) : null;
+    const awayDaysSince = workCal && todayDay
+      ? (iso: string) => { const t = Date.parse(iso); return Number.isFinite(t) ? pausedDays(dayIn(t, workCal.timezone), todayDay, workCal) : 0; }
+      : undefined;
     // Only the user's own actions drive Today. Someone else's commitment
     // ("Carter to send the brochure") is waiting-on, not the user's work.
     const actions = allActions.filter((a) => !isWaitingOnOthers(a, identity.names));
@@ -134,7 +147,9 @@ export async function computeTodayFeed(username: string): Promise<TodayFeedRespo
     // ── Map each source → TodayFeedItem, computing rank ───────────────────────
 
     // 1. Delta changes — score is already a composite (severity × category × recency).
-    const delta = computeDeltas({ actions, decisions, contacts, since, toneHistory, timezone: settings?.timezone, cadenceRules });
+    const delta = computeDeltas({ actions, decisions, contacts, since, toneHistory, timezone: settings?.timezone, cadenceRules, awayDaysSince });
+    const keyContacts = buildKeyContactSet(contacts, toneHistory, new Map(cadenceRules.map((r) => [r.contactId, r])));
+    const keyNames = new Set(contacts.filter((c) => keyContacts.has(c.id)).map((c) => c.name.trim().toLowerCase()));
     const changeItems: TodayChangeItem[] = delta.changes
       .filter(isActionableChange)
       .map((change) => {
@@ -184,7 +199,14 @@ export async function computeTodayFeed(username: string): Promise<TodayFeedRespo
 
     // 2. Follow-ups — longest-waiting ranks highest; treated as urgency-category.
     const followupItems: TodayFollowupItem[] = followupResult.items.map((followup) => {
-      const sev = followupSeverity(followup.hoursWaiting);
+      // The clock runs on working days the user was not away: a message left
+      // on Friday afternoon is not "critical" by Monday afternoon, and one left
+      // before a fortnight's leave has waited since the day the user came back.
+      const lastInbound = Date.parse(followup.lastInboundAt);
+      const hoursCounted = workCal && Number.isFinite(lastInbound)
+        ? workingHoursBetween(lastInbound, nowMs, workCal)
+        : followup.hoursWaiting;
+      const sev = followupSeverity(hoursCounted);
       return {
         id: followup.id,
         kind: "followup",
@@ -197,6 +219,7 @@ export async function computeTodayFeed(username: string): Promise<TodayFeedRespo
         occurredAt: followup.lastInboundAt,
         href: followup.href,
         followup,
+        ...(keyNames.has((followup.fromName ?? "").trim().toLowerCase()) ? { fromKeyContact: true } : {}),
       };
     });
 

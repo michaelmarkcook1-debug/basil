@@ -8,7 +8,8 @@
  * they are never addressed as another user's name.
  */
 
-import { readUserStore, writeUserStore } from "@/lib/storage/user-store";
+import { HOLIDAY_REGIONS, type HolidayRegion } from "@/lib/away/calendar";
+import { readUserStore, updateUserStore } from "@/lib/storage/user-store";
 
 const SETTINGS_FILE = "sage-settings.json";
 
@@ -71,6 +72,14 @@ export interface UserSettings {
    * hides tone everywhere; stored reads are kept but not shown.
    */
   toneSentiment?: boolean;
+  /**
+   * Days of the week the user works, 0 = Sunday … 6 = Saturday. Unset means
+   * Monday to Friday. No briefing is written on other days and the follow-up
+   * clocks do not count them (lib/away/calendar.ts).
+   */
+  workingDays?: number[];
+  /** Bank holidays to treat as days off. Unset: England and Wales for Europe/London, otherwise none. */
+  holidayRegion?: HolidayRegion;
 }
 
 /** Base defaults — used as fallback for any unset field. */
@@ -120,13 +129,17 @@ export async function getSettings(username: string): Promise<UserSettings> {
 /**
  * Writes a partial update for this user and returns the full resulting settings.
  * Unknown keys in `patch` are silently ignored.
+ *
+ * Validation runs first, then the merge happens inside updateUserStore — under
+ * the per-file lock, on a FRESH read. This used to read through getSettings
+ * (the per-instance /tmp cache) and write the whole record back unlocked, so
+ * saving one setting could revert another changed moments earlier on another
+ * instance (2026-11-10 bug pass, C2).
  */
 export async function patchSettings(
   username: string,
   patch: Partial<UserSettings>
 ): Promise<UserSettings> {
-  const current = await getSettings(username);
-
   if (patch.timezone !== undefined && !isValidIANATimezone(patch.timezone)) {
     throw new Error(
       `Invalid timezone: "${patch.timezone}". ` +
@@ -141,11 +154,21 @@ export async function patchSettings(
   if (patch.workEnd !== undefined && !HH_MM.test(patch.workEnd)) {
     throw new Error(`Invalid workEnd: "${patch.workEnd}". Must be HH:MM in 24-hour format (e.g. "18:00").`);
   }
+  if (patch.workingDays !== undefined) {
+    const days = patch.workingDays;
+    if (!Array.isArray(days) || days.length === 0 || !days.every((d) => Number.isInteger(d) && d >= 0 && d <= 6)) {
+      throw new Error("Invalid workingDays: pick at least one day, as numbers 0 (Sunday) to 6 (Saturday).");
+    }
+    patch = { ...patch, workingDays: [...new Set(days)].sort() };
+  }
+  if (patch.holidayRegion !== undefined && !HOLIDAY_REGIONS.includes(patch.holidayRegion)) {
+    throw new Error(`Invalid holidayRegion: "${patch.holidayRegion}". Use one of ${HOLIDAY_REGIONS.join(", ")}.`);
+  }
 
   const safe: Partial<UserSettings> = {};
   const keys: Array<keyof UserSettings> = [
     "name", "timezone", "workStart", "workEnd", "videoTool", "meetingUrl", "useIpTimezone", "githubToken", "openaiApiKey", "anthropicApiKey", "geminiApiKey", "pinnedSlackContacts",
-    "briefingEmail", "briefingSlack", "toneSentiment",
+    "briefingEmail", "briefingSlack", "toneSentiment", "workingDays", "holidayRegion",
   ];
   for (const k of keys) {
     if (patch[k] !== undefined) {
@@ -154,7 +177,13 @@ export async function patchSettings(
       (safe as any)[k] = patch[k];
     }
   }
-  const updated: UserSettings = { ...current, ...safe };
-  await writeUserStore(username, SETTINGS_FILE, updated);
-  return updated;
+  const defaults = defaultsForUser(username);
+  const stored = await updateUserStore<Partial<UserSettings>>(
+    username,
+    SETTINGS_FILE,
+    // Same record shape as before: defaults, then what is stored, then the patch.
+    (current) => ({ ...defaults, ...(current ?? {}), ...safe }),
+    {},
+  );
+  return { ...defaults, ...stored };
 }

@@ -1,6 +1,6 @@
-import { NextResponse } from "next/server";
+import { NextResponse, after } from "next/server";
 import { verifySlackSignature } from "@/lib/slack/verify";
-import { createEvent, hasExternalId } from "@/lib/events/store";
+import { createEventIfNew, hasExternalId } from "@/lib/events/store";
 import { eventFromIngest } from "@/lib/events/rules";
 import { publish } from "@/lib/events/bus";
 import type { IngestPayload } from "@/lib/events/types";
@@ -26,14 +26,17 @@ import { HEALTH_META_FILE, type HealthMeta } from "@/lib/system/health";
 const lastStamp = new Map<string, number>();
 const STAMP_THROTTLE_MS = 60_000;
 
-function stampSlackPushHeartbeat(username: string): void {
+function stampSlackPushHeartbeat(username: string): Promise<void> | null {
   const now = Date.now();
   const prev = lastStamp.get(username) ?? 0;
-  if (now - prev < STAMP_THROTTLE_MS) return;
+  if (now - prev < STAMP_THROTTLE_MS) return null;
   lastStamp.set(username, now);
 
-  // Fire and forget — must not block webhook response (Slack expects <3s)
-  (async () => {
+  // Must not block the webhook response (Slack expects <3s), but must not be a
+  // bare fire-and-forget either: on the dedupe early-return the response goes
+  // out at once and the instance can be frozen mid-write. The caller hands the
+  // promise to after(), which keeps the function alive until it settles.
+  return (async () => {
     try {
       const existing = await readUserStore<HealthMeta>(username, HEALTH_META_FILE, {});
       await writeUserStore<HealthMeta>(username, HEALTH_META_FILE, {
@@ -142,14 +145,19 @@ export async function POST(req: Request) {
         // Stamp lastSlackPushAt BEFORE the dedup early-return so retries still
         // count as proof-of-life — the integration is healthy even if this
         // exact event was already processed.
-        stampSlackPushHeartbeat(webhookUsername);
+        const stamp = stampSlackPushHeartbeat(webhookUsername);
+        if (stamp) after(stamp);
 
         if (payload.externalId && (await hasExternalId(webhookUsername, payload.externalId))) {
           return NextResponse.json({ ok: true });
         }
 
+        // Slack delivers `message` AND `app_mention` for one @-mention, within
+        // milliseconds of each other: both pass the check above. Only the
+        // delivery that actually creates the event goes on to classify it.
         const shaped = eventFromIngest(payload);
-        const event = await createEvent(webhookUsername, shaped);
+        const { created, event } = await createEventIfNew(webhookUsername, shaped);
+        if (!created) return NextResponse.json({ ok: true });
         publish(event);
 
         // ── Slack intelligence: fire-and-forget for qualifying webhook events ──

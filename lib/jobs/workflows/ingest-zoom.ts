@@ -21,7 +21,7 @@ async function processZoomMeetingStep(username: string, payload: IngestZoomPaylo
 
   console.log(`[ingest-zoom] step start: meetingId=${meetingId} externalId=${externalId} username=${username}`);
 
-  const { hasExternalId, createEvent } = await import("@/lib/events/store");
+  const { hasExternalId, createEventIfNew } = await import("@/lib/events/store");
   const { eventFromIngest } = await import("@/lib/events/rules");
   const { publish } = await import("@/lib/events/bus");
   const { getMeetingParticipants, getRecentRecordingsWithTranscripts } = await import("@/lib/zoom/client");
@@ -87,8 +87,10 @@ async function processZoomMeetingStep(username: string, payload: IngestZoomPaylo
       title: meeting.topic,
       body: `Zoom meeting ended: ${meeting.topic} (${meeting.duration} min)`,
     });
-    const event = await createEvent(username, shaped);
-    publish(event);
+    // Check and create under one lock: a webhook retry racing this step must
+    // not file the same meeting twice (lib/events/store.ts createEventIfNew).
+    const { created, event } = await createEventIfNew(username, shaped);
+    if (created) publish(event);
     resolvedEventId = event.id;
   }
 

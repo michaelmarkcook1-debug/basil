@@ -16,6 +16,7 @@ import { useState, useEffect } from "react";
 import { useParams } from "next/navigation";
 import { usePersistentDraft } from "@/lib/hooks/use-persistent-draft";
 import { scopedKey } from "@/lib/session-user";
+import { dayInZone } from "@/lib/dashboard/day";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
   ArrowLeft,
@@ -173,6 +174,12 @@ export default function MeetingPrepPage() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [selfName, setSelfName] = useState<string>("");
+  const [timeZone, setTimeZone] = useState<string | undefined>(undefined);
+  // Why there is no real meeting to prepare for. Generate Prep is a paid call;
+  // it used to stay enabled here and cache a prep for "Meeting" with no
+  // attendees for 24 hours (D7).
+  const [metaProblem, setMetaProblem] = useState<null | "not-found" | "not-connected" | "failed">(null);
+  const [metaReload, setMetaReload] = useState(0);
   const [extraFiles, setExtraFiles] = useState<File[]>([]);
 
   // extraNotes and extraUrls persist across tab switches, scoped by eventId.
@@ -193,7 +200,10 @@ export default function MeetingPrepPage() {
   useEffect(() => {
     fetch("/api/settings", { cache: "no-store" })
       .then((r) => r.ok ? r.json() : null)
-      .then((d) => { if (d?.name) setSelfName(d.name); })
+      .then((d) => {
+        if (d?.name) setSelfName(d.name);
+        if (d?.timezone) setTimeZone(d.timezone);
+      })
       .catch((err) => { console.warn("[meeting] self-name load failed:", err); });
   }, []);
 
@@ -233,9 +243,14 @@ export default function MeetingPrepPage() {
 
   useEffect(() => {
     fetch("/api/calendar/upcoming")
-      .then((r) => r.json())
+      .then((r) => { if (!r.ok) throw new Error(`calendar ${r.status}`); return r.json(); })
       .then((d) => {
-        if (!d.connected || !d.events) { setMeta({ title: "Meeting", time: "", attendees: [] }); setLoadingMeta(false); return; }
+        if (!d.connected || !d.events) {
+          setMeta({ title: "Meeting", time: "", attendees: [] });
+          setMetaProblem("not-connected");
+          setLoadingMeta(false);
+          return;
+        }
         const event = d.events.find((e: { id: string }) => e.id === eventId);
         if (event) {
           setMeta({
@@ -251,18 +266,20 @@ export default function MeetingPrepPage() {
           });
         } else {
           setMeta({ title: `Meeting`, time: "", attendees: [] });
+          setMetaProblem("not-found");
         }
         setLoadingMeta(false);
       })
       .catch((e: unknown) => {
         console.error("[basil-fetch] network_error", { route: `/api/calendar/${eventId}`, component: "MeetingPage", error: e instanceof Error ? e.message : String(e) });
         setMeta({ title: "Meeting", time: "", attendees: [] });
+        setMetaProblem("failed");
         setLoadingMeta(false);
       });
-  }, [eventId]);
+  }, [eventId, metaReload]);
 
   async function generate() {
-    if (!meta) return;
+    if (!meta || metaProblem) return;
     setLoading(true);
     setError("");
     try {
@@ -275,7 +292,7 @@ export default function MeetingPrepPage() {
         // "earlier today" carry-in filter, and the server cache key all key off
         // this — a Tuesday meeting generated on Friday was reading as if it were
         // Friday's meeting.
-        date: meta.date || new Date().toISOString().split("T")[0],
+        date: meta.date || dayInZone(new Date(), timeZone),
         time: meta.time.split(" – ")[0] || "14:00",
       };
 
@@ -351,7 +368,7 @@ export default function MeetingPrepPage() {
           eyebrow={`Meeting prep${meta?.dateLabel ? ` · ${meta.dateLabel}` : ""}`}
           title={meta?.title || "Meeting"}
           actions={
-            <button type="button" onClick={generate} disabled={loading} className={`${BTN_PRIMARY} shrink-0`}>
+            <button type="button" onClick={generate} disabled={loading || metaProblem !== null} className={`${BTN_PRIMARY} shrink-0`}>
               {loading ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden /> : <Zap className="h-4 w-4 text-[#D4B978]" aria-hidden />}
               {loading ? "Generating..." : prep ? "Regenerate" : "Generate Prep"}
             </button>
@@ -435,6 +452,27 @@ export default function MeetingPrepPage() {
             disabled={loading}
           />
         </div>
+
+        {metaProblem && (
+          <div role="alert" className="flex flex-wrap items-center gap-3 rounded-[20px] border border-[var(--w-stamp)] bg-[var(--w-flimsy)] p-5 text-[15px] text-[color:var(--w-stamp)]">
+            <span>
+              {metaProblem === "failed"
+                ? "Your calendar did not load, so there is nothing to prepare yet."
+                : metaProblem === "not-connected"
+                  ? "Your calendar is not connected, so this meeting could not be found."
+                  : "This meeting could not be found on your calendar."}
+            </span>
+            {metaProblem === "failed" && (
+              <button
+                type="button"
+                onClick={() => { setMetaProblem(null); setLoadingMeta(true); setMetaReload((n) => n + 1); }}
+                className="font-semibold underline"
+              >
+                Try again
+              </button>
+            )}
+          </div>
+        )}
 
         {error && (
           <p role="alert" className="rounded-[20px] border border-[var(--w-stamp)] bg-[var(--w-flimsy)] p-5 text-[15px] text-[color:var(--w-stamp)]">
@@ -617,7 +655,7 @@ export default function MeetingPrepPage() {
               <SectionCard id="actions-h" title="Tracked actions" delay={540}>
                 <ul className="flex flex-col">
                   {prep.openActions.map((a, i) => {
-                    const todayLocal = new Date().toISOString().split("T")[0];
+                    const todayLocal = dayInZone(new Date(), timeZone);
                     const isOverdue =
                       a.status === "overdue" ||
                       (a.status === "open" && !!a.dueDate && a.dueDate < todayLocal);
@@ -676,7 +714,7 @@ export default function MeetingPrepPage() {
           </div>
         )}
 
-        {!loading && !prep && !error && (
+        {!loading && !prep && !error && !metaProblem && (
           <div className="basil-rise flex flex-col items-center gap-2 rounded-[20px] border border-[var(--w-rule)] bg-[var(--w-flimsy)] px-5 py-12 text-center" style={{ animationDelay: "360ms" }}>
             <p className="basil-serif text-[26px] leading-tight text-[#10213F]">Click &quot;Generate Prep&quot; to get your cheatsheet</p>
             <p className="text-[14px] text-[color:var(--w-ink-soft)]">Basil will pull context from contact profiles and generate strategic talking points.</p>

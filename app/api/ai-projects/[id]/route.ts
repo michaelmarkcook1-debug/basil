@@ -1,7 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getSessionUser } from "@/lib/auth";
-import { readProjectsStore, writeProjectsStore } from "@/lib/ai-projects/store";
-import type { Category, Importance } from "@/lib/ai-projects/types";
+import { updateProjectsStore } from "@/lib/ai-projects/store";
+import type { AIProject, Category, Importance } from "@/lib/ai-projects/types";
+
+/** Thrown inside the locked update to abort it without writing. */
+class ProjectNotFound extends Error {}
 
 interface PatchBody {
   category?: Category;
@@ -28,22 +31,27 @@ export async function PATCH(
   }
 
   try {
-    const data = await readProjectsStore(username);
-    const idx = data.projects.findIndex((p) => p.id === decodedId);
-    if (idx === -1) {
-      return NextResponse.json({ error: "Project not found" }, { status: 404 });
-    }
-
-    const project = { ...data.projects[idx] };
-    if (body.category !== undefined) project.categoryOverride = body.category;
-    if (body.importance !== undefined) project.importanceOverride = body.importance;
-    if (body.hidden !== undefined) project.hidden = body.hidden;
-
-    data.projects[idx] = project;
-    await writeProjectsStore(username, data);
+    // Locked, on a fresh copy — an unlocked whole-file write here raced the
+    // 30-minute sync, so one could erase the other (2026-11-10 bug pass, C3).
+    let project: AIProject | undefined;
+    await updateProjectsStore(username, (data) => {
+      const idx = data.projects.findIndex((p) => p.id === decodedId);
+      if (idx === -1) throw new ProjectNotFound();
+      const next = { ...data.projects[idx] };
+      if (body.category !== undefined) next.categoryOverride = body.category;
+      if (body.importance !== undefined) next.importanceOverride = body.importance;
+      if (body.hidden !== undefined) next.hidden = body.hidden;
+      project = next;
+      const projects = [...data.projects];
+      projects[idx] = next;
+      return { ...data, projects };
+    });
 
     return NextResponse.json(project);
   } catch (e) {
+    if (e instanceof ProjectNotFound) {
+      return NextResponse.json({ error: "Project not found" }, { status: 404 });
+    }
     console.error("[ai-projects] PATCH error:", e);
     return NextResponse.json({ error: "Update failed" }, { status: 500 });
   }

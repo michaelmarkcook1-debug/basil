@@ -150,7 +150,7 @@ async function execIngestSlack(
   const contentHash = hashContent(channelName, transcript);
   const unchanged = await isHashUnchanged(username, externalId, contentHash);
   if (unchanged) {
-    void appendAuditEntries(username, [
+    await appendAuditEntries(username, [
       auditSkipped(externalId, "action", `Slack content unchanged for ${externalId}`),
     ]);
     return;
@@ -165,8 +165,18 @@ async function execIngestSlack(
     date,
   });
 
+  // A FAILED classification is not "nothing here" — see poll-ingest. Leaving
+  // the hash unrecorded keeps it eligible for the morning reprocess retry.
+  if (intel.classificationFailed) {
+    console.warn(
+      `[jobs/executor] slack ${externalId} classification FAILED — ` +
+      `not recording hash so it retries once AI is healthy`
+    );
+    return;
+  }
+
   if (!shouldMaterializeSlack(intel)) {
-    void recordIngest(username, { sourceRef: externalId, hash: contentHash });
+    await recordIngest(username, { sourceRef: externalId, hash: contentHash });
     return;
   }
 
@@ -181,14 +191,14 @@ async function execIngestSlack(
     isDM,
   });
 
-  void recordIngest(username, {
+  await recordIngest(username, {
     sourceRef: externalId,
     hash: contentHash,
     actionIds: result.auditEntries.filter((e) => e.itemType === "action" && e.itemId).map((e) => e.itemId!),
     decisionIds: result.auditEntries.filter((e) => e.itemType === "decision" && e.itemId).map((e) => e.itemId!),
     memoryIds: result.auditEntries.filter((e) => e.itemType === "memory" && e.itemId).map((e) => e.itemId!),
   });
-  void appendAuditEntries(username, result.auditEntries);
+  await appendAuditEntries(username, result.auditEntries);
 }
 
 async function execIngestZoom(
@@ -226,7 +236,7 @@ async function execIngestTeams(
   const contentHash = hashContent(channelName, transcript);
   const unchanged = await isHashUnchanged(username, externalId, contentHash);
   if (unchanged) {
-    void appendAuditEntries(username, [
+    await appendAuditEntries(username, [
       auditSkipped(externalId, "action", `Teams content unchanged for ${externalId}`),
     ]);
     return;
@@ -234,8 +244,17 @@ async function execIngestTeams(
 
   const intel = await classifyTeams({ username, channelName, transcript, isDM, isMention, date });
 
+  // Same rule as Slack: a failed call must not be recorded as a verdict.
+  if (intel.classificationFailed) {
+    console.warn(
+      `[jobs/executor] teams ${externalId} classification FAILED — ` +
+      `not recording hash so it retries once AI is healthy`
+    );
+    return;
+  }
+
   if (!shouldMaterializeTeams(intel)) {
-    void recordIngest(username, { sourceRef: externalId, hash: contentHash });
+    await recordIngest(username, { sourceRef: externalId, hash: contentHash });
     return;
   }
 
@@ -249,14 +268,14 @@ async function execIngestTeams(
     username,
   });
 
-  void recordIngest(username, {
+  await recordIngest(username, {
     sourceRef: externalId,
     hash: contentHash,
     actionIds: result.auditEntries.filter((e) => e.itemType === "action" && e.itemId).map((e) => e.itemId!),
     decisionIds: result.auditEntries.filter((e) => e.itemType === "decision" && e.itemId).map((e) => e.itemId!),
     memoryIds: result.auditEntries.filter((e) => e.itemType === "memory" && e.itemId).map((e) => e.itemId!),
   });
-  void appendAuditEntries(username, result.auditEntries);
+  await appendAuditEntries(username, result.auditEntries);
 }
 
 async function execIngestMicrosoftMail(

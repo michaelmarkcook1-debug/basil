@@ -78,6 +78,7 @@ test("store: upsert matches by term or alias, un-dismisses, validates; remove wo
 
 function promptModule(glossary) {
   return loadTs("lib/ai/system-prompt.ts", {
+    "@/lib/ai/injection-guard": loadTs("lib/ai/injection-guard.ts"),
     "@/lib/contacts/user-store": { listUserContacts: async () => [] },
     "@/lib/memory/store": { memoriesForPrompt: async () => "" },
     "@/lib/settings/store": { getSettings: async () => ({ name: "Fixture Owner", timezone: "Europe/London", workStart: "09:00", workEnd: "18:00", videoTool: "Zoom", meetingUrl: "" }) },
@@ -108,11 +109,13 @@ test("background prompts decode only the shorthand the email actually uses", asy
   }
 });
 
-test("rememberTerm is a chat tool and needs no approval (it only teaches Basil a word)", () => {
+test("rememberTerm needs no approval when the user teaches a word, and asks once outside content is in the turn", () => {
   const tools = src("lib/ai/tools.ts");
   const block = tools.slice(tools.indexOf("    rememberTerm: tool({"), tools.indexOf("    rememberThis: tool({"));
   assert.match(block, /upsertTerm\(username/);
-  assert.doesNotMatch(block, /needsApproval/);
+  // Since 2026-11-10 (lib/ai/injection-guard.ts): planted text in an email must
+  // not become a standing definition, so it asks only after outside content.
+  assert.match(block, /needsApproval: \(\) => trust\.tainted,/);
 });
 
 // ── Promise capture ──────────────────────────────────────────────────────────
@@ -125,6 +128,7 @@ const C = () => loadTs("lib/commitments/capture.ts", {
   "@/lib/settings/store": { getSettings: async () => ({ name: "Fixture Owner" }) },
   "@/lib/ai/system-prompt": { getTaskSystemPrompt: async () => "" },
   "@/lib/ai/generate": { generateTextSafe: async () => ({ text: "{}" }) },
+  "@/lib/ai/spend-guard": { SpendCapError: class SpendCapError extends Error {} },
   "@/lib/ai/model-config": { getTextModel: () => "mock" },
   "@/lib/ai/parse-json": loadTs("lib/ai/parse-json.ts", { zod }),
   "@/lib/email/triage": loadTs("lib/email/triage.ts"),
@@ -157,6 +161,7 @@ test("capture: each sent email read once, promises filed for review with your wo
     "@/lib/settings/store": { getSettings: async () => ({ name: "Fixture Owner" }) },
     "@/lib/ai/system-prompt": { getTaskSystemPrompt: async () => "" },
     "@/lib/ai/generate": {}, "@/lib/ai/model-config": {},
+    "@/lib/ai/spend-guard": { SpendCapError: class SpendCapError extends Error {} },
     "@/lib/ai/parse-json": loadTs("lib/ai/parse-json.ts", { zod }),
     "@/lib/email/triage": loadTs("lib/email/triage.ts"),
     "@/lib/security/sensitive": { redactSensitive: (s) => ({ text: s }) },

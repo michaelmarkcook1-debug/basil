@@ -74,10 +74,22 @@ async function withLocalLock<T>(key: string, fn: () => Promise<T>): Promise<T> {
 // ── Public API ─────────────────────────────────────────────────────────────────
 
 export interface LockOptions {
-  /** Lock TTL — auto-released if the holder dies. Default 5s. */
+  /**
+   * Lock TTL — auto-released if the holder dies. Default 30s.
+   *
+   * Was 5s (2026-11-10 bug pass, C6). The TTL also bounds how long a LIVE
+   * holder keeps exclusivity: a write that sits behind this instance's Blob
+   * write queue (persistent.ts awaits the whole chain under "strong"
+   * durability) can take longer than 5s, the lock expired underneath it, a
+   * second writer acquired it and both wrote — the lost update the lock exists
+   * to prevent. 30s covers a slow queued write; a holder that dies still frees
+   * the key within half a minute.
+   */
   ttlMs?: number;
   /**
-   * Acquire attempts before giving up. Default 80.
+   * Acquire attempts before giving up. Default 320 (× 100ms = 32s > 30s TTL);
+   * when the caller changes ttlMs or waitMs without giving retries, enough to
+   * outlast that TTL: ceil(ttlMs / waitMs) + 20.
    *
    * ⚠️ INVARIANT: retries × waitMs MUST exceed ttlMs.
    *
@@ -88,12 +100,18 @@ export interface LockOptions {
    * cross-instance lock it surfaced immediately as
    * "[lock] could not acquire actions:<user> after 30 attempts" on /api/today.
    *
-   * 80 × 100ms = 8s > 5s TTL, so a waiter now either gets the lock when the
+   * The default is derived from the TTL (not a constant) so a caller that only
+   * raises ttlMs keeps the invariant: a waiter either gets the lock when the
    * holder finishes or waits out the TTL of a holder that died.
    */
   retries?: number;
   /** Wait between attempts. Default 100ms. */
   waitMs?: number;
+}
+
+/** An acquire budget that outlasts `ttlMs` at `waitMs` per attempt. */
+export function defaultRetries(ttlMs: number, waitMs: number): number {
+  return Math.ceil(ttlMs / Math.max(1, waitMs)) + 20;
 }
 
 /**
@@ -107,9 +125,12 @@ export async function withLock<T>(key: string, fn: () => Promise<T>, opts: LockO
 
   const lockKey = `lock:${key}`;
   const token = crypto.randomUUID();
-  const ttlMs = opts.ttlMs ?? 5000;
-  const retries = opts.retries ?? 80; // 80 × 100ms = 8s > 5s ttl (see LockOptions)
+  const ttlMs = opts.ttlMs ?? 30000;
   const waitMs = opts.waitMs ?? 100;
+  let retries = opts.retries ?? 320; // 320 × 100ms = 32s > 30s ttl (see LockOptions)
+  // A caller that raised ttlMs (or waitMs) without giving retries still gets a
+  // budget that outlasts the TTL.
+  if (opts.retries === undefined && retries * waitMs <= ttlMs) retries = defaultRetries(ttlMs, waitMs);
 
   let acquired = false;
   for (let i = 0; i < retries; i++) {

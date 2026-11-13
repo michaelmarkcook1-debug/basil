@@ -2,13 +2,15 @@
  * POST /api/calendar/[eventId]/rsvp — accept, decline or "maybe" an invitation.
  * Body: { status: "accepted" | "declined" | "tentative", comment?: string }
  *
- * The organiser is notified (sendUpdates:"all"). 409 when the user is not on
- * the guest list — this used to change nothing and still answer success.
+ * The organiser is notified (sendUpdates:"all" on Google; sendResponse on
+ * Outlook — an "ms:" id is answered through Microsoft Graph). 409 when the
+ * user is not on the guest list — this used to change nothing and still
+ * answer success.
  */
 import { NextResponse } from "next/server";
-import { isGoogleConnected } from "@/lib/google/auth";
 import { getSessionUser } from "@/lib/auth";
-import { respondToEvent, NotAnAttendeeError, type RsvpResponse } from "@/lib/google/calendar";
+import { respondToEvent, NotAnAttendeeError, CalendarNotConnectedError, CALENDAR_NAME, eventProvider } from "@/lib/calendar/writes";
+import type { RsvpResponse } from "@/lib/google/calendar";
 import { emitAuditEvent } from "@/lib/events/audit";
 
 const LABEL: Record<RsvpResponse, string> = { accepted: "Accepted", declined: "Declined", tentative: "Maybe" };
@@ -16,9 +18,6 @@ const LABEL: Record<RsvpResponse, string> = { accepted: "Accepted", declined: "D
 export async function POST(req: Request, { params }: { params: Promise<{ eventId: string }> }) {
   const username = await getSessionUser();
   if (!username) return NextResponse.json({ error: "Unauthorised" }, { status: 401 });
-  if (!(await isGoogleConnected(username))) {
-    return NextResponse.json({ error: "Google Calendar not connected." }, { status: 401 });
-  }
   const { eventId } = await params;
   if (!eventId) return NextResponse.json({ error: "Missing eventId" }, { status: 400 });
 
@@ -46,8 +45,9 @@ export async function POST(req: Request, { params }: { params: Promise<{ eventId
     });
     return NextResponse.json({ success: true, status });
   } catch (e) {
+    if (e instanceof CalendarNotConnectedError) return NextResponse.json({ error: e.message }, { status: 401 });
     if (e instanceof NotAnAttendeeError) return NextResponse.json({ error: e.message }, { status: 409 });
     console.error("[calendar/rsvp] failed:", e instanceof Error ? e.message : e);
-    return NextResponse.json({ error: "Could not send your response to Google Calendar." }, { status: 502 });
+    return NextResponse.json({ error: `Could not send your response to ${CALENDAR_NAME[eventProvider(eventId)]}.` }, { status: 502 });
   }
 }

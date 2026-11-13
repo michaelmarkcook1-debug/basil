@@ -71,5 +71,7 @@ test("prune deletes stale date folders (suffixes included), oldest first, and ke
 test("the cron prunes only after a complete backup, inside the function's time limit", async () => {
   const src = (await import("node:fs")).readFileSync(new URL("../app/api/cron/backup/route.ts", import.meta.url), "utf8");
   assert.match(src, /backupAllUsers\(todayKey, \{ deadline: started \+ 240_000 \}\)/);
-  assert.match(src, /const prune = backup\.complete\s*\? await pruneBackups/);
+  // 2026-11-10: and only when no copy failed (tests/bug-batch-2026-11-10.test.mjs).
+  assert.match(src, /const good = backup\.complete && backup\.failed === 0;/);
+  assert.match(src, /const prune = good\s*\? await pruneBackups/);
 });

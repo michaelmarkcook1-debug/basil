@@ -16,6 +16,11 @@
 // Write pattern: optimistic local update first → then persist to server.
 // Read pattern: sync from cache (instant) + one async server fetch on mount.
 
+import { scopedKey } from "./session-user";
+
+// Stored per signed-in user via scopedKey(): the bare key was shared by everyone
+// on the browser, so one person's cached overrides could be pushed into another
+// person's account by the one-time migration below (A9).
 const OVERRIDE_KEY = "sage-contact-profile-overrides";
 
 /**
@@ -71,7 +76,7 @@ type OverrideMap = Record<string, ProfileOverride>;
 function readAll(): OverrideMap {
   if (typeof window === "undefined") return {};
   try {
-    const raw = localStorage.getItem(OVERRIDE_KEY);
+    const raw = localStorage.getItem(scopedKey(OVERRIDE_KEY));
     return raw ? (JSON.parse(raw) as OverrideMap) : {};
   } catch {
     return {};
@@ -81,7 +86,7 @@ function readAll(): OverrideMap {
 function writeAll(map: OverrideMap): void {
   if (typeof window === "undefined") return;
   try {
-    localStorage.setItem(OVERRIDE_KEY, JSON.stringify(map));
+    localStorage.setItem(scopedKey(OVERRIDE_KEY), JSON.stringify(map));
   } catch {
     /* storage full; ignore */
   }
@@ -109,7 +114,7 @@ export async function loadOverridesFromServer(): Promise<OverrideMap> {
   // One-time migration: push any existing localStorage overrides to the server.
   const cached = readAll();
   if (Object.keys(cached).length > 0) {
-    const migKey = "sage-contact-overrides-migrated-v1";
+    const migKey = scopedKey("sage-contact-overrides-migrated-v1");
     if (!localStorage.getItem(migKey)) {
       try {
         // Push each override individually — server merges, not replaces.

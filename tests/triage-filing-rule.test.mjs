@@ -21,6 +21,7 @@ const mocks = {
   "@/lib/ai/schemas": {},
   "@/core/feature-flags": {},
   "@/lib/settings/store": {},
+  "@/lib/ai/injection-guard": loadTs("lib/ai/injection-guard.ts"),
 };
 const slack = loadTs("lib/slack/classify-slack.ts", mocks);
 const email = loadTs("lib/email/classify-email.ts", mocks);

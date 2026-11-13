@@ -3,6 +3,7 @@ import { getSessionUser } from "@/lib/auth";
 import { deleteUser, isAdminUser, findByUsername } from "@/lib/users";
 import { forceFlushSnapshot, purgeUserData } from "@/lib/storage/persistent";
 import { revokeSiriToken } from "@/lib/auth/siri-tokens";
+import { revokeIntegrationTokens } from "@/lib/auth/revoke-integrations";
 import path from "path";
 import fs from "fs/promises";
 
@@ -49,18 +50,24 @@ export async function DELETE() {
     // 2. Persist deletion so removed user can't reappear on cold start
     await forceFlushSnapshot();
 
-    // 3. Purge all blob / filesystem data for this user (best-effort, non-blocking).
-    //    We fire-and-forget so a storage error never blocks a successful account
-    //    deletion response. The account record is already gone.
-    purgeUserData(username)
-      .then(({ deleted }) => {
-        console.info(`[profile/delete] data purge complete for ${username}: ${deleted} blob(s) removed`);
-      })
-      .catch((err) => {
-        console.error("[profile/delete] data purge failed (non-fatal):", err instanceof Error ? err.message : err);
-      });
+    // 3. Revoke the Google grant and Slack user token at the provider BEFORE the
+    //    purge deletes the tokens needed to do it. Best-effort; never throws.
+    const revoked = await revokeIntegrationTokens(username);
+    console.info(`[profile/delete] provider revoke for ${username}: google=${revoked.google} slack=${revoked.slack}`);
 
-    // 4. Clear the session cookie in the response
+    // 4. Purge all blob / filesystem data for this user — AWAITED. It used to be
+    //    fire-and-forget after the response, and Vercel may freeze a function
+    //    once it has replied, so the purge could be cut off and a later account
+    //    on the same email inherited this one's mail and tokens (2026-11-10 bug
+    //    pass, A10). A storage error is still non-fatal: the account is gone.
+    try {
+      const { deleted } = await purgeUserData(username);
+      console.info(`[profile/delete] data purge complete for ${username}: ${deleted} blob(s) removed`);
+    } catch (err) {
+      console.error("[profile/delete] data purge failed (non-fatal):", err instanceof Error ? err.message : err);
+    }
+
+    // 5. Clear the session cookie in the response
     const res = NextResponse.json({ ok: true });
     res.cookies.set("basil_token", "", { path: "/", maxAge: 0 });
     return res;

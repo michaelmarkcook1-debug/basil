@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect, useCallback, useMemo } from "react";
+import { ForgetPerson, type PrivacyView } from "@/components/contacts/forget-person";
 import Link from "next/link";
 import { useDomainSync } from "@/lib/sync/use-domain-sync";
 import { sampleContacts, type Contact, type ContactDirectory } from "@/lib/contacts-data";
@@ -239,6 +240,8 @@ function ContactDetail({
   onSaveOverride,
   onClearOverride,
   onContactUpdated,
+  privacy,
+  onPrivacyChanged,
 }: {
   mix?: ChannelMixLite;
   weekly?: number[];
@@ -262,7 +265,12 @@ function ContactDetail({
   onClearOverride: () => void;
   /** Called after canonical Contact fields are updated so the parent can refresh. */
   onContactUpdated: () => void;
+  /** People-profile switches (lib/privacy); null until loaded. */
+  privacy: PrivacyView | null;
+  onPrivacyChanged: (next: PrivacyView) => void;
 }) {
+  // People profiles off, or this person excluded: no new profile is offered.
+  const profilingBlocked = !!privacy && (!privacy.profiling || privacy.optedOut.some((o) => o.id === contact.id));
   const [confirmingDelete, setConfirmingDelete] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const daysSince = lastInteraction
@@ -356,7 +364,10 @@ function ContactDetail({
           notes: genNotes.trim() || undefined,
         }),
       });
-      if (!res.ok) throw new Error(`Request failed (${res.status})`);
+      if (!res.ok) {
+        const reason = (await res.json().catch(() => null)) as { error?: string } | null; // ci-ok: unreadable error body → generic message below
+        throw new Error(reason?.error ?? `Request failed (${res.status})`);
+      }
       const data = (await res.json()) as ProfileOverride & {
         error?: string;
         /** Structured fields explicitly stated in the user's notes. */
@@ -710,7 +721,7 @@ function ContactDetail({
                 Revert
               </Button>
             )}
-            {!genOpen && (
+            {!genOpen && !profilingBlocked && (
               <Button
                 size="sm"
                 onClick={() => setGenOpen(true)}
@@ -723,7 +734,9 @@ function ContactDetail({
           </div>
         </div>
 
-        {genOpen && !preview && (
+        <ForgetPerson contactId={contact.id} name={contact.name} privacy={privacy} onChanged={onPrivacyChanged} />
+
+        {genOpen && !preview && !profilingBlocked && (
           <div className="space-y-2">
             <Textarea
               value={genNotes}
@@ -902,7 +915,7 @@ function ContactDetail({
         </TabsList>
 
         <TabsContent value="profile" className="space-y-4 mt-4">
-          <RelationshipToneCard key={contact.id} contactId={contact.id} name={contact.name} shifts={override?.toneHistory ?? []} />
+          <RelationshipToneCard key={`${contact.id}:${profilingBlocked ? "off" : "on"}`} contactId={contact.id} name={contact.name} shifts={override?.toneHistory ?? []} />
           <ConversationShape name={contact.name.split(" ")[0]} mix={mix} weekly={weekly} />
 
           <Card>
@@ -1005,7 +1018,7 @@ function ContactDetail({
                   <p className="text-[12px] text-muted-foreground mt-1.5 flex items-center gap-1.5">
                     <span className="inline-block h-1.5 w-1.5 rounded-full bg-signal-info shrink-0" />
                     Zoom cadence: <span className="font-medium text-foreground">{zoomCadence}</span>
-                    {zoomMeetingCount && zoomMeetingCount > 0 && (
+                    {(zoomMeetingCount ?? 0) > 0 && (
                       <span className="text-muted-foreground/60">({zoomMeetingCount} meeting{zoomMeetingCount !== 1 ? "s" : ""} / 30d)</span>
                     )}
                   </p>
@@ -1104,6 +1117,7 @@ export default function ContactsPage() {
   const [dismissedIds, setDismissedIds] = useState<string[]>([]);
   const [userContacts, setUserContacts] = useState<Contact[]>([]);
   const [overrides, setOverrides] = useState<Record<string, ProfileOverride>>({});
+  const [privacy, setPrivacy] = useState<PrivacyView | null>(null);
 
   // The effective "all contacts" list. Sample contacts are off by default
   // (sampleContacts() returns [] unless a demo flag is set), so a real user
@@ -1212,6 +1226,10 @@ export default function ContactsPage() {
     // Phase 2 — authoritative server data (runs migration on first visit)
     loadUserContactsFromServer().then(setUserContacts);
     loadOverridesFromServer().then(setOverrides);
+    fetch("/api/privacy", { cache: "no-store" })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((p: PrivacyView | null) => { if (p) setPrivacy(p); })
+      .catch((e) => console.warn("[contacts] people-profile settings unavailable:", e instanceof Error ? e.message : e));
 
     // Fetch the authenticated user's own email so we can derive their org domain
     // for internal/external contact classification — no hardcoded domain needed.
@@ -1679,6 +1697,7 @@ export default function ContactsPage() {
         />
         {selected ? (
           <ContactDetail
+            key={selected.id}
             contact={selected}
             photoUrl={photos[selected.email?.toLowerCase() ?? ""]}
             mix={liveActivity.find((a) => a.contactId === selected.id)?.bySource}
@@ -1710,6 +1729,12 @@ export default function ContactsPage() {
             override={selectedOverride}
             onSaveOverride={(patch) => handleSaveOverride(selected.id, patch)}
             onClearOverride={() => handleClearOverride(selected.id)}
+            privacy={privacy}
+            onPrivacyChanged={(next) => {
+              setPrivacy(next);
+              // The server deleted the read: replace the cached profiles with what is left.
+              void loadOverridesFromServer().then(setOverrides);
+            }}
             onContactUpdated={() => {
               // Refresh the contacts list after canonical field updates (e.g. title,
               // company, location extracted from context notes on profile save).

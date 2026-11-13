@@ -8,7 +8,7 @@
 
 import { NextResponse } from "next/server";
 import { getSessionUser } from "@/lib/auth";
-import { readProjectsStore, writeProjectsStore } from "@/lib/ai-projects/store";
+import { updateProjectsStore } from "@/lib/ai-projects/store";
 import { classifyCategory, scoreImportance, generateSummary } from "@/lib/ai-projects/classifier";
 import type { AIProject, Platform } from "@/lib/ai-projects/types";
 import { PLATFORM_LABELS } from "@/lib/ai-projects/types";
@@ -55,63 +55,70 @@ export async function POST(req: Request) {
 
   const p = platform as Platform;
   const now = new Date().toISOString();
-  const store = await readProjectsStore(username);
+  const valid = items.filter((item) => item.name && item.externalId);
 
-  // Build lookup of existing projects for this platform
-  const existingById = new Map<string, AIProject>();
-  for (const proj of store.projects) {
-    existingById.set(proj.id, proj);
-  }
+  // Locked read-modify-write on a fresh copy (2026-11-10 bug pass, C3): this
+  // read the store, built the new list and wrote the whole file unlocked, so an
+  // import racing the 30-minute sync (or a hide) could erase the other.
+  let imported = 0;
+  await updateProjectsStore(username, (store) => {
+    // Build lookup of existing projects for this platform
+    const existingById = new Map<string, AIProject>();
+    for (const proj of store.projects) {
+      existingById.set(proj.id, proj);
+    }
 
-  // Convert scraped items → AIProject, preserving user overrides
-  const newProjects: AIProject[] = items
-    .filter((item) => item.name && item.externalId)
-    .map((item) => {
-      const id = `${p}:${item.externalId}`;
-      const existing = existingById.get(id);
-      const lastActiveAt = item.lastActiveAt ?? now;
-      const category = classifyCategory(item.name);
-      const importance = scoreImportance(lastActiveAt, category);
+    // Convert scraped items → AIProject, preserving user overrides
+    const newProjects: AIProject[] = valid
+      .map((item) => {
+        const id = `${p}:${item.externalId}`;
+        const existing = existingById.get(id);
+        const lastActiveAt = item.lastActiveAt ?? now;
+        const category = classifyCategory(item.name);
+        const importance = scoreImportance(lastActiveAt, category);
 
-      return {
-        id,
-        platform: p,
-        externalId: item.externalId,
-        name: item.name,
-        url: item.url,
-        createdAt: existing?.createdAt ?? lastActiveAt,
-        lastActiveAt,
-        category: existing?.categoryOverride ?? category,
-        importance: existing?.importanceOverride ?? importance,
-        summary: generateSummary({ name: item.name, platform: p, category }),
-        hidden: existing?.hidden ?? false,
-        categoryOverride: existing?.categoryOverride,
-        importanceOverride: existing?.importanceOverride,
-        syncedAt: now,
-      } satisfies AIProject;
-    });
+        return {
+          id,
+          platform: p,
+          externalId: item.externalId,
+          name: item.name,
+          url: item.url,
+          createdAt: existing?.createdAt ?? lastActiveAt,
+          lastActiveAt,
+          category: existing?.categoryOverride ?? category,
+          importance: existing?.importanceOverride ?? importance,
+          summary: generateSummary({ name: item.name, platform: p, category }),
+          hidden: existing?.hidden ?? false,
+          categoryOverride: existing?.categoryOverride,
+          importanceOverride: existing?.importanceOverride,
+          syncedAt: now,
+        } satisfies AIProject;
+      });
 
-  // Merge: keep projects from other platforms, replace this platform's projects
-  const otherProjects = store.projects.filter((proj) => proj.platform !== p);
-  const merged = [...otherProjects, ...newProjects];
+    // Merge: keep projects from other platforms, replace this platform's projects
+    const otherProjects = store.projects.filter((proj) => proj.platform !== p);
+    const merged = [...otherProjects, ...newProjects];
+    imported = newProjects.length;
 
-  // Update platform status — mark as scraped
-  store.platforms[p] = {
-    ...store.platforms[p],
-    platform: p,
-    label: PLATFORM_LABELS[p],
-    connected: true,
-    scraped: true,
-    lastSyncedAt: now,
-    itemCount: newProjects.length,
-    error: undefined,
-  };
+    // Update platform status — mark as scraped
+    const platforms = { ...store.platforms };
+    platforms[p] = {
+      ...platforms[p],
+      platform: p,
+      label: PLATFORM_LABELS[p],
+      connected: true,
+      scraped: true,
+      lastSyncedAt: now,
+      itemCount: newProjects.length,
+      error: undefined,
+    };
 
-  await writeProjectsStore(username, { ...store, projects: merged });
+    return { ...store, platforms, projects: merged };
+  });
 
   return NextResponse.json({
     ok: true,
     platform: p,
-    imported: newProjects.length,
+    imported,
   });
 }

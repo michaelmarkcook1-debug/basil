@@ -30,12 +30,15 @@ const AUTO_SOURCES = new Set(["email", "slack", "teams", "meeting"]);
  * (manual, chat) or that syncs from a system of record (linear) is never
  * archived for age. Archiving sets status "done" with a reason — recoverable.
  */
-export function isUntouchedStale(action: ActionItem, now = Date.now()): boolean {
+export function isUntouchedStale(action: ActionItem, now = Date.now(), awayDaysSince?: (iso: string) => number): boolean {
   if (action.status !== "open" && action.status !== "overdue") return false;
   if (!AUTO_SOURCES.has(action.source)) return false;
   if (action.dueDate && new Date(action.dueDate).getTime() >= now) return false;
   const lastTouch = action.lastActivityAt ?? action.createdAt;
-  return now - new Date(lastTouch).getTime() >= UNTOUCHED_ARCHIVE_DAYS * 86_400_000;
+  // Days the user was away do not count: three weeks' leave must not close
+  // things they never had the chance to see (lib/away).
+  const away = awayDaysSince?.(lastTouch) ?? 0;
+  return now - new Date(lastTouch).getTime() - away * 86_400_000 >= UNTOUCHED_ARCHIVE_DAYS * 86_400_000;
 }
 
 /**
@@ -70,14 +73,15 @@ export function isActionStalled(action: ActionItem): boolean {
  * never acknowledged qualify; manually created items that the user has
  * touched do not.
  */
-export function isOverdueStale(action: ActionItem): boolean {
+export function isOverdueStale(action: ActionItem, awayDaysSince?: (iso: string) => number): boolean {
   const isOverdue =
     action.status === "overdue" ||
     (action.status === "open" && !!action.dueDate);
   if (!isOverdue || !action.dueDate) return false;
 
+  // Days the user was away since the due date do not count (lib/away).
   const daysPastDue =
-    (Date.now() - new Date(action.dueDate).getTime()) / 86_400_000;
+    (Date.now() - new Date(action.dueDate).getTime()) / 86_400_000 - (awayDaysSince?.(action.dueDate) ?? 0);
   if (daysPastDue < STALE_OVERDUE_THRESHOLD_DAYS) return false;
 
   // Item was never touched after initial creation (within 1 hour)

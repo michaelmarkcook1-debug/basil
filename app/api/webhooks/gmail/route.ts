@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { google } from "googleapis";
 import { getAuthedClient } from "@/lib/google/auth";
-import { createEvent, hasExternalId } from "@/lib/events/store";
+import { createEventIfNew, hasExternalId } from "@/lib/events/store";
 import { eventFromIngest } from "@/lib/events/rules";
 import { publish } from "@/lib/events/bus";
 import { getWatchState, updateGmail } from "@/lib/google/watch-state";
@@ -90,21 +90,38 @@ export async function POST(req: Request) {
   }
 
   let processed = 0;
+  // Messages we could not ingest this delivery. Any at all → the baseline stays
+  // put and Pub/Sub redelivers; createEventIfNew makes the retry safe.
+  let failed = 0;
 
   try {
-    const hist = await gmail.users.history.list({
-      userId: "me",
-      startHistoryId,
-      historyTypes: ["messageAdded"],
-      maxResults: 50,
-    });
-
+    // Read the WHOLE delta. history.list returns at most maxResults records per
+    // call; the single call this replaced read the first 50 and then moved the
+    // baseline past everything after them, so a burst of mail was never seen.
     const added = new Set<string>();
-    for (const h of hist.data.history || []) {
-      for (const m of h.messagesAdded || []) {
-        if (m.message?.id) added.add(m.message.id);
+    let pageToken: string | undefined;
+    let pages = 0;
+    let lastHistoryId: string | undefined;
+    do {
+      const hist = await gmail.users.history.list({
+        userId: "me",
+        startHistoryId,
+        historyTypes: ["messageAdded"],
+        maxResults: 100,
+        ...(pageToken ? { pageToken } : {}),
+      });
+      for (const h of hist.data.history || []) {
+        if (h.id) lastHistoryId = h.id;
+        for (const m of h.messagesAdded || []) {
+          if (m.message?.id) added.add(m.message.id);
+        }
       }
-    }
+      pageToken = hist.data.nextPageToken || undefined;
+      pages++;
+    } while (pageToken && pages < MAX_HISTORY_PAGES);
+    // Hit the page cap (thousands of records): advance only as far as we read,
+    // so the next push resumes from there instead of skipping the rest.
+    const complete = !pageToken;
 
     // Fetch message metadata in parallel batches of 5 to stay well within
     // Gmail API rate limits while avoiding the latency of sequential fetches.
@@ -165,7 +182,10 @@ export async function POST(req: Request) {
             body: snippet,
             from: extractName(fromRaw),
           });
-          const event = await createEvent(webhookUsername, shaped);
+          // The check above ran outside the lock; this one is authoritative, so a
+          // redelivery or poll-ingest racing us cannot create a second event.
+          const { created, event } = await createEventIfNew(webhookUsername, shaped);
+          if (!created) return;
           publish(event);
           processed++;
 
@@ -190,18 +210,30 @@ export async function POST(req: Request) {
           void createJobRecord(webhookUsername, "ingest.gmail", externalId);
           await start(ingestGmailWorkflow, [webhookUsername, gmailPayload]);
         } catch (err) {
+          // Deleted between the history entry and this fetch: nothing to ingest,
+          // and retrying would never succeed — not a failure.
+          if (httpStatus(err) === 404) return;
+          failed++;
           console.error(`[gmail-webhook] message fetch failed id=${id}:`, err instanceof Error ? err.message : err);
         }
       }));
     }
 
-    await updateGmail(webhookUsername, { historyId: newHistoryId });
-    return NextResponse.json({ ok: true, processed });
+    if (failed > 0) {
+      // Advancing now would skip the failed messages for good. Keep the old
+      // baseline and let Pub/Sub redeliver; the ones already ingested are
+      // deduped by externalId on the retry.
+      console.error(
+        `[gmail-webhook] ${failed} of ${addedIds.length} message(s) failed for ${webhookUsername} — NOT advancing baseline`
+      );
+      return NextResponse.json({ ok: false, processed, failed, error: "some messages failed — will retry" }, { status: 503 });
+    }
+
+    const nextBaseline = complete ? newHistoryId : lastHistoryId;
+    if (nextBaseline) await updateGmail(webhookUsername, { historyId: nextBaseline });
+    return NextResponse.json({ ok: true, processed, ...(complete ? {} : { partial: true }) });
   } catch (e) {
-    const status =
-      (e as { code?: number })?.code ??
-      (e as { status?: number })?.status ??
-      (e as { response?: { status?: number } })?.response?.status;
+    const status = httpStatus(e);
     const msg = e instanceof Error ? e.message : String(e);
     const isHistoryGone =
       status === 404 || /HISTORY_NOT_FOUND|not found/i.test(msg);
@@ -220,6 +252,23 @@ export async function POST(req: Request) {
     console.error(`[gmail-webhook] transient history.list error for ${webhookUsername} — NOT advancing baseline:`, msg);
     return NextResponse.json({ ok: false, error: "transient — will retry" }, { status: 503 });
   }
+}
+
+/** Safety stop for the history pager: 20 × 100 records per push. */
+const MAX_HISTORY_PAGES = 20;
+
+/**
+ * HTTP status from a googleapis error, whichever field it arrived in. `code`
+ * can also be a network code ("ECONNRESET") or a numeric string, so only a
+ * three-digit status counts.
+ */
+function httpStatus(e: unknown): number | undefined {
+  const x = e as { code?: unknown; status?: unknown; response?: { status?: unknown } } | null;
+  for (const v of [x?.code, x?.status, x?.response?.status]) {
+    const n = typeof v === "number" ? v : typeof v === "string" && /^\d{3}$/.test(v) ? Number(v) : NaN;
+    if (Number.isFinite(n)) return n;
+  }
+  return undefined;
 }
 
 // "Jordan Avery <jordan@ex.com>" → "Jordan Avery"

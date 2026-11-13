@@ -118,11 +118,14 @@ function feedModule({ linearOn = false, linearThrows = false, followups = 0 } = 
     lastInboundAt: new Date().toISOString(), href: `https://example.test/${i}`,
   }));
   return loadTs("lib/today/feed.ts", {
+    // lib/away: no working calendar here — the code falls back to its every-day behaviour.
+    "@/lib/away/store": { getWorkCalendar: async () => { throw new Error("no working calendar in this test"); }, declareAway: async () => ({}), endDeclaredAway: async () => 0, invalidateCalendarAbsences: async () => {} },
+    "@/lib/away/calendar": loadTs("lib/away/calendar.ts"),
     "@/lib/self-identity": { getSelfIdentity: async () => ({ emails: [], names: [] }) },
     "@/lib/actions/utils": { isWaitingOnOthers: () => false },
     "@/lib/memory/store": { listMemories: async () => [] },
     "@/lib/contacts/cadence-rules": { extractCadenceRules: () => [] },
-    "@/lib/delta/compute": { computeDeltas: () => ({ changes: [] }) },
+    "@/lib/delta/compute": { buildKeyContactSet: () => new Set(), computeDeltas: () => ({ changes: [] }) },
     "@/lib/delta/types": { SEVERITY_WEIGHT: { critical: 1, high: 0.7, medium: 0.4 }, CATEGORY_CONFIG: { urgency: { weight: 1 } } },
     "@/lib/delta/store": { getSinceDate: async () => new Date().toISOString() },
     "@/lib/actions/store": { listActions: async () => [] },

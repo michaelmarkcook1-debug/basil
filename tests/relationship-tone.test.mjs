@@ -21,6 +21,8 @@ function sentiment(store = {}) {
   const fetches = { slack: 0 };
   const S = loadTs("lib/contacts/sentiment.ts", {
     zod: require("zod"),
+    "@/lib/privacy/store": { getPrivacyOrClosed: async () => ({ profiling: true, optedOut: {} }), getPrivacy: async () => ({ profiling: true, optedOut: {} }), assertProfilingAllowed: async () => {} },
+    "@/lib/privacy/rules": loadTs("lib/privacy/rules.ts"),
     "@/lib/storage/user-store": {
       readUserStore: async (_u, f, fb) => structuredClone(files[f] ?? fb),
       updateUserStore: async (_u, f, mut, fb) => { files[f] = mut(structuredClone(files[f] ?? fb)); return files[f]; },

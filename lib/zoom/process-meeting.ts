@@ -40,6 +40,8 @@ export interface ProcessZoomMeetingResult {
   decisionsCreated: number;
   memoriesCreated: number;
   skipped: boolean;
+  /** A transcript was there but the model call or its parse failed — not a verdict; retry later. */
+  extractionFailed?: boolean;
 }
 
 // ── Meeting extraction via LLM ────────────────────────────────────────────────
@@ -112,6 +114,7 @@ export async function processZoomMeeting(
   let actionsCreated  = 0;
   let decisionsCreated = 0;
   let memoriesCreated  = 0;
+  let extractionFailed = false;
 
   const attendeeNames = participants.map((p) => p.name).filter(Boolean);
 
@@ -138,6 +141,7 @@ export async function processZoomMeeting(
       attendeeNames,
       dateStr
     );
+    if (!intel) extractionFailed = true;
 
     if (intel) {
       // Who "Mike" is on this call: Zoom's participant list is real, so a
@@ -260,5 +264,6 @@ export async function processZoomMeeting(
     decisionsCreated,
     memoriesCreated,
     skipped: actionsCreated === 0 && decisionsCreated === 0 && memoriesCreated === 0,
+    ...(extractionFailed ? { extractionFailed } : {}),
   };
 }

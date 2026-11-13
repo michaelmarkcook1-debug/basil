@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback, useMemo } from "react";
+import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { Card, CardContent } from "@/components/ui/card";
 import { DataState } from "@/components/ui/data-state";
 import { Button } from "@/components/ui/button";
@@ -32,6 +32,7 @@ import {
 } from "lucide-react";
 import { NeedsAttention } from "@/components/shared/needs-attention";
 import { cn } from "@/lib/utils";
+import { buildLinearIssuePatch, isLinearDoneType, pickLinearState, restoreRemoved } from "@/lib/dashboard/reliability";
 import { ViewActions } from "../view-actions";
 import type { LinearIssue, LinearTeam, LinearWorkflowState, LinearComment, LinearNotification, LinearUser, LinearLabel } from "@/lib/linear/client";
 
@@ -67,7 +68,7 @@ function StateChip({ state }: { state: { name: string; type: string } }) {
       ? "text-signal-positive bg-signal-positive-subtle border-signal-positive-border"
       : state.type === "started"
       ? "text-signal-info bg-signal-info-subtle border-signal-info-border"
-      : state.type === "cancelled"
+      : state.type === "canceled" || state.type === "cancelled" // Linear's type is "canceled"
       ? "text-muted-foreground bg-muted/40 border-border"
       : state.type === "triage"
       ? "text-signal-info bg-signal-info-subtle border-signal-info-border"
@@ -145,7 +146,8 @@ function IssueCard({
   // visually recede them: dim the whole card, strike the title, drop the
   // priority dot. Only NOT-done issues stay at full contrast so the feed
   // flags exactly what still needs attention.
-  const isDone = issue.state.type === "completed" || issue.state.type === "cancelled";
+  // Linear's type is "canceled" — testing "cancelled" never matched (G9).
+  const isDone = isLinearDoneType(issue.state.type);
 
   return (
     // Card renders a plain <div>, so an onClick alone made the ENTIRE Linear
@@ -420,10 +422,15 @@ function InboxReplyPanel({
 }) {
   const [body, setBody] = useState("");
   const [sending, setSending] = useState(false);
+  const [sendError, setSendError] = useState<string | null>(null);
+  // ⌘↵ twice before a re-render posted the comment twice; a ref guards it.
+  const sendingRef = useRef(false);
 
   async function send() {
-    if (!notif.issue || !body.trim()) return;
+    if (!notif.issue || !body.trim() || sendingRef.current) return;
+    sendingRef.current = true;
     setSending(true);
+    setSendError(null);
     try {
       const res = await fetch(`/api/linear/issues/${notif.issue.id}/comments`, {
         method: "POST",
@@ -433,8 +440,13 @@ function InboxReplyPanel({
       if (res.ok) {
         onSent(notif.id);
         onClose();
+      } else {
+        setSendError("That reply was not sent. Try again.");
       }
+    } catch {
+      setSendError("That reply was not sent. Try again.");
     } finally {
+      sendingRef.current = false;
       setSending(false);
     }
   }
@@ -485,6 +497,7 @@ function InboxReplyPanel({
             <Send className={cn("h-3.5 w-3.5", sending && "opacity-40")} />
           </button>
         </div>
+        {sendError && <p role="alert" className="text-xs text-signal-critical">{sendError}</p>}
       </CardContent>
     </Card>
   );
@@ -512,7 +525,7 @@ export default function LinearPage() {
   // Derived from the loaded issues, never re-fetched — the lead and the list
   // are then guaranteed to be the same data.
   const todayIso = new Date().toISOString().slice(0, 10);
-  const liveIssues = issues.filter((i) => i.state?.type !== "completed" && i.state?.type !== "canceled");
+  const liveIssues = issues.filter((i) => !isLinearDoneType(i.state?.type));
   const overdueIssues = liveIssues.filter((i) => !!i.dueDate && i.dueDate.slice(0, 10) < todayIso);
   const urgentIssues = liveIssues.filter((i) => i.priority === 1);
   const startedIssues = liveIssues.filter((i) => i.state?.type === "started");
@@ -532,6 +545,10 @@ export default function LinearPage() {
   // Inbox
   const [notifications, setNotifications] = useState<LinearNotification[]>([]);
   const [inboxLoading, setInboxLoading] = useState(false);
+  // A failed inbox fetch used to read as "Inbox is empty".
+  const [inboxError, setInboxError] = useState(false);
+  // A failed archive / mark-read (rolled back) or a failed save/create/reply.
+  const [actionError, setActionError] = useState<string | null>(null);
   const [replyingTo, setReplyingTo] = useState<LinearNotification | null>(null);
   const [forwardToastVisible, setForwardToastVisible] = useState(false);
 
@@ -563,11 +580,16 @@ export default function LinearPage() {
   });
   const [saving, setSaving] = useState(false);
   const [editingTitle, setEditingTitle] = useState(false);
+  // The form as it was when the panel opened — Save sends only what changed.
+  const openedFormRef = useRef<EditForm | null>(null);
 
   // New issue form
   const [showNewForm, setShowNewForm] = useState(false);
   const [newForm, setNewForm] = useState<NewIssueForm>(EMPTY_NEW_ISSUE);
   const [creating, setCreating] = useState(false);
+  // Enter twice before a re-render created the issue (or comment) twice.
+  const creatingRef = useRef(false);
+  const sendingReplyRef = useRef(false);
 
   // Panel states for team-specific workflow states
   const [panelStates, setPanelStates] = useState<LinearWorkflowState[]>([]);
@@ -650,10 +672,16 @@ export default function LinearPage() {
 
   useEffect(() => { void loadIssues(); }, [loadIssues]);
 
+  /** The issue's own team id — from the issue, else by team name. */
+  const issueTeamId = useCallback(
+    (issue: LinearIssue) => issue.team.id ?? teams.find((t) => t.name === issue.team.name)?.id,
+    [teams],
+  );
+
   // When an issue is selected, load states for that team
   useEffect(() => {
     if (!selectedIssue) return;
-    const teamId = teams.find((t) => t.name === selectedIssue.team.name)?.id;
+    const teamId = issueTeamId(selectedIssue);
     if (!teamId) {
       setPanelStates(states);
       return;
@@ -665,7 +693,7 @@ export default function LinearPage() {
         setPanelStates(data.states);
       })
       .catch(() => setPanelStates(states));
-  }, [selectedIssue, teams, states]);
+  }, [selectedIssue, issueTeamId, states]);
 
   async function loadComments(issueId: string) {
     setCommentsLoading(true);
@@ -684,8 +712,11 @@ export default function LinearPage() {
 
   function openPanel(issue: LinearIssue) {
     setSelectedIssue(issue);
-    const currentState = states.find((s) => s.name === issue.state.name);
-    setEditForm({
+    setActionError(null);
+    // The state with this name IN THE ISSUE'S TEAM. `states.find(name)` took the
+    // first team's "In Progress", which Linear rejects for another team's issue.
+    const currentState = pickLinearState(states, issueTeamId(issue), issue.state.name);
+    const opened: EditForm = {
       title: issue.title,
       description: issue.description ?? "",
       stateId: currentState?.id ?? "",
@@ -693,7 +724,9 @@ export default function LinearPage() {
       dueDate: issue.dueDate ?? "",
       assigneeId: issue.assignee?.id ?? "",
       labelIds: (issue.labels?.nodes ?? []).map((l) => l.id),
-    });
+    };
+    openedFormRef.current = opened;
+    setEditForm(opened);
     setEditingTitle(false);
     setComments([]);
     setReplyBody("");
@@ -708,8 +741,10 @@ export default function LinearPage() {
   }
 
   async function handleSendReply() {
-    if (!selectedIssue || !replyBody.trim()) return;
+    if (!selectedIssue || !replyBody.trim() || sendingReplyRef.current) return;
+    sendingReplyRef.current = true;
     setSendingReply(true);
+    setActionError(null);
     try {
       const res = await fetch(`/api/linear/issues/${selectedIssue.id}/comments`, {
         method: "POST",
@@ -720,30 +755,39 @@ export default function LinearPage() {
         const data = (await res.json()) as { comment: LinearComment };
         setComments((prev) => [...prev, data.comment]);
         setReplyBody("");
+      } else {
+        setActionError("That comment was not posted. Try again.");
       }
     } catch {
-      // silent
+      setActionError("That comment was not posted. Try again.");
     } finally {
+      sendingReplyRef.current = false;
       setSendingReply(false);
     }
   }
 
   async function handleSave() {
-    if (!selectedIssue) return;
+    if (!selectedIssue || saving) return;
+    setActionError(null);
+    const before = openedFormRef.current ?? editForm;
+    // Only what changed: a cleared description is sent as "" (it used to be
+    // dropped), and untouched due date / assignee are not sent as null.
+    const body = buildLinearIssuePatch(before, editForm);
+    // Status is team-specific: resolve the chosen status name within the
+    // issue's own team, and only when it actually changed.
+    if (editForm.stateId && editForm.stateId !== before.stateId) {
+      const pool = [...panelStates, ...states];
+      const chosen = pool.find((s) => s.id === editForm.stateId);
+      const inTeam = chosen ? pickLinearState(pool, issueTeamId(selectedIssue), chosen.name) : undefined;
+      if (!inTeam) {
+        setActionError("That status is not available for this issue's team.");
+        return;
+      }
+      body.stateId = inTeam.id;
+    }
+    if (Object.keys(body).length === 0) return; // nothing changed
     setSaving(true);
     try {
-      const body: Record<string, unknown> = {
-        title: editForm.title,
-        description: editForm.description || undefined,
-        priority: editForm.priority,
-        dueDate: editForm.dueDate || null,
-        // Assignee: empty string = explicitly unassign (Linear accepts null).
-        assigneeId: editForm.assigneeId || null,
-        // Labels: empty array clears all labels.
-        labelIds: editForm.labelIds,
-      };
-      if (editForm.stateId) body.stateId = editForm.stateId;
-
       const res = await fetch(`/api/linear/issues/${selectedIssue.id}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
@@ -754,21 +798,22 @@ export default function LinearPage() {
         // Optimistic update in list
         setIssues((prev) => prev.map((i) => (i.id === data.issue.id ? data.issue : i)));
         setSelectedIssue(data.issue);
-        const newState = panelStates.find((s) => s.id === editForm.stateId);
-        if (newState) {
-          setEditForm((f) => ({ ...f }));
-        }
+        openedFormRef.current = { ...editForm, stateId: (body.stateId as string | undefined) ?? editForm.stateId };
+      } else {
+        setActionError("That was not saved. Try again.");
       }
     } catch {
-      // silent
+      setActionError("That was not saved. Try again.");
     } finally {
       setSaving(false);
     }
   }
 
   async function handleCreate() {
-    if (!newForm.title.trim() || !newForm.teamId) return;
+    if (!newForm.title.trim() || !newForm.teamId || creatingRef.current) return;
+    creatingRef.current = true;
     setCreating(true);
+    setActionError(null);
     try {
       const body: Record<string, unknown> = {
         title: newForm.title,
@@ -791,10 +836,13 @@ export default function LinearPage() {
         setIssues((prev) => [data.issue, ...prev]);
         setNewForm(EMPTY_NEW_ISSUE);
         setShowNewForm(false);
+      } else {
+        setActionError("That issue was not created. Try again.");
       }
     } catch {
-      // silent
+      setActionError("That issue was not created. Try again.");
     } finally {
+      creatingRef.current = false;
       setCreating(false);
     }
   }
@@ -813,13 +861,15 @@ export default function LinearPage() {
 
   async function loadNotifications() {
     setInboxLoading(true);
+    setInboxError(false);
     try {
       const res = await fetch("/api/linear/notifications");
-      if (res.ok) {
-        const data = (await res.json()) as { notifications: LinearNotification[] };
-        setNotifications(data.notifications);
-      }
-    } catch { /* silent */ } finally {
+      if (!res.ok) throw new Error(`notifications ${res.status}`);
+      const data = (await res.json()) as { notifications: LinearNotification[] };
+      setNotifications(data.notifications);
+    } catch {
+      setInboxError(true);
+    } finally {
       setInboxLoading(false);
     }
   }
@@ -831,28 +881,46 @@ export default function LinearPage() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeTab]);
 
+  // Optimistic, with rollback: these used to ignore the response, so a failed
+  // archive or mark-read looked done until the next reload.
+  async function sendOk(url: string, method: string): Promise<boolean> {
+    try {
+      const res = await fetch(url, { method });
+      return res.ok;
+    } catch {
+      return false;
+    }
+  }
+
   async function handleDeleteNotif(id: string) {
+    const index = notifications.findIndex((n) => n.id === id);
+    const removed = notifications[index];
+    setActionError(null);
     // Optimistic remove
     setNotifications((prev) => prev.filter((n) => n.id !== id));
-    try {
-      await fetch(`/api/linear/notifications/${id}`, { method: "DELETE" });
-    } catch { /* silent */ }
+    if (await sendOk(`/api/linear/notifications/${id}`, "DELETE")) return;
+    if (removed) setNotifications((prev) => restoreRemoved(prev, removed, index));
+    setActionError("That notification was not archived. Try again.");
   }
 
   async function handleMarkRead(id: string) {
+    const previous = notifications.find((n) => n.id === id)?.readAt ?? null;
+    setActionError(null);
     setNotifications((prev) =>
       prev.map((n) => (n.id === id ? { ...n, readAt: new Date().toISOString() } : n))
     );
-    try {
-      await fetch(`/api/linear/notifications/${id}`, { method: "PATCH" });
-    } catch { /* silent */ }
+    if (await sendOk(`/api/linear/notifications/${id}`, "PATCH")) return;
+    setNotifications((prev) => prev.map((n) => (n.id === id ? { ...n, readAt: previous } : n)));
+    setActionError("That was not marked read. Try again.");
   }
 
   async function handleMarkAllRead() {
+    const previous = new Map(notifications.map((n) => [n.id, n.readAt]));
+    setActionError(null);
     setNotifications((prev) => prev.map((n) => ({ ...n, readAt: n.readAt ?? new Date().toISOString() })));
-    try {
-      await fetch("/api/linear/notifications", { method: "PATCH" });
-    } catch { /* silent */ }
+    if (await sendOk("/api/linear/notifications", "PATCH")) return;
+    setNotifications((prev) => prev.map((n) => (previous.has(n.id) ? { ...n, readAt: previous.get(n.id) ?? null } : n)));
+    setActionError("Those were not marked read. Try again.");
   }
 
   function handleForward(notif: LinearNotification) {
@@ -887,8 +955,7 @@ export default function LinearPage() {
     // Sink "done" (completed/cancelled) issues to the bottom so the feed leads
     // with what still needs action. Stable within each group (preserves the
     // server's priority ordering).
-    const isDone = (i: LinearIssue) =>
-      i.state.type === "completed" || i.state.type === "cancelled";
+    const isDone = (i: LinearIssue) => isLinearDoneType(i.state.type);
     return [...matched].sort((a, b) => Number(isDone(a)) - Number(isDone(b)));
   }, [issues, search]);
 
@@ -984,6 +1051,15 @@ export default function LinearPage() {
         </button>
       </div>
 
+      {actionError && (
+        <div role="alert" className="flex items-center gap-2 rounded-md border border-signal-critical-border bg-signal-critical-subtle px-3 py-2 text-xs text-signal-critical">
+          <span>{actionError}</span>
+          <button onClick={() => setActionError(null)} className="ml-auto" aria-label="Dismiss">
+            <X className="h-3.5 w-3.5" />
+          </button>
+        </div>
+      )}
+
       {/* ── INBOX TAB ─────────────────────────────────────────────────── */}
       {activeTab === "inbox" && (
         <div className="space-y-3">
@@ -1027,6 +1103,13 @@ export default function LinearPage() {
                 </Card>
               ))}
             </div>
+          ) : inboxError && notifications.length === 0 ? (
+            <Card className="rounded-lg border border-border/60">
+              <CardContent role="alert" className="py-12 text-center space-y-3">
+                <p className="text-sm text-signal-critical">The inbox did not load. Try again.</p>
+                <Button variant="outline" size="sm" onClick={() => void loadNotifications()}>Retry</Button>
+              </CardContent>
+            </Card>
           ) : notifications.length === 0 ? (
             <Card className="rounded-lg border border-border/60">
               <CardContent className="py-12 text-center space-y-2">
@@ -1537,6 +1620,10 @@ export default function LinearPage() {
                   className="h-9 text-sm"
                 />
               </div>
+
+              {actionError && (
+                <p role="alert" className="text-xs text-signal-critical">{actionError}</p>
+              )}
 
               {/* Actions */}
               <div className="flex items-center gap-2 pt-1">

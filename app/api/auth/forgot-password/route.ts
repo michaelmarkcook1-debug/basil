@@ -17,7 +17,7 @@
  *  - Rate-limited: 10 req/min per IP
  */
 
-import { NextResponse } from "next/server";
+import { NextResponse, after } from "next/server";
 import { sendEmail, isEmailConfigured, resendKeyProblem } from "@/lib/email/send";
 import { findByEmail, findByUsername } from "@/lib/users";
 import { createResetToken } from "@/lib/auth/reset-tokens";
@@ -80,21 +80,30 @@ export async function POST(req: Request) {
   if (!user && username) user = await findByUsername(username);
   if (!user && email)    user = await findByUsername(email.split("@")[0]); // common mistake
 
-  if (!user) {
-    // Deliberate same-shape response to prevent account enumeration
-    return NextResponse.json({ ok: true, emailSent: false });
+  // The reply is `{ ok: true }` whether or not the account exists, and whether
+  // or not the link could be issued or emailed. It used to carry `emailSent`
+  // (false for every unknown name) and a 500 only real accounts could produce —
+  // so anyone could test which usernames exist (2026-11-10 bug pass, A11). The
+  // work for a real account runs after the reply, so its timing gives nothing
+  // away either.
+  if (user) {
+    const found = user;
+    const base = process.env.NEXT_PUBLIC_APP_URL || `https://${req.headers.get("host")}`;
+    after(() => issueResetLink(found, base));
   }
+  return NextResponse.json({ ok: true });
+}
 
+async function issueResetLink(user: { username: string; email: string; name: string }, base: string): Promise<void> {
   let token: string;
   try {
     token = await createResetToken(user.username, user.email);
     await forceFlushSnapshot();
   } catch (err) {
     console.error("[forgot-password] createResetToken failed:", err instanceof Error ? err.message : err);
-    return NextResponse.json({ error: "Could not generate reset link. Please try again." }, { status: 500 });
+    return;
   }
 
-  const base     = process.env.NEXT_PUBLIC_APP_URL || `https://${req.headers.get("host")}`;
   const resetUrl = `${base}/reset-password?token=${token}`;
 
   const emailSent = user.email ? await sendResetEmail(user.email, user.name, resetUrl) : false;
@@ -123,6 +132,4 @@ export async function POST(req: Request) {
       );
     }
   }
-
-  return NextResponse.json({ ok: true, emailSent });
 }

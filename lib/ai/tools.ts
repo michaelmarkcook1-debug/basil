@@ -6,7 +6,15 @@ import { webSearch, fetchPageContent } from "@/lib/web/search";
 import { isGoogleConnected } from "@/lib/google/auth";
 import { getSettings } from "@/lib/settings/store";
 import { setOutOfOffice, getOutOfOffice, clearOutOfOffice } from "@/lib/google/out-of-office";
-import { getTodayEvents, createCalendarEvent, getEventsForDate, getEventsForDateRange, checkFreeBusy, respondToEvent, proposeNewTime } from "@/lib/google/calendar";
+import { declareAway, endDeclaredAway, invalidateCalendarAbsences } from "@/lib/away/store";
+import { dayIn } from "@/lib/away/calendar";
+// Calendar and mail work across Google and Microsoft 365: reads merge both
+// calendars, writes go to the event's own provider, email goes through Gmail
+// or Outlook (lib/calendar/unified.ts, lib/calendar/writes.ts, lib/microsoft/mail-provider.ts).
+import { connectedCalendars, describeProviders, readCalendar, checkAttendeeFreeBusy, windowBounds, type CalendarWindow } from "@/lib/calendar/unified";
+import { respondToEvent, proposeNewTime, createEventOn, primaryCalendar, CalendarNotConnectedError, CALENDAR_NAME } from "@/lib/calendar/writes";
+import { connectedMailboxes, pickMailProvider } from "@/lib/microsoft/mail-provider";
+import { queryOutlookMessages, getOutlookMessageBody, replyToOutlookMessage, sendOutlookEmail, createOutlookDraft } from "@/lib/microsoft/outlook-mail";
 import { getRecentEmails, searchEmails, createDraft, getEmailBody, replyToEmail, sendEmail as sendGmail } from "@/lib/google/gmail";
 import { searchDriveFiles } from "@/lib/google/drive";
 import { isSlackConnected, getRecentSlackMessages, searchSlackMessages, sendSlackMessage as slackSend, getUserProfile } from "@/lib/slack/client";
@@ -39,6 +47,7 @@ import { findContactByName, timezoneFromLocation } from "@/lib/contacts-lookup";
 import { listUserContacts } from "@/lib/contacts/user-store";
 import { getUploadText, listUploads } from "@/lib/uploads/store";
 import { searchUploadText } from "@/lib/uploads/search";
+import { guardTools, untrustedTurn, webPageNeedsApproval, wrapUntrusted, type TurnTrust } from "@/lib/ai/injection-guard";
 // NOTE: domain sync (emitChange) is NOT called here — tools.ts runs server-side
 // inside the /api/chat route handler where `window` is undefined.  Domain changes
 // are broadcast client-side by the post-stream handler in app/dashboard/chat/page.tsx
@@ -70,11 +79,16 @@ export function buildAssistantTools(
   username: string,
   firstName?: string,
   timezone = "Europe/London",
-  opts: { delegated?: ReadonlySet<string> } = {},
+  opts: { delegated?: ReadonlySet<string>; trust?: TurnTrust } = {},
 ) {
   // Tools the user has delegated (lib/trust/ledger.ts) run without asking.
   // Only reversible tools can be in this set; the ledger enforces that.
   const delegated: ReadonlySet<string> = opts.delegated ?? new Set<string>();
+  // Prompt-injection guard (lib/ai/injection-guard.ts). Callers that pass no
+  // trust (background jobs) are treated as having read outside content.
+  const trust: TurnTrust = opts.trust ?? untrustedTurn();
+  /** A delegated tool stops asking only while the turn has read nothing written by others. */
+  const askUnlessDelegated = (toolName: string) => () => !delegated.has(toolName) || trust.tainted;
   // Derive a readable first name from the username if not explicitly provided.
   // "michael" → "Michael", "alice_jones" → "Alice"
   const name = firstName
@@ -83,12 +97,12 @@ export function buildAssistantTools(
         .replace(/\b\w/g, (c) => c.toUpperCase())
         .split(" ")[0];
 
-  return {
+  const tools = {
     // ── READ-ONLY TOOLS ──
 
     getCalendarEvents: tool({
       description:
-        `Get calendar events for a specific date or date range. Use this whenever ${name} asks about their schedule, availability, meetings, or wants to book time on a specific day. Always pass the target date — do NOT default to today if ${name} mentions tomorrow, next Monday, etc.`,
+        `Get calendar events for a specific date or date range — from every calendar ${name} has connected (Google and/or Outlook/Microsoft 365), merged; each event's \`provider\` says which. Use this whenever ${name} asks about their schedule, availability, meetings, or wants to book time on a specific day. Always pass the target date — do NOT default to today if ${name} mentions tomorrow, next Monday, etc. When the result has \`clashes\` (overlapping meetings ${name} hasn't declined, e.g. a client Teams call over a Google team meeting), point each one out. When it has \`degraded\`, that calendar could not be read: say so and never call those hours free.`,
       inputSchema: z.object({
         date: z
           .string()
@@ -102,20 +116,28 @@ export function buildAssistantTools(
           ),
       }),
       execute: async ({ date, endDate }) => {
-        if (!(await isGoogleConnected(username))) {
-          return { error: `Google Calendar not connected. ${name} needs to connect Google in Settings.` };
+        const connected = await connectedCalendars(username);
+        if (connected.length === 0) {
+          return { error: `No calendar connected. ${name} needs to connect Google or Microsoft 365 in Settings.` };
         }
         try {
-          if (date && endDate) {
-            const events = await getEventsForDateRange(username, date, endDate, timezone);
-            return { events, count: events.length, dateRange: `${date} → ${endDate}` };
+          const window: CalendarWindow = date && endDate ? { from: date, to: endDate } : date ? { date } : { days: 1 };
+          const cal = await readCalendar(username, window, timezone, { providers: connected });
+          if (cal.providers.length === 0) {
+            return { error: `Calendar fetch failed: ${cal.degraded.map((d) => `${CALENDAR_NAME[d.provider]}: ${d.error}`).join("; ")}` };
           }
-          if (date) {
-            const events = await getEventsForDate(username, date, timezone);
-            return { events, count: events.length, date };
-          }
-          const events = await getTodayEvents(username, timezone);
-          return { events, count: events.length, date: "today" };
+          const when = date && endDate ? { dateRange: `${date} → ${endDate}` } : { date: date || "today" };
+          return {
+            events: cal.events,
+            count: cal.events.length,
+            ...when,
+            calendars: cal.providers,
+            ...(cal.clashes.length ? { clashes: cal.clashes.map((c) => ({ clash: c.label, a: c.a, b: c.b, crossProvider: c.crossProvider })) } : {}),
+            ...(cal.degraded.length ? {
+              degraded: cal.degraded,
+              warning: `${name}'s ${describeProviders(cal.degraded)} could not be read, so its events are MISSING from this list. Say so, and do NOT say ${name} is free.`,
+            } : {}),
+          };
         } catch (e) {
           return { error: `Calendar fetch failed: ${e instanceof Error ? e.message : String(e)}` };
         }
@@ -124,7 +146,7 @@ export function buildAssistantTools(
 
     searchEmails: tool({
       description:
-        `Search Gmail. Pass Gmail search operators in \`query\` (e.g. \`from:someone@example.com\`, \`subject:launch\`, \`has:attachment\`). Omit \`query\` to get the most recent 2 days of mail. Results include an \`id\` field and a short \`snippet\` (~200 chars) — if ${name} needs the full contents of a message, follow up with \`readEmail\` using that id.`,
+        `Search ${name}'s email — Gmail, and Outlook when Microsoft 365 is connected (Outlook results have ids starting "outlook:"). Pass search operators in \`query\` (e.g. \`from:someone@example.com\`, \`subject:launch\`; \`has:attachment\` is Gmail only). Omit \`query\` to get the most recent 2 days of mail. Results include an \`id\` field and a short \`snippet\` (~200 chars) — if ${name} needs the full contents of a message, follow up with \`readEmail\` using that id.`,
       inputSchema: z.object({
         query: z
           .string()
@@ -135,30 +157,52 @@ export function buildAssistantTools(
         limit: z.number().optional().describe("Max results. Defaults to 5."),
       }),
       execute: async ({ query, limit }) => {
-        if (!(await isGoogleConnected(username))) {
-          return { error: `Gmail not connected. ${name} needs to connect Google in Settings.` };
+        const boxes = await connectedMailboxes(username);
+        if (!boxes.google && !boxes.microsoft) {
+          return { error: `No email connected. ${name} needs to connect Google or Microsoft 365 in Settings.` };
         }
-        const emails = query
-          ? await searchEmails(username, query, limit || 5)
-          : await getRecentEmails(username, limit || 5);
-        return redactDeep({ results: emails, count: emails.length, query: query || "(recent)" }).value;
+        const max = limit || 5;
+        const [gmail, outlook] = await Promise.allSettled([
+          boxes.google ? (query ? searchEmails(username, query, max) : getRecentEmails(username, max)) : Promise.resolve([]),
+          boxes.microsoft ? queryOutlookMessages(username, query, { maxResults: max, folder: query ? "all" : "inbox" }) : Promise.resolve([]),
+        ]);
+        if (gmail.status === "rejected" && boxes.google && (!boxes.microsoft || outlook.status === "rejected")) throw gmail.reason;
+        const failed: string[] = [];
+        if (gmail.status === "rejected") failed.push("Gmail");
+        if (boxes.microsoft && (outlook.status === "rejected" || outlook.value === null)) failed.push("Outlook");
+        const fromOutlook = outlook.status === "fulfilled" && outlook.value
+          ? outlook.value.map((m) => ({ ...m, id: `outlook:${m.id}`, mailbox: "outlook" }))
+          : [];
+        const emails = [...(gmail.status === "fulfilled" ? gmail.value : []), ...fromOutlook];
+        if (boxes.google && boxes.microsoft) emails.sort((a, b) => Date.parse(b.date) - Date.parse(a.date));
+        return redactDeep({
+          results: emails,
+          count: emails.length,
+          query: query || "(recent)",
+          ...(failed.length ? { warning: `${failed.join(" and ")} could not be searched — results from it are missing, not absent.` } : {}),
+        }).value;
       },
     }),
 
     readEmail: tool({
       description:
-        `Read the full body of a specific email by its Gmail message id. Use this after \`searchEmails\` whenever ${name} asks about the contents of a message — summaries, action items, decisions, meeting recordings, long threads. \`searchEmails\` only returns headers + a short snippet; this returns the complete body text.`,
+        `Read the full body of a specific email by its message id (Gmail, or Outlook for ids starting "outlook:"). Use this after \`searchEmails\` whenever ${name} asks about the contents of a message — summaries, action items, decisions, meeting recordings, long threads. \`searchEmails\` only returns headers + a short snippet; this returns the complete body text.`,
       inputSchema: z.object({
         messageId: z
           .string()
-          .describe("The Gmail message id (the `id` field from a searchEmails result)."),
+          .describe("The message id (the `id` field from a searchEmails result)."),
       }),
       execute: async ({ messageId }) => {
-        if (!(await isGoogleConnected(username))) {
-          return { error: `Gmail not connected. ${name} needs to connect Google in Settings.` };
+        const via = pickMailProvider(await connectedMailboxes(username), messageId);
+        if (!via) {
+          return { error: messageId.startsWith("outlook:")
+            ? `Outlook not connected. ${name} needs to connect Microsoft 365 in Settings.`
+            : `Gmail not connected. ${name} needs to connect Google in Settings.` };
         }
         try {
-          const email = await getEmailBody(username, messageId);
+          const email = via === "microsoft"
+            ? await getOutlookMessageBody(username, messageId, { text: true })
+            : await getEmailBody(username, messageId);
           return redactDeep(email).value;
         } catch (e) {
           return {
@@ -247,7 +291,7 @@ export function buildAssistantTools(
     // Gmail draft: the card promised a send, the user approved, and nothing
     // left their outbox (reported 2026-10-27). Sending is now its own tool.
     sendEmail: tool({
-      description: `Send a NEW email for ${name}. ${name} sees exactly who it goes to, the subject and the body, and approves before it sends; approving sends it immediately from their Gmail. Use this whenever ${name} asks you to email someone. To answer an existing email, use replyToEmail (it keeps the thread). Only call it "sent" if this returns status "sent".`,
+      description: `Send a NEW email for ${name}. ${name} sees exactly who it goes to, the subject and the body, and approves before it sends; approving sends it immediately from their Gmail (from Outlook when only Microsoft 365 is connected). Use this whenever ${name} asks you to email someone. To answer an existing email, use replyToEmail (it keeps the thread). Only call it "sent" if this returns status "sent".`,
       inputSchema: z.object({
         ...APPROVAL_META,
         to: z.string().describe("Recipient email address(es), comma-separated"),
@@ -257,10 +301,24 @@ export function buildAssistantTools(
       // Sending cannot be undone: always approved, never delegated (not in REVERSIBLE_TOOLS).
       needsApproval: true,
       execute: async ({ to, subject, body }) => {
-        if (!(await isGoogleConnected(username))) {
-          return { error: "Gmail not connected. Cannot send until Google is connected in Settings." };
+        const via = pickMailProvider(await connectedMailboxes(username));
+        if (!via) {
+          return { error: "No email connected. Cannot send until Google or Microsoft 365 is connected in Settings." };
         }
         try {
+          if (via === "microsoft") {
+            // Microsoft 365 only: Outlook sends it (Graph sendMail, saved to Sent Items).
+            const out = await sendOutlookEmail(username, to, subject, body);
+            await emitAuditEvent({ username,
+              source: "email",
+              headline: `Sent email to ${to}`,
+              context: `Subject: ${subject}\n\n${body.slice(0, 300)}`,
+              rationale: `${name} approved the email in chat (sent from Outlook).`,
+              entityName: to,
+              tags: ["email", "sent", "outlook"],
+            });
+            return { status: "sent", messageId: out.id, to, subject, via: "outlook" };
+          }
           const sent = await sendGmail(username, to, subject, body);
           if (!sent.id) return { error: "Gmail did not confirm the send. The email was NOT sent." };
           await emitAuditEvent({ username,
@@ -279,7 +337,7 @@ export function buildAssistantTools(
     }),
 
     draftEmail: tool({
-      description: `Save a new email to ${name}'s Gmail DRAFTS without sending it. Only when ${name} explicitly asks for a draft ("draft", "save it for me to send later"). It is NOT sent: say it is waiting in Gmail Drafts. To send an email, use sendEmail.`,
+      description: `Save a new email to ${name}'s Gmail DRAFTS (Outlook Drafts when only Microsoft 365 is connected) without sending it. Only when ${name} explicitly asks for a draft ("draft", "save it for me to send later"). It is NOT sent: say it is waiting in Drafts. To send an email, use sendEmail.`,
       inputSchema: z.object({
         ...APPROVAL_META,
         to: z.string().describe("Recipient email address"),
@@ -288,8 +346,21 @@ export function buildAssistantTools(
       }),
       needsApproval: !delegated.has("draftEmail"),
       execute: async ({ to, subject, body }) => {
-        if (!(await isGoogleConnected(username))) {
-          return { error: "Gmail not connected. Cannot draft emails until Google is connected in Settings." };
+        const via = pickMailProvider(await connectedMailboxes(username));
+        if (!via) {
+          return { error: "No email connected. Cannot draft emails until Google or Microsoft 365 is connected in Settings." };
+        }
+        if (via === "microsoft") {
+          const draft = await createOutlookDraft(username, to, subject, body);
+          await emitAuditEvent({ username,
+            source: "email",
+            headline: `Drafted email to ${to}`,
+            context: `Subject: ${subject}\n\n${body}`,
+            rationale: `${name} approved the draft in chat (saved to Outlook Drafts).`,
+            entityName: to,
+            tags: ["email", "draft", "outlook"],
+          });
+          return { status: "saved_to_drafts", sent: false, note: "NOT sent. It is in Outlook Drafts for the user to send.", draftId: draft.id, to, subject, via: "outlook" };
         }
         const result = await createDraft(username, to, subject, body);
         await emitAuditEvent({ username,
@@ -308,7 +379,7 @@ export function buildAssistantTools(
       description: `Reply to an email IN its original thread — pass the messageId from searchEmails or readEmail. ${name} sees exactly who it goes to and approves before it sends. Use replyAll only when everyone on the thread should see it. For a brand-new email, use draftEmail instead.`,
       inputSchema: z.object({
         ...APPROVAL_META,
-        messageId: z.string().describe("Gmail message id of the email being answered"),
+        messageId: z.string().describe("Message id of the email being answered (Gmail, or an \"outlook:\" id for Outlook mail — the reply then goes from Outlook)"),
         recipients: z.string().describe("Who this goes to, as shown on the email: the sender's name and address (plus everyone else on it for reply all). Shown on the approval card."),
         body: z.string().describe("The reply, greeting and sign-off included. Do not quote the original — it is added automatically."),
         replyAll: z.boolean().optional().describe("Reply to everyone on the message. Default false."),
@@ -316,11 +387,17 @@ export function buildAssistantTools(
       // Sending cannot be undone: always approved, never delegated (not in REVERSIBLE_TOOLS).
       needsApproval: true,
       execute: async ({ messageId, body, replyAll }) => {
-        if (!(await isGoogleConnected(username))) {
-          return { error: "Gmail not connected. Cannot reply until Google is connected in Settings." };
+        const via = pickMailProvider(await connectedMailboxes(username), messageId);
+        if (!via) {
+          return { error: messageId.startsWith("outlook:")
+            ? "Outlook not connected. Cannot reply to an Outlook email until Microsoft 365 is connected in Settings."
+            : "Gmail not connected. Cannot reply until Google is connected in Settings." };
         }
         try {
-          const sent = await replyToEmail(username, messageId, body, { replyAll: !!replyAll });
+          // An Outlook message (or a Microsoft-only user) is answered from Outlook, in its own conversation.
+          const sent = via === "microsoft"
+            ? await replyToOutlookMessage(username, messageId, body, { replyAll: !!replyAll })
+            : await replyToEmail(username, messageId, body, { replyAll: !!replyAll });
           await emitAuditEvent({ username,
             source: "email",
             headline: `Replied to ${sent.to.map((a) => a.name || a.email).join(", ")}`,
@@ -336,7 +413,7 @@ export function buildAssistantTools(
     }),
 
     respondToInvite: tool({
-      description: `Answer a calendar invitation for ${name}: accept, decline or maybe (tentative), optionally with a note the organiser sees — or propose a new time. Take eventId from getCalendarEvents, only for events where isOrganizer is false. To propose a new time, pass proposedStart and proposedEnd (ISO 8601 with offset): ${name} is marked Maybe (or declined if response is "declined"), the proposal goes in the invite note, and the organiser is emailed. Check ${name}'s availability before proposing a time.`,
+      description: `Answer a calendar invitation for ${name}: accept, decline or maybe (tentative), optionally with a note the organiser sees — or propose a new time. Take eventId from getCalendarEvents, only for events where isOrganizer is false. To propose a new time, pass proposedStart and proposedEnd (ISO 8601 with offset): ${name} is marked Maybe (or declined if response is "declined"), the proposal goes in the invite note, and the organiser is emailed (an Outlook invite — id starting "ms:" — gets Outlook's own "new time proposed"). The answer goes through the calendar the invite is on. Check ${name}'s availability before proposing a time.`,
       inputSchema: z.object({
         ...APPROVAL_META,
         eventId: z.string().describe("Calendar event id from getCalendarEvents"),
@@ -348,9 +425,8 @@ export function buildAssistantTools(
       // The organiser is notified the moment this runs — always approved, never delegated.
       needsApproval: true,
       execute: async ({ eventId, response, note, proposedStart, proposedEnd }) => {
-        if (!(await isGoogleConnected(username))) {
-          return { error: "Google Calendar not connected." };
-        }
+        // Routed to the invite's own calendar (Google, or Outlook for "ms:" ids);
+        // CalendarNotConnectedError names the one that is not connected.
         try {
           if (proposedStart && proposedEnd) {
             const out = await proposeNewTime(username, eventId, {
@@ -363,6 +439,7 @@ export function buildAssistantTools(
           const ev = await respondToEvent(username, eventId, { response, comment: note });
           return { status: response, event: ev.summary, organiserNotified: true };
         } catch (e) {
+          if (e instanceof CalendarNotConnectedError) return { error: e.message };
           return { error: `Response not sent: ${e instanceof Error ? e.message : String(e)}` };
         }
       },
@@ -376,19 +453,45 @@ export function buildAssistantTools(
         endDate: z.string().optional().describe("End date for multi-day search, YYYY-MM-DD. Defaults to same as date."),
       }),
       execute: async ({ attendees, date, endDate }) => {
-        if (!(await isGoogleConnected(username))) {
-          return { error: "Google Calendar not connected — cannot check availability." };
+        const connected = await connectedCalendars(username);
+        if (connected.length === 0) {
+          return { error: "No calendar connected — cannot check availability." };
         }
 
         const checkEndStr = endDate || date;
+        const range: CalendarWindow = { from: date, to: checkEndStr };
 
-        // ── Michael's own calendar ────────────────────────────────────────────
-        // Use getEventsForDateRange (authenticated primary calendar) rather than
-        // freebusy.  This captures Focus time blocks, Reclaim.ai holds, and any
-        // event marked "Free" that would be invisible to the freebusy API.
-        const myEvents = await getEventsForDateRange(username, date, checkEndStr, timezone).catch(() => []);
-        const myBusyBlocks: { start: string; end: string }[] = myEvents
-          .filter((e) => !e.isAllDay)
+        // The user's own working hours (Settings), not a fixed 09:00–17:00.
+        const settings = await getSettings(username).catch(() => null); // ci-ok: working hours fall back to 09:00–17:00
+        const hhmm = (v: string | undefined, fallback: string) => (/^\d{1,2}:\d{2}$/.test(v ?? "") ? v! : fallback);
+        const workStart = hhmm(settings?.workStart, "09:00");
+        const workEnd = hhmm(settings?.workEnd, "17:00");
+        const hours = (v: string) => { const [h, m] = v.split(":").map(Number); return h + m / 60; };
+        const ownerStartH = hours(workStart);
+        const ownerEndH = hours(workEnd);
+
+        // ── The user's own calendars ──────────────────────────────────────────
+        // Every connected calendar (Google and Outlook), read as events rather
+        // than freebusy: this captures Focus time blocks, Reclaim.ai holds, and
+        // any event marked "Free" that would be invisible to the freebusy API.
+        // A calendar that cannot be read makes availability UNKNOWN: it used to
+        // become "free all day" and suggest slots on top of real meetings (B5).
+        let mine: Awaited<ReturnType<typeof readCalendar>>;
+        try {
+          mine = await readCalendar(username, range, timezone, { providers: connected });
+        } catch (e) {
+          mine = { events: [], providers: [], clashes: [], degraded: connected.map((provider) => ({ provider, error: e instanceof Error ? e.message : String(e) })) };
+        }
+        if (mine.degraded.length > 0) {
+          return {
+            error: `Couldn't read ${name}'s ${describeProviders(mine.degraded)}, so ${name}'s availability is unknown. Do NOT suggest times or say ${name} is free — say the calendar could not be read.`,
+            calendarUnavailable: true,
+            degraded: mine.degraded,
+            date,
+          };
+        }
+        const myBusyBlocks: { start: string; end: string }[] = mine.events
+          .filter((e) => !e.isAllDay && e.myResponseStatus !== "declined")
           .map((e) => ({ start: e.start, end: e.end }));
 
         // ── Resolve each attendee ─────────────────────────────────────────────
@@ -417,12 +520,12 @@ export function buildAssistantTools(
           })
         );
 
-        // ── Attendee freebusy via Google Calendar API ─────────────────────────
-        const checkStart = new Date(`${date}T00:00:00Z`);
-        const checkEnd = new Date(`${checkEndStr}T23:59:59Z`);
+        // ── Attendee freebusy: Google, then Outlook for anyone Google can't see ──
+        // The window is the user's local days, not UTC dates.
+        const { startMs: windowStartMs, endMs: windowEndMs } = windowBounds(range, timezone);
         const emailsToCheck = resolved.filter((r) => r.email).map((r) => r.email!);
         const attendeeFB = emailsToCheck.length
-          ? await checkFreeBusy(username, emailsToCheck, checkStart, checkEnd).catch(() => [])
+          ? await checkAttendeeFreeBusy(username, emailsToCheck, new Date(windowStartMs), new Date(windowEndMs)).catch(() => [])
           : [];
 
         const attendeeBusyMap = new Map<string, { start: string; end: string }[]>();
@@ -454,82 +557,54 @@ export function buildAssistantTools(
             email: r.email || "unknown",
             timezone: r.tz,
             utcOffset: offsetStr,
-            workingHours: "09:00–18:00 local",
+            workingHours: "09:00–17:00 local (assumed)",
             busyToday: busyLocal.length ? busyLocal : ["(calendar not accessible via freebusy)"],
           };
         });
 
-        // Michael's busy summary (in his timezone, for display)
+        // The user's busy summary (in their timezone, for display)
+        const multiDay = checkEndStr !== date;
+        const clock = (ms: number, tz: string) => new Date(ms).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit", hourCycle: "h23", timeZone: tz });
+        const dayOf = (ms: number) => new Date(ms).toLocaleDateString("en-GB", { weekday: "short", day: "numeric", month: "short", timeZone: timezone });
         const myBusyLocal = myBusyBlocks.map((b) => {
-          const s = new Date(b.start).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit", timeZone: timezone });
-          const e = new Date(b.end).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit", timeZone: timezone });
-          return `${s}–${e}`;
+          const s = Date.parse(b.start), e = Date.parse(b.end);
+          return `${multiDay ? `${dayOf(s)} ` : ""}${clock(s, timezone)}–${clock(e, timezone)}`;
         });
 
         // ── Suggest free slots ────────────────────────────────────────────────
-        // Combine Michael's real events + attendees' freebusy into one busy list
-        const allBusy: { start: string; end: string }[] = [
-          ...myBusyBlocks,
-          ...attendeeFB.flatMap((fb) => fb.busy),
-        ];
+        // The user's events + attendees' freebusy, scanned over every day in the
+        // range in 30-minute steps. The user's slot must sit inside their own
+        // working hours; attendees are assumed to work 09:00–17:00 local.
+        const allBusy = [...myBusyBlocks, ...attendeeFB.flatMap((fb) => fb.busy)]
+          .map((b) => ({ s: Date.parse(b.start), e: Date.parse(b.end) }));
+        const localHour = (ms: number, tz: string) => { const [h, m] = clock(ms, tz).split(":").map(Number); return h + m / 60; };
+        const inside = (t: number, end: number, tz: string, from: number, to: number) => {
+          const sh = localHour(t, tz);
+          const eh = localHour(end, tz) || 24;
+          return sh >= from && eh <= to && eh > sh;
+        };
 
         const suggestions: string[] = [];
-        // Scan in the user's timezone to reason about working hours correctly
-        const scanDate = new Date(`${date}T00:00:00`);
-        const tzOffset = (() => {
-          try {
-            const ref = new Date(`${date}T12:00:00Z`);
-            const utcMs = new Date(ref.toLocaleString("en-US", { timeZone: "UTC" })).getTime();
-            const tzMs  = new Date(ref.toLocaleString("en-US", { timeZone: timezone })).getTime();
-            return (tzMs - utcMs) / 3_600_000;
-          } catch { return 0; }
-        })();
-        // Start scanning at 08:00 in Michael's local timezone
-        const windowStartUTC = new Date(new Date(`${date}T08:00:00Z`).getTime() - tzOffset * 3_600_000);
-        const windowEndUTC   = new Date(new Date(`${date}T18:00:00Z`).getTime() - tzOffset * 3_600_000);
-        void scanDate;
-
-        for (let t = new Date(windowStartUTC); t < windowEndUTC; t = new Date(t.getTime() + 30 * 60_000)) {
-          const slotEnd = new Date(t.getTime() + 30 * 60_000);
-
-          // Skip if Michael has any event overlapping this slot
-          const michaelBusy = allBusy.some((b) => {
-            const bs = new Date(b.start).getTime();
-            const be = new Date(b.end).getTime();
-            return t.getTime() < be && slotEnd.getTime() > bs;
-          });
-          if (michaelBusy) continue;
-
-          // Michael's local hour check
-          const mHour = parseFloat(
-            new Date(t.getTime()).toLocaleString("en-US", { hour: "numeric", hour12: false, timeZone: timezone })
-          );
-          if (mHour < 9 || mHour >= 17) continue;
-
-          // All attendees must be within their working hours
-          const allOk = resolved.every((r) => {
-            const h = parseFloat(
-              new Date(t.getTime()).toLocaleString("en-US", { hour: "numeric", hour12: false, timeZone: r.tz })
-            );
-            return h >= 9 && h < 17;
-          });
-          if (!allOk) continue;
-
+        for (let t = windowStartMs; t < windowEndMs; t += 30 * 60_000) {
+          const slotEnd = t + 30 * 60_000;
+          if (allBusy.some((b) => t < b.e && slotEnd > b.s)) continue;
+          if (!inside(t, slotEnd, timezone, ownerStartH, ownerEndH)) continue;
+          if (!resolved.every((r) => inside(t, slotEnd, r.tz, 9, 17))) continue;
           const timeStrs = [
-            `${new Date(t.getTime()).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit", timeZone: timezone })} (${timezone.split("/")[1] || timezone})`,
-            ...resolved.map((r) =>
-              `${new Date(t.getTime()).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit", timeZone: r.tz })} (${r.displayName})`
-            ),
+            `${multiDay ? `${dayOf(t)} ` : ""}${clock(t, timezone)} (${timezone.split("/")[1] || timezone})`,
+            ...resolved.map((r) => `${clock(t, r.tz)} (${r.displayName})`),
           ];
           suggestions.push(timeStrs.join(" / "));
         }
 
         return {
           date,
+          ...(multiDay ? { endDate: checkEndStr } : {}),
           you: {
             timezone,
-            busyBlocks: myBusyLocal.length ? myBusyLocal : ["(free all day)"],
-            note: "Fetched directly from primary Google Calendar — includes Focus time and all holds.",
+            workingHours: `${workStart}–${workEnd}`,
+            busyBlocks: myBusyLocal.length ? myBusyLocal : [multiDay ? "(no meetings in this range)" : "(free all day)"],
+            note: `Read from ${name}'s ${describeProviders(mine.providers)} — includes Focus time and all holds.`,
           },
           attendees: people,
           suggestedSlots: suggestions.slice(0, 6),
@@ -541,7 +616,7 @@ export function buildAssistantTools(
     }),
 
     scheduleMeeting: tool({
-      description: `Schedule a meeting on Google Calendar on ${name}'s behalf. Shows details for approval before booking. IMPORTANT: Always call checkAttendeeAvailability first to verify the proposed time works for all attendees in their local timezones.`,
+      description: `Schedule a meeting on ${name}'s behalf, on their primary calendar: Google Calendar when it is connected, otherwise Outlook (Microsoft 365). Pass \`calendar\` only when ${name} asks for a specific one. Shows details for approval before booking. IMPORTANT: Always call checkAttendeeAvailability first to verify the proposed time works for all attendees in their local timezones.`,
       inputSchema: z.object({
         ...APPROVAL_META,
         title: z.string().describe("Meeting title"),
@@ -550,11 +625,15 @@ export function buildAssistantTools(
         startTime: z.string().describe(`Start time in HH:MM 24h format in ${name}'s local timezone (${timezone})`),
         duration: z.number().describe("Duration in minutes").default(30),
         meetingLink: z.string().optional().describe(`The video link for the invite: ${name}'s saved meeting room from "About ${name}" unless ${name} gave a different link for this meeting. Shown on the approval card. If omitted, the saved room is added anyway.`),
+        calendar: z.enum(["google", "microsoft"]).optional().describe(`Which calendar to book on, only when ${name} names one ("put it in my Outlook"). Omit for the primary calendar (Google if connected, else Outlook).`),
       }),
       needsApproval: !delegated.has("scheduleMeeting"),
-      execute: async ({ title, attendees, date, startTime, duration, meetingLink }) => {
-        if (!(await isGoogleConnected(username))) {
-          return { error: "Google Calendar not connected. Cannot schedule until Google is connected in Settings." };
+      execute: async ({ title, attendees, date, startTime, duration, meetingLink, calendar }) => {
+        const provider = await primaryCalendar(username, calendar);
+        if (!provider) {
+          return { error: calendar
+            ? `${CALENDAR_NAME[calendar]} not connected. Cannot schedule there until it is connected in Settings.`
+            : "No calendar connected. Cannot schedule until Google or Microsoft 365 is connected in Settings." };
         }
         try {
           // Every invite carries the user's own meeting room (Settings → meeting
@@ -565,11 +644,11 @@ export function buildAssistantTools(
           // The model was told to give the time in the user's local zone; the
           // adapter defaulted to London when none was passed. 09:00 New York
           // booked as 09:00 London — five hours early.
-          const result = await createCalendarEvent(username, { title, attendees, date, startTime, duration, timezone, ...(room ? { zoomLink: room } : {}) });
+          const result = await createEventOn(username, provider, { title, attendees, date, startTime, duration, timezone, ...(room ? { zoomLink: room } : {}) });
           await emitAuditEvent({ username,
             source: "calendar",
             headline: `Scheduled "${title}" on ${date} ${startTime}`,
-            context: `Attendees: ${attendees.join(", ")}\nDuration: ${duration}m\nLink: ${result.htmlLink ?? "(pending)"}`,
+            context: `Attendees: ${attendees.join(", ")}\nDuration: ${duration}m\nCalendar: ${CALENDAR_NAME[provider]}\nLink: ${result.htmlLink ?? "(pending)"}`,
             rationale: `${name} approved the meeting in chat.`,
             entityName: attendees[0],
             tags: ["calendar", "scheduled"],
@@ -584,6 +663,7 @@ export function buildAssistantTools(
             time: startTime,
             duration,
             meetingLink: room ?? null,
+            calendar: provider,
           };
         } catch (e) {
           return { error: `Failed to create event: ${e instanceof Error ? e.message : "Unknown error"}` };
@@ -607,12 +687,19 @@ export function buildAssistantTools(
         contactsOnly: z.boolean().optional().describe("Only reply to people in Google contacts"),
         domainOnly: z.boolean().optional().describe(`Only reply to people at ${name}'s own company domain`),
         blockCalendar: z.boolean().optional().describe("Also add a Calendar 'Out of office' block that declines new invitations for those days"),
+        cover: z.string().optional().describe("Who is covering while away, as named in the message, e.g. 'Guy Saunders'"),
       }),
       needsApproval: !delegated.has("setOutOfOffice"),
-      execute: async ({ start, end, subject, message, contactsOnly, domainOnly, blockCalendar }) => {
+      execute: async ({ start, end, subject, message, contactsOnly, domainOnly, blockCalendar, cover }) => {
         if (!(await isGoogleConnected(username))) return { error: "Google is not connected. Connect it in Settings first." };
         try {
           const state = await setOutOfOffice(username, { start, end, subject, message, contactsOnly, domainOnly, blockCalendar, timezone });
+          // Basil itself now knows too: no briefings, paused clocks and a
+          // return briefing for these days (lib/away). Best-effort — the
+          // auto-reply is already on and is what the user asked for.
+          await declareAway(username, { start, end, label: "Out of office", cover })
+            .catch((e) => console.warn("[tools] could not record the absence:", e instanceof Error ? e.message : e));
+          if (blockCalendar) await invalidateCalendarAbsences(username).catch(() => undefined);
           await emitAuditEvent({ username,
             source: "email",
             headline: `Out of office on: ${state.firstDay} to ${state.lastDay}`,
@@ -648,6 +735,9 @@ export function buildAssistantTools(
         if (!(await isGoogleConnected(username))) return { error: "Google is not connected." };
         try {
           const state = await clearOutOfOffice(username, timezone);
+          // Back early: end today any absence the user told Basil about.
+          await endDeclaredAway(username, dayIn(Date.now(), timezone))
+            .catch((e) => console.warn("[tools] could not end the absence:", e instanceof Error ? e.message : e));
           return { status: state.autoReplyOn ? "still_on" : "out_of_office_off", verifiedFromGoogle: state };
         } catch (e) {
           return { error: e instanceof Error ? e.message : "Could not turn off the out-of-office." };
@@ -668,6 +758,8 @@ export function buildAssistantTools(
         kind: z.enum(["acronym", "project", "person", "term"]).describe("acronym, project codename, a person's nickname, or other internal term"),
         aliases: z.array(z.string()).optional().describe("Other spellings meaning the same thing"),
       }),
+      // Planted text must not become a standing definition (lib/ai/injection-guard.ts).
+      needsApproval: () => trust.tainted,
       execute: async ({ term, meaning, kind, aliases }) => {
         try {
           const entry = await upsertTerm(username, { term, meaning, kind, aliases });
@@ -707,6 +799,9 @@ export function buildAssistantTools(
             "Optional entity the memory is about (e.g. a person, a company, or a project)."
           ),
       }),
+      // A memory steers every later conversation; once this turn has read text
+      // written by others, a planted instruction could become one. Ask then.
+      needsApproval: () => trust.tainted,
       execute: async ({ kind, content, entity }) => {
         const memory = await createMemory(username, {
           kind,
@@ -844,7 +939,7 @@ export function buildAssistantTools(
           .optional()
           .describe("Where this action came from. Defaults to chat."),
       }),
-      needsApproval: !delegated.has("addAction"),
+      needsApproval: askUnlessDelegated("addAction"),
       execute: async ({ text, owner, dueDate, priority, source }) => {
         const ownerId = owner ? findContactByName(owner)?.id : undefined;
         const action = await createAction(username, {
@@ -876,7 +971,7 @@ export function buildAssistantTools(
       // Marking a real commitment done is a mutation — require confirmation, like
       // removeAction. The model can otherwise close a tracked commitment off a
       // misread ("I finished the deck" about something else) with no undo.
-      needsApproval: !delegated.has("completeAction"),
+      needsApproval: askUnlessDelegated("completeAction"),
       execute: async ({ id }) => {
         const updated = await updateAction(username, id, { status: "done" });
         if (!updated) return { result: "not_found", id };
@@ -971,7 +1066,7 @@ export function buildAssistantTools(
           .optional()
           .describe("Direct follow-up commitments or implications tied to this decision."),
       }),
-      needsApproval: !delegated.has("logDecision"),
+      needsApproval: askUnlessDelegated("logDecision"),
       execute: async ({ text, title, decidedBy, stakeholders, date, context, rationale, alternatives, consequences }) => {
         const decidedById = findContactByName(decidedBy)?.id;
         const decision = await createDecision(username, {
@@ -1006,7 +1101,7 @@ export function buildAssistantTools(
         ...APPROVAL_META,
         id: z.string().describe("The decision id."),
       }),
-      needsApproval: !delegated.has("supersedeDecision"),
+      needsApproval: askUnlessDelegated("supersedeDecision"),
       execute: async ({ id }) => {
         const updated = await updateDecision(username, id, { status: "superseded" });
         if (!updated) return { result: "not_found", id };
@@ -1038,26 +1133,10 @@ export function buildAssistantTools(
       }),
       execute: async ({ name: contactName, email, directory, notes }) => {
         try {
-          const origin = process.env.NEXT_PUBLIC_BASE_URL || "http://localhost:3002";
-          const res = await fetch(`${origin}/api/contacts/generate-profile`, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ name: contactName, email, directory, notes, username }),
-          });
-          if (!res.ok) {
-            return { error: `Profile generator failed (${res.status})` };
-          }
-          const data = (await res.json()) as {
-            personality?: string;
-            whatMakesThemTick?: string;
-            watchOut?: string;
-            recentActivity?: string;
-            activitySource?: string;
-            signalCount?: number;
-            summary?: string;
-            error?: string;
-          };
-          if (data.error) return { error: data.error };
+          // Called directly: fetching /api/contacts/generate-profile from here
+          // carried no session cookie, so it was always 401.
+          const { generateContactProfile } = await import("@/lib/contacts/generate-profile");
+          const data = await generateContactProfile(username, { name: contactName, email, directory, notes });
           return {
             status: "drafted",
             note: `Draft generated. ${name} can save it from the Contacts page.`,
@@ -1272,6 +1351,9 @@ export function buildAssistantTools(
       inputSchema: z.object({
         url: z.string().url().describe("The full URL of the page to read."),
       }),
+      // A planted instruction could otherwise put the user's data into an
+      // address on someone else's server. Addresses the user wrote are fine.
+      needsApproval: ({ url }) => webPageNeedsApproval(url, trust),
       execute: async ({ url }) => {
         const res = await fetchPageContent(url);
         if (res.error) {
@@ -1279,10 +1361,11 @@ export function buildAssistantTools(
         }
         return {
           url: res.url,
-          content: res.content,
+          content: wrapUntrusted(res.content),
           wordCount: res.content.split(/\s+/).length,
         };
       },
     }),
   };
+  return guardTools(tools, trust);
 }

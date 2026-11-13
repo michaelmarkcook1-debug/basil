@@ -109,8 +109,9 @@ export async function POST(req: Request) {
   const slackEvents  = toClassify.filter(
     (ev) => ev.source === "slack" && ev.externalId!.startsWith("slack:")
   );
+  // poll-ingest stores Teams as source:"teams"; older rows were mislabelled "slack".
   const teamsEvents  = toClassify.filter(
-    (ev) => ev.source === "slack" && ev.externalId!.startsWith("teams:")
+    (ev) => (ev.source === "teams" || ev.source === "slack") && ev.externalId!.startsWith("teams:")
   );
 
   // Load Michael's self-identity so we can mark his messages as [You] in transcripts
@@ -223,7 +224,12 @@ export async function POST(req: Request) {
           continue;
         }
 
-        if (!shouldMaterializeSlack(intel)) continue;
+        // Nothing actionable is still a verdict: record it (as poll-ingest does)
+        // so a quiet thread is not re-classified every morning for 14 days.
+        if (!shouldMaterializeSlack(intel)) {
+          await recordIngest(username, { sourceRef: externalId, hash: slackHash });
+          continue;
+        }
 
         const slackResult = await materializeSlackIntelligence({
           intelligence: intel,
@@ -235,14 +241,14 @@ export async function POST(req: Request) {
           username,
           isDM: channelName.startsWith("DM:"),
         });
-        void recordIngest(username, {
+        await recordIngest(username, {
           sourceRef: externalId,
           hash: slackHash, // same value the skip-check above read
           actionIds: slackResult.auditEntries.filter((e) => e.itemType === "action" && e.itemId).map((e) => e.itemId!),
           decisionIds: slackResult.auditEntries.filter((e) => e.itemType === "decision" && e.itemId).map((e) => e.itemId!),
           memoryIds: slackResult.auditEntries.filter((e) => e.itemType === "memory" && e.itemId).map((e) => e.itemId!),
         });
-        void appendAuditEntries(username, slackResult.auditEntries);
+        await appendAuditEntries(username, slackResult.auditEntries);
         processed++;
       } catch (err) {
         console.error(`[reprocess] slack failed for event ${ev.id}:`, err instanceof Error ? err.message : err);
@@ -298,7 +304,10 @@ export async function POST(req: Request) {
           continue;
         }
 
-        if (!shouldMaterializeTeams(intel)) continue;
+        if (!shouldMaterializeTeams(intel)) {
+          await recordIngest(username, { sourceRef: externalId, hash: teamsHash });
+          continue;
+        }
 
         const teamsResult = await materializeTeamsIntelligence({
           intelligence: intel,
@@ -309,14 +318,14 @@ export async function POST(req: Request) {
           date: ev.createdAt,
           username,
         });
-        void recordIngest(username, {
+        await recordIngest(username, {
           sourceRef: externalId,
           hash: teamsHash, // same value the skip-check above read
           actionIds: teamsResult.auditEntries.filter((e) => e.itemType === "action" && e.itemId).map((e) => e.itemId!),
           decisionIds: teamsResult.auditEntries.filter((e) => e.itemType === "decision" && e.itemId).map((e) => e.itemId!),
           memoryIds: teamsResult.auditEntries.filter((e) => e.itemType === "memory" && e.itemId).map((e) => e.itemId!),
         });
-        void appendAuditEntries(username, teamsResult.auditEntries);
+        await appendAuditEntries(username, teamsResult.auditEntries);
         processed++;
       } catch (err) {
         console.error(`[reprocess] teams failed for event ${ev.id}:`, err instanceof Error ? err.message : err);

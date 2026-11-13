@@ -13,7 +13,7 @@ import { head } from "@vercel/blob";
 import { z } from "zod";
 import { getSessionUser } from "@/lib/auth";
 import { checkRateLimitDurable } from "@/lib/rate-limit";
-import { listUploads, saveUpload } from "@/lib/uploads/store";
+import { listUploads, saveUpload, failStalledUploads } from "@/lib/uploads/store";
 import { processUpload } from "@/lib/uploads/process";
 import { mediaPrefix } from "@/lib/uploads/paths";
 import { defaultExtractActions, kindOf, occurredAtFromFilename, titleFromFilename, type UploadRecord } from "@/lib/uploads/shape";
@@ -25,6 +25,8 @@ export const maxDuration = 300;
 export async function GET() {
   const username = await getSessionUser();
   if (!username) return NextResponse.json({ error: "Unauthorised" }, { status: 401 });
+  // A killed function cannot mark its own upload failed; do it here when listing.
+  await failStalledUploads(username);
   return NextResponse.json({ uploads: await listUploads(username), prefix: mediaPrefix(username) });
 }
 

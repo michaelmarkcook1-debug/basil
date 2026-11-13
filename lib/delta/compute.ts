@@ -129,7 +129,7 @@ function isPhoneishName(name: string): boolean {
  *
  * No hardcoded names.
  */
-function buildKeyContactSet(
+export function buildKeyContactSet(
   contacts: Contact[],
   toneHistory?: Map<string, ToneObservation[]>,
   cadence?: Map<string, { contactId: string }>,
@@ -353,7 +353,8 @@ function relationshipChanges(
   contacts: Contact[],
   since: Date,
   toneHistory?: Map<string, ToneObservation[]>,
-  cadenceRules?: ReadonlyArray<{ contactId: string; name: string; everyDays: number }>
+  cadenceRules?: ReadonlyArray<{ contactId: string; name: string; everyDays: number }>,
+  awayDaysSince?: (iso: string) => number,
 ): ChangeEvent[] {
   const events: ChangeEvent[] = [];
   let continuousCount = 0;
@@ -415,7 +416,7 @@ function relationshipChanges(
     }
 
     if (!c.lastInteraction) continue;
-    const silenceDays = daysSince(c.lastInteraction);
+    const silenceDays = Math.max(0, daysSince(c.lastInteraction) - (awayDaysSince?.(c.lastInteraction) ?? 0));
     const isKey = keyContactIds.has(c.id);
     const now = new Date().toISOString();
 
@@ -595,6 +596,12 @@ export interface ComputeDeltasInput {
   timezone?: string;
   /** Relationship cadences the user has set — see lib/contacts/cadence-rules.ts. */
   cadenceRules?: ReadonlyArray<{ contactId: string; name: string; everyDays: number }>;
+  /**
+   * Days the user was away since an instant (lib/away). Silence a user's own
+   * leave caused is not a relationship going quiet, so it is taken off the
+   * silence count. Omit to count every day.
+   */
+  awayDaysSince?: (iso: string) => number;
 }
 
 export function computeDeltas(input: ComputeDeltasInput): ChangesResponse {
@@ -606,7 +613,7 @@ export function computeDeltas(input: ComputeDeltasInput): ChangesResponse {
   const all: ChangeEvent[] = [
     ...actionChanges(actions, since, todayLocal),
     ...decisionChanges(decisions, since),
-    ...relationshipChanges(contacts, since, toneHistory, input.cadenceRules),
+    ...relationshipChanges(contacts, since, toneHistory, input.cadenceRules, input.awayDaysSince),
     ...threadChanges(threads, since),
   ];
 

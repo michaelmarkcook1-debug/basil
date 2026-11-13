@@ -246,3 +246,16 @@ export function chunkText(text: string, size = 10_000): string[] {
   if (rest) out.push(rest);
   return out;
 }
+
+/**
+ * Still "in progress" long after any function could still be working on it
+ * (processing runs at most 300 s): the function was killed and cannot mark the
+ * upload itself, so the list would say "Transcribing…" for ever.
+ */
+export const UPLOAD_STALE_AFTER_MS = 20 * 60_000;
+const IN_PROGRESS: ReadonlySet<UploadStatus> = new Set(["uploaded", "transcribing", "reading", "analysing"]);
+
+export function isStalledUpload(u: Pick<UploadRecord, "status" | "updatedAt">, now = Date.now()): boolean {
+  const at = Date.parse(u.updatedAt);
+  return IN_PROGRESS.has(u.status) && Number.isFinite(at) && now - at > UPLOAD_STALE_AFTER_MS;
+}

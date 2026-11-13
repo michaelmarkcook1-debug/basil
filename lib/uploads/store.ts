@@ -7,7 +7,7 @@
  */
 import "server-only";
 import { readUserStore, updateUserStore, writeUserStore } from "@/lib/storage/user-store";
-import type { Segment, UploadRecord } from "./shape";
+import { isStalledUpload, type Segment, type UploadRecord } from "./shape";
 
 const FILE = "uploads.json";
 const textFile = (id: string) => `upload-text-${id}.json`;
@@ -53,4 +53,18 @@ export async function saveUploadText(username: string, id: string, t: UploadText
 
 export async function getUploadText(username: string, id: string): Promise<UploadText> {
   return readUserStore<UploadText>(username, textFile(id), {}, { fresh: true });
+}
+
+/** Mark uploads whose processing died part-way as failed, with a reason. Returns how many. */
+export async function failStalledUploads(username: string, now = Date.now()): Promise<number> {
+  const current = await readUserStore<UploadRecord[]>(username, FILE, [], { fresh: true });
+  if (!current.some((u) => isStalledUpload(u, now))) return 0;
+  let n = 0;
+  await updateUserStore<UploadRecord[]>(username, FILE, (cur) => cur.map((u) => {
+    if (!isStalledUpload(u, now)) return u;
+    n++;
+    return { ...u, status: "failed", detail: "Processing stopped part-way. Delete it and upload the file again.", updatedAt: new Date(now).toISOString() };
+  }), []);
+  if (n > 0) console.warn(`[uploads] ${username}: marked ${n} stalled upload(s) as failed`);
+  return n;
 }

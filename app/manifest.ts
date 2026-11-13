@@ -2,12 +2,16 @@ import type { MetadataRoute } from "next";
 
 export default function manifest(): MetadataRoute.Manifest {
   return {
+    // A stable id keeps an installed Basil the same app if start_url ever changes.
+    id: "/dashboard",
     name: "Basil — Executive Assistant",
     short_name: "Basil",
-    description: "Your personal AI executive assistant",
+    description: "Your meetings, email, Slack and follow-ups in one place, with an assistant that keeps track.",
     start_url: "/dashboard",
+    scope: "/",
     display: "standalone",
-    orientation: "portrait",
+    // "portrait" locked iPads and desktop windows; let the device decide.
+    orientation: "any",
     background_color: "#1B2B4B",
     theme_color: "#1B2B4B",
     categories: ["productivity", "business"],

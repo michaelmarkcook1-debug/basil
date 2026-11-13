@@ -20,6 +20,7 @@ import { generateTextSafe } from "@/lib/ai/generate";
 import { getTextModel, MAX_TOKENS } from "@/lib/ai/model-config";
 import { getTaskSystemPrompt } from "@/lib/ai/system-prompt";
 import { parseAndValidate } from "@/lib/ai/parse-json";
+import { wrapUntrusted } from "@/lib/ai/injection-guard";
 import { SlackIntelligenceSchema } from "@/lib/ai/schemas";
 import { getFlags } from "@/core/feature-flags";
 import { getSettings } from "@/lib/settings/store";
@@ -239,7 +240,7 @@ IMPORTANT: Lines prefixed "[You]:" in the transcript are messages ${userFirstNam
 
 ${contextHints ? `Context: ${contextHints}\n` : ""}DATE: ${date}
 CONVERSATION:
-${transcript}
+${wrapUntrusted(transcript)}
 
 Classification rules — follow strictly:
 

@@ -118,6 +118,9 @@ test("a cache written BEFORE the fix is redacted when it is read back", async ()
 test("an extracted commitment carrying a one-time code is stored without it", async () => {
   const files = new Map();
   const actions = loadTs("lib/actions/store.ts", {
+    // lib/away: no working calendar here — the code falls back to its every-day behaviour.
+    "@/lib/away/store": { getWorkCalendar: async () => { throw new Error("no working calendar in this test"); }, declareAway: async () => ({}), endDeclaredAway: async () => 0, invalidateCalendarAbsences: async () => {} },
+    "@/lib/away/calendar": loadTs("lib/away/calendar.ts"),
     "@/lib/events/lock": makeLock(),
     "./classify": { classifyAction: () => ({ category: "task", decisionRequired: false }) },
     "./utils": { isOverdueStale: () => false, isGroupOwner: () => false, isMeetingAttendancePast: () => false },

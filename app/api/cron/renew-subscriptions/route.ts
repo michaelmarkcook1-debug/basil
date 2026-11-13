@@ -137,6 +137,9 @@ async function handle(req: Request) {
       const msState = await getMsWatchState(username);
       const now = Date.now();
       const twoDays = 2 * 86400_000;
+      // 4,320 minutes is within Graph's limit for Outlook message/event
+      // subscriptions without resource data: 10,080 minutes (Microsoft Learn,
+      // "subscription resource type", read 2026-11-10). Rich notifications would be 1,440.
       const threeDaysFromNow = new Date(Date.now() + 3 * 86400_000).toISOString();
       const clientState = process.env.MICROSOFT_WEBHOOK_SECRET || randomUUID();
 

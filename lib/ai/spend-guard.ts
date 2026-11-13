@@ -41,7 +41,7 @@ import {
   costUsd,
   type TokenUsage,
   failsClosedOnCounterOutage,} from "./pricing";
-import { incrCounter, getCounter, isDurableCounter } from "@/lib/storage/counter";
+import { incrCounter, getCounter, resetCounter, isDurableCounter } from "@/lib/storage/counter";
 import { appendSpendEvent, currentPeriod, secondsUntilPeriodEnd, currentDay, secondsUntilDayEnd } from "./spend-log";
 
 // ── Configuration ──────────────────────────────────────────────────────────────
@@ -614,6 +614,19 @@ export interface SpendSummary {
  * One user's AI spend today against their daily cap — the figure the per-user
  * guard enforces, for the user's own spend gauge. Never another user's.
  */
+/**
+ * Start today's count again for one user, so they get their full daily limit
+ * back. Only the counter the limit acts on is cleared: the spend log keeps
+ * every call, so monthly totals and the cost audit are unchanged.
+ */
+export async function resetUserSpendToday(username: string): Promise<{ day: string; clearedUsd: number }> {
+  const day = currentDay();
+  const key = userDailyKey(username, day);
+  const clearedUsd = await getCounter(key).catch(() => 0);
+  await resetCounter(key);
+  return { day, clearedUsd };
+}
+
 export async function getUserSpendToday(username: string): Promise<{ usd: number; capUsd: number | null; day: string }> {
   const day = currentDay();
   const usd = await getCounter(userDailyKey(username, day)).catch(() => 0);

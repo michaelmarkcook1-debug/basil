@@ -54,6 +54,7 @@ test("the calendar keeps each attendee's email — not you, not rooms, not peopl
     "./auth": { getAuthedClient: async () => ({}) },
     "./gmail": {},
     "@/lib/self-identity": { getSelfIdentity: async () => ({ emails: ["me@fixture.invalid"], names: [] }), stripSelf: (a) => a },
+    "@/lib/away/calendar": loadTs("lib/away/calendar.ts"),
   });
   const [ev] = await C.getEventsForMonth("u", 2026, 9);
   assert.equal(JSON.stringify(ev.attendeeDetails), JSON.stringify([

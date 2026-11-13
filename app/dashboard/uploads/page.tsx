@@ -11,6 +11,7 @@ import { Download, FileText, Loader2, Mic, Trash2, UploadCloud, Video, X } from 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { kindOf, occurredAtFromFilename, titleFromFilename, transcribeCostUsd, defaultExtractActions, clockLabel, offsetLabel, type Segment, type UploadRecord } from "@/lib/uploads/shape";
+import { isUploadInFlight, isUploadStalled, UPLOAD_MAX_POLLS } from "@/lib/dashboard/reliability";
 
 const ACCEPT = "audio/*,video/*,.pdf,.docx,.txt,.md,.csv,.json,.vtt,.srt,.html,.rtf";
 const pad = (n: number) => String(n).padStart(2, "0");
@@ -62,21 +63,34 @@ export default function UploadsPage() {
   const [dragging, setDragging] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
 
+  // When the list was last read — the clock "stalled" is judged against.
+  const [loadedAt, setLoadedAt] = useState(0);
   const load = useCallback(async () => {
     const res = await fetch("/api/uploads", { cache: "no-store" });
     if (!res.ok) { setError("Could not load your uploads."); return; }
     const j = (await res.json()) as { uploads: UploadRecord[]; prefix: string };
-    setUploads(j.uploads); setPrefix(j.prefix);
+    setUploads(j.uploads); setPrefix(j.prefix); setLoadedAt(Date.now());
   }, []);
   useEffect(() => { void load(); }, [load]);
 
-  // Poll while anything is still being processed.
-  const busy = uploads?.some((u) => u.status !== "ready" && u.status !== "failed");
+  // Poll while anything is still being processed — but not forever (G12). A
+  // killed function never moves its record on, so it read "Transcribing" and
+  // the page polled every 4 s indefinitely. A record unchanged for ~20 minutes
+  // is shown as stalled and no longer polled for, and polling stops after a
+  // cap (~10 minutes) until the user asks to check again.
+  const pollsRef = useRef(0);
+  const [pollCapped, setPollCapped] = useState(false);
+  const busy = uploads?.some((u) => isUploadInFlight(u.status) && !isUploadStalled(u, loadedAt));
   useEffect(() => {
-    if (!busy) return;
-    const t = setInterval(() => void load(), 4000);
+    if (!busy || pollCapped) return;
+    const t = setInterval(() => {
+      pollsRef.current += 1;
+      if (pollsRef.current >= UPLOAD_MAX_POLLS) { setPollCapped(true); return; }
+      void load();
+    }, 4000);
     return () => clearInterval(t);
-  }, [busy, load]);
+  }, [busy, pollCapped, load]);
+  const checkAgain = () => { pollsRef.current = 0; setPollCapped(false); void load(); };
 
   async function choose(file: File) {
     setError(null);
@@ -117,6 +131,7 @@ export default function UploadsPage() {
       const j = (await res.json().catch(() => ({}))) as { error?: string };
       if (!res.ok) throw new Error(j.error || "Basil could not take that file.");
       setDraft(null);
+      pollsRef.current = 0; setPollCapped(false); // a new upload gets a fresh polling window
       await load();
     } catch (e) {
       setError(e instanceof Error ? e.message : "The upload failed.");
@@ -208,17 +223,24 @@ export default function UploadsPage() {
       <section className="space-y-3" aria-label="Your uploads">
         {uploads === null && <p className="text-sm text-muted-foreground">Loading…</p>}
         {uploads?.length === 0 && <p className="text-sm text-muted-foreground">Nothing uploaded yet.</p>}
+        {pollCapped && busy && (
+          <p className="text-sm text-muted-foreground">
+            Still working on it.{" "}
+            <button type="button" onClick={checkAgain} className="underline underline-offset-2">Check again</button>
+          </p>
+        )}
         {uploads?.map((u) => (
-          <UploadRow key={u.id} u={u} open={open === u.id} onToggle={() => setOpen(open === u.id ? null : u.id)} onDelete={() => void remove(u)} />
+          <UploadRow key={u.id} u={u} stalled={isUploadStalled(u, loadedAt)} open={open === u.id} onToggle={() => setOpen(open === u.id ? null : u.id)} onDelete={() => void remove(u)} />
         ))}
       </section>
     </div>
   );
 }
 
-function UploadRow({ u, open, onToggle, onDelete }: { u: UploadRecord; open: boolean; onToggle: () => void; onDelete: () => void }) {
+function UploadRow({ u, stalled, open, onToggle, onDelete }: { u: UploadRecord; stalled: boolean; open: boolean; onToggle: () => void; onDelete: () => void }) {
   const Icon = u.kind === "document" ? FileText : u.contentType.startsWith("video") ? Video : Mic;
-  const working = u.status !== "ready" && u.status !== "failed";
+  // Stalled: in flight but unchanged for ~20 minutes — processing was killed.
+  const working = isUploadInFlight(u.status) && !stalled;
   return (
     <article className="rounded-2xl border border-border bg-card p-4 space-y-2">
       <div className="flex flex-wrap items-start justify-between gap-3">
@@ -231,14 +253,16 @@ function UploadRow({ u, open, onToggle, onDelete }: { u: UploadRecord; open: boo
           </p>
         </div>
         <div className="flex items-center gap-2">
-          <span className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs ${u.status === "failed" ? "bg-signal-critical-subtle text-signal-critical" : u.status === "ready" ? "bg-signal-positive-subtle text-signal-positive" : "bg-signal-neutral-subtle text-muted-foreground"}`}>
-            {working && <Loader2 className="h-3 w-3 animate-spin" aria-hidden />}{STATUS_TEXT[u.status]}
+          <span className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs ${u.status === "failed" || stalled ? "bg-signal-critical-subtle text-signal-critical" : u.status === "ready" ? "bg-signal-positive-subtle text-signal-positive" : "bg-signal-neutral-subtle text-muted-foreground"}`}>
+            {working && <Loader2 className="h-3 w-3 animate-spin" aria-hidden />}{stalled ? "Stalled" : STATUS_TEXT[u.status]}
           </span>
           <a href={`/api/uploads/${u.id}/file`} className="text-muted-foreground hover:text-foreground" aria-label={`Download ${u.filename}`}><Download className="h-4 w-4" /></a>
           <button type="button" onClick={onDelete} className="text-muted-foreground hover:text-foreground" aria-label={`Delete ${u.title}`}><Trash2 className="h-4 w-4" /></button>
         </div>
       </div>
-      {u.detail && <p className={`text-sm ${u.status === "failed" ? "text-signal-critical" : "text-muted-foreground"}`}>{u.detail}</p>}
+      {stalled
+        ? <p className="text-sm text-signal-critical">No progress for 20 minutes, so this has probably stopped. Delete it and upload again.</p>
+        : u.detail && <p className={`text-sm ${u.status === "failed" ? "text-signal-critical" : "text-muted-foreground"}`}>{u.detail}</p>}
       {u.status === "ready" && (
         <>
           {u.summary && <p className="text-sm leading-relaxed">{u.summary}</p>}

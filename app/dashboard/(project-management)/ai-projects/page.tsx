@@ -12,14 +12,14 @@ import {
   X,
 } from "lucide-react";
 import { Input } from "@/components/ui/input";
-import { Textarea } from "@/components/ui/textarea";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { relativeTime } from "@/lib/utils";
-import type { AIProject, AIProjectsData, Category, Platform } from "@/lib/ai-projects/types";
+import type { AIProject, AIProjectsData, Category, Importance, Platform } from "@/lib/ai-projects/types";
 import { PLATFORM_LABELS } from "@/lib/ai-projects/types";
+import { AI_IMPORT_PLATFORMS, buildAiImportBody } from "@/lib/dashboard/reliability";
 import { ViewActions } from "../view-actions";
 
 // ── Styles helpers ────────────────────────────────────────────────────────────
@@ -325,13 +325,16 @@ function ProjectColumn({
 
 // ── Page ──────────────────────────────────────────────────────────────────────
 
+// Only the platforms the import route accepts, and only the fields it (or the
+// project PATCH) actually stores — the form used to offer platforms that were
+// rejected and a summary / "Learning" category that were silently dropped (G5).
 interface LogWorkForm {
-  platform: string;
+  platform: (typeof AI_IMPORT_PLATFORMS)[number];
   name: string;
-  summary: string;
-  importance: string;
-  category: string;
+  importance: Importance;
+  category: Category;
 }
+const LOG_FORM_DEFAULT: LogWorkForm = { platform: "claude-chat", name: "", importance: "medium", category: "work" };
 
 export default function AIProjectsPage() {
   const [data, setData] = useState<AIProjectsData | null>(null);
@@ -339,15 +342,10 @@ export default function AIProjectsPage() {
   const [syncing, setSyncing] = useState(false);
 
   const [showLogForm, setShowLogForm] = useState(false);
-  const [logForm, setLogForm] = useState<LogWorkForm>({
-    platform: "claude-code",
-    name: "",
-    summary: "",
-    importance: "medium",
-    category: "work",
-  });
+  const [logForm, setLogForm] = useState<LogWorkForm>(LOG_FORM_DEFAULT);
   const [logging, setLogging] = useState(false);
   const [logError, setLogError] = useState("");
+  const [logNotice, setLogNotice] = useState("");
 
   const load = useCallback(async () => {
     try {
@@ -361,33 +359,39 @@ export default function AIProjectsPage() {
   }, []);
 
   async function handleLogWork() {
-    if (!logForm.name.trim()) return;
+    if (!logForm.name.trim() || logging) return;
     setLogging(true);
     setLogError("");
     try {
+      const externalId = `manual-${Date.now()}`;
+      // The route replaces the platform's list with what it is sent, so the
+      // platform's existing projects ride along with the new one.
+      const body = buildAiImportBody(logForm.platform, data?.projects ?? [], {
+        name: logForm.name.trim(),
+        externalId,
+        lastActiveAt: new Date().toISOString(),
+      });
       const res = await fetch("/api/ai-projects/import", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          platform: logForm.platform,
-          projects: [{
-            name: logForm.name.trim(),
-            summary: logForm.summary.trim() || undefined,
-            importance: logForm.importance,
-            category: logForm.category,
-            externalId: `manual-${Date.now()}`,
-            lastActiveAt: new Date().toISOString(),
-          }],
-        }),
+        body: JSON.stringify(body),
       });
       if (!res.ok) {
-        const body = await res.json() as { error?: string };
-        setLogError(body.error ?? "Failed to log work");
+        const errBody = await res.json().catch(() => ({})) as { error?: string };
+        setLogError(errBody.error ?? "That was not saved. Try again.");
         return;
       }
+      // Importance and category are stored as overrides by the project PATCH
+      // (the import route ignores them).
+      const patch = await fetch(`/api/ai-projects/${encodeURIComponent(`${logForm.platform}:${externalId}`)}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ importance: logForm.importance, category: logForm.category }),
+      }).catch((err) => { console.warn("[ai-projects] saving importance/category failed:", err instanceof Error ? err.message : err); return null; });
       setShowLogForm(false);
-      setLogForm({ platform: "claude-code", name: "", summary: "", importance: "medium", category: "work" });
+      setLogForm(LOG_FORM_DEFAULT);
       await load();
+      if (!patch?.ok) setLogNotice("Logged, but the importance and category were not saved.");
     } catch (e) {
       setLogError(e instanceof Error ? e.message : "Network error");
     } finally {
@@ -494,6 +498,13 @@ export default function AIProjectsPage() {
         </div>
       </ViewActions>
 
+      {logNotice && !showLogForm && (
+        <p role="status" className="rounded-md bg-signal-warning-subtle px-3 py-2 text-xs text-signal-warning">
+          {logNotice}
+          <button onClick={() => setLogNotice("")} className="ml-2 underline">Dismiss</button>
+        </p>
+      )}
+
       {/* Log AI work form */}
       {showLogForm && (
         <div className="rounded-2xl border border-border bg-card p-5 space-y-4">
@@ -515,18 +526,12 @@ export default function AIProjectsPage() {
               Platform
               <select
                 value={logForm.platform}
-                onChange={(e) => setLogForm((f) => ({ ...f, platform: e.target.value }))}
+                onChange={(e) => setLogForm((f) => ({ ...f, platform: e.target.value as LogWorkForm["platform"] }))}
                 className="mt-1 block w-full rounded-md border border-input bg-background px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-[var(--w-carbon)]"
               >
-                <option value="claude-code">Claude Code</option>
-                <option value="claude-chat">Claude Chat</option>
-                <option value="claude-cowork">Claude Cowork</option>
-                <option value="github">GitHub</option>
-                <option value="vercel">Vercel</option>
-                <option value="linear">Linear</option>
-                <option value="chatgpt">ChatGPT</option>
-                <option value="gemini">Gemini</option>
-                <option value="codex">Codex</option>
+                {AI_IMPORT_PLATFORMS.map((p) => (
+                  <option key={p} value={p}>{PLATFORM_LABELS[p]}</option>
+                ))}
               </select>
             </label>
 
@@ -539,21 +544,11 @@ export default function AIProjectsPage() {
               />
             </label>
 
-            <label className="block space-y-1.5 text-xs font-medium text-muted-foreground sm:col-span-2">
-              Summary
-              <Textarea
-                value={logForm.summary}
-                onChange={(e) => setLogForm((f) => ({ ...f, summary: e.target.value }))}
-                placeholder="What did you do / are you doing?"
-                rows={2}
-              />
-            </label>
-
             <label className="block space-y-1.5 text-xs font-medium text-muted-foreground">
               Importance
               <select
                 value={logForm.importance}
-                onChange={(e) => setLogForm((f) => ({ ...f, importance: e.target.value }))}
+                onChange={(e) => setLogForm((f) => ({ ...f, importance: e.target.value as Importance }))}
                 className="mt-1 block w-full rounded-md border border-input bg-background px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-[var(--w-carbon)]"
               >
                 <option value="critical">Critical</option>
@@ -567,12 +562,11 @@ export default function AIProjectsPage() {
               Category
               <select
                 value={logForm.category}
-                onChange={(e) => setLogForm((f) => ({ ...f, category: e.target.value }))}
+                onChange={(e) => setLogForm((f) => ({ ...f, category: e.target.value as Category }))}
                 className="mt-1 block w-full rounded-md border border-input bg-background px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-[var(--w-carbon)]"
               >
                 <option value="work">Work</option>
                 <option value="personal">Personal</option>
-                <option value="learning">Learning</option>
               </select>
             </label>
           </div>

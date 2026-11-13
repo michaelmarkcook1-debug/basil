@@ -13,6 +13,8 @@ import { sampleContacts } from "@/lib/contacts-data";
 import { listUserContacts } from "@/lib/contacts/user-store";
 import { appendToneObservation } from "@/lib/contacts/overrides-store";
 import { getSettings } from "@/lib/settings/store";
+import { getPrivacyOrClosed } from "@/lib/privacy/store";
+import { profilingAllowed } from "@/lib/privacy/rules";
 
 // ── Name matching ─────────────────────────────────────────────────────────────
 
@@ -106,6 +108,8 @@ export async function writeToneObservations(
   // single message judged against "professional norms" marked every terse
   // writer as cooling. Per-message shifts are no longer stored (review §3.3).
   if (!PER_MESSAGE_SHIFTS) return;
+  const privacy = await getPrivacyOrClosed(username);
+  if (!privacy.profiling) return;
   for (const shift of toneShifts) {
     if (!shift.person?.trim() || !shift.summary?.trim()) continue;
 
@@ -117,6 +121,8 @@ export async function writeToneObservations(
         );
         continue;
       }
+
+      if (!profilingAllowed(privacy, contactId)) continue; // the user asked Basil not to profile this person
 
       const observation: ToneObservation = {
         date: date.slice(0, 10),

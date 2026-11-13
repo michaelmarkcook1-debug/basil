@@ -36,6 +36,8 @@ const SettingsPatchSchema = z.object({
   briefingEmail: z.boolean().optional(),
   briefingSlack: z.boolean().optional(),
   toneSentiment: z.boolean().optional(),
+  workingDays: z.array(z.number().int().min(0).max(6)).min(1).max(7).optional(),
+  holidayRegion: z.enum(["england-and-wales", "scotland", "northern-ireland", "none"]).optional(),
   // Email aliases / send-as addresses (stored on the user record, not settings).
   aliasEmails: z.array(z.string().email().max(320)).max(20).optional(),
 });

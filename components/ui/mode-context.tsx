@@ -30,9 +30,13 @@ import type {
   ModeState,
 } from "@/lib/modes/types";
 import type { ChangeCategory, ChangeSeverity } from "@/lib/delta/types";
+import { scopedKey } from "@/lib/session-user";
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
+// Both keys are read and written per signed-in user via scopedKey(): the bare
+// keys were shared by everyone on the browser, so one person's focus mode
+// (and dismissed suggestion) carried over to the next person (A9).
 const STORAGE_KEY = "basil-mode-state";
 
 const DEFAULT_STATE: ModeState = {
@@ -51,7 +55,7 @@ const ModeContext = createContext<ModeContextValue | null>(null);
 function readPersistedState(): ModeState {
   if (typeof window === "undefined") return DEFAULT_STATE;
   try {
-    const raw = localStorage.getItem(STORAGE_KEY);
+    const raw = localStorage.getItem(scopedKey(STORAGE_KEY));
     if (!raw) return DEFAULT_STATE;
     const parsed = JSON.parse(raw) as ModeState;
 
@@ -71,7 +75,7 @@ function readPersistedState(): ModeState {
 function writePersistedState(state: ModeState): void {
   if (typeof window === "undefined") return;
   try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+    localStorage.setItem(scopedKey(STORAGE_KEY), JSON.stringify(state));
   } catch {
     // localStorage may be unavailable (private browsing, storage full)
   }
@@ -104,8 +108,17 @@ function computeMinutesRemaining(state: ModeState): number | null {
 // ── Provider ──────────────────────────────────────────────────────────────────
 
 export function ModeProvider({ children }: { children: React.ReactNode }) {
-  const [state, setState] = useState<ModeState>(() => readPersistedState());
+  // Starts at the default on server and client alike; this browser's copy is
+  // read after mount. Reading localStorage in the useState initializer made the
+  // first client render differ from the server render (a hydration mismatch).
+  const [state, setState] = useState<ModeState>(DEFAULT_STATE);
   const expiryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => {
+    // Declared before the server-copy effect below, so that one compares
+    // against this browser's restored state.
+    setState(readPersistedState());
+  }, []);
 
   // Adopt the server copy when it is newer than what this browser has — a mode
   // set on the phone appears on the laptop without either side losing a local
@@ -138,10 +151,10 @@ export function ModeProvider({ children }: { children: React.ReactNode }) {
   });
   const [tick, setTick] = useState(() => Date.now());
   useEffect(() => { const t = setInterval(() => setTick(Date.now()), 60_000); return () => clearInterval(t); }, []);
-  const [dismissedEvent, setDismissedEvent] = useState<string | null>(() => {
-    if (typeof window === "undefined") return null;
-    try { return localStorage.getItem(SUGGEST_DISMISS_KEY); } catch { return null; }
-  });
+  const [dismissedEvent, setDismissedEvent] = useState<string | null>(null);
+  useEffect(() => {
+    try { setDismissedEvent(localStorage.getItem(scopedKey(SUGGEST_DISMISS_KEY))); } catch { /* ignore */ }
+  }, []);
   // Plain call, no manual useMemo: the React Compiler memoises it on its
   // inputs, and a hand-written dependency list here is what it refused to
   // preserve. The logic lives in lib/modes/suggest.ts so it is unit-tested.
@@ -149,7 +162,7 @@ export function ModeProvider({ children }: { children: React.ReactNode }) {
   const suggestedEventId = meetingSuggestion?.eventId ?? null;
   const dismissMeetingSuggestion = useCallback(() => {
     setDismissedEvent(suggestedEventId);
-    try { if (suggestedEventId) localStorage.setItem(SUGGEST_DISMISS_KEY, suggestedEventId); } catch { /* ignore */ }
+    try { if (suggestedEventId) localStorage.setItem(scopedKey(SUGGEST_DISMISS_KEY), suggestedEventId); } catch { /* ignore */ }
   }, [suggestedEventId]);
 
   // Schedule auto-expiry when activeUntil is set

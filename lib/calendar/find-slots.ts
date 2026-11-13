@@ -8,7 +8,8 @@
  * Pure / deterministic — caller is responsible for fetching the busy data.
  */
 
-import { checkFreeBusy, type BusyPeriod } from "@/lib/google/calendar";
+import type { BusyPeriod } from "@/lib/google/calendar";
+import { checkAttendeeFreeBusy } from "@/lib/calendar/unified";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -46,9 +47,12 @@ export interface FindSlotsOptions {
   attendees: AttendeeInput[];
   /** Owner timezone — for the primary label. */
   userTimezone: string;
-  /** Hour-of-day window in everyone's *local* time. Defaults 9–17. */
+  /** Attendees' hour-of-day window in their *local* time. Defaults 9–17 (their real hours are unknown). */
   workingHourStart?: number;
   workingHourEnd?: number;
+  /** The owner's own working hours (settings workStart/workEnd, as decimal hours). Default: the attendee window. */
+  ownerWorkStart?: number;
+  ownerWorkEnd?: number;
   /** Cap on returned slots. Defaults 8. */
   maxSlots?: number;
   /** Step in minutes between candidate slots. Defaults 30. */
@@ -69,6 +73,14 @@ function hourInTz(utcMs: number, tz: string): number {
     // Fall back to UTC hour if the timezone string is malformed.
     return new Date(utcMs).getUTCHours();
   }
+}
+
+/** "09:30" → 9.5; anything unparseable → the fallback. Pure. */
+export function hoursFromHHMM(hhmm: string | undefined | null, fallback: number): number {
+  const m = /^(\d{1,2}):(\d{2})$/.exec((hhmm ?? "").trim());
+  if (!m) return fallback;
+  const h = Number(m[1]) + Number(m[2]) / 60;
+  return h >= 0 && h <= 24 ? h : fallback;
 }
 
 /** Returns true when the [tStart, tEnd) interval overlaps any of the busy blocks. */
@@ -97,6 +109,8 @@ export function findMutualSlots(opts: FindSlotsOptions): SlotSuggestion[] {
     userTimezone,
     workingHourStart = 9,
     workingHourEnd = 17,
+    ownerWorkStart = workingHourStart,
+    ownerWorkEnd = workingHourEnd,
     maxSlots = 8,
     stepMin = 30,
   } = opts;
@@ -121,7 +135,7 @@ export function findMutualSlots(opts: FindSlotsOptions): SlotSuggestion[] {
     // 2. The owner must be inside working hours throughout the slot.
     const ownerStartH = hourInTz(t, userTimezone);
     const ownerEndH   = hourInTz(slotEnd, userTimezone);
-    if (ownerStartH < workingHourStart || ownerEndH > workingHourEnd) continue;
+    if (ownerStartH < ownerWorkStart || ownerEndH > ownerWorkEnd || ownerEndH < ownerStartH) continue;
 
     // 3. Every attendee must also be inside their own working hours.
     const allAttendeesOk = attendees.every((a) => {
@@ -167,7 +181,8 @@ export function findMutualSlots(opts: FindSlotsOptions): SlotSuggestion[] {
 // ── Convenience: fetch + compute in one call ─────────────────────────────────
 
 /**
- * Fetch attendees' busy blocks from Google free/busy and compute mutual slots.
+ * Fetch attendees' busy blocks (Google free/busy, Outlook getSchedule for anyone
+ * Google cannot see) and compute mutual slots.
  *
  * Caller-supplied `userBusy` lets the caller pass authenticated-primary events
  * (so Focus time / Reclaim holds count) rather than freebusy on the owner.
@@ -183,6 +198,8 @@ export async function fetchAndFindSlots(
     userTimezone: string;
     workingHourStart?: number;
     workingHourEnd?: number;
+    ownerWorkStart?: number;
+    ownerWorkEnd?: number;
     maxSlots?: number;
   }
 ): Promise<SlotSuggestion[]> {
@@ -191,7 +208,7 @@ export async function fetchAndFindSlots(
 
   if (emails.length > 0) {
     try {
-      const fb = await checkFreeBusy(username, emails, params.windowStart, params.windowEnd);
+      const fb = await checkAttendeeFreeBusy(username, emails, params.windowStart, params.windowEnd);
       for (const result of fb) {
         attendeeBusy.set(result.email, result.error ? [] : result.busy);
       }
@@ -211,6 +228,8 @@ export async function fetchAndFindSlots(
     userTimezone: params.userTimezone,
     workingHourStart: params.workingHourStart,
     workingHourEnd: params.workingHourEnd,
+    ownerWorkStart: params.ownerWorkStart,
+    ownerWorkEnd: params.ownerWorkEnd,
     maxSlots: params.maxSlots,
   });
 }

@@ -1,7 +1,7 @@
 /**
  * Admin user management endpoints (all require admin session).
  *
- * PATCH /api/admin/users/[id]   — disable / enable / revoke, or set-ai-limit
+ * PATCH /api/admin/users/[id]   — disable / enable / revoke, set-ai-limit or set-plan
  * DELETE /api/admin/users/[id]  — delete user
  */
 import { NextResponse } from "next/server";
@@ -9,6 +9,8 @@ import { getSessionUser } from "@/lib/auth";
 import { getUsers, isAdminUser, setUserDisabled, setUserAiDailyLimit, deleteUser, revokeUserSessions } from "@/lib/users";
 import { purgeUserData } from "@/lib/storage/persistent";
 import { revokeSiriToken } from "@/lib/auth/siri-tokens";
+import { revokeIntegrationTokens } from "@/lib/auth/revoke-integrations";
+import { activatePlan, cancelPlan } from "@/lib/billing/entitlement-store";
 
 type Params = { params: Promise<{ id: string }> };
 
@@ -62,6 +64,18 @@ export async function PATCH(req: Request, { params }: Params) {
     return NextResponse.json({ success: true, action: "set-ai-limit", aiDailyUsd: v });
   }
 
+  if (body.action === "set-plan") {
+    // { plan: "free" | "pro" }. No payment system yet, so invited colleagues are
+    // put on Pro (briefings) here; their AI cost is bounded by set-ai-limit.
+    const plan = body.plan;
+    if (plan !== "free" && plan !== "pro") {
+      return NextResponse.json({ error: "Give a plan: free or pro." }, { status: 400 });
+    }
+    if (plan === "pro") await activatePlan(target.username, "pro", { provider: "stub" });
+    else await cancelPlan(target.username);
+    return NextResponse.json({ success: true, action: "set-plan", plan });
+  }
+
   return NextResponse.json({ error: "Unknown action" }, { status: 400 });
 }
 
@@ -84,15 +98,22 @@ export async function DELETE(_req: Request, { params }: Params) {
   await deleteUser(target.username);
   await revokeSiriToken(target.username); // the token record must not outlive the account
 
-  // Best-effort blob purge — fire-and-forget so a storage error never blocks
-  // a successful admin deletion response. Account record is already gone.
-  purgeUserData(target.username)
-    .then(({ deleted }) => {
-      console.info(`[admin/users/delete] data purge complete for ${target.username}: ${deleted} blob(s) removed`);
-    })
-    .catch((err) => {
-      console.error("[admin/users/delete] data purge failed (non-fatal):", err instanceof Error ? err.message : err);
-    });
+  // Revoke the Google grant and Slack user token at the provider BEFORE the
+  // purge deletes the tokens needed to do it. Best-effort; never throws.
+  const revoked = await revokeIntegrationTokens(target.username);
+  console.info(`[admin/users/delete] provider revoke for ${target.username}: google=${revoked.google} slack=${revoked.slack}`);
+
+  // The purge is AWAITED. It used to be fire-and-forget after the response, and
+  // Vercel may freeze a function once it has replied — so the purge could be
+  // cut off, and re-inviting the same email then inherited the old user's mail
+  // and tokens (2026-11-10 bug pass, A10). A storage error is still non-fatal:
+  // the account record is already gone.
+  try {
+    const { deleted } = await purgeUserData(target.username);
+    console.info(`[admin/users/delete] data purge complete for ${target.username}: ${deleted} blob(s) removed`);
+  } catch (err) {
+    console.error("[admin/users/delete] data purge failed (non-fatal):", err instanceof Error ? err.message : err);
+  }
 
   console.info(`[admin/users/delete] admin=${admin} deleted user=${target.username}`);
   return NextResponse.json({ success: true });

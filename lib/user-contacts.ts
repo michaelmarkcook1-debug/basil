@@ -11,7 +11,13 @@
 
 import type { Contact } from "./contacts-data";
 import { emitChange } from "./sync/channel";
+import { scopedKey } from "./session-user";
 
+// Every key below is stored per signed-in user via scopedKey() ("basil:<user>:
+// sage-user-contacts"). The bare keys were shared by everyone on the browser,
+// so a second person signing in had the first person's cached contacts merged
+// into — and uploaded to — their own account (A9). The old bare-key copies are
+// left untouched (not read, not deleted).
 const USER_CONTACTS_KEY = "sage-user-contacts";
 const DISMISSED_SUGGESTIONS_KEY = "sage-dismissed-suggestions";
 
@@ -37,7 +43,7 @@ const DELETED_CONTACTS_KEY = "sage-user-contacts-deleted";
 function getDeletedContactIds(): string[] {
   if (typeof window === "undefined") return [];
   try {
-    const raw = localStorage.getItem(DELETED_CONTACTS_KEY);
+    const raw = localStorage.getItem(scopedKey(DELETED_CONTACTS_KEY));
     return raw ? (JSON.parse(raw) as string[]) : [];
   } catch {
     return [];
@@ -48,7 +54,7 @@ function addDeletedContactId(id: string): void {
   if (typeof window === "undefined") return;
   const ids = getDeletedContactIds();
   if (ids.includes(id)) return;
-  localStorage.setItem(DELETED_CONTACTS_KEY, JSON.stringify([...ids, id]));
+  localStorage.setItem(scopedKey(DELETED_CONTACTS_KEY), JSON.stringify([...ids, id]));
 }
 
 /** Adopt deletions the server knows about (made on another device, or server-side). */
@@ -58,14 +64,14 @@ function addDeletedContactIds(ids: readonly string[]): void {
   const merged = new Set(current);
   for (const id of ids) merged.add(id);
   if (merged.size === current.length) return;
-  localStorage.setItem(DELETED_CONTACTS_KEY, JSON.stringify([...merged]));
+  localStorage.setItem(scopedKey(DELETED_CONTACTS_KEY), JSON.stringify([...merged]));
 }
 
 function clearDeletedContactId(id: string): void {
   if (typeof window === "undefined") return;
   const ids = getDeletedContactIds();
   if (!ids.includes(id)) return;
-  localStorage.setItem(DELETED_CONTACTS_KEY, JSON.stringify(ids.filter((x) => x !== id)));
+  localStorage.setItem(scopedKey(DELETED_CONTACTS_KEY), JSON.stringify(ids.filter((x) => x !== id)));
 }
 /** Set once after the first successful migration push, never reset. */
 const MIGRATION_KEY = "sage-user-contacts-migrated-v1";
@@ -87,7 +93,7 @@ function normalize(c: Contact): Contact {
 export function getUserContacts(): Contact[] {
   if (typeof window === "undefined") return [];
   try {
-    const raw = localStorage.getItem(USER_CONTACTS_KEY);
+    const raw = localStorage.getItem(scopedKey(USER_CONTACTS_KEY));
     const parsed = raw ? (JSON.parse(raw) as Contact[]) : [];
     return parsed.map(normalize);
   } catch {
@@ -110,7 +116,7 @@ export function patchContactInCache(serverContact: Contact): void {
   if (idx === -1) return;
   contacts[idx] = normalize(serverContact);
   try {
-    localStorage.setItem(USER_CONTACTS_KEY, JSON.stringify(contacts));
+    localStorage.setItem(scopedKey(USER_CONTACTS_KEY), JSON.stringify(contacts));
   } catch { /* storage full */ }
 }
 
@@ -128,7 +134,7 @@ export function mergeContactsIntoCache(incoming: Contact[]): void {
     .map(normalize);
   if (brandNew.length === 0) return;
   localStorage.setItem(
-    USER_CONTACTS_KEY,
+    scopedKey(USER_CONTACTS_KEY),
     JSON.stringify([...existing, ...brandNew])
   );
 }
@@ -146,7 +152,7 @@ export async function loadUserContactsFromServer(): Promise<Contact[]> {
   if (typeof window === "undefined") return [];
 
   // One-time migration: push existing localStorage contacts to the server store.
-  if (!localStorage.getItem(MIGRATION_KEY)) {
+  if (!localStorage.getItem(scopedKey(MIGRATION_KEY))) {
     const cached = getUserContacts();
     if (cached.length > 0) {
       try {
@@ -157,7 +163,7 @@ export async function loadUserContactsFromServer(): Promise<Contact[]> {
         });
       } catch { /* migration is best-effort */ }
     }
-    localStorage.setItem(MIGRATION_KEY, "1");
+    localStorage.setItem(scopedKey(MIGRATION_KEY), "1");
   }
 
   try {
@@ -218,7 +224,7 @@ export async function loadUserContactsFromServer(): Promise<Contact[]> {
     const localOnly = current.filter((c) => !serverIds.has(c.id) && !tombstoned.has(c.id));
     const merged = [...serverVisible, ...localOnly];
 
-    localStorage.setItem(USER_CONTACTS_KEY, JSON.stringify(merged));
+    localStorage.setItem(scopedKey(USER_CONTACTS_KEY), JSON.stringify(merged));
 
     // ── Reconcile: push stranded records up ────────────────────────────────
     // addUserContact() writes locally FIRST, then POSTs. If that POST fails
@@ -264,7 +270,7 @@ export async function addUserContact(c: Contact): Promise<Contact> {
   const existing = getUserContacts();
   if (!existing.some((x) => x.id === normalised.id)) {
     localStorage.setItem(
-      USER_CONTACTS_KEY,
+      scopedKey(USER_CONTACTS_KEY),
       JSON.stringify([...existing, normalised])
     );
   }
@@ -298,7 +304,7 @@ export async function updateUserContact(
   const idx = existing.findIndex((c) => c.id === id);
   if (idx === -1) return false;
   existing[idx] = normalize({ ...existing[idx], ...patch });
-  localStorage.setItem(USER_CONTACTS_KEY, JSON.stringify(existing));
+  localStorage.setItem(scopedKey(USER_CONTACTS_KEY), JSON.stringify(existing));
 
   try {
     await fetch(`/api/contacts/user/${id}`, {
@@ -332,7 +338,7 @@ export async function bulkAddUserContacts(contacts: Contact[]): Promise<number> 
   const toAdd       = contacts.filter((c) => !existingIds.has(c.id)).map(normalize);
   if (toAdd.length > 0) {
     localStorage.setItem(
-      USER_CONTACTS_KEY,
+      scopedKey(USER_CONTACTS_KEY),
       JSON.stringify([...existing, ...toAdd])
     );
   }
@@ -367,7 +373,7 @@ export async function deleteUserContact(id: string): Promise<void> {
   // Optimistic local update.
   const existing = getUserContacts();
   localStorage.setItem(
-    USER_CONTACTS_KEY,
+    scopedKey(USER_CONTACTS_KEY),
     JSON.stringify(existing.filter((c) => c.id !== id))
   );
   // The tombstone keeps it hidden here either way, but a delete the SERVER
@@ -384,7 +390,7 @@ export async function deleteUserContact(id: string): Promise<void> {
 export function getDismissedSuggestionIds(): string[] {
   if (typeof window === "undefined") return [];
   try {
-    const raw = localStorage.getItem(DISMISSED_SUGGESTIONS_KEY);
+    const raw = localStorage.getItem(scopedKey(DISMISSED_SUGGESTIONS_KEY));
     return raw ? (JSON.parse(raw) as string[]) : [];
   } catch {
     return [];
@@ -396,7 +402,7 @@ export function dismissSuggestion(id: string): void {
   const existing = getDismissedSuggestionIds();
   if (existing.includes(id)) return;
   localStorage.setItem(
-    DISMISSED_SUGGESTIONS_KEY,
+    scopedKey(DISMISSED_SUGGESTIONS_KEY),
     JSON.stringify([...existing, id])
   );
 }

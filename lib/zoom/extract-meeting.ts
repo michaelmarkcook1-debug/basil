@@ -85,6 +85,12 @@ export interface ZoomMeetingExtract {
   toneShifts: Array<{ person: string; direction: "warming" | "cooling" | "neutral"; summary: string }>;
   /** 0–1 extraction confidence (0.5 = sparse email, 1.0 = rich structured summary). */
   confidence: number;
+  /**
+   * True when the AI call or its parse FAILED and this is a placeholder, not a
+   * verdict. NOT part of the AI schema; set only by the catch path. Callers
+   * must not record an ingest hash for it, or the meeting is never retried.
+   */
+  failed?: boolean;
 }
 
 // ── Helpers ────────────────────────────────────────────────────────────────────
@@ -133,7 +139,8 @@ function parseExtract(
  * @param metadata   Subject and ISO date from the email envelope (used as fallbacks).
  * @param username   Required — the user who owns this meeting data. No fallback.
  *
- * @returns A fully-typed ZoomMeetingExtract. Never throws — returns empty extract on failure.
+ * @returns A fully-typed ZoomMeetingExtract. Never throws — returns an empty
+ *          extract on failure, flagged `failed: true` when the AI step failed.
  */
 export async function extractZoomMeeting(
   emailBody: string,
@@ -245,6 +252,6 @@ Respond with ONLY valid JSON — no markdown fences, no explanation, no preamble
       "[zoom-extract] extraction failed:",
       err instanceof Error ? err.message : err
     );
-    return emptyExtract(metadata.subject, metadata.date);
+    return { ...emptyExtract(metadata.subject, metadata.date), failed: true };
   }
 }

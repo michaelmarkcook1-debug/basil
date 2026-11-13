@@ -334,6 +334,10 @@ export default function BriefingPage() {
   useDomainSync("decisions", markStale);
   useDomainSync("memory",    markStale);
 
+  // The briefing type the latest load/switch asked for — a server response for
+  // an earlier type must not land under the current label.
+  const typeRequestRef = useRef<BriefingType | null>(null);
+
   // Per-type localStorage key so each briefing mode is cached independently
   function cacheKeyForType(type: BriefingType) {
     return scopedKey(`briefing-v2-${type}`);
@@ -390,10 +394,17 @@ export default function BriefingPage() {
 
     // Authoritative load from server — this is the source of truth (GET = cached today's briefing)
     // Only load if no localStorage hit to avoid overwriting with a different type's cached result
+    // ?type= is required: without it the server returns the MORNING briefing,
+    // which in the afternoon was shown under the midday/evening label and then
+    // cached under that type for the rest of the day (G4).
     if (!cached) {
-      fetch("/api/generate/briefing", { cache: "no-store" })
+      const mountType = briefingType;
+      typeRequestRef.current = mountType;
+      fetch(`/api/generate/briefing?type=${encodeURIComponent(mountType)}`, { cache: "no-store" })
         .then((r) => (r.ok ? r.json() : null))
         .then((data) => {
+          // The user may have switched type while this was in flight.
+          if (typeRequestRef.current !== mountType) return;
           if (data) {
             setBriefing(data);
             try { localStorage.setItem(cacheKeyForType(briefingType), JSON.stringify(data)); } catch { /* ignore */ }
@@ -462,19 +473,35 @@ export default function BriefingPage() {
     }
   }
 
-  // Switch briefing type: load cached version if available, otherwise auto-generate
-  function handleTypeChange(type: BriefingType) {
+  // Switch briefing type: this device's copy first, then the server's per-type
+  // cache, and only then a new (paid) generation. It used to skip the server
+  // check and generate whenever this device had no copy.
+  async function handleTypeChange(type: BriefingType) {
     if (loading) return; // don't switch while generating
     setBriefingType(type);
+    typeRequestRef.current = type;
     const cached = loadCachedBriefing(type);
     if (cached) {
       setBriefing(cached);
       setError("");
-    } else {
-      setBriefing(null);
-      setError("");
-      generate(type);
+      return;
     }
+    setBriefing(null);
+    setError("");
+    let serverCopy: Briefing | null = null;
+    try {
+      const r = await fetch(`/api/generate/briefing?type=${encodeURIComponent(type)}`, { cache: "no-store" });
+      serverCopy = r.ok ? ((await r.json()) as Briefing | null) : null;
+    } catch (e: unknown) {
+      console.warn("[briefing] server cache check failed:", e);
+    }
+    if (typeRequestRef.current !== type) return; // switched again meanwhile
+    if (serverCopy) {
+      setBriefing(serverCopy);
+      try { localStorage.setItem(cacheKeyForType(type), JSON.stringify(serverCopy)); } catch { /* ignore */ }
+      return;
+    }
+    void generate(type);
   }
 
   const today = getNow().toLocaleDateString("en-GB", {
@@ -798,6 +825,11 @@ export default function BriefingPage() {
 
       {!loading && briefing && (
         <div className="space-y-5">
+          {briefing.unparsed && (
+            <p role="status" className="rounded-md border border-signal-warning-border bg-signal-warning-subtle px-3 py-2 text-xs text-signal-warning">
+              This briefing came back in a form Basil couldn&rsquo;t lay out, so it&rsquo;s shown as written and wasn&rsquo;t sent to you. Regenerate to try again.
+            </p>
+          )}
           {/* Provenance line — generated at + source attribution */}
           <div className="basil-mono flex items-center gap-2 text-[12px] text-[color:var(--w-ink-soft)]">
             <Clock className="h-3 w-3 shrink-0" />

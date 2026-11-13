@@ -52,28 +52,39 @@ export async function POST(req: Request) {
   // Validate the key + capture org id (used for webhook owner lookup).
   try {
     const { name, organizationId } = await validateAndIntrospect(apiKey);
-    await saveLinearConfig(username, { apiKey, organizationId });
 
-    // ── Auto-register the push-sync webhook ────────────────────────────────
+    // Merge, never replace (same rule as /api/integrations/linear): saving
+    // { apiKey, organizationId } alone dropped the webhook id and secret, and
+    // the fresh registration below left the old webhook orphaned at Linear on
+    // every reconnect.
+    const existing = await getLinearConfig(username);
+    const next = { ...existing, apiKey, organizationId };
+    if (existing.webhookId && existing.organizationId && existing.organizationId !== organizationId) {
+      // A key for a DIFFERENT workspace: remove the old workspace's webhook
+      // while the stored (old) key can still do so.
+      await unregisterLinearWebhook(username, existing.webhookId);
+      delete next.webhookId;
+      delete next.webhookSecret;
+    }
+    await saveLinearConfig(username, next);
+
+    // ── Push-sync webhook: keep the one we have, otherwise register one ────
     // Best-effort: a webhook failure must NOT block connecting Linear.
     // Polling fallback (poll-ingest cron) keeps things in sync if the
     // webhook can't be registered (e.g. localhost, missing public URL).
-    let webhookRegistered = false;
-    try {
-      const url = `${baseUrlFromEnv()}/api/webhooks/linear`;
-      const { id, secret } = await registerLinearWebhook(username, url);
-      const cfg = await getLinearConfig(username);
-      await saveLinearConfig(username, {
-        ...cfg,
-        webhookId: id,
-        webhookSecret: secret,
-      });
-      webhookRegistered = true;
-    } catch (whErr) {
-      console.warn(
-        "[auth/linear] webhook registration skipped:",
-        whErr instanceof Error ? whErr.message : whErr
-      );
+    let webhookRegistered = !!(next.webhookId && next.webhookSecret);
+    if (!webhookRegistered) {
+      try {
+        const url = `${baseUrlFromEnv()}/api/webhooks/linear`;
+        const { id, secret } = await registerLinearWebhook(username, url);
+        await saveLinearConfig(username, { ...next, webhookId: id, webhookSecret: secret });
+        webhookRegistered = true;
+      } catch (whErr) {
+        console.warn(
+          "[auth/linear] webhook registration skipped:",
+          whErr instanceof Error ? whErr.message : whErr
+        );
+      }
     }
 
     await forceFlushSnapshot();

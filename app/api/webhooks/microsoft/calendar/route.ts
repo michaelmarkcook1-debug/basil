@@ -6,6 +6,7 @@ import { eventFromIngest } from "@/lib/events/rules";
 import { publish } from "@/lib/events/bus";
 import { resolveMicrosoftSubscriptionUser } from "@/lib/webhooks/resolve-user";
 import { writeDeadLetter } from "@/lib/webhooks/dead-letter";
+import { outlookChangeKey } from "@/lib/microsoft/outlook-calendar";
 
 /**
  * POST /api/webhooks/microsoft/calendar — Microsoft Graph push notification
@@ -19,6 +20,11 @@ import { writeDeadLetter } from "@/lib/webhooks/dead-letter";
  *
  * Security: clientState from each notification is verified against the stored
  * WatchState.calendar.clientState.
+ *
+ * Dedupe is per VERSION of an event (its id + lastModifiedDateTime): keying on
+ * the id alone meant a meeting that was moved or cancelled after it was first
+ * stored was skipped forever (B7). A redelivery of the same version is still
+ * skipped.
  *
  * Always returns 200 (MS Graph requires 200, not 202).
  */
@@ -63,17 +69,16 @@ export async function POST(req: Request) {
     const eventId = notification.resourceData?.id;
     if (!eventId) continue;
 
-    const externalId = `outlook-cal:${eventId}`;
-
     try {
-      // Skip if already ingested
-      if (await hasExternalId(webhookUsername, externalId)) continue;
-
       const ev = await graphGet<GraphCalendarEvent>(
         webhookUsername,
-        `/me/events/${eventId}?$select=id,subject,start,end,attendees,isOnlineMeeting,organizer`
+        `/me/events/${encodeURIComponent(eventId)}?$select=id,subject,start,end,attendees,isOnlineMeeting,organizer,lastModifiedDateTime,isCancelled`
       );
       if (!ev) continue;
+
+      // Skip if this version was already ingested
+      const externalId = outlookChangeKey(eventId, ev);
+      if (await hasExternalId(webhookUsername, externalId)) continue;
 
       const attendeeNames = (ev.attendees || [])
         .map((a) => a.emailAddress?.name)
@@ -85,7 +90,7 @@ export async function POST(req: Request) {
       const shaped = eventFromIngest({
         source: "calendar",
         externalId,
-        title: ev.subject || "(no subject)",
+        title: ev.isCancelled ? `Cancelled: ${ev.subject || "(no subject)"}` : ev.subject || "(no subject)",
         body: `${ev.start?.dateTime ?? ""} — ${attendeeNames}`,
         from,
         date: ev.start?.dateTime,
@@ -131,4 +136,6 @@ interface GraphCalendarEvent {
     emailAddress?: { name?: string; address?: string };
   };
   isOnlineMeeting: boolean;
+  lastModifiedDateTime?: string;
+  isCancelled?: boolean;
 }

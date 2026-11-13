@@ -1,4 +1,4 @@
-import { readProjectsStore, writeProjectsStore } from "./store";
+import { updateProjectsStore } from "./store";
 import { fetchClaudeCodeProjects } from "./platforms/claude-code";
 import { fetchGithubProjects } from "./platforms/github";
 import { fetchVercelProjects } from "./platforms/vercel";
@@ -37,9 +37,24 @@ function detectRelated(projects: AIProject[]): AIProject[] {
   return withRelated;
 }
 
+/**
+ * Fetch every connected platform and merge the results into the stored list.
+ *
+ * Fixed 2026-11-10 (bug pass, C3). The sync used to REPLACE the stored list with
+ * what it fetched, read at the start and written at the end with no lock:
+ *   - imported projects (ChatGPT / Claude.ai exports, basil-sync scrapes) have
+ *     no live fetch, so every 30-minute sync deleted them;
+ *   - a hide or rename made while the fetches ran was overwritten with the
+ *     copy read before them.
+ * Now the fetches run first, outside any lock, and the merge runs inside
+ * updateProjectsStore on a fresh copy: overrides come from that copy, and a
+ * platform's stored projects are replaced only when its live fetch returned
+ * projects. Every fetcher returns [] on error, and Perplexity / Grok (and in
+ * practice Codex) have no history API, so an empty answer is not evidence
+ * that the stored projects are gone — they are carried over.
+ */
 export async function syncProjects(username: string): Promise<AIProjectsData> {
-  const [existing, linearConnected, githubToken, openaiApiKey, geminiApiKey, perplexityKey, grokKey] = await Promise.all([
-    readProjectsStore(username),
+  const [linearConnected, githubToken, openaiApiKey, geminiApiKey, perplexityKey, grokKey] = await Promise.all([
     isLinearConnected(username).catch((err) => {
       console.error("[ai-projects] Linear status check failed:", err instanceof Error ? err.message : String(err));
       return false;
@@ -93,150 +108,160 @@ export async function syncProjects(username: string): Promise<AIProjectsData> {
     ...grokProjects,
   ];
 
-  // Build a map of existing projects keyed by id so we can preserve user overrides
-  const existingById = new Map<string, AIProject>();
-  for (const p of existing.projects) {
-    existingById.set(p.id, p);
-  }
-
-  // Merge: preserve categoryOverride, importanceOverride, hidden from existing
-  const merged = freshProjects.map((fresh) => {
-    const prev = existingById.get(fresh.id);
-    if (!prev) return fresh;
-    return {
-      ...fresh,
-      hidden: prev.hidden,
-      categoryOverride: prev.categoryOverride,
-      importanceOverride: prev.importanceOverride,
-    };
-  });
-
-  // Detect related projects
-  const withRelated = detectRelated(merged);
-
+  // Platforms whose stored projects this run replaces (see the doc comment).
+  const replaced = new Set<Platform>(freshProjects.map((p) => p.platform));
   const now = new Date().toISOString();
 
-  // Build platform statuses
-  const platforms = { ...existing.platforms };
+  /** Platform statuses for this run, built over the fresh stored statuses. */
+  function platformStatuses(stored: AIProjectsData["platforms"]): AIProjectsData["platforms"] {
+    const platforms = { ...stored };
 
-  // claude-code
-  platforms["claude-code"] = {
-    ...platforms["claude-code"],
-    platform: "claude-code",
-    label: "Claude Code",
-    connected: true,
-    lastSyncedAt: now,
-    itemCount: claudeCodeProjects.length,
-  };
-
-  // github
-  if (githubToken) {
-    platforms["github"] = {
-      ...platforms["github"],
-      platform: "github",
-      label: "GitHub",
-      connected: githubProjects.length > 0 || true,
-      lastSyncedAt: now,
-      itemCount: githubProjects.length,
-      error: githubProjects.length === 0 ? "No repos found or token invalid" : undefined,
-    };
-  }
-
-  // vercel
-  if (vercelToken) {
-    platforms["vercel"] = {
-      ...platforms["vercel"],
-      platform: "vercel",
-      label: "Vercel",
+    // claude-code
+    platforms["claude-code"] = {
+      ...platforms["claude-code"],
+      platform: "claude-code",
+      label: "Claude Code",
       connected: true,
       lastSyncedAt: now,
-      itemCount: vercelProjects.length,
+      itemCount: claudeCodeProjects.length,
     };
-  }
 
-  // linear
-  if (linearConnected) {
-    platforms["linear"] = {
-      ...platforms["linear"],
-      platform: "linear",
-      label: "Linear",
-      connected: true,
-      lastSyncedAt: now,
-      itemCount: linearProjects.length,
-    };
-  }
-
-  // openai / codex — OpenAI exposes no usable project/thread-history API, so an
-  // empty result is EXPECTED and is NOT a bad key. Only mark Codex connected when
-  // it genuinely returned projects; otherwise show a quiet not-connected state
-  // with no misleading red "invalid key" error.
-  if (openaiApiKey) {
-    platforms["codex"] = {
-      ...platforms["codex"],
-      platform: "codex",
-      label: "Codex (OpenAI)",
-      connected: openaiProjects.length > 0,
-      lastSyncedAt: now,
-      itemCount: openaiProjects.length,
-      error: undefined,
-    };
-  }
-
-  // gemini — API key connected, no project history API
-  if (geminiApiKey) {
-    platforms["gemini"] = {
-      ...platforms["gemini"],
-      platform: "gemini",
-      label: "Gemini",
-      connected: true,
-      lastSyncedAt: now,
-      itemCount: 0,
-    };
-  }
-
-  // perplexity — API key connected, no project history API
-  if (perplexityKey) {
-    platforms["perplexity"] = {
-      ...platforms["perplexity"],
-      platform: "perplexity",
-      label: "Perplexity",
-      connected: true,
-      lastSyncedAt: now,
-      itemCount: 0,
-    };
-  }
-
-  // grok — API key connected, no project history API
-  if (grokKey) {
-    platforms["grok"] = {
-      ...platforms["grok"],
-      platform: "grok",
-      label: "Grok",
-      connected: true,
-      lastSyncedAt: now,
-      itemCount: 0,
-    };
-  }
-
-  // Platforms that require manual import — mark as disconnected if not already connected
-  const manualPlatforms: Platform[] = ["claude-chat", "claude-cowork", "chatgpt"];
-  for (const p of manualPlatforms) {
-    if (!platforms[p]?.connected) {
-      platforms[p] = {
-        ...platforms[p],
-        platform: p,
-        label: platforms[p]?.label ?? p,
-        connected: false,
+    // github
+    if (githubToken) {
+      platforms["github"] = {
+        ...platforms["github"],
+        platform: "github",
+        label: "GitHub",
+        connected: githubProjects.length > 0 || true,
+        lastSyncedAt: now,
+        itemCount: githubProjects.length,
+        error: githubProjects.length === 0 ? "No repos found or token invalid" : undefined,
       };
     }
+
+    // vercel
+    if (vercelToken) {
+      platforms["vercel"] = {
+        ...platforms["vercel"],
+        platform: "vercel",
+        label: "Vercel",
+        connected: true,
+        lastSyncedAt: now,
+        itemCount: vercelProjects.length,
+      };
+    }
+
+    // linear
+    if (linearConnected) {
+      platforms["linear"] = {
+        ...platforms["linear"],
+        platform: "linear",
+        label: "Linear",
+        connected: true,
+        lastSyncedAt: now,
+        itemCount: linearProjects.length,
+      };
+    }
+
+    // openai / codex — OpenAI exposes no usable project/thread-history API, so an
+    // empty result is EXPECTED and is NOT a bad key. Only mark Codex connected when
+    // it genuinely returned projects; otherwise show a quiet not-connected state
+    // with no misleading red "invalid key" error. A scraped Codex import keeps its
+    // own status.
+    if (openaiApiKey && (openaiProjects.length > 0 || !platforms["codex"]?.scraped)) {
+      platforms["codex"] = {
+        ...platforms["codex"],
+        platform: "codex",
+        label: "Codex (OpenAI)",
+        connected: openaiProjects.length > 0,
+        lastSyncedAt: now,
+        itemCount: openaiProjects.length,
+        error: undefined,
+      };
+    }
+
+    // gemini — API key connected, no project history API
+    if (geminiApiKey) {
+      platforms["gemini"] = {
+        ...platforms["gemini"],
+        platform: "gemini",
+        label: "Gemini",
+        connected: true,
+        lastSyncedAt: now,
+        itemCount: platforms["gemini"]?.scraped ? platforms["gemini"].itemCount : 0,
+      };
+    }
+
+    // perplexity — API key connected, no project history API
+    if (perplexityKey) {
+      platforms["perplexity"] = {
+        ...platforms["perplexity"],
+        platform: "perplexity",
+        label: "Perplexity",
+        connected: true,
+        lastSyncedAt: now,
+        itemCount: platforms["perplexity"]?.scraped ? platforms["perplexity"].itemCount : 0,
+      };
+    }
+
+    // grok — API key connected, no project history API
+    if (grokKey) {
+      platforms["grok"] = {
+        ...platforms["grok"],
+        platform: "grok",
+        label: "Grok",
+        connected: true,
+        lastSyncedAt: now,
+        itemCount: platforms["grok"]?.scraped ? platforms["grok"].itemCount : 0,
+      };
+    }
+
+    // Platforms that require manual import — mark as disconnected if not already connected
+    const manualPlatforms: Platform[] = ["claude-chat", "claude-cowork", "chatgpt"];
+    for (const p of manualPlatforms) {
+      if (!platforms[p]?.connected) {
+        platforms[p] = {
+          ...platforms[p],
+          platform: p,
+          label: platforms[p]?.label ?? p,
+          connected: false,
+        };
+      }
+    }
+
+    return platforms;
   }
 
-  const data: AIProjectsData = {
-    projects: withRelated,
-    platforms,
-    lastSyncedAt: now,
-  };
+  return updateProjectsStore(username, (current) => {
+    // Overrides from the FRESH copy read under the lock — a hide or rename made
+    // while the fetches ran is kept.
+    const currentById = new Map<string, AIProject>();
+    for (const p of current.projects) currentById.set(p.id, p);
 
-  await writeProjectsStore(username, data);
-  return data;
+    // Merge: preserve categoryOverride, importanceOverride, hidden from the stored copy
+    const merged = freshProjects.map((fresh) => {
+      const prev = currentById.get(fresh.id);
+      if (!prev) return fresh;
+      return {
+        ...fresh,
+        hidden: prev.hidden,
+        categoryOverride: prev.categoryOverride,
+        importanceOverride: prev.importanceOverride,
+      };
+    });
+
+    // Carry over every stored project of a platform this run did not replace —
+    // imported/scraped projects, and platforms whose fetch came back empty.
+    const freshIds = new Set(merged.map((p) => p.id));
+    const carried = current.projects.filter((p) => !replaced.has(p.platform) && !freshIds.has(p.id));
+
+    // Detect related projects
+    const withRelated = detectRelated([...merged, ...carried]);
+
+    return {
+      projects: withRelated,
+      platforms: platformStatuses(current.platforms),
+      lastSyncedAt: now,
+    };
+  });
 }

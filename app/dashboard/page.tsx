@@ -39,6 +39,11 @@ import { WaitingPanel, NextDaysPanel } from "@/components/today/v2/side-panels";
 import { WorkPanel, type ProjectLite } from "@/components/today/v2/work-panel";
 import { ReadOfTheDay } from "@/components/today/v2/read-of-the-day";
 import { ConnectPrompt } from "@/components/today/connect-prompt";
+import { AwayCard } from "@/components/today/away-card";
+import { GetTheApp } from "@/components/pwa/get-the-app";
+import { fellDueWhileAway } from "@/lib/away/fell-due";
+import { shortDay } from "@/lib/away/calendar";
+import { formatDueDay } from "@/lib/dashboard/day";
 
 async function swrFetch(url: string) {
   const r = await fetch(url, { cache: "no-store" });
@@ -66,9 +71,9 @@ function personOf(item: TodayFeedItem | undefined): string | undefined {
 }
 
 export default function Today() {
-  const { data: feed, isLoading: feedLoading, error: feedError } = useSWR<TodayFeedResponse>("/api/today", swrFetch, SWR_OPTS);
+  const { data: feed, isLoading: feedLoading, error: feedError, mutate: refreshFeed } = useSWR<TodayFeedResponse>("/api/today", swrFetch, SWR_OPTS);
   const { data: cal, error: calError } = useSWR<{ connected: boolean; events?: CalendarEvent[] }>("/api/calendar/upcoming", swrFetch, SWR_OPTS);
-  const { data: actions, error: actionsError } = useSWR<{ actions?: ActionItem[] }>("/api/actions", swrFetch, SWR_OPTS);
+  const { data: actions, error: actionsError, mutate: refreshActions } = useSWR<{ actions?: ActionItem[] }>("/api/actions", swrFetch, SWR_OPTS);
   const { data: settings } = useSWR<{ name?: string; timezone?: string; workStart?: string; workEnd?: string }>("/api/settings", swrFetch, SWR_OPTS);
   const { data: briefing } = useSWR<{ criticalToday?: string | null; generatedAt?: string } | null>("/api/generate/briefing?type=morning", swrFetch, SLOW_OPTS);
   const { data: activity } = useSWR<{ activity?: ActivityRow[] }>("/api/contacts/activity", swrFetch, SLOW_OPTS);
@@ -87,7 +92,15 @@ export default function Today() {
   const selfName = settings?.name;
   const firstName = (selfName ?? "").split(" ")[0] || "there";
 
-  const items = useMemo(() => feed?.items ?? [], [feed]);
+  const away = feed?.away;
+  const isAway = away?.state === "away";
+  const allItems = useMemo(() => feed?.items ?? [], [feed]);
+  // While away only what cannot wait reaches "Needs you": messages from the
+  // user's key people and urgent Linear issues. The rest is held for their return.
+  const items = useMemo(() => (isAway
+    ? allItems.filter((i) => (i.kind === "followup" && i.fromKeyContact) || (i.kind === "linear" && i.issue.priority === 1))
+    : allItems), [allItems, isAway]);
+  const heldCount = isAway ? (feed?.total ?? allItems.length) - items.length : 0;
   const board = useMemo(() => buildPriorityBoard(items), [items]);
   const byId = useMemo(() => new Map(items.map((i) => [i.id, i])), [items]);
 
@@ -117,8 +130,9 @@ export default function Today() {
   const promised = useMemo(() => (buckets ? [
     ...buckets.overdue.map((a) => ({ a, due: "Overdue", color: "#8E2A20" })),
     ...buckets.today.map((a) => ({ a, due: "Due today", color: "#8F3F0E" })),
-    ...buckets.next7.map((a) => ({ a, due: a.dueDate ? `Due ${new Date(a.dueDate).toLocaleDateString("en-GB", { weekday: "short", day: "numeric", month: "short" })}` : "This week", color: "#4B5568" })),
-  ].slice(0, 4) : []), [buckets]);
+    // A date-only due date is a calendar day, not UTC midnight (which showed a day early in the Americas).
+    ...buckets.next7.map((a) => ({ a, due: a.dueDate ? `Due ${formatDueDay(a.dueDate, timeZone, { weekday: "short", day: "numeric", month: "short" })}` : "This week", color: "#4B5568" })),
+  ].slice(0, 4) : []), [buckets, timeZone]);
 
   // ── People: the orbit, and who each card is about ─────────────────────────
   const selfLower = (selfName ?? "").toLowerCase();
@@ -159,14 +173,19 @@ export default function Today() {
 
   const [focus, setFocus] = useState<string | null>(null);
 
+  const fellDue = useMemo(() => (away?.state === "back" && away.period ? fellDueWhileAway(all, away.period, away.today, selfNames).length : 0), [away, all, selfNames]);
+
   const readText = useMemo(() => {
+    if (isAway && away?.returnDay) {
+      return `You're away until ${shortDay(away.period?.end ?? away.returnDay)}${away.period?.cover ? ` and ${away.period.cover} is covering` : ""}. Basil is holding everything that can wait; only messages from your key people break through.`;
+    }
     const prose = (briefing?.criticalToday ?? "").replace(/[#*_>`]/g, "").replace(/^\s*[-•]\s*/gm, "").replace(/\s+/g, " ").trim();
     if (prose.length > 40) {
       const sentences = prose.match(/[^.!?]+[.!?]+/g) ?? [prose];
       return sentences.slice(0, 3).join(" ").trim();
     }
     return [read.shape, read.risk].filter(Boolean).join(" ");
-  }, [briefing, read]);
+  }, [briefing, read, isAway, away]);
 
   const needsCount = board.top.length;
   const dateLine = now
@@ -183,6 +202,15 @@ export default function Today() {
       <div className="relative mx-auto flex w-full max-w-[78rem] flex-col gap-7 px-4 py-6 sm:px-8 sm:py-10">
 
         <ConnectPrompt />
+        <GetTheApp />
+
+        {away && (
+          <AwayCard
+            away={away}
+            fellDue={fellDue}
+            onChanged={() => { void refreshFeed(); void refreshActions(); }}
+          />
+        )}
 
         {/* 1 — The read, beside your orbit */}
         <div className="flex flex-wrap items-stretch gap-7">
@@ -192,11 +220,15 @@ export default function Today() {
             dateLine={dateLine}
             timeZone={timeZone}
             text={readText}
-            fromBriefing={!!briefing?.criticalToday}
+            fromBriefing={!isAway && !!briefing?.criticalToday}
             people={orbitPeople.map((p) => p.name)}
             focus={focus}
             onFocus={setFocus}
-            stats={[
+            stats={isAway ? [
+              { value: "Away", label: away?.returnDay ? `back ${shortDay(away.returnDay)}` : "today" },
+              { value: String(Math.max(0, heldCount)), label: "held for your return" },
+              { value: feedError ? "—" : String(needsCount), label: "can't wait", dark: true },
+            ] : [
               { value: calConnected ? String(meetingCount) : "—", label: calConnected ? `meeting${meetingCount === 1 ? "" : "s"}${declinedCount ? ` (${declinedCount} declined)` : ""}` : "calendar not connected" },
               { value: calConnected ? `${Math.floor(freeHours)}${freeHours % 1 >= 0.5 ? "½" : ""}` : "—", unit: " h", label: "free to think, from now" },
               { value: feedError ? "—" : String(needsCount), label: needsCount === 1 ? "thing needs you" : "things need you", dark: true },
@@ -218,7 +250,9 @@ export default function Today() {
               <span className="inline-flex items-center gap-1.5"><span className="h-2.5 w-3.5 rounded-[3px] border-[1.5px] border-dashed border-[#8A8F99]" />Declined</span>
             </span>
           </div>
-          {now && (
+          {isAway ? (
+            <p className="text-[15px] text-[color:var(--w-ink-soft)]">Away today. Nothing to attend.</p>
+          ) : now && (
             <DayRibbon events={events} now={clock} timeZone={timeZone} connected={calConnected} workStart={settings?.workStart} workEnd={settings?.workEnd} />
           )}
         </section>
@@ -234,6 +268,8 @@ export default function Today() {
               <p className="rounded-2xl border border-[var(--w-rule)] bg-[var(--w-flimsy)] p-5 text-[15px] text-[color:var(--w-stamp)]">Your priorities could not be read just now. <button type="button" className="underline" onClick={() => location.reload()}>Try again</button></p>
             ) : feedLoading ? (
               <p className="rounded-2xl border border-[var(--w-rule)] bg-[var(--w-flimsy)] p-5 text-[15px] text-[color:var(--w-ink-soft)]">Reading your priorities…</p>
+            ) : board.top.length === 0 && isAway ? (
+              <p className="rounded-2xl border border-[var(--w-rule)] bg-[var(--w-flimsy)] p-5 text-[15px] text-[color:var(--w-ink-soft)]">Nothing that can’t wait. {heldCount > 0 ? `${heldCount} other ${heldCount === 1 ? "item is" : "items are"} held for your return.` : ""}</p>
             ) : board.top.length === 0 ? (
               <p className="rounded-2xl border border-[var(--w-rule)] bg-[var(--w-flimsy)] p-5 text-[15px] text-[color:var(--w-ink-soft)]">Nothing needs a decision right now. {emptyBoardMessage(missing, degraded)}</p>
             ) : (
@@ -267,6 +303,8 @@ export default function Today() {
               </div>
               {actionsError ? (
                 <p className="text-[14px] text-[color:var(--w-stamp)]">Commitments could not be read.</p>
+              ) : isAway ? (
+                <p className="text-[14px] text-[color:var(--w-ink-soft)]">Held until you’re back. Nothing you promised turns overdue while you are away.</p>
               ) : promised.length === 0 ? (
                 <p className="text-[14px] text-[color:var(--w-ink-soft)]">Nothing due this week.</p>
               ) : promised.map(({ a, due, color }) => (

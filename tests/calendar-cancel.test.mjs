@@ -34,6 +34,7 @@ function loadCalendar(event, { emailFails = false } = {}) {
     "./auth": { getAuthedClient: async () => ({}) },
     "@/lib/self-identity": { getSelfIdentity: async () => ({ emails: [], names: [] }), stripSelf: (x) => x },
     "./gmail": { sendEmail: async (...a) => { if (emailFails) throw new Error("gmail down"); sent.push(a); return { id: "m1" }; } },
+    "@/lib/away/calendar": loadTs("lib/away/calendar.ts"),
   });
   return { C, calls: g.calls, sent };
 }

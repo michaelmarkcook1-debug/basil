@@ -3,6 +3,7 @@ import { getZoomAuthUrl, disconnectZoom } from "@/lib/zoom/auth";
 import { getSessionUser } from "@/lib/auth";
 import { forceFlushSnapshot } from "@/lib/storage/persistent";
 import { buildOAuthState } from "@/lib/auth/oauth-state";
+import { safeReturnPath } from "@/lib/auth/safe-return-path";
 
 // GET /api/auth/zoom — redirects to Zoom OAuth consent screen
 export async function GET(req: Request) {
@@ -16,7 +17,8 @@ export async function GET(req: Request) {
     return NextResponse.redirect(loginUrl);
   }
 
-  const from = new URL(req.url).searchParams.get("from") ?? "";
+  // Only an on-site path is kept (the callback checks again on the way out).
+  const from = safeReturnPath(new URL(req.url).searchParams.get("from")) ?? "";
   const st = buildOAuthState("zoom");
   const url = `${getZoomAuthUrl()}&state=${encodeURIComponent(st.state)}`;
 

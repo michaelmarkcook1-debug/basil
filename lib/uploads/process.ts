@@ -133,11 +133,15 @@ export async function processUpload(username: string, id: string): Promise<void>
       source: "upload", externalId: ref, title: rec.title,
       body: `${label} uploaded${rec.people.length ? ` · with ${rec.people.join(", ")}` : ""}`, date: rec.occurredAt,
     }));
-    await processZoomEmail({
+    const outcome = await processZoomEmail({
       username, gmailId: "", externalId: ref, eventId: event.id, subject: rec.title,
       dateFallback: rec.occurredAt, body: `${header}\n${body}`, ensureAttendees: rec.people,
       notesOnly: !rec.extractActions, label,
     });
+    // A failed AI step is a failed upload, not "nothing clear enough to file".
+    if (outcome?.extractionFailed) {
+      throw new Error("The text was read, but pulling out notes failed (the AI step did not answer). Try again shortly.");
+    }
 
     const r = await results(username, ref);
     await patchUpload(username, id, {

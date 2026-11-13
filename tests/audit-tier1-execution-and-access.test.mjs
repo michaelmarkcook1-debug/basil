@@ -145,6 +145,8 @@ test("#3 admin disable and delete both revoke the Siri token", async () => {
     },
     "@/lib/storage/persistent": { purgeUserData: async () => ({ deleted: 0 }) },
     "@/lib/auth/siri-tokens": { revokeSiriToken: async (u) => { revoked.push(u); } },
+    "@/lib/auth/revoke-integrations": { revokeIntegrationTokens: async () => ({ google: "none", slack: "none" }) },
+    "@/lib/billing/entitlement-store": { activatePlan: async () => {}, cancelPlan: async () => {} },
   });
   const params = { params: Promise.resolve({ id: "u1" }) };
   const disable = await route.PATCH({ json: async () => ({ action: "disable" }) }, params);
@@ -165,6 +167,7 @@ test("#3 self-service account deletion revokes the Siri token", async () => {
     "@/lib/users": { deleteUser: async () => {}, isAdminUser: () => false, findByUsername: async () => null },
     "@/lib/storage/persistent": { forceFlushSnapshot: async () => {}, purgeUserData: async () => ({ deleted: 0 }) },
     "@/lib/auth/siri-tokens": { revokeSiriToken: async (u) => { revoked.push(u); } },
+    "@/lib/auth/revoke-integrations": { revokeIntegrationTokens: async () => ({ google: "none", slack: "none" }) },
   });
   const res = await route.DELETE();
   assert.equal(res.status, 200);

@@ -9,7 +9,7 @@
  * it leaves your calendar. The dialog names exactly who will hear before you
  * confirm, and telling them can be switched off.
  */
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Loader2, Trash2 } from "lucide-react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
 import { Textarea } from "@/components/ui/textarea";
@@ -35,6 +35,14 @@ export function CancelMeetingDialog({
   const [note, setNote] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  // The dialog is hidden, not unmounted, so a note typed for one meeting and
+  // abandoned was prefilled — and emailed — when cancelling the next. Start
+  // clean whenever it opens, closes or is pointed at another meeting.
+  const eventId = event?.id;
+  useEffect(() => {
+    setNote(""); setNotify(true); setError(null);
+  }, [open, eventId]);
 
   if (!event) return null;
   const copy = cancelCopy(event);

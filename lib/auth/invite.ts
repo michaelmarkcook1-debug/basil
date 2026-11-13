@@ -18,6 +18,7 @@ import { randomBytes } from "node:crypto";
 import { createUser, findByEmail, getUsers, type User } from "@/lib/users";
 import { createResetToken } from "@/lib/auth/reset-tokens";
 import { sendEmail } from "@/lib/email/send";
+import { activatePlan } from "@/lib/billing/entitlement-store";
 
 export const INVITE_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 
@@ -31,13 +32,23 @@ export function usernameFor(email: string, taken: readonly string[]): string {
 
 const esc = (s: string) => s.replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]!));
 
+/** Where the app is installed from: the invite link's own site, /install. */
+export function installUrlFor(link: string): string {
+  try {
+    return `${new URL(link).origin}/install`;
+  } catch {
+    return "/install";
+  }
+}
+
 /** The invite email — plain words, one button, what happens next. Exported for tests. */
 export function inviteEmail(opts: { firstName: string; inviter: string; link: string }): { subject: string; text: string; html: string } {
   const subject = `${opts.inviter} has set you up on Basil`;
   const steps = [
     "Click the button and choose a password.",
     "Sign in to Google when asked — that lets Basil read your email, calendar and documents. Then Slack, and Zoom if you use it.",
-    "That's it. Basil starts working through your week straight away; your morning briefing arrives tomorrow.",
+    "That's it. Basil starts working through your week straight away; your morning briefing arrives the next working day.",
+    `Put Basil on your phone and computer: open ${installUrlFor(opts.link)} and follow the steps for your device.`,
   ];
   const text = `Hi ${opts.firstName},
 
@@ -60,7 +71,7 @@ The link works once and expires in 7 days. Only you can see your Basil — your 
   return { subject, text, html };
 }
 
-export interface InviteResult { user: Pick<User, "username" | "email" | "name" | "surname">; link: string; emailed: boolean; emailError?: string }
+export interface InviteResult { user: Pick<User, "username" | "email" | "name" | "surname">; link: string; emailed: boolean; emailError?: string; planError?: string }
 
 export async function inviteUser(opts: { name: string; surname?: string; email: string; inviter: string; baseUrl: string }): Promise<InviteResult> {
   const email = opts.email.trim().toLowerCase();
@@ -72,10 +83,20 @@ export async function inviteUser(opts: { name: string; surname?: string; email: 
     password: randomBytes(32).toString("hex"),
     onboardingCompleted: false,
   });
+  // The email promises a morning briefing, and briefings are a Pro feature —
+  // on Free the 06:15 cron skipped every invited colleague. There is no payment
+  // system; the admin bounds each person's AI cost with their daily limit.
+  let planError: string | undefined;
+  try {
+    await activatePlan(user.username, "pro", { provider: "stub" });
+  } catch (err) {
+    planError = err instanceof Error ? err.message : String(err);
+    console.error(`[invite] could not put ${user.username} on Pro (set it in /admin): ${planError}`);
+  }
   const token = await createResetToken(user.username, user.email, INVITE_TTL_MS);
   const link = `${opts.baseUrl.replace(/\/$/, "")}/reset-password?token=${token}&welcome=1`;
   const mail = inviteEmail({ firstName: user.name || "there", inviter: opts.inviter, link });
   const sent = await sendEmail({ to: email, ...mail });
   if (!sent.ok) console.warn(`[invite] email to ${email} not sent: ${sent.error}`);
-  return { user: { username: user.username, email: user.email, name: user.name, surname: user.surname }, link, emailed: sent.ok, emailError: sent.ok ? undefined : sent.error };
+  return { user: { username: user.username, email: user.email, name: user.name, surname: user.surname }, link, emailed: sent.ok, emailError: sent.ok ? undefined : sent.error, ...(planError ? { planError } : {}) };
 }

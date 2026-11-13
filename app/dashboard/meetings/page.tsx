@@ -15,6 +15,7 @@
  *
  */
 
+import { isAbsenceEvent } from "@/lib/away/calendar";
 import { preparationReasons, localDate } from "@/lib/today/executive";
 import { RsvpControls, type Rsvp } from "@/components/calendar/rsvp-controls";
 import { meetingState, statePill, type MeetingState, type PillTone } from "@/lib/calendar/meeting-state";
@@ -55,6 +56,8 @@ interface CalEvent {
   /** Everyone else's answers (lib/google/calendar.ts guestTally). */
   guests?: { total: number; accepted: number; tentative: number; declined: number; waiting: number };
   recurring?: boolean;
+  /** Google's event type; "outOfOffice" is time off, not a meeting. */
+  eventType?: string;
 }
 
 /** The meeting has already ended — nothing left to answer. */
@@ -73,6 +76,7 @@ function isPast(end: string): boolean {
  * destination was a dead end.
  */
 function isPrepWorthy(event: CalEvent): boolean {
+  if (isAbsenceEvent(event)) return false;
   return Boolean(event.hasVideo)
     || (event.attendees?.length ?? 0) > 0
     || (event.attendeeCount ?? 0) > 1;
@@ -592,6 +596,8 @@ function CalendarMeetingPicker({ events }: { events: CalEvent[] }) {
 function ManualPrepForm({ onSaved }: { onSaved: (prep: ManualPrep) => void }) {
   const [open, setOpen] = useState(false);
   const [saving, setSaving] = useState(false);
+  // A failed save used to be dropped silently (no else branch, no catch).
+  const [saveError, setSaveError] = useState<string | null>(null);
   const [form, setForm] = useState({
     title: "",
     datetime: "",
@@ -602,7 +608,9 @@ function ManualPrepForm({ onSaved }: { onSaved: (prep: ManualPrep) => void }) {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (saving) return;
     setSaving(true);
+    setSaveError(null);
     try {
       const res = await fetch("/api/ledger", {
         method: "POST",
@@ -626,7 +634,11 @@ function ManualPrepForm({ onSaved }: { onSaved: (prep: ManualPrep) => void }) {
         });
         setForm({ title: "", datetime: "", attendees: "", context: "", outcome: "" });
         setOpen(false);
+      } else {
+        setSaveError("That was not saved. Try again.");
       }
+    } catch {
+      setSaveError("That was not saved. Try again.");
     } finally {
       setSaving(false);
     }
@@ -709,6 +721,9 @@ function ManualPrepForm({ onSaved }: { onSaved: (prep: ManualPrep) => void }) {
                 className={FIELD}
               />
             </div>
+            {saveError && (
+              <p role="alert" className="text-[14px] text-[color:var(--w-stamp)]">{saveError}</p>
+            )}
             <div className="flex flex-wrap gap-2 pt-1">
               <button type="submit" disabled={saving} className={BTN_PRIMARY}>
                 {saving ? "Saving…" : "Save note"}
@@ -852,11 +867,15 @@ export default function MeetingsPage() {
   const [manualPreps, setManualPreps] = useState<ManualPrep[]>([]);
   const [pastMeetings, setPastMeetings] = useState<PastMeetingMemory[]>([]);
   const [pastLoading, setPastLoading] = useState(true);
+  // A failed past-meetings load used to read as "No past meeting intelligence yet".
+  const [pastError, setPastError] = useState(false);
   const [error, setError] = useState<Error | null>(null);
 
   const load = useCallback(() => {
     setLoading(true);
     setError(null);
+    setPastError(false);
+    setPastLoading(true);
     fetch("/api/calendar/upcoming")
       .then((r) => { if (!r.ok) throw new Error(`calendar ${r.status}`); return r.json(); })
       .then((d) => {
@@ -869,12 +888,12 @@ export default function MeetingsPage() {
       .catch((e: unknown) => { setError(e instanceof Error ? e : new Error("Failed to load calendar")); setLoading(false); });
 
     fetch("/api/memory/recent-meetings")
-      .then((r) => r.json())
+      .then((r) => { if (!r.ok) throw new Error(`recent-meetings ${r.status}`); return r.json(); })
       .then((d) => {
         setPastMeetings(d.memories || []);
         setPastLoading(false);
       })
-      .catch(() => setPastLoading(false));
+      .catch(() => { setPastError(true); setPastLoading(false); });
   }, []);
 
   useEffect(() => { load(); }, [load]);
@@ -1013,6 +1032,14 @@ export default function MeetingsPage() {
                     <Skeleton className="mt-1 h-3 w-3/4" />
                   </div>
                 ))}
+              </div>
+            ) : pastError && pastMeetings.length === 0 ? (
+              <div role="alert" className={`basil-rise ${CARD} flex flex-col items-center gap-3 px-5 py-12 text-center`}>
+                <AlertTriangle className="h-9 w-9 text-[color:var(--w-stamp)]" aria-hidden />
+                <p className="text-[15px] text-[color:var(--w-ink)]">Past meetings did not load. Try again.</p>
+                <button type="button" onClick={load} className={BTN_SECONDARY}>
+                  Retry
+                </button>
               </div>
             ) : pastMeetings.length === 0 ? (
               <div className={`basil-rise ${CARD} flex flex-col items-center gap-2 px-5 py-12 text-center`}>
@@ -1172,6 +1199,11 @@ export default function MeetingsPage() {
                         <div className="flex min-w-0 flex-[1_1_220px] flex-col gap-2">
                           <div className="flex flex-wrap items-center gap-2">
                             <h3 className="text-[16px] font-semibold leading-snug text-[color:var(--w-ink)]" style={{ textDecoration: state === "declined" ? "line-through" : "none" }}>{event.summary}</h3>
+                            {isAbsenceEvent(event) && (
+                              <span className={`inline-flex min-h-[24px] items-center rounded-full px-2.5 text-[12px] font-semibold ${PILL_TONE.declined}`}>
+                                Time off
+                              </span>
+                            )}
                             {pill && (
                               <span className={`inline-flex min-h-[24px] items-center rounded-full px-2.5 text-[12px] font-semibold ${PILL_TONE[pill.tone]}`}>
                                 {pill.text}
@@ -1214,7 +1246,9 @@ export default function MeetingsPage() {
                     // Answer the invitation right here. Kept OUTSIDE the prep link
                     // so a click on Yes/No never opens the cheatsheet instead.
                     const upcoming = !isPast(event.end);
-                    const cancel = upcoming && state !== "declined" ? (
+                    // An out-of-office block is time off: no Prep, and not
+                    // "Cancel meeting" (it showed both until 2026-11-10).
+                    const cancel = upcoming && state !== "declined" && !isAbsenceEvent(event) ? (
                       <button
                         type="button"
                         onClick={() => setCancelling(event)}

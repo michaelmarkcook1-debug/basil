@@ -43,6 +43,7 @@ const BOOK = [
 
 function systemPromptModule({ memoryCalls = [] } = {}) {
   return loadTs("lib/ai/system-prompt.ts", {
+    "@/lib/ai/injection-guard": loadTs("lib/ai/injection-guard.ts"),
     "@/lib/contacts/user-store": { listUserContacts: async () => BOOK },
     "@/lib/memory/store": {
       memoriesForPrompt: async (_u, focus, max) => {
@@ -232,6 +233,7 @@ test("each tool-loop step caches up to its newest message", () => {
 test("chat route: cached system block, turn context on the last message, step caching, cache-aware commit", async () => {
   let args = null; const commits = [];
   const route = loadTs("app/api/chat/route.ts", {
+    "@/lib/ai/injection-guard": loadTs("lib/ai/injection-guard.ts"),
     ai: { ...ai, streamText: (a) => { args = a; return { toUIMessageStreamResponse: () => new Response("ok"), consumeStream: async () => {} }; } },
     "@/lib/ai/model-config": { getChatModel: () => "mock-model", MAX_TOKENS: { default: 1 }, PROVIDER_MODE: "anthropic_direct" },
     "@/lib/ai/system-prompt": systemPromptModule(),

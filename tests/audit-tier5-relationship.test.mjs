@@ -98,11 +98,16 @@ test("ledger: months bucket approvals, denials, runs and edits — the Month 1 v
 function toolsModule() {
   const noop = new Proxy({}, { get: () => async () => ({}) });
   return loadTs("lib/ai/tools.ts", {
+    "@/lib/ai/injection-guard": loadTs("lib/ai/injection-guard.ts"),
+    // lib/away: no working calendar here — the code falls back to its every-day behaviour.
+    "@/lib/away/store": { getWorkCalendar: async () => { throw new Error("no working calendar in this test"); }, declareAway: async () => ({}), endDeclaredAway: async () => 0, invalidateCalendarAbsences: async () => {} },
+    "@/lib/away/calendar": loadTs("lib/away/calendar.ts"),
     "@/lib/glossary/store": { upsertTerm: async (_u, t) => ({ ...t, id: "g1" }) },
     ai, zod: require("zod"),
     "@/lib/security/sensitive": loadTs("lib/security/sensitive.ts"),
     "@/lib/web/search": noop, "@/lib/google/auth": { isGoogleConnected: async () => true },
     "@/lib/google/calendar": noop, "@/lib/google/out-of-office": noop, "@/lib/google/gmail": noop, "@/lib/google/drive": noop, "@/lib/slack/client": noop,
+    "@/lib/calendar/unified": noop, "@/lib/calendar/writes": noop, "@/lib/microsoft/mail-provider": noop, "@/lib/microsoft/outlook-mail": noop,
     "@/lib/memory/store": noop, "@/lib/actions/store": noop, "@/lib/decisions/store": noop,
     "@/lib/events/audit": { emitAuditEvent: async () => {} }, "@/lib/linear/sync-actions": noop, "@/lib/linear/client": noop,
     "@/lib/contacts-lookup": { findContactByName: () => undefined, timezoneFromLocation: () => undefined }, "@/lib/contacts/user-store": noop, "@/lib/uploads/store": noop, "@/lib/uploads/search": noop,
@@ -113,14 +118,17 @@ function toolsModule() {
 test("tools: every approval tool accepts why + confidence, and a delegated tool stops asking", () => {
   const T = toolsModule();
   const asking = T.buildAssistantTools("u", "Fixture", "Europe/London");
-  const delegated = T.buildAssistantTools("u", "Fixture", "Europe/London", { delegated: new Set(["addAction"]) });
-  const approvalTools = Object.entries(asking).filter(([, t]) => t.needsApproval === true).map(([n]) => n);
+  const clean = { tainted: false, userUrls: new Set() };
+  const delegated = T.buildAssistantTools("u", "Fixture", "Europe/London", { delegated: new Set(["addAction"]), trust: clean });
+  const approvalTools = Object.entries(asking).filter(([, t]) => t.needsApproval === true || typeof t.needsApproval === "function").map(([n]) => n);
   assert.ok(approvalTools.length >= 10, `found ${approvalTools}`);
   for (const name of approvalTools) {
     const parsed = asking[name].inputSchema.safeParse({ ...minimalInput(asking[name].inputSchema), why: "Because you asked.", confidence: 0.8 });
     assert.equal(parsed.success, true, `${name}: ${JSON.stringify(parsed.error?.issues?.slice(0, 2))}`);
   }
-  assert.equal(delegated.addAction.needsApproval, false, "delegated: no approval");
+  assert.equal(delegated.addAction.needsApproval(), false, "delegated, and nothing written by others read this turn: no approval");
+  clean.tainted = true; // the turn read an email (lib/ai/injection-guard.ts, 2026-11-10)
+  assert.equal(delegated.addAction.needsApproval(), true, "a delegated tool asks again once outside content is in the turn");
   assert.equal(delegated.draftEmail.needsApproval, true, "everything else still asks");
 });
 /**
@@ -131,7 +139,7 @@ function minimalInput(schema) {
   const out = {};
   for (const [key, field] of Object.entries(schema.shape ?? {})) {
     if (field.safeParse(undefined).success) continue; // optional / defaulted
-    const candidates = ["x", "2026-09-26", "09:00", 1, true, ["x"], ...(field.options ?? []), ...Object.values(field.enum ?? {})];
+    const candidates = ["x", "2026-09-26", "09:00", "https://example.com/", 1, true, ["x"], ...(field.options ?? []), ...Object.values(field.enum ?? {})];
     const hit = candidates.find((c) => field.safeParse(c).success);
     if (hit === undefined) throw new Error(`no minimal value for ${key}`);
     out[key] = hit;
@@ -304,6 +312,7 @@ test("mode API: the state round-trips and an unknown mode is refused", async () 
 test("chat route: decisions are harvested, delegations reach the tools, the turn steers memory", async () => {
   const calls = { harvested: 0, delegatedSeen: null, focus: null };
   const route = loadTs("app/api/chat/route.ts", {
+    "@/lib/ai/injection-guard": loadTs("lib/ai/injection-guard.ts"),
     ai: { ...ai, streamText: () => ({ toUIMessageStreamResponse: () => new Response("ok"), consumeStream: async () => {} }) },
     "@/lib/ai/model-config": { getChatModel: () => "mock-model", MAX_TOKENS: { default: 1 }, PROVIDER_MODE: "openai_direct" },
     "@/lib/ai/system-prompt": { getChatPromptParts: async (_u, _tz, focus) => { calls.focus = focus; return { instructions: "sys", turnContext: "ctx" }; } },

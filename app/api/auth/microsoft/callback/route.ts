@@ -11,13 +11,12 @@ export async function GET(req: Request) {
   const { searchParams, origin } = reqUrl;
   const code = searchParams.get("code");
 
-  if (!code) {
-    const error = searchParams.get("error_description") ?? searchParams.get("error") ?? "no_code";
-    console.error("[microsoft-callback] Missing code, error:", error);
-    return NextResponse.redirect(new URL("/dashboard/settings?error=no_code", req.url));
-  }
+  const from = req.headers.get("cookie")?.match(/basil_auth_from=([^;]+)/)?.[1] ?? "";
+  const successDest = from === "onboarding" ? "/onboarding?connected=microsoft" : "/dashboard/settings?connected=microsoft";
+  const errorDest   = from === "onboarding" ? "/onboarding?error=microsoft_auth" : "/dashboard/settings?error=microsoft_auth";
 
-  // Detect admin-consent-required error from Azure before attempting token exchange.
+  // Azure's errors arrive WITHOUT a code, so they are checked before the
+  // no-code return — which used to swallow them all as "no_code".
   const oauthError = searchParams.get("error");
   const oauthErrorDesc = searchParams.get("error_description") ?? "";
   if (oauthError === "access_denied" && oauthErrorDesc.toLowerCase().includes("admin")) {
@@ -26,10 +25,21 @@ export async function GET(req: Request) {
       new URL("/dashboard/settings?error=microsoft_admin_consent", req.url)
     );
   }
+  if (oauthError) {
+    console.error("[microsoft-callback] Microsoft returned error:", oauthError, oauthErrorDesc);
+    // Onboarding keys its step off "microsoft_auth", so only Settings gets the specific code.
+    const dest = oauthError === "access_denied" && from !== "onboarding"
+      ? errorDest.replace("microsoft_auth", "microsoft_access_denied")
+      : errorDest;
+    const res = NextResponse.redirect(new URL(dest, req.url));
+    res.cookies.set("basil_auth_from", "", { path: "/", maxAge: 0 });
+    return res;
+  }
 
-  const from = req.headers.get("cookie")?.match(/basil_auth_from=([^;]+)/)?.[1] ?? "";
-  const successDest = from === "onboarding" ? "/onboarding?connected=microsoft" : "/dashboard/settings?connected=microsoft";
-  const errorDest   = from === "onboarding" ? "/onboarding?error=microsoft_auth" : "/dashboard/settings?error=microsoft_auth";
+  if (!code) {
+    console.error("[microsoft-callback] Missing code");
+    return NextResponse.redirect(new URL("/dashboard/settings?error=no_code", req.url));
+  }
 
   // CSRF state guard — the echoed state must match the cookie set at initiation.
   if (!verifyOAuthState("microsoft", req, searchParams.get("state"))) {

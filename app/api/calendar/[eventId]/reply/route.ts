@@ -3,6 +3,7 @@ import { isGoogleConnected, getAuthedClient } from "@/lib/google/auth";
 import { getSessionUser } from "@/lib/auth";
 import { google } from "googleapis";
 import { emitAuditEvent } from "@/lib/events/audit";
+import { sendEmail } from "@/lib/google/gmail";
 
 /**
  * POST /api/calendar/[eventId]/reply
@@ -60,13 +61,12 @@ export async function POST(
     const subject = `Re: ${ev.summary || "Meeting"}`;
     const toHeader = recipients.join(", ");
 
-    // Build and send raw MIME message via Gmail API
-    const gmail = google.gmail({ version: "v1", auth });
-    const raw = Buffer.from(
-      `To: ${toHeader}\r\nSubject: ${subject}\r\nContent-Type: text/plain; charset=utf-8\r\n\r\n${message}`
-    ).toString("base64url");
-
-    await gmail.users.messages.send({ userId: "me", requestBody: { raw } });
+    // Sent through the shared Gmail builder, not hand-built MIME: it strips
+    // CR/LF from header values (the subject is the invite title, which anyone
+    // who invites you controls — a newline in it injected extra headers),
+    // RFC 2047-encodes a non-ASCII subject (it arrived garbled), and adds
+    // MIME-Version and the transfer encoding.
+    await sendEmail(username, toHeader, subject, message);
 
     await emitAuditEvent({
       username,

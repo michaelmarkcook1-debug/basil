@@ -60,7 +60,7 @@ test("deleting a connection removes it, Basil's notes on them, and keeps them ou
   const contacts = [{ id: "c1", name: "Jane Doe", email: "jane@example.invalid" }, { id: "c2", name: "Omar Haddad" }];
   let invalidated = 0;
   const S = loadTs("lib/contacts/suppressions.ts", { "@/lib/storage/user-store": st.mocks });
-  const overrides = loadTs("lib/contacts/overrides-store.ts", { "@/lib/storage/user-store": st.mocks, "@/lib/events/lock": makeLock() });
+  const overrides = loadTs("lib/contacts/overrides-store.ts", { "@/lib/privacy/store": { getPrivacyOrClosed: async () => ({ profiling: true, optedOut: {} }) }, "@/lib/privacy/rules": loadTs("lib/privacy/rules.ts"), "@/lib/storage/user-store": st.mocks, "@/lib/events/lock": makeLock() });
   const route = loadTs("app/api/contacts/user/[id]/route.ts", {
     "next/server": nextServer, zod: require("zod"),
     "@/lib/auth": { getSessionUser: async () => "u" },

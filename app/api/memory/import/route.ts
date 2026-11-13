@@ -8,6 +8,18 @@
  *
  * Body: { text: string }
  * Returns: { imported: number; memories: Memory[] }
+ *   plus, when only part of the text could be read:
+ *   { partial: true, failedChunks, unreadChunks, totalChunks, warning }
+ *
+ * Failures are not "nothing found" (2026-11-10 bug pass, B3): every chunk error
+ * used to come back as [], so a spend cap or a provider outage answered
+ * "0 imported" as if the document held nothing about the user. Now:
+ *   - the spend cap before anything was extracted → 429 (spendCapResponse);
+ *   - every chunk failed, nothing extracted       → 502 with an error;
+ *   - some chunks failed or were not reached       → what was extracted is
+ *     saved and the reply says partial: true.
+ * Chunking also stops at a time budget inside maxDuration, so a very large
+ * paste saves what it has instead of being killed at 300s with nothing saved.
  */
 
 export const maxDuration = 300;
@@ -15,6 +27,7 @@ export const maxDuration = 300;
 import { NextResponse } from "next/server";
 import { getTextModel, MAX_TOKENS, PROVIDER_MODE } from "@/lib/ai/model-config";
 import { generateTextSafe } from "@/lib/ai/generate";
+import { SpendCapError, spendCapResponse } from "@/lib/ai/spend-guard";
 import { parseAndValidate } from "@/lib/ai/parse-json";
 import { MemoryImportArraySchema } from "@/lib/ai/schemas";
 import { getSessionUser } from "@/lib/auth";
@@ -166,15 +179,27 @@ function isCompetitiveIntelligence(content: string): boolean {
 }
 
 /**
- * Call the LLM on a single chunk and return extracted memories.
- * Returns [] on any failure (errors are logged, not propagated).
+ * Time budget for the chunk loop: 240s of the 300s maxDuration, leaving room to
+ * save what was extracted and flush. A chunk that is still running when the
+ * budget runs out is aborted; chunks not started are reported as unread.
  */
-async function extractChunk(username: string, chunk: string, chunkIndex: number, totalChunks: number): Promise<ExtractedMemory[]> {
+const CHUNK_BUDGET_MS = 240_000;
+
+/** A chunk's outcome: its memories (possibly none), or a failure — never confused. */
+type ChunkResult = { ok: true; items: ExtractedMemory[] } | { ok: false };
+
+/**
+ * Call the LLM on a single chunk and return extracted memories.
+ * A provider error or an unparseable answer is `{ ok: false }` (logged), not an
+ * empty list. SpendCapError is rethrown: the caller decides what to save.
+ */
+async function extractChunk(username: string, chunk: string, chunkIndex: number, totalChunks: number, abortSignal: AbortSignal): Promise<ChunkResult> {
   try {
     const result = await generateTextSafe({
       model: getTextModel(),
       maxOutputTokens: MAX_TOKENS.default,
       messages: [{ role: "user", content: buildPrompt(chunk, chunkIndex, totalChunks) }],
+      abortSignal,
       ...(PROVIDER_MODE === "vercel_gateway" && {
         providerOptions: {
           gateway: { tags: ["feature:memory-import"] },
@@ -185,12 +210,13 @@ async function extractChunk(username: string, chunk: string, chunkIndex: number,
     const parseResult = parseAndValidate(result.text, MemoryImportArraySchema, "[memory/import]");
     if (!parseResult.ok) {
       console.error(`[memory/import] Chunk ${chunkIndex + 1}/${totalChunks} validation failed:`, parseResult.error);
-      return [];
+      return { ok: false };
     }
-    return parseResult.data;
+    return { ok: true, items: parseResult.data };
   } catch (err) {
+    if (err instanceof SpendCapError) throw err;
     console.error(`[memory/import] Chunk ${chunkIndex + 1}/${totalChunks} extraction error:`, err);
-    return [];
+    return { ok: false };
   }
 }
 
@@ -223,6 +249,7 @@ function deduplicateMemories(items: ExtractedMemory[]): ExtractedMemory[] {
 const MAX_BODY_BYTES = 500_000;
 
 export async function POST(req: Request) {
+  const startedAt = Date.now();
   const username = await getSessionUser();
   if (!username) return NextResponse.json({ error: "Unauthorised" }, { status: 401 });
 
@@ -261,14 +288,56 @@ export async function POST(req: Request) {
   console.log(`[memory/import] Processing ${trimmed.length} chars in ${chunks.length} chunk(s)`);
 
   // ── Extract from each chunk ─────────────────────────────────────────────────
-  // Process chunks sequentially to avoid hammering the gateway
+  // Process chunks sequentially to avoid hammering the gateway. Stops at the
+  // time budget or the spend cap, keeping what earlier chunks extracted.
+  const deadline = startedAt + CHUNK_BUDGET_MS;
   const allExtracted: ExtractedMemory[] = [];
+  let attempted = 0, failedChunks = 0;
+  let spendCap: SpendCapError | null = null;
   for (let i = 0; i < chunks.length; i++) {
-    const results = await extractChunk(username, chunks[i], i, chunks.length);
-    allExtracted.push(...results);
+    const remaining = deadline - Date.now();
+    if (remaining <= 0) {
+      console.warn(`[memory/import] time budget spent after ${i}/${chunks.length} chunk(s) — saving what was extracted`);
+      break;
+    }
+    let result: ChunkResult;
+    try {
+      result = await extractChunk(username, chunks[i], i, chunks.length, AbortSignal.timeout(remaining));
+    } catch (err) {
+      if (!(err instanceof SpendCapError)) throw err;
+      console.warn(`[memory/import] AI budget reached (${err.scope}) at chunk ${i + 1}/${chunks.length}`);
+      spendCap = err;
+      break;
+    }
+    attempted++;
+    if (result.ok) allExtracted.push(...result.items);
+    else failedChunks++;
   }
+  const unreadChunks = chunks.length - attempted;
+  const incomplete = failedChunks > 0 || unreadChunks > 0;
+  const partial = incomplete
+    ? {
+        partial: true as const,
+        failedChunks,
+        unreadChunks,
+        totalChunks: chunks.length,
+        warning:
+          `Read ${attempted - failedChunks} of ${chunks.length} part(s) of the text` +
+          (failedChunks ? `; ${failedChunks} failed` : "") +
+          (unreadChunks ? `; ${unreadChunks} not reached${spendCap ? " (AI budget reached)" : " (time limit)"}` : "") +
+          ". Import the rest again to pick up what was missed.",
+      }
+    : {};
 
   if (allExtracted.length === 0) {
+    // Nothing extracted is only "nothing about you" when every chunk was read.
+    if (spendCap) return spendCapResponse(spendCap);
+    if (incomplete) {
+      return NextResponse.json(
+        { error: "Couldn't read the text — the AI service failed. Nothing was imported; please try again.", ...partial },
+        { status: 502 },
+      );
+    }
     return NextResponse.json({ imported: 0, memories: [] });
   }
 
@@ -283,7 +352,7 @@ export async function POST(req: Request) {
   });
 
   if (filtered.length === 0) {
-    return NextResponse.json({ imported: 0, memories: [] });
+    return NextResponse.json({ imported: 0, memories: [], ...partial });
   }
 
   // ── Deduplicate across chunks ───────────────────────────────────────────────
@@ -307,5 +376,5 @@ export async function POST(req: Request) {
   // Without this, memories are lost when the Vercel function instance recycles.
   await forceFlushSnapshot();
 
-  return NextResponse.json({ imported: saved.length, memories: saved });
+  return NextResponse.json({ imported: saved.length, memories: saved, ...partial });
 }

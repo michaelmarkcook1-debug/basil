@@ -346,7 +346,8 @@ interface IssueUpdateResult {
 export async function updateIssue(
   username: string,
   id: string,
-  input: Partial<LinearIssueInput> & { stateId?: string }
+  /** `null` for assigneeId or dueDate clears it at Linear. */
+  input: Omit<Partial<LinearIssueInput>, "assigneeId" | "dueDate"> & { stateId?: string; assigneeId?: string | null; dueDate?: string | null }
 ): Promise<LinearIssue> {
   const config = await getLinearConfig(username);
   if (!config.apiKey) throw new Error("Linear not connected");

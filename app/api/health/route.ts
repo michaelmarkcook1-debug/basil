@@ -5,7 +5,12 @@
  * runtime can handle requests.
  *
  * Never exposes secret values — only boolean presence flags.
- * No async I/O — stays fast regardless of external service state.
+ *
+ * The storage check is a real Blob write/read/delete. The route is public, so
+ * that round trip is cached per instance for STORAGE_CHECK_TTL_MS and shared by
+ * concurrent callers: before 2026-11-10 (bug pass, D4) every hit — anyone, any
+ * rate — paid for a Blob put, fetch and delete. `checks.storageCheckedAt` says
+ * how old the cached answer is.
  *
  * Used by:
  *   - CI smoke tests (tests/smoke.test.mjs)
@@ -154,11 +159,34 @@ async function getStorageStatus(): Promise<StorageStatus> {
   return process.env.NODE_ENV === "production" ? "unknown" : "local-fs";
 }
 
+// ── Storage check cache ───────────────────────────────────────────────────────
+
+/** How long one storage round trip answers for. (Not exported: a route file may export only route fields.) */
+const STORAGE_CHECK_TTL_MS = 60_000;
+
+let storageCache: { status: StorageStatus; checkedAt: number } | null = null;
+let storageInFlight: Promise<{ status: StorageStatus; checkedAt: number }> | null = null;
+
+/**
+ * The storage status, from a round trip at most once per STORAGE_CHECK_TTL_MS
+ * per instance. Concurrent callers during a check wait for that one check
+ * instead of starting their own.
+ */
+async function cachedStorageStatus(): Promise<{ status: StorageStatus; checkedAt: number }> {
+  if (storageCache && Date.now() - storageCache.checkedAt < STORAGE_CHECK_TTL_MS) return storageCache;
+  if (!storageInFlight) {
+    storageInFlight = getStorageStatus()
+      .then((status) => (storageCache = { status, checkedAt: Date.now() }))
+      .finally(() => { storageInFlight = null; });
+  }
+  return storageInFlight;
+}
+
 // ── Route handler ─────────────────────────────────────────────────────────────
 
 export async function GET() {
   const env = buildEnvPresence();
-  const storage = await getStorageStatus();
+  const { status: storage, checkedAt: storageCheckedAt } = await cachedStorageStatus();
   const version = getVersion();
 
   // ok = true as long as the handler runs. Core secret presence is surfaced in
@@ -181,6 +209,7 @@ export async function GET() {
     checks: {
       node:    true,
       storage,
+      storageCheckedAt: new Date(storageCheckedAt).toISOString(),
       ...(storageDetail ? { storageDetail } : {}),
       env,
     },

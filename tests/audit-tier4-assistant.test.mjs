@@ -16,6 +16,7 @@ const plain = (v) => structuredClone(v);
 
 function chatRoute({ reserve, release, setupThrows = false }) {
   return loadTs("app/api/chat/route.ts", {
+    "@/lib/ai/injection-guard": loadTs("lib/ai/injection-guard.ts"),
     "@/lib/trust/ledger": { getDelegations: async () => new Set(), recordApprovalResponses: async () => 0, recordDelegatedRuns: async () => 0 },
     ai: { ...ai, streamText: () => ({ toUIMessageStreamResponse: () => new Response("ok"), consumeStream: async () => {} }) },
     "@/lib/ai/model-config": { getChatModel: () => "mock-model", MAX_TOKENS: { default: 1, balanced: 1, long: 1, fast: 1 }, PROVIDER_MODE: "openai_direct" },
@@ -158,12 +159,24 @@ test("AI-02 scheduleMeeting forwards the resolved timezone to the calendar adapt
   let booked;
   const noop = new Proxy({}, { get: () => async () => ({}) });
   const T = loadTs("lib/ai/tools.ts", {
+    "@/lib/ai/injection-guard": loadTs("lib/ai/injection-guard.ts"),
+    // lib/away: no working calendar here — the code falls back to its every-day behaviour.
+    "@/lib/away/store": { getWorkCalendar: async () => { throw new Error("no working calendar in this test"); }, declareAway: async () => ({}), endDeclaredAway: async () => 0, invalidateCalendarAbsences: async () => {} },
+    "@/lib/away/calendar": loadTs("lib/away/calendar.ts"),
     "@/lib/glossary/store": { upsertTerm: async (_u, t) => ({ ...t, id: "g1" }) },
     ai, zod: require("zod"),
     "@/lib/security/sensitive": loadTs("lib/security/sensitive.ts"),
     "@/lib/web/search": noop, "@/lib/google/auth": { isGoogleConnected: async () => true },
     "@/lib/google/out-of-office": {},
     "@/lib/google/calendar": { createCalendarEvent: async (_u, params) => { booked = params; return { id: "evt", htmlLink: "https://calendar.invalid/evt" }; }, getTodayEvents: async () => [], getEventsForDate: async () => [], getEventsForDateRange: async () => [], checkFreeBusy: async () => ({}) },
+    // Calendar writes go through lib/calendar/writes (the real one here, over the Google mock above).
+    "@/lib/calendar/writes": loadTs("lib/calendar/writes.ts", {
+      "@/lib/google/calendar": { createCalendarEvent: async (_u, params) => { booked = params; return { id: "evt", htmlLink: "https://calendar.invalid/evt" }; } },
+      "@/lib/google/auth": { isGoogleConnected: async () => true },
+      "@/lib/microsoft/auth": { isMicrosoftConnected: async () => false },
+      "@/lib/microsoft/outlook-calendar": { isOutlookEventId: (id) => id.startsWith("ms:") },
+    }),
+    "@/lib/calendar/unified": noop, "@/lib/microsoft/mail-provider": noop, "@/lib/microsoft/outlook-mail": noop,
     "@/lib/google/gmail": noop, "@/lib/google/drive": noop, "@/lib/slack/client": noop,
     "@/lib/memory/store": noop, "@/lib/actions/store": noop, "@/lib/decisions/store": noop,
     "@/lib/events/audit": { emitAuditEvent: async () => {} }, "@/lib/linear/sync-actions": noop, "@/lib/linear/client": noop,
@@ -185,6 +198,7 @@ test("AI-02 scheduleMeeting forwards the resolved timezone to the calendar adapt
 
 function mobileRoute(generateTextSafe) {
   return loadTs("app/api/chat/mobile/route.ts", {
+    "@/lib/ai/injection-guard": loadTs("lib/ai/injection-guard.ts"),
     "@/lib/trust/ledger": { getDelegations: async () => new Set(), recordApprovalResponses: async () => 0, recordDelegatedRuns: async () => 0 },
     ai,
     "@/lib/ai/generate": { generateTextSafe },

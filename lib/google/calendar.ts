@@ -1,7 +1,8 @@
-import { google } from "googleapis";
+import { google, type calendar_v3 } from "googleapis";
 import { getAuthedClient } from "./auth";
 import { getSelfIdentity, stripSelf, type SelfIdentity } from "@/lib/self-identity";
 import { sendEmail } from "./gmail";
+import { addDays, dayIn, midnightIn } from "@/lib/away/calendar";
 
 export interface CalendarEvent {
   id: string;
@@ -30,6 +31,14 @@ export interface CalendarEvent {
   guests?: GuestTally;
   /** One occurrence of a repeating meeting — cancelling it leaves the others. */
   recurring?: boolean;
+  /** Google's event type: "default", "outOfOffice", "focusTime", "workingLocation". */
+  eventType?: string;
+  /** Which calendar it lives on. Outlook event ids also start with "ms:". */
+  provider?: "google" | "microsoft";
+  /** iCalendar UID — the same meeting on two calendars shares it (used to de-duplicate). */
+  iCalUID?: string;
+  /** True when the event does not block time (Google "Available", Outlook "Free"). */
+  transparent?: boolean;
 }
 
 export interface GuestTally { total: number; accepted: number; tentative: number; declined: number; waiting: number }
@@ -128,6 +137,10 @@ function mapEvent(
     organizerEmail: e.organizer?.email || undefined,
     guests: guestTally(e.attendees),
     recurring: Boolean(e.recurringEventId),
+    eventType: e.eventType || undefined,
+    ...(e.transparency === "transparent" ? { transparent: true } : {}),
+    ...(e.iCalUID ? { iCalUID: e.iCalUID as string } : {}),
+    provider: "google",
   };
 }
 
@@ -258,54 +271,58 @@ export async function getEventsForMonth(
 
   // Use timezone-aware day bounds for the first and last day of the month
   const firstDay = `${year}-${String(month + 1).padStart(2, "0")}-01`;
-  const lastDayDate = new Date(year, month + 1, 0);
-  const lastDay = `${year}-${String(month + 1).padStart(2, "0")}-${String(lastDayDate.getDate()).padStart(2, "0")}`;
+  const lastDayDate = new Date(Date.UTC(year, month + 1, 0));
+  const lastDay = `${year}-${String(month + 1).padStart(2, "0")}-${String(lastDayDate.getUTCDate()).padStart(2, "0")}`;
   const { start: startOfMonth } = tzDayBounds(firstDay, timezone);
   const { end:   endOfMonth   } = tzDayBounds(lastDay,  timezone);
 
   // Paginate through all results — a busy month easily exceeds 200 events
   // (recurring "Focus time", Lunch, standups, etc.) so a single-page fetch
   // silently drops events near month-end.
-  const allItems: any[] = []; // eslint-disable-line @typescript-eslint/no-explicit-any
+  const allItems = await listAllEvents(calendar, {
+    calendarId: "primary",
+    timeMin: startOfMonth.toISOString(),
+    timeMax: endOfMonth.toISOString(),
+    singleEvents: true,
+    orderBy: "startTime",
+  }, 20);
+
+  return allItems.map((e) => mapEvent(e, dateLabelFor(eventDay(e, timezone), timezone), identity));
+}
+
+/**
+ * Raw events of every type across an inclusive date range, for reading time
+ * off (lib/away). Only the fields absence detection needs, paged up to 1,250
+ * events. Null when Google is not connected — unknown, not "never away".
+ */
+export async function getAbsenceSourceEvents(
+  username: string,
+  fromDay: string,
+  toDay: string,
+  timezone = "Europe/London",
+): Promise<calendar_v3.Schema$Event[] | null> {
+  const auth = await getAuthedClient(username);
+  if (!auth) return null;
+  const calendar = google.calendar({ version: "v3", auth });
+  const { start: timeMin } = tzDayBounds(fromDay, timezone);
+  const { end: timeMax } = tzDayBounds(toDay, timezone);
+  const items: calendar_v3.Schema$Event[] = [];
   let pageToken: string | undefined;
-  do {
+  for (let page = 0; page < 5; page++) {
     const res = await calendar.events.list({
       calendarId: "primary",
-      timeMin: startOfMonth.toISOString(),
-      timeMax: endOfMonth.toISOString(),
+      timeMin: timeMin.toISOString(),
+      timeMax: timeMax.toISOString(),
       singleEvents: true,
-      orderBy: "startTime",
       maxResults: 250,
-      ...(pageToken ? { pageToken } : {}),
+      pageToken,
+      fields: "nextPageToken,items(id,summary,eventType,status,start,end,organizer(self),attendees(self))",
     });
-    allItems.push(...(res.data.items || []));
+    items.push(...(res.data.items ?? []));
     pageToken = res.data.nextPageToken ?? undefined;
-  } while (pageToken);
-
-  const now = new Date();
-  const todayStr    = now.toLocaleDateString("en-CA", { timeZone: timezone });
-  const { start: tzToday } = tzDayBounds(todayStr, timezone);
-  const tomorrowDate = new Date(tzToday);
-  tomorrowDate.setDate(tomorrowDate.getDate() + 1);
-  const tomorrowStr = tomorrowDate.toLocaleDateString("en-CA", { timeZone: timezone });
-
-  return allItems.map((e) => {
-    const eventDate = (e.start?.dateTime || e.start?.date || "").substring(0, 10);
-    let dateLabel: string;
-    if (eventDate === todayStr) {
-      dateLabel = "Today";
-    } else if (eventDate === tomorrowStr) {
-      dateLabel = "Tomorrow";
-    } else {
-      dateLabel = new Date(eventDate + "T12:00:00").toLocaleDateString("en-GB", {
-        weekday: "long",
-        day: "numeric",
-        month: "long",
-        timeZone: timezone,
-      });
-    }
-    return mapEvent(e, dateLabel, identity);
-  });
+    if (!pageToken) break;
+  }
+  return items;
 }
 
 export async function getTodayEvents(username: string, timezone = "Europe/London"): Promise<CalendarEvent[]> {
@@ -313,32 +330,54 @@ export async function getTodayEvents(username: string, timezone = "Europe/London
 }
 
 /**
- * Return all events on a specific calendar date (YYYY-MM-DD).
- * Uses Europe/London for the day boundary so it matches the user's wall clock.
+ * Midnight (start) and 23:59:59 (end) of a YYYY-MM-DD day in the given IANA
+ * timezone. Both ends come from midnightIn (lib/away/calendar.ts), which reads
+ * the offset AT midnight: the old version used the noon offset, so on the two
+ * clock-change days a year the day was read an hour off. Exported for tests.
  */
-/** Returns the UTC offset in hours for a given timezone + date (e.g. +1 for BST, -5 for EST). */
-function tzOffsetHours(date: Date, timeZone: string): number {
-  const utcMs = new Date(date.toLocaleString("en-US", { timeZone: "UTC" })).getTime();
-  const tzMs  = new Date(date.toLocaleString("en-US", { timeZone })).getTime();
-  return (tzMs - utcMs) / 3_600_000;
+export function tzDayBounds(dateStr: string, timeZone: string): { start: Date; end: Date } {
+  return {
+    start: new Date(midnightIn(dateStr, timeZone)),
+    end:   new Date(midnightIn(addDays(dateStr, 1), timeZone) - 1000),
+  };
+}
+
+/** "Today", "Tomorrow" or "Wednesday, 16 April" for an event's YYYY-MM-DD, in the user's timezone. */
+function dateLabelFor(eventDate: string, timeZone: string): string {
+  const today = dayIn(Date.now(), timeZone);
+  if (eventDate === today) return "Today";
+  if (eventDate === addDays(today, 1)) return "Tomorrow";
+  return new Date(eventDate + "T12:00:00Z").toLocaleDateString("en-GB", {
+    weekday: "long", day: "numeric", month: "long", timeZone: "UTC",
+  });
+}
+
+/** The YYYY-MM-DD an event starts on, in the user's timezone (all-day: its date). */
+function eventDay(e: calendar_v3.Schema$Event, timeZone: string): string {
+  if (e.start?.date) return e.start.date;
+  const ms = Date.parse(e.start?.dateTime || "");
+  return Number.isNaN(ms) ? (e.start?.dateTime || "").substring(0, 10) : dayIn(ms, timeZone);
 }
 
 /**
- * Build a Date representing midnight (start) and 23:59:59 (end) in the given
- * IANA timezone for a YYYY-MM-DD string.  Handles DST transitions correctly.
+ * Every event in the window, following nextPageToken. The single-page reads
+ * (50/100/200) silently dropped events on busy calendars. Capped at
+ * `maxPages` × 250 events.
  */
-function tzDayBounds(dateStr: string, timeZone: string): { start: Date; end: Date } {
-  const noon      = new Date(`${dateStr}T12:00:00Z`); // use noon UTC as stable DST reference
-  const offsetH   = tzOffsetHours(noon, timeZone);
-  const sign      = offsetH >= 0 ? "+" : "-";
-  const absH      = Math.abs(offsetH);
-  const hh        = String(Math.floor(absH)).padStart(2, "0");
-  const mm        = String(Math.round((absH % 1) * 60)).padStart(2, "0");
-  const offsetStr = `${sign}${hh}:${mm}`;
-  return {
-    start: new Date(`${dateStr}T00:00:00${offsetStr}`),
-    end:   new Date(`${dateStr}T23:59:59${offsetStr}`),
-  };
+async function listAllEvents(
+  calendar: calendar_v3.Calendar,
+  params: calendar_v3.Params$Resource$Events$List,
+  maxPages = 10,
+): Promise<calendar_v3.Schema$Event[]> {
+  const items: calendar_v3.Schema$Event[] = [];
+  let pageToken: string | undefined;
+  for (let page = 0; page < maxPages; page++) {
+    const res = await calendar.events.list({ ...params, maxResults: 250, ...(pageToken ? { pageToken } : {}) });
+    items.push(...(res.data.items || []));
+    pageToken = res.data.nextPageToken ?? undefined;
+    if (!pageToken) break;
+  }
+  return items;
 }
 
 export async function getEventsForDate(
@@ -357,40 +396,21 @@ export async function getEventsForDate(
   // Midnight-to-midnight boundaries in the user's actual timezone
   const { start: dayStart, end: dayEnd } = tzDayBounds(dateStr, timezone);
 
-  const res = await calendar.events.list({
+  const items = await listAllEvents(calendar, {
     calendarId:   "primary",
     timeMin:      dayStart.toISOString(),
     timeMax:      dayEnd.toISOString(),
     timeZone:     timezone,
     singleEvents: true,
     orderBy:      "startTime",
-    maxResults:   50,
   });
 
-  const now = new Date();
-  const todayStr    = now.toLocaleDateString("en-CA", { timeZone: timezone });
-  const { start: tzToday } = tzDayBounds(todayStr, timezone);
-  const tomorrowDate = new Date(tzToday);
-  tomorrowDate.setDate(tomorrowDate.getDate() + 1);
-  const tomorrowStr = tomorrowDate.toLocaleDateString("en-CA", { timeZone: timezone });
-
-  return (res.data.items || []).map((e) => {
-    const eventDate = (e.start?.dateTime || e.start?.date || "").substring(0, 10);
-    let dateLabel: string;
-    if (eventDate === todayStr)          dateLabel = "Today";
-    else if (eventDate === tomorrowStr)  dateLabel = "Tomorrow";
-    else {
-      dateLabel = new Date(eventDate + "T12:00:00").toLocaleDateString("en-GB", {
-        weekday: "long", day: "numeric", month: "long", timeZone: timezone,
-      });
-    }
-    return mapEvent(e, dateLabel, identity);
-  });
+  return items.map((e) => mapEvent(e, dateLabelFor(eventDay(e, timezone), timezone), identity));
 }
 
 /**
- * Return events across an inclusive date range (both dates YYYY-MM-DD).
- * Maximum 100 results, ordered by start time.
+ * Return events across an inclusive date range (both dates YYYY-MM-DD),
+ * ordered by start time, every page read.
  */
 export async function getEventsForDateRange(
   username: string,
@@ -409,37 +429,19 @@ export async function getEventsForDateRange(
   const { start: timeMin } = tzDayBounds(startDate, timezone);
   const { end:   timeMax } = tzDayBounds(endDate,   timezone);
 
-  const res = await calendar.events.list({
+  const items = await listAllEvents(calendar, {
     calendarId: "primary",
     timeMin:     timeMin.toISOString(),
     timeMax:     timeMax.toISOString(),
     timeZone:    timezone,
     singleEvents: true,
     orderBy:     "startTime",
-    maxResults:  100,
   });
 
-  const now = new Date();
-  const todayStr    = now.toLocaleDateString("en-CA", { timeZone: timezone });
-  const { start: tzToday } = tzDayBounds(todayStr, timezone);
-  const tomorrowDate = new Date(tzToday);
-  tomorrowDate.setDate(tomorrowDate.getDate() + 1);
-  const tomorrowStr = tomorrowDate.toLocaleDateString("en-CA", { timeZone: timezone });
-
-  return (res.data.items || []).map((e) => {
-    const eventDate = (e.start?.dateTime || e.start?.date || "").substring(0, 10);
-    let dateLabel: string;
-    if (eventDate === todayStr)    dateLabel = "Today";
-    else if (eventDate === tomorrowStr) dateLabel = "Tomorrow";
-    else {
-      dateLabel = new Date(eventDate + "T12:00:00").toLocaleDateString("en-GB", {
-        weekday: "long", day: "numeric", month: "long", timeZone: timezone,
-      });
-    }
-    return mapEvent(e, dateLabel, identity);
-  });
+  return items.map((e) => mapEvent(e, dateLabelFor(eventDay(e, timezone), timezone), identity));
 }
 
+/** Events from midnight today (in `timezone`) for `days` days, every page read. */
 export async function getEventsForDays(username: string, days: number, timezone = "Europe/London"): Promise<CalendarEvent[]> {
   const [auth, identity] = await Promise.all([
     getAuthedClient(username),
@@ -449,43 +451,18 @@ export async function getEventsForDays(username: string, days: number, timezone 
 
   const calendar = google.calendar({ version: "v3", auth });
 
-  const now = new Date();
-  const todayDateStr = now.toLocaleDateString("en-CA", { timeZone: timezone });
-  const { start: tzToday } = tzDayBounds(todayDateStr, timezone);
-  const endDate = new Date(tzToday);
-  endDate.setDate(endDate.getDate() + days);
-
-  const res = await calendar.events.list({
+  // Day arithmetic on dates, not on 24-hour blocks: a window that crosses a
+  // clock change still ends at midnight.
+  const today = dayIn(Date.now(), timezone);
+  const items = await listAllEvents(calendar, {
     calendarId: "primary",
-    timeMin: tzToday.toISOString(),
-    timeMax: endDate.toISOString(),
+    timeMin: new Date(midnightIn(today, timezone)).toISOString(),
+    timeMax: new Date(midnightIn(addDays(today, days), timezone)).toISOString(),
     singleEvents: true,
     orderBy: "startTime",
-    maxResults: 200,
   });
 
-  const todayStr = now.toLocaleDateString("en-CA", { timeZone: timezone });
-  const tomorrowDate = new Date(tzToday);
-  tomorrowDate.setDate(tomorrowDate.getDate() + 1);
-  const tomorrowStr = tomorrowDate.toLocaleDateString("en-CA", { timeZone: timezone });
-
-  return (res.data.items || []).map((e) => {
-    const eventDate = (e.start?.dateTime || e.start?.date || "").substring(0, 10);
-    let dateLabel: string;
-    if (eventDate === todayStr) {
-      dateLabel = "Today";
-    } else if (eventDate === tomorrowStr) {
-      dateLabel = "Tomorrow";
-    } else {
-      dateLabel = new Date(eventDate + "T12:00:00").toLocaleDateString("en-GB", {
-        weekday: "long",
-        day: "numeric",
-        month: "long",
-        timeZone: timezone,
-      });
-    }
-    return mapEvent(e, dateLabel, identity);
-  });
+  return items.map((e) => mapEvent(e, dateLabelFor(eventDay(e, timezone), timezone), identity));
 }
 
 // ── Freebusy ─────────────────────────────────────────────────────────────────
@@ -573,6 +550,29 @@ export async function updateCalendarEvent(
   // Determine the timezone from the existing event (fall back to Europe/London)
   const tz = ev.start?.timeZone || "Europe/London";
 
+  // An all-day event stays all-day: only its days move, by start.date/end.date
+  // (exclusive end), keeping its length. It used to be rebuilt from a midnight
+  // dateTime, turning it into a 24-hour timed block and notifying the guests (B11).
+  if (!ev.start?.dateTime && ev.start?.date) {
+    let allDay: { start: { date: string }; end: { date: string } } | undefined;
+    if (params.date && params.date !== ev.start.date) {
+      const span = Math.max(1, Math.round((Date.parse(`${ev.end?.date || addDays(ev.start.date, 1)}T00:00:00Z`) - Date.parse(`${ev.start.date}T00:00:00Z`)) / 86_400_000));
+      allDay = { start: { date: params.date }, end: { date: addDays(params.date, span) } };
+    }
+    if (!params.title && !params.attendees && !allDay) return;
+    await calendar.events.patch({
+      calendarId: "primary",
+      eventId,
+      sendUpdates: "all",
+      requestBody: {
+        ...(params.title     ? { summary: params.title } : {}),
+        ...(allDay ?? {}),
+        ...(params.attendees ? { attendees: params.attendees.map((email) => ({ email })) } : {}),
+      },
+    });
+    return;
+  }
+
   // Build updated start / end if time/date changed
   let startDT = ev.start?.dateTime;
   let endDT   = ev.end?.dateTime;
@@ -620,6 +620,29 @@ export async function updateCalendarEvent(
       ...(params.attendees ? { attendees: params.attendees.map((email) => ({ email })) } : {}),
     },
   });
+}
+
+/**
+ * Forward an invitation: add new guests, and Google emails them the invite.
+ * Returns who was actually added (people already on it are skipped).
+ */
+export async function forwardEvent(username: string, eventId: string, emails: string[]): Promise<{ summary: string; added: string[] }> {
+  const auth = await getAuthedClient(username);
+  if (!auth) throw new Error("Google Calendar not connected");
+  const calendar = google.calendar({ version: "v3", auth });
+  const { data: ev } = await calendar.events.get({ calendarId: "primary", eventId });
+  const existing = new Set((ev.attendees || []).map((a) => (a.email || "").toLowerCase()));
+  const added = [...new Set(emails.map((e) => e.trim()).filter(Boolean))].filter((e) => !existing.has(e.toLowerCase()));
+  if (added.length) {
+    await calendar.events.patch({
+      calendarId: "primary",
+      eventId,
+      // sendUpdates="all" ensures Google sends invite emails to newly added attendees
+      sendUpdates: "all",
+      requestBody: { attendees: [...(ev.attendees || []), ...added.map((email) => ({ email }))] },
+    });
+  }
+  return { summary: ev.summary || eventId, added };
 }
 
 // ── Cancelling ────────────────────────────────────────────────────────────────

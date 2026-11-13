@@ -17,14 +17,18 @@
  */
 
 import { useState } from "react";
-import { mutate } from "swr";
+import useSWR, { mutate } from "swr";
 import { Check, Clock, UserPlus, Trash2, Loader2, X } from "lucide-react";
 import { cn } from "@/lib/utils";
+// "Tomorrow" etc. are calendar days in the user's settings timezone. This was
+// local date + N then toISOString() — the UTC day, so a US-evening "Tomorrow"
+// pushed the action two days out (C5).
+import { daysFromToday } from "@/lib/dashboard/day";
 
-function addDaysISO(days: number): string {
-  const d = new Date();
-  d.setDate(d.getDate() + days);
-  return d.toISOString().split("T")[0];
+async function settingsFetch(url: string): Promise<{ timezone?: string }> {
+  const r = await fetch(url, { cache: "no-store" });
+  if (!r.ok) throw new Error(`${url} → ${r.status}`);
+  return r.json();
 }
 
 function stop(e: React.MouseEvent) {
@@ -57,6 +61,8 @@ export function ActionControls({
   const [snoozeOpen, setSnoozeOpen] = useState(false);
   const [delegating, setDelegating] = useState(false);
   const [owner, setOwner] = useState("");
+  // Shared, deduped SWR key — the Today page already reads it.
+  const { data: settings } = useSWR("/api/settings", settingsFetch, { revalidateOnFocus: false, dedupingInterval: 60_000 });
 
   async function revalidate() {
     await Promise.all(revalidateKeys.map((k) => mutate(k)));
@@ -161,7 +167,7 @@ export function ActionControls({
               <button
                 key={o.label}
                 type="button"
-                onClick={(e) => { stop(e); patch({ dueDate: addDaysISO(o.days) }, "Push", "push"); }}
+                onClick={(e) => { stop(e); patch({ dueDate: daysFromToday(o.days, settings?.timezone) }, "Push", "push"); }}
                 className="block w-full px-3 py-1.5 text-left text-xs text-foreground/85 hover:bg-white/[0.06]"
               >
                 {o.label}

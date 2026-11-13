@@ -89,9 +89,12 @@ test("L3 every tool that requires approval renders controls when the server asks
   // with needsApproval: true, so this test grows with the tool set.
   const decls = [...src.matchAll(/^\s{4}([a-zA-Z]+): tool\(\{/gm)];
   const names = decls
-    .filter((d, i) => /needsApproval: (true|!delegated\.has\()/.test(src.slice(d.index, decls[i + 1]?.index ?? src.length)))
+    // Always (true), delegated-unless-tainted (askUnlessDelegated), or conditional
+    // (a function: readWebPage, rememberThis, rememberTerm — lib/ai/injection-guard.ts).
+    .filter((d, i) => /needsApproval: (true|askUnlessDelegated\(|\(|!delegated\.has\()/.test(src.slice(d.index, decls[i + 1]?.index ?? src.length)))
     .map((d) => d[1]);
   assert.ok(names.includes("addAction") && names.includes("draftEmail") && names.length >= 8, `found ${names}`);
+  for (const n of ["readWebPage", "rememberThis", "rememberTerm"]) assert.ok(names.includes(n), `${n} can ask, so it must get controls`);
   for (const n of names) {
     assert.equal(R.shouldRenderApproval({ type: `tool-${n}`, state: "approval-requested" }), true, n);
     assert.equal(R.shouldRenderApproval({ type: `tool-${n}`, state: "archived-pending" }), false, `${n} archived`);

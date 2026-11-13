@@ -1,5 +1,5 @@
 import { NextResponse, after } from "next/server";
-import { exchangeCode } from "@/lib/google/auth";
+import { exchangeCode, snapshotGoogleTokens, restoreGoogleTokens, type GoogleTokens } from "@/lib/google/auth";
 import { getSessionUser } from "@/lib/auth";
 import { forceFlushSnapshot } from "@/lib/storage/persistent";
 import { autoRegisterGoogleWebhooks } from "@/lib/google/register-webhooks";
@@ -9,6 +9,18 @@ import { getGmailAddress } from "@/lib/google/gmail";
 import { rememberOwnAddress } from "@/lib/self-identity";
 import { otherOwnerOf } from "@/lib/google/account-owner";
 import { deleteIntegrationToken } from "@/lib/storage/secure-token-store";
+
+/**
+ * Put back the Google connection the user had before this OAuth flow — or none,
+ * if they had none. exchangeCode() saves the new tokens over the old ones, so
+ * refusing the new account by deleting the token (as this route used to) also
+ * threw away a working connection (2026-11-10 bug pass, A6).
+ */
+async function restorePreviousConnection(username: string, previous: GoogleTokens | null): Promise<void> {
+  if (previous) await restoreGoogleTokens(username, previous);
+  else await deleteIntegrationToken(username, "google");
+  await forceFlushSnapshot();
+}
 
 // GET /api/auth/google/callback — handles Google OAuth callback
 export async function GET(req: Request) {
@@ -61,23 +73,42 @@ export async function GET(req: Request) {
   }
 
   // ── Token exchange ─────────────────────────────────────────────────────────
+  // The connection the user already has is read BEFORE exchangeCode overwrites
+  // it, so an account that is refused below can be undone without leaving them
+  // disconnected. `pending` is true while new, unverified tokens are stored.
+  let previous: GoogleTokens | null = null;
+  let pending = false;
   try {
+    previous = await snapshotGoogleTokens(username);
     await exchangeCode(code, username);
+    pending = true;
     // Force-flush so tokens survive a cold start on the very next request.
     await forceFlushSnapshot();
-    console.log(`[google/callback] Tokens saved for user ${username}. Redirecting to ${successDest}`);
 
     const connectedAs = await getGmailAddress(username);
+
+    // No address means the new tokens could not be checked — the Gmail call
+    // failed, or Google sent no refresh token so nothing usable was stored.
+    // otherOwnerOf(null) answers "nobody", so this used to skip the ownership
+    // check entirely and keep tokens for an account nobody had verified.
+    if (!connectedAs) {
+      await restorePreviousConnection(username, previous);
+      pending = false;
+      console.warn(`[google/callback] ${username}: could not read the connected Gmail address; new tokens discarded, previous connection kept.`);
+      return redirect(errorDest);
+    }
 
     // A Google account belongs to one Basil user. If another user already owns
     // this address, undo the connection before anything reads the mailbox.
     const owner = await otherOwnerOf(connectedAs, username);
     if (owner) {
-      await deleteIntegrationToken(username, "google");
-      await forceFlushSnapshot();
-      console.warn(`[google/callback] ${username} tried to connect a Google account that belongs to ${owner}; tokens discarded.`);
+      await restorePreviousConnection(username, previous);
+      pending = false;
+      console.warn(`[google/callback] ${username} tried to connect a Google account that belongs to ${owner}; new tokens discarded, previous connection kept.`);
       return redirect(from === "onboarding" ? "/onboarding?error=google_taken" : "/dashboard/settings?error=google_taken");
     }
+    pending = false;
+    console.log(`[google/callback] Tokens saved for user ${username}. Redirecting to ${successDest}`);
 
     // The connected mailbox is the user's own, even when it is not the address
     // they sign in to Basil with (a colleague invited on a personal email who
@@ -107,6 +138,12 @@ export async function GET(req: Request) {
     const msg = e instanceof Error ? e.message : String(e);
     // Never log the code value — it may be usable for one exchange
     console.error(`[google/callback] Token exchange or save failed for user ${username}:`, msg);
+    // A throw between saving the new tokens and verifying them (the address
+    // lookup, the ownership check) must not leave unverified tokens in place.
+    if (pending) {
+      await restorePreviousConnection(username, previous).catch((restoreErr) =>
+        console.error(`[google/callback] could not restore ${username}'s previous Google connection:`, restoreErr instanceof Error ? restoreErr.message : restoreErr));
+    }
     return redirect(errorDest);
   }
 }

@@ -14,6 +14,7 @@ const noop = new Proxy({}, { get: () => async () => ({}) });
 const I = loadTs("lib/auth/invite.ts", {
   "server-only": {}, "node:crypto": await import("node:crypto"),
   "@/lib/users": noop, "@/lib/auth/reset-tokens": noop, "@/lib/email/send": noop,
+  "@/lib/billing/entitlement-store": noop,
 });
 
 test("a username comes from the work email and never collides", () => {

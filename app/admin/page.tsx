@@ -160,6 +160,26 @@ export default function AdminPage() {
     }
   }
 
+  async function resetToday(user: AdminUser) {
+    setActing(user.id);
+    setLimitError((e) => ({ ...e, [user.id]: "" }));
+    try {
+      const r = await fetch("/api/admin/ai-spend", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "reset-today", username: user.username }),
+      });
+      if (!r.ok) {
+        const out = await r.json().catch(() => ({})) as { error?: string };
+        setLimitError((e) => ({ ...e, [user.id]: out.error || "Today's spend was not reset." }));
+        return;
+      }
+      await load();
+    } finally {
+      setActing(null);
+    }
+  }
+
   const loadFlags = useCallback(async () => {
     setFlagsLoading(true);
     try {
@@ -369,6 +389,16 @@ export default function AdminPage() {
                                   onClick={() => saveLimit(user, null)}
                                 >
                                   Use default
+                                </Button>
+                              )}
+                              {(row?.todayUsd ?? 0) > 0 && (
+                                <Button
+                                  variant="ghost" size="sm" className="h-7 px-2 text-xs text-muted-foreground"
+                                  disabled={acting === user.id}
+                                  title="Give the full daily limit back for the rest of today. Spend history is kept."
+                                  onClick={() => { if (window.confirm(`Reset ${user.name}'s AI spend for today to $0? Their spend history is kept.`)) void resetToday(user); }}
+                                >
+                                  Reset today
                                 </Button>
                               )}
                               {!valid && <span className="text-destructive">$0–$100</span>}
@@ -623,7 +653,7 @@ function InviteCard({ onInvited }: { onInvited: () => void }) {
   }
 
   const message = result
-    ? `Hi ${result.name}, I've set you up on Basil — it keeps track of your meetings, emails and follow-ups. Takes about 3 minutes: click this link, choose a password, then sign in to Google and Slack when it asks. ${result.link}`
+    ? `Hi ${result.name}, I've set you up on Basil — it keeps track of your meetings, emails and follow-ups. Takes about 3 minutes: click this link, choose a password, then sign in to Google and Slack when it asks. ${result.link}\n\nThen put Basil on your phone and computer: ${result.link.split("/reset-password")[0]}/install`
     : "";
 
   return (

@@ -85,3 +85,42 @@ async function networkFirst(request) {
     return cached || (await caches.match(OFFLINE_URL));
   }
 }
+
+// ── Push notifications (lib/notify, 2026-11-10) ──────────────────────────────
+// Payload: { title, body, url, tag, kind }. A push must always show something
+// (iOS revokes the subscription otherwise), so a bad payload still shows Basil.
+self.addEventListener("push", (event) => {
+  let data = {};
+  try {
+    data = event.data ? event.data.json() : {};
+  } catch (e) {
+    console.warn("[sw] push payload was not JSON", e);
+  }
+  const title = typeof data.title === "string" && data.title ? data.title : "Basil";
+  const url = typeof data.url === "string" && data.url.startsWith("/") ? data.url : "/dashboard";
+  event.waitUntil(
+    self.registration.showNotification(title, {
+      body: typeof data.body === "string" ? data.body : "",
+      tag: typeof data.tag === "string" ? data.tag : undefined,
+      icon: "/icons/icon-192.png",
+      badge: "/icons/icon-192.png",
+      data: { url },
+    })
+  );
+});
+
+// Open (or focus) Basil at the notification's page. Only same-origin paths.
+self.addEventListener("notificationclick", (event) => {
+  event.notification.close();
+  const path = event.notification.data && typeof event.notification.data.url === "string" ? event.notification.data.url : "/dashboard";
+  const target = new URL(path.startsWith("/") ? path : "/dashboard", self.location.origin).href;
+  event.waitUntil(
+    self.clients.matchAll({ type: "window", includeUncontrolled: true }).then((wins) => {
+      const open = wins.find((w) => w.url.startsWith(self.location.origin));
+      if (open) {
+        return open.focus().then((w) => (w && "navigate" in w ? w.navigate(target) : undefined));
+      }
+      return self.clients.openWindow(target);
+    })
+  );
+});

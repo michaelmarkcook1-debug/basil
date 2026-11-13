@@ -1,11 +1,12 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { getTodayISO } from "@/lib/timezone";
 import { Textarea } from "@/components/ui/textarea";
 import { Skeleton } from "@/components/ui/skeleton";
 import { BTN_PRIMARY, BTN_SECONDARY } from "@/components/basil/page-hero";
 import { usePersistentDraft } from "@/lib/hooks/use-persistent-draft";
+import { createLatestGuard } from "@/lib/dashboard/reliability";
 import {
   CalendarPlus,
   ChevronLeft,
@@ -38,6 +39,9 @@ interface CalEvent {
   myResponseStatus?: "accepted" | "declined" | "tentative" | "needsAction";
   organizerName?: string;
   organizerEmail?: string;
+  attendeeDetails?: Array<{ name: string; email: string }>;
+  /** Google's event type; "outOfOffice" is time off, not a meeting. */
+  eventType?: string;
 }
 
 interface ProposedMeeting {
@@ -75,7 +79,14 @@ function toDay(e: CalEvent): DayEvent {
     myResponseStatus: e.myResponseStatus,
     organizerName: e.organizerName,
     organizerEmail: e.organizerEmail,
+    attendeeDetails: e.attendeeDetails, // guests' addresses, for editing
   };
+}
+
+/** "google" / "microsoft" → what people call them. */
+function calendarNames(list: string[]): string {
+  const names = [...new Set(list)].map((p) => (p === "microsoft" ? "Outlook" : p === "google" ? "Google Calendar" : p));
+  return names.length ? names.join(" and ") : "Calendar";
 }
 
 function getDaysInMonth(year: number, month: number) {
@@ -98,6 +109,11 @@ export default function SchedulePage() {
   const [month, setMonth] = useState(now.getMonth());
   const [events, setEvents] = useState<CalEvent[]>([]);
   const [connected, setConnected] = useState(false);
+  // Both gardens (lib/calendar/unified.ts): which calendars were read, which
+  // could not be, and meetings on one that clash with the other.
+  const [providers, setProviders] = useState<string[]>([]);
+  const [degraded, setDegraded] = useState<{ provider: string; error: string }[]>([]);
+  const [clashes, setClashes] = useState<{ label: string }[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<Error | null>(null);
   const [selectedDay, setSelectedDay] = useState<number | null>(now.getDate());
@@ -151,21 +167,39 @@ export default function SchedulePage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Fetch events for the visible month
+  // Fetch events for the visible month. Latest request wins: clicking Next
+  // month twice let the slower, older month's response land last and show the
+  // wrong month's events (G11). The previous request is aborted and any
+  // response that is not the latest is ignored.
+  const [monthGuard] = useState(createLatestGuard);
+  const monthAbortRef = useRef<AbortController | null>(null);
   const fetchEvents = useCallback(() => {
+    monthAbortRef.current?.abort();
+    const controller = new AbortController();
+    monthAbortRef.current = controller;
+    const ticket = monthGuard.begin();
+    const isLatest = () => monthGuard.isLatest(ticket);
     setLoading(true);
     setError(null);
-    fetch(`/api/calendar/month?year=${year}&month=${month}`)
+    fetch(`/api/calendar/month?year=${year}&month=${month}`, { signal: controller.signal })
       .then((r) => { if (!r.ok) throw new Error(`calendar ${r.status}`); return r.json(); })
       .then((d) => {
+        if (!isLatest()) return;
         setConnected(d.connected);
         setEvents(d.events || []);
+        setProviders(Array.isArray(d.providers) ? d.providers : []);
+        setDegraded(Array.isArray(d.degraded) ? d.degraded : []);
+        setClashes(Array.isArray(d.clashes) ? d.clashes : []);
         setLoading(false);
       })
       // Previously swallowed → an empty calendar that looked like "no events"
       // rather than a failed load.
-      .catch((e: unknown) => { setError(e instanceof Error ? e : new Error("Failed to load calendar")); setLoading(false); });
-  }, [year, month]);
+      .catch((e: unknown) => {
+        if (!isLatest()) return; // superseded (or aborted) — the newer request owns the state
+        setError(e instanceof Error ? e : new Error("Failed to load calendar"));
+        setLoading(false);
+      });
+  }, [year, month, monthGuard]);
 
   useEffect(() => {
     fetchEvents();
@@ -497,8 +531,9 @@ export default function SchedulePage() {
           </Link>
         ) : connected && !loading ? (
           <span className="inline-flex min-h-[36px] items-center gap-2 rounded-full border border-[var(--w-rule)] bg-[var(--w-flimsy)] px-3 text-[13px] text-[color:var(--w-ink-soft)]">
-            <span aria-hidden className="h-2 w-2 rounded-full bg-[#1F8A70]" />
-            Google Calendar connected
+            <span aria-hidden className={`h-2 w-2 rounded-full ${degraded.length ? "bg-[var(--w-manila)]" : "bg-[#1F8A70]"}`} />
+            {calendarNames(providers)} connected
+            {degraded.length > 0 && <span className="text-[color:var(--w-manila)]">· {calendarNames(degraded.map((d) => d.provider))} couldn&rsquo;t be read, so its events are missing</span>}
           </span>
         ) : null}
 
@@ -508,6 +543,16 @@ export default function SchedulePage() {
           <Plus className="h-4 w-4" /> New event
         </button>
       </header>
+
+      {clashes.length > 0 && (
+        <div role="status" className="mb-4 rounded-lg border border-[var(--w-manila)] bg-[var(--w-flimsy)] px-3 py-2 text-[13px] text-[color:var(--w-ink)]">
+          <p className="font-medium">{clashes.length === 1 ? "A meeting clashes with one on your other calendar" : `${clashes.length} meetings clash across your calendars`}</p>
+          <ul className="mt-1 space-y-0.5 text-[12px] text-[color:var(--w-ink-soft)]">
+            {clashes.slice(0, 5).map((c) => <li key={c.label}>{c.label}</li>)}
+            {clashes.length > 5 && <li>…and {clashes.length - 5} more</li>}
+          </ul>
+        </div>
+      )}
 
       {/* ── Body ─────────────────────────────────────────────────────────── */}
       <div className="flex flex-col md:flex-row flex-1 min-h-0 overflow-y-auto md:overflow-hidden">

@@ -36,7 +36,13 @@ import type { Decision } from "@/lib/types/decision";
 import { DataState } from "@/components/ui/data-state";
 import { TrustReviewPrompt } from "@/components/ui/trust-ui";
 import { ExplorePanel } from "@/components/explore-panel";
+import { addDays, dayInZone } from "@/lib/dashboard/day";
+import { restoreRemoved, revertField } from "@/lib/dashboard/reliability";
+import { scopedKey } from "@/lib/session-user";
 
+// The pre-server-sync localStorage list, read only under the signed-in user's
+// scoped key: the bare "sage-decisions" key is shared by everyone on the
+// browser, so migrating it could merge another person's decisions in (A9).
 const LEGACY_STORAGE_KEY = "sage-decisions";
 
 interface DecisionFormDraft {
@@ -54,7 +60,8 @@ function decisionDraftDefault(): DecisionFormDraft {
     text: "",
     title: "",
     by: "",
-    date: new Date().toISOString().split("T")[0],
+    // The local calendar day — the UTC one is tomorrow on a US evening (C5).
+    date: dayInZone(new Date()),
     context: "",
     rationale: "",
   };
@@ -397,16 +404,18 @@ function SyncButton({ onSynced }: { onSynced?: () => void }) {
 
 // ── Resolved decisions sidebar ────────────────────────────────────────────────
 
-function ResolvedDecisionsPanel({ items, todayStr }: { items: Decision[]; todayStr: string }) {
-  const yesterday = new Date(Date.now() - 86_400_000).toISOString().split("T")[0];
+function ResolvedDecisionsPanel({ items, todayStr, timeZone }: { items: Decision[]; todayStr: string; timeZone?: string }) {
+  // Days in the user's timezone, not UTC (C5).
+  const yesterday = addDays(todayStr, -1);
+  const dayOf = (d: Decision) => (d.updatedAt ? dayInZone(d.updatedAt, timeZone) : "") || (d.updatedAt || d.date).split("T")[0];
 
   const grouped = new Map<string, Decision[]>();
   for (const d of [...items].sort((a, b) => {
-    const aKey = (a.updatedAt || a.date).split("T")[0];
-    const bKey = (b.updatedAt || b.date).split("T")[0];
+    const aKey = dayOf(a);
+    const bKey = dayOf(b);
     return bKey.localeCompare(aKey);
   })) {
-    const key = (d.updatedAt || d.date).split("T")[0];
+    const key = dayOf(d);
     if (!grouped.has(key)) grouped.set(key, []);
     grouped.get(key)!.push(d);
   }
@@ -479,6 +488,18 @@ export default function DecisionsPage() {
   // sourceActionId — set when navigating from Actions page "Decision needed" badge
   const [sourceActionId, setSourceActionId] = useState<string | null>(null);
   const [addError, setAddError] = useState("");
+  // Save is disabled while a create is in flight — a double-click made two.
+  const [adding, setAdding] = useState(false);
+  // A failed delete or status change, shown as a short banner.
+  const [mutationError, setMutationError] = useState<string | null>(null);
+  // The user's settings timezone, for "Today"/"Yesterday" (C5).
+  const [timeZone, setTimeZone] = useState<string | undefined>(undefined);
+  useEffect(() => {
+    fetch("/api/settings", { cache: "no-store" })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((j: { timezone?: string } | null) => { if (j?.timezone) setTimeZone(j.timezone); })
+      .catch(() => { /* the browser's zone is used until settings load */ });
+  }, []);
 
   // Read query params once on mount — avoids useSearchParams Suspense requirement
   useEffect(() => {
@@ -504,7 +525,7 @@ export default function DecisionsPage() {
         ...f,
         showForm: true,
         context: `Action: ${actionText}`,
-        date: new Date().toISOString().split("T")[0],
+        date: dayInZone(new Date()),
       }));
       // Clean URL without reload so navigating back/forward works cleanly
       const clean = new URL(window.location.href);
@@ -548,7 +569,8 @@ export default function DecisionsPage() {
       if (!migratedRef.current && typeof window !== "undefined") {
         migratedRef.current = true;
         try {
-          const raw = window.localStorage.getItem(LEGACY_STORAGE_KEY);
+          const legacyKey = scopedKey(LEGACY_STORAGE_KEY);
+          const raw = window.localStorage.getItem(legacyKey);
           if (raw) {
             const parsed = JSON.parse(raw) as Decision[];
             if (Array.isArray(parsed) && parsed.length > 0) {
@@ -561,11 +583,11 @@ export default function DecisionsPage() {
               // If the import fails, legacy data stays in localStorage for
               // the next page load to retry — prevents silent data loss.
               if (res.ok) {
-                window.localStorage.removeItem(LEGACY_STORAGE_KEY);
+                window.localStorage.removeItem(legacyKey);
               }
             } else {
               // Empty or invalid array — nothing to migrate, safe to clear.
-              window.localStorage.removeItem(LEGACY_STORAGE_KEY);
+              window.localStorage.removeItem(legacyKey);
             }
           }
         } catch {
@@ -593,7 +615,21 @@ export default function DecisionsPage() {
   }, [refresh]);
 
   async function handleAdd() {
-    if (!form.text.trim()) return;
+    if (!form.text.trim() || adding) return;
+    setAdding(true);
+    try {
+      await saveDecision();
+    } catch (err) {
+      // fetch() rejects offline — this used to be an unhandled rejection with
+      // nothing on screen.
+      console.error("[decisions] handleAdd failed:", err);
+      setAddError("That was not saved. Try again.");
+    } finally {
+      setAdding(false);
+    }
+  }
+
+  async function saveDecision() {
     const res = await fetch("/api/decisions", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -619,15 +655,21 @@ export default function DecisionsPage() {
         console.error("[basil-fetch] json_parse_error", { route: "/api/decisions", component: "DecisionsPage", error: e instanceof Error ? e.message : String(e) });
       }
       if (decision?.id) {
-        await fetch(`/api/actions/${sourceActionId}`, {
-          method: "PATCH",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            decisionRequired: false,
-            linkedDecisionId: decision.id,
-            linkedDecisionIds: [decision.id],
-          }),
-        });
+        // The decision itself is saved; linking the action is best-effort and
+        // must not make the save look failed (and invite a duplicate).
+        try {
+          await fetch(`/api/actions/${sourceActionId}`, {
+            method: "PATCH",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              decisionRequired: false,
+              linkedDecisionId: decision.id,
+              linkedDecisionIds: [decision.id],
+            }),
+          });
+        } catch (e) {
+          console.error("[decisions] linking the source action failed:", e);
+        }
         setSourceActionId(null);
       }
     }
@@ -661,25 +703,64 @@ export default function DecisionsPage() {
   }
 
   async function handleDelete(id: string) {
+    const target = decisions.find((d) => d.id === id);
+    const targetIndex = decisions.findIndex((d) => d.id === id);
+    setMutationError(null);
     // Optimistic removal — remove from local state and cache immediately
     // so notify()'s refresh() doesn't resurrect the item from stale cache
     const filtered = decisions.filter((d) => d.id !== id);
     setDecisions(filtered);
     dashboardCache.set("decisions", filtered);
 
-    await fetch(`/api/decisions/${id}`, { method: "DELETE" });
+    // The result used to be ignored: a failed delete vanished anyway and came
+    // back on the next refresh. Roll back and say so.
+    let ok = false;
+    try {
+      const res = await fetch(`/api/decisions/${id}`, { method: "DELETE" });
+      ok = res.ok;
+    } catch {
+      ok = false;
+    }
+    if (!ok) {
+      if (target) {
+        setDecisions((prev) => {
+          const next = restoreRemoved(prev, target, targetIndex);
+          dashboardCache.set("decisions", next);
+          return next;
+        });
+      }
+      setMutationError("That was not deleted. Try again.");
+      return;
+    }
     notify();
   }
 
   async function handleNotes(id: string, notes: string) {
+    const previousNotes = decisions.find((d) => d.id === id)?.notes;
     const patched = decisions.map((d) => (d.id === id ? { ...d, notes } : d));
     setDecisions(patched);
     dashboardCache.set("decisions", patched);
-    await fetch(`/api/decisions/${id}`, {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ notes }),
-    });
+    let ok = false;
+    try {
+      const res = await fetch(`/api/decisions/${id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ notes }),
+      });
+      ok = res.ok;
+    } catch {
+      ok = false;
+    }
+    if (!ok) {
+      // Roll back, then throw so the notes panel keeps the text and says it
+      // was not saved (a failed edit used to look saved).
+      setDecisions((prev) => {
+        const next = revertField(prev, id, "notes", previousNotes);
+        dashboardCache.set("decisions", next);
+        return next;
+      });
+      throw new Error("notes not saved");
+    }
   }
 
   async function toggleSuperseded(id: string) {
@@ -763,6 +844,15 @@ export default function DecisionsPage() {
         />
       )}
 
+      {mutationError && (
+        <div role="alert" className="flex items-center gap-2 rounded-md border border-signal-critical-border bg-signal-critical-subtle px-3 py-2 text-xs text-signal-critical">
+          <span>{mutationError}</span>
+          <button type="button" onClick={() => setMutationError(null)} className="ml-auto" aria-label="Dismiss">
+            <X className="h-3.5 w-3.5" />
+          </button>
+        </div>
+      )}
+
       {form.showForm && (
         <Card className="border-[var(--w-rule)]">
           <CardContent className="p-4 space-y-3">
@@ -818,11 +908,12 @@ export default function DecisionsPage() {
               <Button
                 size="sm"
                 onClick={handleAdd}
+                disabled={adding || !form.text.trim()}
                 className="bg-[var(--w-carbon)] text-[oklch(0.18_0.04_250)] hover:bg-[oklch(0.78_0.12_85)]"
               >
-                Save
+                {adding ? "Saving…" : "Save"}
               </Button>
-              <Button size="sm" variant="outline" onClick={clearForm}>
+              <Button size="sm" variant="outline" onClick={() => { setAddError(""); clearForm(); }}>
                 Cancel
               </Button>
               <DraftSavedIndicator saved={formDraftSaved} className="ml-1" />
@@ -923,7 +1014,8 @@ export default function DecisionsPage() {
       {!loading && superseded.length > 0 && (
         <ResolvedDecisionsPanel
           items={superseded}
-          todayStr={new Date().toISOString().split("T")[0]}
+          todayStr={dayInZone(new Date(), timeZone)}
+          timeZone={timeZone}
         />
       )}
       </div>{/* end grid */}

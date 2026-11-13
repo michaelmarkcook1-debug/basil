@@ -14,6 +14,8 @@ import {
   Link as LinkIcon, CalendarSearch,
 } from "lucide-react";
 import { blockKind, KIND_STYLE, KIND_SUB, KIND_LABEL, KindSwatch, LIFT_SHADOW } from "./event-kind";
+import { parseAttendees } from "@/lib/calendar/attendee-emails";
+import { localDay } from "@/lib/dashboard/day";
 
 /** Inputs in the cream world: rounded-xl, ruled border, paper fill. */
 const FIELD = "rounded-xl border-[var(--w-rule)] bg-[var(--w-paper)] text-[color:var(--w-ink)] placeholder:text-[color:var(--w-ink-soft)]";
@@ -77,6 +79,14 @@ export interface DayEvent {
   myResponseStatus?: "accepted" | "declined" | "tentative" | "needsAction";
   organizerName?: string;
   organizerEmail?: string;
+  /** Other guests with their addresses (attendees above are display names). */
+  attendeeDetails?: Array<{ name: string; email: string }>;
+}
+
+/** Read the server's error message, falling back to the status. */
+async function failureMessage(res: Response, what: string): Promise<string> {
+  const data = await res.json().catch(() => null) as { error?: unknown } | null; // ci-ok: no JSON body → the status is reported below
+  return typeof data?.error === "string" && data.error ? data.error : `${what} failed (${res.status})`;
 }
 
 interface EditState {
@@ -86,6 +96,8 @@ interface EditState {
   startTime: string;      // HH:MM
   durationMin: number;
   attendees: string;      // comma-separated
+  /** The guest field as opened — guests are sent on save only if it changed. */
+  originalAttendees: string;
   /** When true, Google Calendar auto-generates a Meet link on create. */
   addVideoCall: boolean;
   /** Optional explicit conferencing URL (Zoom/Teams personal room paste). */
@@ -242,6 +254,7 @@ function EventDetailPopover({
   onDelete,
   onResponded,
   deleting,
+  deleteError,
 }: {
   event: DayEvent;
   onClose: () => void;
@@ -250,6 +263,8 @@ function EventDetailPopover({
   /** Called after the user answers the invitation (or proposes a new time). */
   onResponded: () => void;
   deleting: boolean;
+  /** Why the last cancel failed — the popover stays open to show it. */
+  deleteError?: string | null;
 }) {
   const { startMin, endMin } = parseEventTimes(event);
   const dur = endMin - startMin;
@@ -282,7 +297,7 @@ function EventDetailPopover({
     try {
       // fetch() does not reject on 5xx — without this check the UI showed
       // "Sent ✓" and wiped the message the user had typed.
-      const res = await fetch(`/api/calendar/${event.id}/reply`, {
+      const res = await fetch(`/api/calendar/${encodeURIComponent(event.id)}/reply`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ message: replyMessage, replyAll }),
@@ -304,7 +319,7 @@ function EventDetailPopover({
     setForwarding(true);
     setActionError("");
     try {
-      const res = await fetch(`/api/calendar/${event.id}/forward`, {
+      const res = await fetch(`/api/calendar/${encodeURIComponent(event.id)}/forward`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ emails }),
@@ -405,12 +420,12 @@ function EventDetailPopover({
           {/* Shared failure notice for RSVP / reply / forward. Without this the
               error state would exist but never reach the user — the same silent
               failure in a new costume. role=alert so it is announced. */}
-          {actionError && (
+          {(actionError || deleteError) && (
             <p
               role="alert"
               className="rounded-xl border border-[var(--w-stamp)] bg-[var(--w-flimsy)] px-3 py-2 text-[13px] text-[color:var(--w-stamp)]"
             >
-              {actionError}
+              {actionError || deleteError}
             </p>
           )}
 
@@ -836,8 +851,11 @@ function SmartSlotPicker({
               <div className="flex flex-wrap gap-1.5">
                 {slots.map((slot) => {
                   // Slot has UTC ISO start; surface date + HH:MM in local time.
+                  // The date must come from the same (local) clock as the time:
+                  // toISOString() gave the UTC day, so a 7pm slot in New York
+                  // filled in tomorrow's date (G10).
                   const dt = new Date(slot.start);
-                  const dateStr = dt.toISOString().slice(0, 10);
+                  const dateStr = localDay(dt);
                   const startTime = dt.toLocaleTimeString("en-GB", {
                     hour: "2-digit",
                     minute: "2-digit",
@@ -876,6 +894,7 @@ function EditModal({
   deleting,
   contacts,
   onChange,
+  error,
 }: {
   state: EditState;
   onClose: () => void;
@@ -885,6 +904,8 @@ function EditModal({
   deleting: boolean;
   contacts: ContactOption[];
   onChange: (patch: Partial<EditState>) => void;
+  /** Why the last save or delete failed — the modal stays open to show it. */
+  error?: string | null;
 }) {
   const isNew = state.eventId === null;
   const endMin  = timeToMin(state.startTime) + state.durationMin;
@@ -1025,6 +1046,15 @@ function EditModal({
           )}
         </div>
 
+        {error && (
+          <p
+            role="alert"
+            className="rounded-xl border border-[var(--w-stamp)] bg-[var(--w-flimsy)] px-3 py-2 text-[13px] text-[color:var(--w-stamp)]"
+          >
+            {error}
+          </p>
+        )}
+
         <div className="flex flex-wrap items-center gap-2 pt-1">
           <button
             type="button"
@@ -1072,6 +1102,9 @@ export function DayView({
   const [detailEvent, setDetailEvent] = useState<DayEvent | null>(null);
   const [saving, setSaving]     = useState(false);
   const [deleting, setDeleting] = useState(false);
+  // Save / cancel / drag failures used to look like success: fetch() does not
+  // reject on a 4xx/5xx, and the modal closed either way.
+  const [actionError, setActionError] = useState<string | null>(null);
 
   // Contacts for the attendees autocomplete in the edit/create modal.
   // Fetched once when the modal first opens — not on mount, to keep DayView
@@ -1096,6 +1129,7 @@ export function DayView({
 
   // ── Open detail popover ───────────────────────────────────────────────────
   const openDetail = useCallback((event: DayEvent) => {
+    setActionError(null);
     setDetailEvent(event);
   }, []);
 
@@ -1103,13 +1137,20 @@ export function DayView({
   const openEdit = useCallback((event: DayEvent) => {
     const { startMin, endMin } = parseEventTimes(event);
     setDetailEvent(null);
+    setActionError(null);
+    // Pre-fill with addresses: event.attendees are display names, and saving
+    // names back as guests made Google reject every edit.
+    const guests = event.attendeeDetails
+      ? event.attendeeDetails.filter((g) => g.email).map((g) => (g.name ? `${g.name} <${g.email}>` : g.email)).join(", ")
+      : event.attendees.join(", ");
     setEditState({
       eventId: event.id,
       title: event.summary,
       date,
       startTime: minToTime(startMin),
       durationMin: Math.max(MIN_DURATION, endMin - startMin),
-      attendees: event.attendees.join(", "),
+      attendees: guests,
+      originalAttendees: guests,
       // Existing events already have whatever link they have — show it as a
       // pre-filled value so the user can clear or replace it.
       addVideoCall: !!event.videoLink,
@@ -1119,6 +1160,7 @@ export function DayView({
 
   const openNew = useCallback((clickMin?: number) => {
     setDetailEvent(null);
+    setActionError(null);
     const startMin = clamp(
       snapMin(clickMin ?? 9 * 60),
       GRID_START_H * 60,
@@ -1131,6 +1173,7 @@ export function DayView({
       startTime: minToTime(startMin),
       durationMin: 30,
       attendees: "",
+      originalAttendees: "",
       // Default to OFF — opt-in instead of auto-attaching a stale Zoom link.
       addVideoCall: false,
       videoLink: "",
@@ -1198,8 +1241,9 @@ export function DayView({
 
     if (noChange) return;
 
+    setActionError(null);
     try {
-      await fetch(`/api/calendar/${savedDrag.eventId}`, {
+      const res = await fetch(`/api/calendar/${encodeURIComponent(savedDrag.eventId)}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -1207,24 +1251,30 @@ export function DayView({
           duration:  savedPos.endMin - savedPos.startMin,
         }),
       });
-      onRefresh();
+      if (!res.ok) setActionError(`The move was not saved: ${await failureMessage(res, "Update")}`);
     } catch {
-      // silent — event snaps back on refresh
+      setActionError("The move was not saved — check your connection.");
     }
+    onRefresh(); // the event snaps back on a failed save
   }, [drag, dragPos, events, openDetail, onRefresh]);
 
   // ── Save / delete handlers ─────────────────────────────────────────────────
   const handleSave = async () => {
     if (!editState) return;
     setSaving(true);
+    setActionError(null);
     try {
-      const attendeeList = editState.attendees
-        .split(",")
-        .map((s) => s.trim())
-        .filter(Boolean);
+      // "Name <email>" (the autocomplete's form) → the address Google needs.
+      const { emails: attendeeList, bad } = parseAttendees(editState.attendees);
+      const guestsChanged = editState.attendees.trim() !== editState.originalAttendees.trim();
+      if (bad.length && (guestsChanged || !editState.eventId)) {
+        setActionError(`Not an email address: ${bad.join(", ")}`);
+        return;
+      }
 
+      let res: Response;
       if (editState.eventId) {
-        await fetch(`/api/calendar/${editState.eventId}`, {
+        res = await fetch(`/api/calendar/${encodeURIComponent(editState.eventId)}`, {
           method: "PATCH",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
@@ -1232,7 +1282,8 @@ export function DayView({
             date:      editState.date,
             startTime: editState.startTime,
             duration:  editState.durationMin,
-            attendees: attendeeList,
+            // Sent only when edited — the list replaces every guest.
+            ...(guestsChanged ? { attendees: attendeeList } : {}),
           }),
         });
       } else {
@@ -1241,7 +1292,7 @@ export function DayView({
         //   - User ticked "Add video call" with no URL → ask Google Meet auto-gen
         //   - Neither → no video attached (default)
         const trimmedLink = editState.videoLink.trim();
-        await fetch("/api/calendar/create", {
+        res = await fetch("/api/calendar/create", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
@@ -1255,22 +1306,38 @@ export function DayView({
           }),
         });
       }
+      if (!res.ok) {
+        setActionError(await failureMessage(res, editState.eventId ? "Saving" : "Creating"));
+        return; // keep the modal open with what the user typed
+      }
       setEditState(null);
       onRefresh();
+    } catch {
+      setActionError("Not saved — check your connection and try again.");
     } finally {
       setSaving(false);
     }
   };
 
-  const handleDelete = async (eventId?: string) => {
+  const handleDelete = async (eventId?: string, title?: string) => {
     const id = eventId ?? editState?.eventId;
     if (!id) return;
+    // One click used to cancel the meeting for every guest.
+    const name = title ?? editState?.title ?? "this meeting";
+    if (!window.confirm(`Cancel "${name}"? Everyone invited will be told it is cancelled.`)) return;
     setDeleting(true);
+    setActionError(null);
     try {
-      await fetch(`/api/calendar/${id}`, { method: "DELETE" });
+      const res = await fetch(`/api/calendar/${encodeURIComponent(id)}`, { method: "DELETE" });
+      if (!res.ok) {
+        setActionError(await failureMessage(res, "Cancelling"));
+        return;
+      }
       setEditState(null);
       setDetailEvent(null);
       onRefresh();
+    } catch {
+      setActionError("The meeting was not cancelled — check your connection and try again.");
     } finally {
       setDeleting(false);
     }
@@ -1328,6 +1395,13 @@ export function DayView({
           <Plus className="h-3.5 w-3.5 text-[color:var(--w-carbon)]" /> Add event
         </button>
       </div>
+
+      {/* A failed drag-save (the event has snapped back) — say so. */}
+      {actionError && !editState && !detailEvent && (
+        <p role="alert" className="shrink-0 border-b border-[var(--w-stamp)] px-4 py-2 text-[13px] text-[color:var(--w-stamp)] sm:px-6">
+          {actionError}
+        </p>
+      )}
 
       {/* Time grid */}
       <div ref={scrollContainerRef} className="flex-1 overflow-y-auto min-h-0">
@@ -1405,11 +1479,12 @@ export function DayView({
       {detailEvent && (
         <EventDetailPopover
           event={detailEvent}
-          onClose={() => setDetailEvent(null)}
+          onClose={() => { setDetailEvent(null); setActionError(null); }}
           onEdit={() => openEdit(detailEvent)}
-          onDelete={() => handleDelete(detailEvent.id)}
+          onDelete={() => handleDelete(detailEvent.id, detailEvent.summary)}
           onResponded={onRefresh}
           deleting={deleting}
+          deleteError={actionError}
         />
       )}
 
@@ -1418,12 +1493,13 @@ export function DayView({
         <EditModal
           state={editState}
           onChange={(patch) => setEditState((s) => s ? { ...s, ...patch } : s)}
-          onClose={() => setEditState(null)}
+          onClose={() => { setEditState(null); setActionError(null); }}
           onSave={handleSave}
           onDelete={() => handleDelete()}
           saving={saving}
           deleting={deleting}
           contacts={contacts}
+          error={actionError}
         />
       )}
     </div>

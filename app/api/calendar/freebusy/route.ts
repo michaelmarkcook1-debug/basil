@@ -14,14 +14,19 @@
  *   maxSlots?: number            // default 8
  * }
  *
- * Returns: { slots: SlotSuggestion[] }
+ * Returns: { slots: SlotSuggestion[] }, or { slots: [], calendarUnavailable: true }
+ * when the owner's own calendar could not be read — never slots that may sit
+ * on top of meetings it could not see (B5).
+ *
+ * Reads every connected calendar (Google and/or Microsoft 365). The owner's
+ * window is their settings workStart–workEnd; attendees are assumed 09:00–17:00.
  */
 
 import { NextResponse } from "next/server";
 import { getSessionUser } from "@/lib/auth";
-import { isGoogleConnected } from "@/lib/google/auth";
-import { getEventsForDateRange } from "@/lib/google/calendar";
-import { fetchAndFindSlots } from "@/lib/calendar/find-slots";
+import { connectedCalendars, describeProviders, readCalendar, type UnifiedCalendar } from "@/lib/calendar/unified";
+import { fetchAndFindSlots, hoursFromHHMM } from "@/lib/calendar/find-slots";
+import { dayIn } from "@/lib/away/calendar";
 import { listUserContacts } from "@/lib/contacts/user-store";
 import { findContactByName } from "@/lib/contacts-lookup";
 import { getSettings } from "@/lib/settings/store";
@@ -31,9 +36,10 @@ export async function POST(req: Request) {
   const username = await getSessionUser();
   if (!username) return NextResponse.json({ error: "Unauthorised" }, { status: 401 });
 
-  if (!(await isGoogleConnected(username))) {
+  const connected = await connectedCalendars(username);
+  if (connected.length === 0) {
     return NextResponse.json(
-      { error: "Google Calendar not connected", slots: [] },
+      { error: "No calendar connected", slots: [] },
       { status: 200 } // soft-fail: caller falls back to "no suggestions"
     );
   }
@@ -83,12 +89,30 @@ export async function POST(req: Request) {
   });
 
   // ── Owner's existing events for the window ─────────────────────────────────
-  // Using getEventsForDateRange (not freebusy) so Focus/Reclaim holds count.
-  const startDate = windowStart.toISOString().slice(0, 10);
-  const endDate   = windowEnd.toISOString().slice(0, 10);
-  const myEvents = await getEventsForDateRange(username, startDate, endDate, userTimezone).catch(() => []);
-  const userBusy = myEvents
-    .filter((e) => !e.isAllDay)
+  // Reading the events (not freebusy) so Focus/Reclaim holds count. The days
+  // are the owner's local days: the UTC date cut the window a day short for
+  // anyone ahead of UTC late in the evening, or behind it early.
+  const startDate = dayIn(windowStart.getTime(), userTimezone);
+  const endDate   = dayIn(windowEnd.getTime(), userTimezone);
+  let mine: UnifiedCalendar;
+  try {
+    mine = await readCalendar(username, { from: startDate, to: endDate }, userTimezone, { providers: connected });
+  } catch (err) {
+    mine = { events: [], providers: [], degraded: connected.map((provider) => ({ provider, error: err instanceof Error ? err.message : String(err) })), clashes: [] };
+  }
+  if (mine.degraded.length > 0) {
+    // A failed read used to become "free all day" and suggest slots on top of
+    // real meetings. Unknown is not free.
+    return NextResponse.json({
+      error: `Could not read your ${describeProviders(mine.degraded)}, so free times are unknown.`,
+      calendarUnavailable: true,
+      degraded: mine.degraded,
+      slots: [],
+      userTimezone,
+    });
+  }
+  const userBusy = mine.events
+    .filter((e) => !e.isAllDay && e.myResponseStatus !== "declined")
     .map((e) => ({ start: e.start, end: e.end }));
 
   try {
@@ -100,6 +124,8 @@ export async function POST(req: Request) {
       userBusy,
       userTimezone,
       maxSlots,
+      ownerWorkStart: hoursFromHHMM(settings?.workStart, 9),
+      ownerWorkEnd: hoursFromHHMM(settings?.workEnd, 17),
     });
 
     return NextResponse.json({ slots, userTimezone });

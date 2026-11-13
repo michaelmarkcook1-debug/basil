@@ -97,6 +97,20 @@ export function usePersistentDraft<T>(
   const writeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const savedTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
+  // The debounced write that has not landed yet, with the key it belongs to.
+  // Switching entity used to cancel it — an edit made in the last 400 ms before
+  // selecting another item was dropped. It is now flushed to its OWN key before
+  // the new key loads (and on unmount).
+  const pendingRef = useRef<{ key: string; value: T } | null>(null);
+  const flushPending = useCallback(() => {
+    const p = pendingRef.current;
+    pendingRef.current = null;
+    if (!p || typeof window === "undefined") return;
+    try {
+      window.localStorage.setItem(p.key, JSON.stringify(p.value));
+    } catch { /* localStorage full or unavailable */ }
+  }, []);
+
   // ── Public setDraft — marks dirty ────────────────────────────────────────────
   const setDraft = useCallback<Dispatch<SetStateAction<T>>>((action) => {
     isDirtyRef.current = true;
@@ -106,6 +120,9 @@ export function usePersistentDraft<T>(
   // ── Load from storage (mount + entityId / key change) ────────────────────────
   useEffect(() => {
     if (typeof window === "undefined") return;
+    // Land the previous key's pending edit before reading the new key.
+    if (writeTimerRef.current) { clearTimeout(writeTimerRef.current); writeTimerRef.current = null; }
+    flushPending();
     isDirtyRef.current = false; // loading is not a user edit
     try {
       const stored = window.localStorage.getItem(storageKey);
@@ -114,17 +131,26 @@ export function usePersistentDraft<T>(
       _setDraft(defaultRef.current);
     }
    
-  }, [storageKey]); // re-runs when entityId or username changes → different storageKey
+  }, [storageKey, flushPending]); // re-runs when entityId or username changes → different storageKey
+
+  // Unmount (navigating away inside the debounce window) — land the edit too.
+  useEffect(() => () => flushPending(), [flushPending]);
 
   // ── Debounced write (only when dirty) ────────────────────────────────────────
   useEffect(() => {
     if (!isDirtyRef.current) return;
     if (typeof window === "undefined") return;
 
+    // Bind the value to the key it was typed under, now — not when the timer
+    // fires, by which time the key may be another entity's.
+    pendingRef.current = { key: storageKeyRef.current, value: draft };
     if (writeTimerRef.current) clearTimeout(writeTimerRef.current);
     writeTimerRef.current = setTimeout(() => {
+      const p = pendingRef.current;
+      pendingRef.current = null;
+      if (!p) return;
       try {
-        window.localStorage.setItem(storageKeyRef.current, JSON.stringify(draft));
+        window.localStorage.setItem(p.key, JSON.stringify(p.value));
         setDraftSaved(true);
         if (savedTimerRef.current) clearTimeout(savedTimerRef.current);
         savedTimerRef.current = setTimeout(() => setDraftSaved(false), 2500);
@@ -143,6 +169,7 @@ export function usePersistentDraft<T>(
   const clearDraft = useCallback(() => {
     if (writeTimerRef.current) clearTimeout(writeTimerRef.current);
     if (savedTimerRef.current) clearTimeout(savedTimerRef.current);
+    pendingRef.current = null; // a later flush must not resurrect a cleared draft
     if (typeof window !== "undefined") {
       try {
         window.localStorage.removeItem(storageKeyRef.current);

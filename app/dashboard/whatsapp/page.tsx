@@ -87,7 +87,15 @@ export default function WhatsAppPage() {
   const [search, setSearch] = useState("");
   const [importing, setImporting] = useState(false);
   const [importPreview, setImportPreview] = useState<{ added: number; updated?: number; unresolved?: number } | null>(null);
-  const [profileProgress, setProfileProgress] = useState<{ done: number; total: number } | null>(null);
+  // A failed contact import used to set importPreview { added: 0 } — a green
+  // tick reading "All contacts already up to date".
+  const [importError, setImportError] = useState<string | null>(null);
+  // `ok` counts profiles actually generated and saved; `done` counts attempts.
+  const [profileProgress, setProfileProgress] = useState<{ done: number; total: number; ok: number } | null>(null);
+  // startImport: in flight (no double start) and its failure message.
+  const [starting, setStarting] = useState(false);
+  const startingRef = useRef(false);
+  const [startError, setStartError] = useState<string | null>(null);
   const pollRef = useRef<number | null>(null);
   // Track when Start import was clicked so we can show an error if status never
   // leaves "idle" within 10 seconds (indicates the after() task crashed silently).
@@ -187,14 +195,34 @@ export default function WhatsAppPage() {
   }, [loadSnapshot, loadStatus]);
 
   const startImport = useCallback(async () => {
+    // A second click while the first POST is in flight started a second dump.
+    if (startingRef.current) return;
+    startingRef.current = true;
+    setStarting(true);
+    setStartError(null);
     setImportPreview(null);
+    setImportError(null);
     setStickyQrUrl(null);
     setIdleTimeoutError(false);
     lastQrUrlRef.current = null;
     importStartedAtRef.current = Date.now();
 
-    const res = await fetch("/api/whatsapp/dump", { method: "POST" });
-    const initData = await res.json() as { status?: DumpStatus; jobId?: string };
+    // No error handling here before: a 500 or a network failure was an
+    // unhandled rejection and the page just sat there.
+    let initData: { status?: DumpStatus; jobId?: string };
+    try {
+      const res = await fetch("/api/whatsapp/dump", { method: "POST" });
+      if (!res.ok) throw new Error(`dump ${res.status}`);
+      initData = await res.json() as { status?: DumpStatus; jobId?: string };
+    } catch (err) {
+      console.warn("[whatsapp] start import failed:", err);
+      importStartedAtRef.current = null;
+      setStartError("The import did not start. Try again.");
+      return;
+    } finally {
+      startingRef.current = false;
+      setStarting(false);
+    }
     // Store the jobId so subsequent status polls include it for stale-instance filtering.
     jobIdRef.current = initData.jobId ?? null;
     // Apply the POST response immediately — authoritative from the instance that started the dump.
@@ -265,6 +293,7 @@ export default function WhatsAppPage() {
 
   const importToPersonalContacts = useCallback(async () => {
     setImporting(true);
+    setImportError(null);
     setProfileProgress(null);
     try {
       // ── Server-side import ───────────────────────────────────────────────
@@ -327,10 +356,11 @@ export default function WhatsAppPage() {
         .slice(0, AUTO_PROFILE_LIMIT);
 
       if (toProfile.length === 0) return;
-      setProfileProgress({ done: 0, total: toProfile.length });
+      setProfileProgress({ done: 0, total: toProfile.length, ok: 0 });
 
       const BATCH = 3;
       let done = 0;
+      let ok = 0;
       for (let i = 0; i < toProfile.length; i += BATCH) {
         const batch = toProfile.slice(i, i + BATCH);
         await Promise.all(
@@ -355,13 +385,14 @@ export default function WhatsAppPage() {
                     recentActivity:    profile.recentActivity,
                     activitySource:    profile.activitySource || "WhatsApp",
                   });
+                  ok++; // only a profile that was generated AND saved counts
                 }
               }
             } catch {
               // Profile gen failure is non-fatal — contact already saved
             } finally {
               done++;
-              setProfileProgress({ done, total: toProfile.length });
+              setProfileProgress({ done, total: toProfile.length, ok });
             }
           })
         );
@@ -369,7 +400,9 @@ export default function WhatsAppPage() {
 
     } catch (e) {
       console.error("Import to personal contacts failed:", e);
-      setImportPreview({ added: 0 });
+      // Not { added: 0 } — that rendered a green "All contacts already up to date".
+      setImportPreview(null);
+      setImportError("Contacts were not imported. Try again.");
       setImporting(false);
     }
   }, []);
@@ -381,15 +414,22 @@ export default function WhatsAppPage() {
       return;
     }
     setChatLoading(true);
+    // A slow response for the previously selected chat used to land after the
+    // new one and show the wrong conversation; a failed load left the old chat
+    // on screen. Abort on change and replace (never keep) the chat.
+    const controller = new AbortController();
     fetch(`/api/whatsapp/snapshot?chatId=${encodeURIComponent(selectedChatId)}`, {
       cache: "no-store",
+      signal: controller.signal,
     })
-      .then((r) => r.json())
+      .then((r) => { if (!r.ok) throw new Error(`snapshot ${r.status}`); return r.json(); })
       .then((data) => {
-        if (data.chat) setChat(data.chat);
+        if (controller.signal.aborted) return;
+        setChat(data.chat ?? null);
       })
-      .catch(() => setChat(null))
-      .finally(() => setChatLoading(false));
+      .catch(() => { if (!controller.signal.aborted) setChat(null); })
+      .finally(() => { if (!controller.signal.aborted) setChatLoading(false); });
+    return () => controller.abort();
   }, [selectedChatId]);
 
   const filteredChats = useMemo(() => {
@@ -445,6 +485,7 @@ export default function WhatsAppPage() {
                 variant={snapshot ? "outline" : "default"}
                 size="sm"
                 onClick={startImport}
+                disabled={starting}
                 className={`gap-1.5 ${!snapshot ? "bg-[var(--w-carbon)] text-white hover:bg-[var(--w-ink)]" : ""}`}
               >
                 {snapshot ? (
@@ -469,6 +510,12 @@ export default function WhatsAppPage() {
           )}
         </div>
       </header>
+
+      {startError && (
+        <p role="alert" className="rounded-lg border border-destructive/40 bg-destructive/5 px-4 py-2.5 text-sm text-destructive">
+          {startError}
+        </p>
+      )}
 
       {/* Safety note — always shown above the action area */}
       <div className="rounded-xl ring-1 ring-signal-warning/30 bg-signal-warning-subtle p-4 flex gap-3 items-start">
@@ -546,7 +593,7 @@ export default function WhatsAppPage() {
                       <AlertTriangle className="h-4 w-4 shrink-0" />
                       QR expired — a fresh one should appear shortly. If not, restart the import.
                     </div>
-                    <Button size="sm" variant="outline" onClick={startImport} className="gap-1.5 border-signal-warning-border text-signal-warning hover:bg-signal-warning-subtle">
+                    <Button size="sm" variant="outline" onClick={startImport} disabled={starting} className="gap-1.5 border-signal-warning-border text-signal-warning hover:bg-signal-warning-subtle">
                       <RefreshCw className="h-3.5 w-3.5" />
                       Get a new QR
                     </Button>
@@ -616,7 +663,7 @@ export default function WhatsAppPage() {
                 {status.error || "Something went wrong during the import."}
               </p>
               <div className="flex gap-2 mt-3">
-                <Button size="sm" onClick={startImport} className="gap-1.5">
+                <Button size="sm" onClick={startImport} disabled={starting} className="gap-1.5">
                   <RefreshCw className="h-3.5 w-3.5" />
                   Try again
                 </Button>
@@ -729,7 +776,9 @@ export default function WhatsAppPage() {
                       <span className="text-xs text-muted-foreground">
                         {profileProgress.done < profileProgress.total
                           ? `Profiling ${profileProgress.done}/${profileProgress.total}…`
-                          : `${profileProgress.total} profiles generated ✓`}
+                          : profileProgress.ok === profileProgress.total
+                            ? `${profileProgress.total} profiles generated ✓`
+                            : `${profileProgress.ok} of ${profileProgress.total} profiles generated`}
                       </span>
                       <div className="w-full h-1 rounded-full bg-muted overflow-hidden">
                         <div
@@ -741,6 +790,10 @@ export default function WhatsAppPage() {
                   )}
                 </div>
               ) : (
+                <>
+                {importError && (
+                  <span role="alert" className="text-xs text-destructive">{importError}</span>
+                )}
                 <Button
                   size="sm"
                   variant="outline"
@@ -756,6 +809,7 @@ export default function WhatsAppPage() {
                   )}
                   {importing ? "Importing…" : "Add to Personal contacts"}
                 </Button>
+                </>
               )}
             </div>
           </div>

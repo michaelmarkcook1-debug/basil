@@ -26,6 +26,8 @@ import { generateTextSafe } from "@/lib/ai/generate";
 import { getTextModel } from "@/lib/ai/model-config";
 import { parseAndValidate } from "@/lib/ai/parse-json";
 import { getSettings } from "@/lib/settings/store";
+import { getPrivacyOrClosed } from "@/lib/privacy/store";
+import { profilingAllowed } from "@/lib/privacy/rules";
 import { baselineOf, recentSignals, confidenceOf, describeSignals, type Baseline, type RecentSignals, type Confidence } from "@/lib/contacts/relationship-signals";
 
 const FILE = "contact-sentiment.json";
@@ -200,8 +202,26 @@ export async function toneSentimentEnabled(username: string): Promise<boolean> {
   return (await getSettings(username)).toneSentiment !== false;
 }
 
+/** Every stored read, without people the user excluded (lib/privacy). */
 export async function listSentiment(username: string): Promise<Store> {
-  return readUserStore<Store>(username, FILE, {});
+  const [all, privacy] = await Promise.all([readUserStore<Store>(username, FILE, {}), getPrivacyOrClosed(username)]);
+  if (!privacy.profiling) return {};
+  const out: Store = {};
+  for (const [id, s] of Object.entries(all)) if (profilingAllowed(privacy, id)) out[id] = s;
+  return out;
+}
+
+/** Delete the stored read for a contact. True when one was removed. */
+export async function forgetSentiment(username: string, contactId: string): Promise<boolean> {
+  let removed = false;
+  await updateUserStore<Store>(username, FILE, (cur) => {
+    if (!cur[contactId]) return cur;
+    removed = true;
+    const next = { ...cur };
+    delete next[contactId];
+    return next;
+  }, {}, { allowShrink: true });
+  return removed;
 }
 
 /**
@@ -230,6 +250,8 @@ export async function assessRelationship(
   opts: { force?: boolean; sources?: InteractionSources; shifts?: ToneObservation[]; selfNames?: string[]; judge?: SentimentJudge; now?: number } = {},
 ): Promise<{ sentiment: RelationshipSentiment | null; interactions: number }> {
   const now = opts.now ?? Date.now();
+  // People profiles off, or this person excluded: nothing is read or judged.
+  if (!profilingAllowed(await getPrivacyOrClosed(username), contact.id)) return { sentiment: null, interactions: 0 };
   // A read from the last day stands — answer before gathering 30 days of Slack
   // and Gmail (opening a profile took seconds for a read already on file).
   if (!opts.force && !opts.sources) {
@@ -304,11 +326,14 @@ export function isOldFormat(prev: { confidence?: unknown }): boolean {
 /** Re-read every relationship with something new (once a day each, bounded), and any old-format read. Returns how many were re-judged. */
 export async function refreshStaleSentiment(username: string, max = 8, now = Date.now()): Promise<number> {
   if (!(await toneSentimentEnabled(username))) return 0;
-  const [contacts, sources, identity, overrides, stored] = await Promise.all([
+  const privacy = await getPrivacyOrClosed(username);
+  if (!privacy.profiling) return 0;
+  const [allContacts, sources, identity, overrides, stored] = await Promise.all([
     listUserContacts(username), loadInteractionSources(username), getSelfIdentity(username),
     getAllOverridesFromStore(username).catch(() => ({} as Record<string, { toneHistory?: ToneObservation[] }>)),
     listSentiment(username),
   ]);
+  const contacts = allContacts.filter((c) => profilingAllowed(privacy, c.id));
   const stale = contacts.filter((c) => {
     const ix = interactionsWith(c, sources, identity.names, now);
     const prev = stored[c.id];

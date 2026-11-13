@@ -1,9 +1,12 @@
 "use client";
 
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import { AIPlatformsSection } from "./components/ai-platforms-section";
 import { HealthPanel } from "./components/health-panel";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { TimeAwayCard } from "@/components/settings/time-away-card";
+import { NotificationsCard } from "@/components/settings/notifications-card";
+import { PeopleProfilesCard } from "@/components/settings/people-profiles-card";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -11,6 +14,7 @@ import { Separator } from "@/components/ui/separator";
 import { Input } from "@/components/ui/input";
 import type { IntegrationStatus, IntegrationState } from "@/lib/integrations/types";
 import { clearSessionUsername } from "@/lib/session-user";
+import { settingsDraftDirty, shouldAdoptServerSettings } from "@/lib/dashboard/reliability";
 import type { ReadinessReport } from "@/lib/readiness";
 import {
   AlertTriangle,
@@ -989,6 +993,9 @@ export default function SettingsPage() {
   const [readiness, setReadiness] = useState<ReadinessBannerData | null>(null);
   const [_profile, setProfile] = useState<UserSettings | null>(null);
   const [draft, setDraft] = useState<UserSettings | null>(null);
+  // The last server copy, for telling whether the draft has unsaved edits.
+  const savedProfileRef = useRef<UserSettings | null>(null);
+  useEffect(() => { savedProfileRef.current = _profile; }, [_profile]);
   const [loading, setLoading] = useState(true);
   const [notice, setNotice] = useState<{ type: "success" | "error"; message: string } | null>(null);
   const [copied, setCopied] = useState<string | null>(null);
@@ -1056,8 +1063,13 @@ export default function SettingsPage() {
 
       if (settingsRes.ok) {
         const data = await settingsRes.json() as UserSettings;
+        // Sync now / Refresh / Disconnect call loadAll too. Replacing the
+        // draft unconditionally discarded unsaved edits to name, timezone or
+        // briefing delivery (G6): only adopt the server copy when the form
+        // has not been edited.
+        const saved = savedProfileRef.current;
         setProfile(data);
-        setDraft(data);
+        setDraft((prev) => (shouldAdoptServerSettings(prev, settingsDraftDirty(prev, saved)) ? data : prev));
       }
 
       if (stigRes.ok) {
@@ -1687,6 +1699,9 @@ export default function SettingsPage() {
               </Button>
             </CardContent>
           </Card>
+          <TimeAwayCard />
+          <NotificationsCard />
+          <PeopleProfilesCard />
         </TabsContent>
 
         {/* ── Security ──────────────────────────────────────────────────────── */}

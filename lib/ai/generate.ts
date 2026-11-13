@@ -35,7 +35,7 @@ import {
   type SpendMeter,
   type SpendReservation,
 } from "@/lib/ai/spend-guard";
-import { costUsd } from "@/lib/ai/pricing";
+import { costUsd, type TokenUsage } from "@/lib/ai/pricing";
 
 // ── The reservation is a ceiling ──────────────────────────────────────────────
 //
@@ -112,16 +112,68 @@ const ATTEMPT_TIMEOUT_BY_KIND: Record<ModelKind, number> = {
   // under budget, while giving a legitimately-long prep/briefing 33% more room.
   long: 120_000,
 };
-function attemptTimeoutMs(kind: ModelKind): number {
+/** The per-attempt ceiling for a tier. Exported so generate-validated applies
+ *  the same ceilings to its own generateText calls. */
+export function attemptTimeoutMs(kind: ModelKind): number {
   return ATTEMPT_TIMEOUT_OVERRIDE_MS || ATTEMPT_TIMEOUT_BY_KIND[kind];
 }
 
-/** An abort signal that fires after the tier's per-attempt ceiling, combined
- *  with any caller-supplied signal so both a caller cancel AND the timeout
- *  abort the attempt. */
-function attemptSignal(kind: ModelKind, caller?: AbortSignal): AbortSignal {
-  const timeout = AbortSignal.timeout(attemptTimeoutMs(kind));
+/** An abort signal that fires after the tier's per-attempt ceiling (or the
+ *  caller's own ceiling, sized to its route), combined with any caller-supplied
+ *  signal so both a caller cancel AND the timeout abort the attempt. */
+function attemptSignal(kind: ModelKind, caller?: AbortSignal, ceilingMs?: number): AbortSignal {
+  const timeout = AbortSignal.timeout(ceilingMs ?? attemptTimeoutMs(kind));
   return caller ? AbortSignal.any([caller, timeout]) : timeout;
+}
+
+// ── Progress: no cross-provider replay once anything has run ──────────────────
+//
+// A tool loop that fails AFTER a step completed — or after an approved tool ran
+// (approved tools execute before the first model step) — must not be replayed
+// on the fallback provider: the replay runs the tools again, so an approved
+// "send email" went out twice (2026-11-10 bug pass, A7). And the steps that did
+// complete were paid for, so the reservation is settled at their usage instead
+// of being refunded in full (D5).
+
+/** Thrown when an attempt fails after it made progress. Not retried. */
+export class GenerationAfterProgressError extends Error {
+  readonly afterProgress = true;
+  constructor(
+    readonly stepsCompleted: number,
+    readonly toolCallsStarted: number,
+    readonly underlying: unknown,
+  ) {
+    const msg = underlying instanceof Error ? underlying.message : String(underlying);
+    super(
+      `[ai/generate] failed after ${stepsCompleted} completed step(s) and ${toolCallsStarted} tool call(s); ` +
+      `not retried on another provider so no tool runs twice. Cause: ${msg.slice(0, 200)}`,
+    );
+    this.name = "GenerationAfterProgressError";
+  }
+}
+
+/** Sum two usages field by field (the SDK's totalUsage exists only on success). */
+function addUsage(a: TokenUsage, b: TokenUsage | undefined): TokenUsage {
+  if (!b) return a;
+  const n = (x?: number) => x ?? 0;
+  return {
+    inputTokens: n(a.inputTokens) + n(b.inputTokens),
+    outputTokens: n(a.outputTokens) + n(b.outputTokens),
+    inputTokenDetails: {
+      cacheReadTokens: n(a.inputTokenDetails?.cacheReadTokens) + n(b.inputTokenDetails?.cacheReadTokens),
+      cacheWriteTokens: n(a.inputTokenDetails?.cacheWriteTokens) + n(b.inputTokenDetails?.cacheWriteTokens),
+    },
+  };
+}
+
+export interface GenerateSafeOptions {
+  /**
+   * Per-attempt ceiling in ms, replacing the tier's. For a caller whose call
+   * is a multi-step tool loop on a long route (mobile chat): the tier ceilings
+   * are sized for one model call, and aborting a tool loop part-way is exactly
+   * what used to trigger the replay above.
+   */
+  attemptTimeoutMs?: number;
 }
 
 function isFallbackWorthTrying(err: unknown): boolean {
@@ -164,7 +216,8 @@ export type StreamTextOptions =
 export async function generateTextSafe(
   options: GenerateTextOptions,
   kind: ModelKind = "default",
-  meter?: SpendMeter
+  meter?: SpendMeter,
+  safe: GenerateSafeOptions = {},
 ): Promise<Awaited<ReturnType<typeof generateText>>> {
   const primaryModel = options.model ?? getTextModel(kind);
 
@@ -177,11 +230,42 @@ export async function generateTextSafe(
     (spent) => console.warn(`[ai/generate] BUDGET-STOPPED (${kind}): loop reached its $${reservation?.reservedUsd.toFixed(2)} reservation at $${spent.toFixed(3)}`),
   );
 
+  // Progress and paid usage across attempts. The caller's own callbacks still
+  // run; these only count what happened.
+  type Progress = { steps: number; tools: number };
+  let paid: TokenUsage = {};
+  let paidSteps = 0;
+  const callerOnStepFinish = (options as { onStepFinish?: (step: never) => unknown }).onStepFinish;
+  const callerOnToolCallStart = (options as { experimental_onToolCallStart?: (event: never) => unknown }).experimental_onToolCallStart;
+  const instrumented = (model: LanguageModel, progress: Progress) => ({
+    ...options,
+    model,
+    stopWhen,
+    abortSignal: attemptSignal(kind, options.abortSignal, safe.attemptTimeoutMs),
+    onStepFinish: async (step: { usage?: TokenUsage }) => {
+      progress.steps++;
+      paidSteps++;
+      paid = addUsage(paid, step.usage);
+      await callerOnStepFinish?.(step as never);
+    },
+    experimental_onToolCallStart: async (event: unknown) => {
+      progress.tools++;
+      await callerOnToolCallStart?.(event as never);
+    },
+  // Cast: model is always supplied here; the relaxed wrapper type (model
+  // optional) doesn't narrow the SDK's prompt|messages union, so re-assert it.
+  }) as Parameters<typeof generateText>[0];
+  /** Failure settlement: completed steps were paid for — commit them; otherwise refund. */
+  const settleFailure = async () => {
+    if (!reservation) return;
+    if (paidSteps > 0) await commitSpend(reservation, paid);
+    else await releaseSpend(reservation);
+  };
+
   // ── Attempt 1: primary ────────────────────────────────────────────────────
+  const primaryProgress: Progress = { steps: 0, tools: 0 };
   try {
-    // Cast: model is always supplied here; the relaxed wrapper type (model
-    // optional) doesn't narrow the SDK's prompt|messages union, so re-assert it.
-    const result = await generateText({ ...options, model: primaryModel, stopWhen, abortSignal: attemptSignal(kind, options.abortSignal) } as Parameters<typeof generateText>[0]);
+    const result = await generateText(instrumented(primaryModel, primaryProgress));
     // totalUsage spans every step of a tool loop; usage is the final step only.
     if (reservation) await commitSpend(reservation, result.totalUsage ?? result.usage);
     return result;
@@ -189,6 +273,10 @@ export async function generateTextSafe(
     const msg = primaryErr instanceof Error ? primaryErr.message : String(primaryErr);
     console.warn(`[ai/generate] Primary model failed (${kind}): ${msg.slice(0, 200)}`);
 
+    if (primaryProgress.steps > 0 || primaryProgress.tools > 0) {
+      await settleFailure();
+      throw new GenerationAfterProgressError(primaryProgress.steps, primaryProgress.tools, primaryErr);
+    }
     if (!isFallbackWorthTrying(primaryErr)) {
       if (reservation) await releaseSpend(reservation);
       throw primaryErr;
@@ -229,19 +317,26 @@ export async function generateTextSafe(
   for (const [name, model] of fallbacks) {
     if (!model) continue;
     attempted = true;
+    const progress: Progress = { steps: 0, tools: 0 };
     try {
       console.info(`[ai/generate] Retrying with ${name} fallback (${kind})`);
-      const result = await generateText({ ...options, model, stopWhen, abortSignal: attemptSignal(kind, options.abortSignal) } as Parameters<typeof generateText>[0]);
+      const result = await generateText(instrumented(model, progress));
       if (reservation) await commitSpend(reservation, result.totalUsage ?? result.usage);
       return result;
     } catch (fallbackErr) {
       lastErr = fallbackErr;
       const msg = fallbackErr instanceof Error ? fallbackErr.message : String(fallbackErr);
       console.warn(`[ai/generate] Fallback ${name} failed (${kind}): ${msg.slice(0, 200)}`);
+      // Same rule as the primary: once this attempt ran a step or a tool, the
+      // next provider would replay it.
+      if (progress.steps > 0 || progress.tools > 0) {
+        await settleFailure();
+        throw new GenerationAfterProgressError(progress.steps, progress.tools, fallbackErr);
+      }
     }
   }
 
-  if (reservation) await releaseSpend(reservation);
+  await settleFailure();
 
   if (!attempted) {
     throw new Error(

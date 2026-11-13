@@ -53,7 +53,7 @@ async function processTeamsStep(username: string, payload: IngestTeamsPayload): 
   const unchanged = await isHashUnchanged(username, externalId, contentHash);
   if (unchanged) {
     console.log(`[ingest-teams] ${externalId} unchanged (hash match) — skipping`);
-    void appendAuditEntries(username, [
+    await appendAuditEntries(username, [
       auditSkipped(externalId, "action", `Teams content unchanged for ${externalId}`),
     ]);
     return;
@@ -61,8 +61,17 @@ async function processTeamsStep(username: string, payload: IngestTeamsPayload): 
 
   const intel = await classifyTeams({ username, channelName, transcript, isDM, isMention, date });
 
+  // Same rule as Slack: a failed call must not be recorded as a verdict.
+  if (intel.classificationFailed) {
+    console.warn(
+      `[ingest-teams] ${externalId} classification FAILED — ` +
+      `not recording hash so it retries once AI is healthy`
+    );
+    return;
+  }
+
   if (!shouldMaterializeTeams(intel)) {
-    void recordIngest(username, { sourceRef: externalId, hash: contentHash });
+    await recordIngest(username, { sourceRef: externalId, hash: contentHash });
     return;
   }
 
@@ -76,7 +85,7 @@ async function processTeamsStep(username: string, payload: IngestTeamsPayload): 
     username,
   });
 
-  void recordIngest(username, {
+  await recordIngest(username, {
     sourceRef: externalId,
     hash: contentHash,
     actionIds: result.auditEntries
@@ -89,7 +98,7 @@ async function processTeamsStep(username: string, payload: IngestTeamsPayload): 
       .filter((e) => e.itemType === "memory" && e.itemId)
       .map((e) => e.itemId!),
   });
-  void appendAuditEntries(username, result.auditEntries);
+  await appendAuditEntries(username, result.auditEntries);
 
   console.log(`[ingest-teams] step done: ${externalId}`);
 }

@@ -27,8 +27,10 @@ export async function PATCH(
         description: z.string().optional(),
         stateId: z.string().optional(),
         priority: z.number().int().min(0).max(4).optional(),
-        assigneeId: z.string().optional(),
-        dueDate: z.string().optional(),
+        // null clears the field at Linear (unassign, remove the due date); the
+        // page sends null for both and every such save was refused with a 400.
+        assigneeId: z.string().nullable().optional(),
+        dueDate: z.string().nullable().optional(),
         teamId: z.string().optional(),
         projectId: z.string().optional(),
         labelIds: z.array(z.string()).optional(),

@@ -22,6 +22,10 @@ import { hasFeature } from "@/lib/billing/paywall";
 import { captureCronFailures } from "@/lib/observability/capture";
 import { deliverBriefing } from "@/lib/briefing/delivery";
 import type { Briefing } from "@/lib/types/briefing";
+import { getWorkCalendar } from "@/lib/away/store";
+import { awayStatus, dayIn } from "@/lib/away/calendar";
+import { notifyUser } from "@/lib/notify";
+import { briefingTeaser } from "@/lib/notify/rules";
 
 export const dynamic = "force-dynamic";
 
@@ -49,10 +53,32 @@ export async function GET(req: Request) {
 
   for (const user of users) {
     try {
+      // A disabled account gets nothing written and nothing emailed.
+      if (user.disabled) {
+        results[user.username] = { ok: true, skipped: "disabled" };
+        continue;
+      }
       // Paywall: only generate daily briefings for users whose plan includes
       // them (Pro / trial / admin). Free users are skipped — no unattended spend.
       if (!(await hasFeature(user.username, "briefings"))) {
         results[user.username] = { ok: false, skipped: "not-entitled" };
+        continue;
+      }
+
+      // No briefing on a day the user is not working: leave, weekends, bank
+      // holidays. Until 2026-11-10 it was written and emailed every day of the
+      // year, including through a two-week honeymoon. The first working day
+      // back gets a briefing that covers the whole gap (see the briefing route).
+      // If the working calendar cannot be read, write the briefing as before.
+      const cal = await getWorkCalendar(user.username, { refresh: "always" }).catch((e) => {
+        console.warn(`[cron/generate-briefing] ${user.username}: working calendar unreadable, briefing anyway:`, e instanceof Error ? e.message : e);
+        return null;
+      });
+      const status = cal ? awayStatus(dayIn(Date.now(), cal.timezone), cal) : null;
+      if (status?.state === "away" || status?.state === "non-working") {
+        const skipped = status.state === "away" ? "away" : status.reason;
+        results[user.username] = { ok: true, skipped, ...(status.state === "away" ? { returnDay: status.returnDay } : {}) };
+        console.log(`[cron/generate-briefing] ${user.username}: no briefing today (${skipped})`);
         continue;
       }
 
@@ -74,13 +100,31 @@ export async function GET(req: Request) {
 
       if (res.ok) {
         const briefing = await res.json() as Briefing;
+        // The model's answer could not be parsed: the route returns the raw
+        // text (uncached) for the page to label. Never email, Slack or push it.
+        if (briefing.unparsed) {
+          results[user.username] = { ok: false, error: "briefing could not be parsed — not delivered" };
+          console.error(`[cron/generate-briefing] ${user.username}: unparsed briefing, delivery skipped`);
+          continue;
+        }
         // Push it to the user's enabled channels (email / Slack DM) — the brief
         // arrives instead of waiting to be pulled up. Best-effort.
         const delivery = await deliverBriefing(user.username, briefing).catch((err) => {
           console.error(`[cron/generate-briefing] delivery failed for ${user.username}:`, err instanceof Error ? err.message : err);
           return { email: "error", slack: "error" };
         });
-        results[user.username] = { ok: true, generatedAt: briefing.generatedAt, delivery };
+        // A push to the user's devices, if they turned it on (lib/notify). Once a day.
+        const pushed = await notifyUser(user.username, {
+          kind: "briefing",
+          title: status?.state === "back" ? "Welcome back. Your catch-up briefing is ready" : "Your briefing is ready",
+          body: briefingTeaser(briefing),
+          url: "/dashboard",
+          tag: "basil-briefing",
+        }, { onceKeys: [`briefing:${dayIn(Date.now(), cal?.timezone ?? "Europe/London")}`] }).catch((err) => {
+          console.warn(`[cron/generate-briefing] push failed for ${user.username}:`, err instanceof Error ? err.message : err);
+          return null;
+        });
+        results[user.username] = { ok: true, generatedAt: briefing.generatedAt, delivery, pushed: pushed?.pushed ?? 0 };
         console.log(`[cron/generate-briefing] ${user.username}: generated at ${briefing.generatedAt} (email=${delivery.email} slack=${delivery.slack})`);
       } else {
         const text = await res.text();

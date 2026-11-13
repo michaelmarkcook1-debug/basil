@@ -18,6 +18,15 @@ import { list, copy, del } from "@vercel/blob";
 
 const PREFIX = "basil";
 const BACKUP_ROOT = `${PREFIX}/_backups`;
+/**
+ * Uploaded originals (recordings, documents — lib/uploads/paths.ts). Large,
+ * immutable, and already turned into text that lives under users/**. Copying
+ * them nightly grows the run with every upload until it misses its deadline
+ * again; blobPurgeUserData already treats media as outside the backup.
+ */
+const MEDIA_ROOT = `${PREFIX}/media`;
+/** Top-level folders the nightly backup never copies. */
+const NOT_BACKED_UP = new Set([BACKUP_ROOT, MEDIA_ROOT]);
 
 export function isBackupConfigured(): boolean {
   return !!process.env.BLOB_READ_WRITE_TOKEN;
@@ -70,7 +79,7 @@ export async function backupAllUsers(
   const top = await api.list({ prefix: `${PREFIX}/`, mode: "folded", limit: 1000 });
   const folders = (top.folders ?? [])
     .map((f) => f.slice(PREFIX.length + 1).replace(/\/$/, ""))
-    .filter((name) => `${PREFIX}/${name}` !== BACKUP_ROOT);
+    .filter((name) => !NOT_BACKED_UP.has(`${PREFIX}/${name}`));
   // users/ first (it is what a restore needs), then the rest, incremental scopes last.
   folders.sort((a, b) => rank(a) - rank(b) || a.localeCompare(b));
 

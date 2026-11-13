@@ -4,22 +4,35 @@ import { getSessionUser } from "@/lib/auth";
 import { triggerOnboardingBackfill } from "@/lib/onboarding/backfill";
 import { forceFlushSnapshot } from "@/lib/storage/persistent";
 import { verifyOAuthState, clearOAuthStateCookie } from "@/lib/auth/oauth-state";
+import { safeReturnPath } from "@/lib/auth/safe-return-path";
 
 // GET /api/auth/zoom/callback — handles Zoom OAuth callback
 export async function GET(req: Request) {
   const { searchParams } = new URL(req.url);
   const code = searchParams.get("code");
 
+  const fromRaw = req.headers.get("cookie")?.match(/basil_zoom_from=([^;]+)/)?.[1] ?? "";
+  let fromDecoded = "";
+  try { fromDecoded = fromRaw ? decodeURIComponent(fromRaw) : ""; } catch { /* malformed → default destination */ }
+  // Only an on-site path: "/\evil.com" passed the old startsWith("/") check
+  // and resolved off-site.
+  const successDest = safeReturnPath(fromDecoded) ?? "/dashboard/settings?connected=zoom";
+  const errorDest   = "/dashboard/settings?error=zoom_oauth_failed";
+
+  // Zoom's own error (the user declined, the app is not approved) arrives
+  // WITHOUT a code — checked first, or it was always reported as "no_code".
+  const zoomError = searchParams.get("error");
+  const zoomErrorDesc = searchParams.get("error_description");
+  if (zoomError) {
+    console.error(`[zoom-oauth] Zoom returned error: ${zoomError} — ${zoomErrorDesc ?? "no description"}`);
+    const res = NextResponse.redirect(new URL(`${errorDest}&zoom_error=${encodeURIComponent(zoomError)}`, req.url));
+    res.cookies.set("basil_zoom_from", "", { path: "/", maxAge: 0 });
+    return res;
+  }
+
   if (!code) {
     return NextResponse.redirect(new URL("/dashboard/settings?error=no_code", req.url));
   }
-
-  const fromRaw = req.headers.get("cookie")?.match(/basil_zoom_from=([^;]+)/)?.[1] ?? "";
-  const fromDecoded = fromRaw ? decodeURIComponent(fromRaw) : "";
-  // Validate that `from` is a relative path (no protocol/host) to prevent open redirects
-  const isSafePath = fromDecoded.startsWith("/") && !fromDecoded.startsWith("//");
-  const successDest = isSafePath ? fromDecoded : "/dashboard/settings?connected=zoom";
-  const errorDest   = "/dashboard/settings?error=zoom_oauth_failed";
 
   // CSRF state guard.
   if (!verifyOAuthState("zoom", req, searchParams.get("state"))) {
@@ -28,16 +41,6 @@ export async function GET(req: Request) {
     res.cookies.set("basil_zoom_from", "", { path: "/", maxAge: 0 });
     const cleared = clearOAuthStateCookie("zoom");
     res.cookies.set(cleared.name, cleared.value, cleared.options);
-    return res;
-  }
-
-  // Log any Zoom-side error param so it appears in Vercel logs
-  const zoomError = searchParams.get("error");
-  const zoomErrorDesc = searchParams.get("error_description");
-  if (zoomError) {
-    console.error(`[zoom-oauth] Zoom returned error: ${zoomError} — ${zoomErrorDesc ?? "no description"}`);
-    const res = NextResponse.redirect(new URL(`${errorDest}&zoom_error=${encodeURIComponent(zoomError)}`, req.url));
-    res.cookies.set("basil_zoom_from", "", { path: "/", maxAge: 0 });
     return res;
   }
 

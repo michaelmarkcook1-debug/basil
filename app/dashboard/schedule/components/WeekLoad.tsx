@@ -12,6 +12,7 @@
  */
 
 import { useMemo, useState } from "react";
+import { isAbsenceEvent } from "@/lib/away/calendar";
 
 export interface WeekEvent {
   start: string;
@@ -19,6 +20,8 @@ export interface WeekEvent {
   isAllDay?: boolean;
   attendees?: string[];
   myResponseStatus?: "accepted" | "declined" | "tentative" | "needsAction";
+  summary?: string;
+  eventType?: string;
 }
 
 export interface WeekDay {
@@ -30,6 +33,8 @@ export interface WeekDay {
   isToday: boolean;
   meet: number;     // hours, to the quarter
   free: number;
+  /** Covered by an out-of-office block: no free hours to offer. */
+  away?: boolean;
 }
 
 const WEEKDAYS = ["Mon", "Tue", "Wed", "Thu", "Fri"];
@@ -84,7 +89,8 @@ export function weekLoad(
     const iso = isoOf(d);
     const loaded = d.getFullYear() === loadedYear && d.getMonth() === loadedMonth;
     const spans: Array<[number, number]> = [];
-    if (loaded) {
+    const away = loaded && events.some((e) => isAbsenceEvent({ ...e, attendeeCount: e.attendees?.length ?? 0 }) && coversDay(e, iso));
+    if (loaded && !away) {
       for (const e of events) {
         if (e.isAllDay || e.myResponseStatus === "declined" || (e.attendees?.length ?? 0) === 0) continue;
         if ((e.start || "").substring(0, 10) !== iso) continue;
@@ -111,12 +117,22 @@ export function weekLoad(
       iso, weekday, date: d.getDate(), loaded,
       isToday: iso === todayIso,
       label: iso === todayIso ? "Today" : weekday,
-      meet, free: quarter(span - meet),
+      meet, free: away ? 0 : quarter(span - meet),
+      ...(away ? { away: true } : {}),
     };
   });
 }
 
 const full = (d: WeekDay) => (d.isToday ? "Today" : FULL[d.weekday]);
+
+/** True when the event covers local day `iso` (an all-day end date is exclusive). */
+function coversDay(e: WeekEvent, iso: string): boolean {
+  const first = (e.start || "").substring(0, 10);
+  const last = e.isAllDay
+    ? isoOf(new Date(new Date(`${(e.end || "").substring(0, 10)}T12:00:00`).getTime() - 86_400_000))
+    : isoOf(new Date(new Date(e.end).getTime() - 1));
+  return first !== "" && first <= iso && iso <= last;
+}
 
 export function WeekPanel({
   events, anchorIso, year, month, monthName, todayIso, selectedIso, status, onSelectDay,
@@ -146,8 +162,9 @@ export function WeekPanel({
 
   const span = workEnd - workStart;
   const px = 92 / span;
-  const loaded = days.filter((d) => d.loaded);
-  const focus = days.find((d) => d.iso === hover) ?? loaded.find((d) => d.isToday) ?? loaded[0] ?? null;
+  const loaded = days.filter((d) => d.loaded && !d.away);
+  const awayDays = days.filter((d) => d.away);
+  const focus = days.find((d) => d.iso === hover) ?? days.find((d) => d.isToday && (d.loaded || d.away)) ?? loaded[0] ?? null;
   const heaviest = [...loaded].sort((a, b) => b.meet - a.meet)[0];
   const lightest = [...loaded].sort((a, b) => a.meet - b.meet)[0];
 
@@ -159,13 +176,15 @@ export function WeekPanel({
     : `Week of ${monday.getDate()} ${MONTHS_SHORT[monday.getMonth()]}`;
 
   let note = "";
-  if (loaded.length === 0) note = `These days fall outside ${monthName}, so they aren't loaded here.`;
+  if (loaded.length === 0 && awayDays.length > 0) note = "You're away all week.";
+  else if (loaded.length === 0) note = `These days fall outside ${monthName}, so they aren't loaded here.`;
   else if (loaded.every((d) => d.meet === 0)) note = "No meetings booked — every weekday is open.";
   else if (heaviest && lightest && heaviest.iso !== lightest.iso) {
     const light = lightest.isToday ? "today" : FULL[lightest.weekday];
     note = `${full(heaviest)} is your heaviest day (${hm(heaviest.meet)} of meetings); ${light} is the lightest${lightest.meet === 0 ? ", with nothing booked" : ` (${hm(lightest.meet)})`}.`;
   } else if (heaviest) note = `${full(heaviest)} has ${hm(heaviest.meet)} of meetings.`;
-  if (loaded.length > 0 && loaded.length < days.length) note += " Dashed days are in another month and aren't counted.";
+  if (awayDays.length > 0 && loaded.length > 0) note += ` Away ${awayDays.map((d) => (d.isToday ? "today" : FULL[d.weekday])).join(", ")}.`;
+  if (loaded.length > 0 && loaded.length + awayDays.length < days.length) note += " Dashed days are in another month and aren't counted.";
 
   const pad2 = (h: number) => `${pad(Math.floor(h))}:${pad(Math.round((h % 1) * 60))}`;
 
@@ -203,12 +222,26 @@ export function WeekPanel({
                   onMouseEnter={() => setHover(d.iso)}
                   onFocus={() => setHover(d.iso)}
                   onClick={() => { if (d.loaded) onSelectDay?.(d.iso); }}
-                  aria-label={d.loaded
+                  aria-label={d.away
+                    ? `${full(d)}, ${d.date}: away. Open this day.`
+                    : d.loaded
                     ? `${full(d)}, ${d.date}: ${hm(d.meet)} of meetings, ${hm(d.free)} free. Open this day.`
                     : `${full(d)}, ${d.date}: in another month, not counted here.`}
                   className="flex h-full min-w-0 flex-1 flex-col items-stretch justify-end gap-1.5 rounded-md border-0 bg-transparent p-0 text-[#F6F1E7]"
                 >
-                  {d.loaded ? (
+                  {d.away ? (
+                    <span
+                      className="flex items-center justify-center rounded-[5px] text-[10px] uppercase tracking-wider"
+                      style={{
+                        height: Math.round(span * px) + 2,
+                        background: "repeating-linear-gradient(135deg, rgba(246,241,231,.18) 0 6px, transparent 6px 12px)",
+                        outline: on ? "2px solid #F6F1E7" : "2px solid transparent",
+                        outlineOffset: 3,
+                      }}
+                    >
+                      Away
+                    </span>
+                  ) : d.loaded ? (
                     <span
                       className="basil-col flex flex-col gap-0.5 rounded-[5px] transition-[outline-color]"
                       style={{
@@ -241,7 +274,9 @@ export function WeekPanel({
           </div>
           {focus && (
             <p className="text-[14px] leading-relaxed text-[#F6F1E7]" aria-live="polite">
-              {focus.loaded
+              {focus.away
+                ? `${full(focus)}: away.`
+                : focus.loaded
                 ? `${full(focus)}: ${hm(focus.meet)} of meetings, ${hm(focus.free)} free.`
                 : `${full(focus)} ${focus.date} is in another month — not counted here.`}
             </p>

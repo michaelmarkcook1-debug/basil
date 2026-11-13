@@ -48,15 +48,13 @@ export async function getSlackConfig(username: string): Promise<SlackConfig> {
 
 export async function saveSlackConfig(username: string, config: SlackConfig): Promise<void> {
   await saveIntegrationToken(username, "slack", config);
-  // Invalidate cached clients for this user
-  botClientCache.delete(username);
-  userClientCache.delete(username);
+  // This instance sees the change at once; others within CONFIG_RECHECK_MS.
+  configCheck.delete(username);
 }
 
 export async function deleteSlackConfig(username: string): Promise<void> {
   await deleteIntegrationToken(username, "slack");
-  botClientCache.delete(username);
-  userClientCache.delete(username);
+  configCheck.delete(username);
 }
 
 export async function isSlackConnected(username: string): Promise<boolean> {
@@ -74,27 +72,46 @@ const clientOptions = {
   logLevel: LogLevel.ERROR,
 } as const;
 
-const botClientCache  = new Map<string, WebClient>();
-const userClientCache = new Map<string, WebClient>();
+// Clients are cached by TOKEN, and the stored config is re-read (at most every
+// CONFIG_RECHECK_MS) to learn which token is current. The old caches were keyed
+// by username and never looked at the config again, so after Slack was
+// disconnected — or reconnected with a new token — on one instance, every other
+// warm instance kept calling Slack with the old token until it was recycled.
+const clientByToken = new Map<string, WebClient>();
+const configCheck = new Map<string, { at: number; config: Promise<SlackConfig> }>();
+const CONFIG_RECHECK_MS = 30_000;
 
-export async function getSlackBotClientForUser(username: string): Promise<WebClient | null> {
-  const cached = botClientCache.get(username);
-  if (cached) return cached;
-  const config = await getSlackConfig(username);
-  if (!config.botToken) return null;
-  const client = new WebClient(config.botToken, clientOptions);
-  botClientCache.set(username, client);
+/** The user's current config, shared by concurrent callers and re-read every 30 s. */
+function currentSlackConfig(username: string): Promise<SlackConfig> {
+  const hit = configCheck.get(username);
+  if (hit && Date.now() - hit.at < CONFIG_RECHECK_MS) return hit.config;
+  const config = getSlackConfig(username);
+  configCheck.set(username, { at: Date.now(), config });
+  // Only a config WITH a token is reused. A failed read — or an empty one,
+  // which is also what a transient storage error looks like — is re-read on
+  // the next call instead of reading as "Slack not connected" for 30 s.
+  const forget = () => { if (configCheck.get(username)?.config === config) configCheck.delete(username); };
+  config.then((c) => { if (!c.botToken && !c.userToken) forget(); }, forget);
+  return config;
+}
+
+function clientForToken(token: string): WebClient {
+  let client = clientByToken.get(token);
+  if (!client) {
+    client = new WebClient(token, clientOptions);
+    clientByToken.set(token, client);
+  }
   return client;
 }
 
+export async function getSlackBotClientForUser(username: string): Promise<WebClient | null> {
+  const { botToken } = await currentSlackConfig(username);
+  return botToken ? clientForToken(botToken) : null;
+}
+
 export async function getSlackUserClientForUser(username: string): Promise<WebClient | null> {
-  const cached = userClientCache.get(username);
-  if (cached) return cached;
-  const config = await getSlackConfig(username);
-  if (!config.userToken) return null;
-  const client = new WebClient(config.userToken, clientOptions);
-  userClientCache.set(username, client);
-  return client;
+  const { userToken } = await currentSlackConfig(username);
+  return userToken ? clientForToken(userToken) : null;
 }
 
 // ── Legacy (env-var based) helpers kept for backward compat ──────────────────
@@ -561,11 +578,54 @@ export async function searchSlackMessages(
 //      in their DM list / channel, not "Sage Bot".
 //   2. Fall back to the BOT token (xoxb-) only when:
 //        - The user token doesn't exist (older installs)
-//        - Posting fails as the user (e.g. they're not a member of a public
-//          channel — bot has `chat:write.public` so it can still post)
+//        - Slack refuses the user with `not_in_channel` (a public channel they
+//          haven't joined — the bot has `chat:write.public`). Any OTHER failure
+//          is returned: re-sending it as the bot posted under the wrong name.
 //
 // Lookups (channels / users) use the bot when available because it usually has
-// broader directory visibility.
+// broader directory visibility. Both directories are read to the end (they
+// were cut at the first 200), and a name that fits more than one person is an
+// error naming them — not whichever came first.
+
+/** Pages read from conversations.list / users.list: 20 × 200 entries. */
+const DIRECTORY_PAGES = 20;
+
+/** Slack's own error code on a failed Web API call (e.g. "not_in_channel"). */
+function slackErrorCode(err: unknown): string | undefined {
+  return (err as { data?: { error?: string } } | null)?.data?.error;
+}
+
+async function findChannelByName(web: WebClient, name: string): Promise<{ id?: string; name?: string } | undefined> {
+  let cursor: string | undefined;
+  for (let page = 0; page < DIRECTORY_PAGES; page++) {
+    const res = await web.conversations.list({ types: "public_channel,private_channel", limit: 200, exclude_archived: true, cursor });
+    const hit = res.channels?.find((c) => c.name === name);
+    if (hit) return hit; // channel names are unique in a workspace
+    cursor = res.response_metadata?.next_cursor || undefined;
+    if (!cursor) break;
+  }
+  return undefined;
+}
+
+type DirectoryUser = { id?: string; name?: string; real_name?: string; deleted?: boolean };
+
+/** Every active person whose full name or @handle is `query` (handle only when asked with "@"). */
+async function findPeopleByName(web: WebClient, query: string, handleOnly: boolean): Promise<DirectoryUser[]> {
+  const q = query.toLowerCase();
+  const found: DirectoryUser[] = [];
+  let cursor: string | undefined;
+  for (let page = 0; page < DIRECTORY_PAGES; page++) {
+    const res = await web.users.list({ limit: 200, cursor });
+    for (const u of (res.members ?? []) as DirectoryUser[]) {
+      if (!u.id || u.deleted) continue;
+      if (u.name?.toLowerCase() === q || (!handleOnly && u.real_name?.toLowerCase() === q)) found.push(u);
+    }
+    cursor = res.response_metadata?.next_cursor || undefined;
+    if (!cursor) break;
+  }
+  return found;
+}
+
 export async function sendSlackMessage(
   username: string,
   channel:  string,
@@ -582,11 +642,7 @@ export async function sendSlackMessage(
     const channelName = channel.replace("#", "").trim();
 
     // Try to find channel by name
-    const channelsRes = await lookupClient.conversations.list({
-      types: "public_channel,private_channel",
-      limit: 200,
-    });
-    const ch = channelsRes.channels?.find((c) => c.name === channelName);
+    const ch = await findChannelByName(lookupClient, channelName);
 
     if (ch?.id) {
       try {
@@ -595,7 +651,7 @@ export async function sendSlackMessage(
       } catch (err) {
         // User token can't post in channels they're not a member of. Bot has
         // `chat:write.public` so it can still post — but it'll appear as the bot.
-        if (botClient && primary !== botClient) {
+        if (botClient && primary !== botClient && slackErrorCode(err) === "not_in_channel") {
           await botClient.chat.postMessage({ channel: ch.id, text });
           return { ok: true };
         }
@@ -603,13 +659,15 @@ export async function sendSlackMessage(
       }
     }
 
-    // Maybe it's a user name — open a DM
-    const usersRes = await lookupClient.users.list({ limit: 200 });
-    const user = usersRes.members?.find(
-      (u) =>
-        u.real_name?.toLowerCase() === channelName.toLowerCase() ||
-        u.name?.toLowerCase() === channelName.toLowerCase()
-    );
+    // Maybe it's a person — open a DM. "@handle" matches the handle only.
+    const handleOnly = channelName.startsWith("@");
+    const who = channelName.replace(/^@/, "");
+    const people = await findPeopleByName(lookupClient, who, handleOnly);
+    if (people.length > 1) {
+      const names = people.map((u) => `${u.real_name || u.name} (@${u.name})`).join(", ");
+      return { ok: false, error: `"${who}" matches ${people.length} people in Slack: ${names}. Say which one by @handle.` };
+    }
+    const user = people[0];
 
     if (user?.id) {
       // Open the DM as the user so the conversation lives in *their* DM list

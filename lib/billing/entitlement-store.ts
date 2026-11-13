@@ -34,6 +34,20 @@ const FILE = "entitlement.json";
 const KNOWN_STATUSES: PlanStatus[] = ["active", "trialing", "past_due", "canceled"];
 
 /**
+ * The stored record also carries `trialUsed` — set when a trial starts and
+ * carried through every later write, never cleared. An expired trial reads as
+ * Free, so without it every checkout granted a fresh 14-day Pro trial.
+ */
+type StoredEntitlement = Entitlement & { trialUsed?: true };
+
+/** Has this person ever had a trial? Read from the RAW stored record. */
+function trialWasUsed(raw: unknown): boolean {
+  if (!raw || typeof raw !== "object") return false;
+  const r = raw as Record<string, unknown>;
+  return r.trialUsed === true || typeof r.trialEndsAt === "string";
+}
+
+/**
  * Coerce an untrusted stored blob into a well-formed Entitlement.
  *
  * Critically, FEATURES and aiMonthlyUsd are ALWAYS derived from PLAN_DEFS for
@@ -42,7 +56,7 @@ const KNOWN_STATUSES: PlanStatus[] = ["active", "trialing", "past_due", "cancele
  * NaN-to-spend-cap risk in one place. Only the plan, status, and provider
  * linkage / timestamps are read from the stored record.
  */
-function normaliseEntitlement(raw: unknown): Entitlement {
+function normaliseEntitlement(raw: unknown): StoredEntitlement {
   if (!raw || typeof raw !== "object") return defaultEntitlement();
   const r = raw as Record<string, unknown>;
 
@@ -62,6 +76,7 @@ function normaliseEntitlement(raw: unknown): Entitlement {
     ...(r.provider === "stub" || r.provider === "stripe" ? { provider: r.provider } : {}),
     ...(typeof r.customerId === "string" ? { customerId: r.customerId } : {}),
     ...(typeof r.subscriptionId === "string" ? { subscriptionId: r.subscriptionId } : {}),
+    ...(trialWasUsed(r) ? { trialUsed: true as const } : {}),
     updatedAt: typeof r.updatedAt === "string" ? r.updatedAt : nowIso(),
   };
 }
@@ -90,18 +105,22 @@ export async function getEntitlement(username: string): Promise<Entitlement> {
   return resolveTrial(normaliseEntitlement(stored));
 }
 
-/** Persist an entitlement (stamps updatedAt). */
+/** Persist an entitlement (stamps updatedAt; keeps `trialUsed` once set). */
 export async function setEntitlement(username: string, ent: Entitlement): Promise<void> {
-  await writeUserStore(username, FILE, { ...ent, updatedAt: nowIso() });
+  const used = (ent as StoredEntitlement).trialUsed === true
+    || trialWasUsed(await readUserStore<unknown>(username, FILE, null));
+  await writeUserStore(username, FILE, { ...ent, ...(used ? { trialUsed: true } : {}), updatedAt: nowIso() });
 }
 
-/** Start a 14-day Pro trial for a user (idempotent — won't restart an active trial). */
+/** Start a 14-day Pro trial for a user — once ever; won't restart or re-grant one. */
 export async function startTrial(username: string): Promise<Entitlement> {
   const current = await getEntitlement(username);
   if (current.status === "trialing" || current.plan === "pro") return current;
+  // An expired trial reads as Free above, so check the raw record.
+  if (trialWasUsed(await readUserStore<unknown>(username, FILE, null))) return current;
   const trialEndsAt = new Date(Date.now() + TRIAL_DAYS * 24 * 60 * 60 * 1000).toISOString();
   const ent = entitlementForPlan(TRIAL_PLAN, "trialing", { trialEndsAt, currentPeriodEnd: trialEndsAt, provider: "stub" });
-  await setEntitlement(username, ent);
+  await setEntitlement(username, { ...ent, trialUsed: true } as StoredEntitlement);
   return ent;
 }
 

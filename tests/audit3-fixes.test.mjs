@@ -105,7 +105,8 @@ test("zoom is not locked (WCAG 1.4.4) and the warning banner is legible", () => 
 test("a failed legacy import never deletes the only local copy", () => {
   const src = read("app/dashboard/actions/page.tsx");
   // Anchor on the destructive call itself, and look at the code ABOVE it.
-  const idx = src.indexOf("removeItem(LEGACY_STORAGE_KEY)");
+  // (The key is per user since 2026-11-10: legacyKey = scopedKey(LEGACY_STORAGE_KEY).)
+  const idx = src.indexOf("removeItem(legacyKey)");
   assert.ok(idx > -1, "expected the legacy-import cleanup to exist");
   const block = src.slice(Math.max(0, idx - 1200), idx);
   assert.ok(/if \(!res\.ok\)/.test(block),

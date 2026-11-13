@@ -89,6 +89,9 @@ test("untouched for 30 days: auto-extracted items archive; manual, dated-ahead a
 function actionStore(seed) {
   let file = structuredClone(seed); const writes = [];
   const store = loadTs("lib/actions/store.ts", {
+    // lib/away: no working calendar here — the code falls back to its every-day behaviour.
+    "@/lib/away/store": { getWorkCalendar: async () => { throw new Error("no working calendar in this test"); }, declareAway: async () => ({}), endDeclaredAway: async () => 0, invalidateCalendarAbsences: async () => {} },
+    "@/lib/away/calendar": loadTs("lib/away/calendar.ts"),
     "@/lib/events/lock": makeLock(),
     "@/lib/storage/user-store": { readUserStore: async () => structuredClone(file), writeUserStore: async (_u, _f, v) => { file = structuredClone(v); writes.push(v); } },
     "./classify": { classifyAction: () => "admin" },

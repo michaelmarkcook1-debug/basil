@@ -16,6 +16,8 @@
 import type { ProfileOverride, ToneObservation } from "@/lib/contact-profile-overrides";
 import { readUserStore, writeUserStore } from "@/lib/storage/user-store";
 import { withLock } from "@/lib/events/lock";
+import { getPrivacyOrClosed } from "@/lib/privacy/store";
+import { applyPrivacy, stripInferred } from "@/lib/privacy/rules";
 
 /** Maximum tone observations retained per contact (oldest dropped when exceeded). */
 const TONE_HISTORY_CAP = 20;
@@ -38,8 +40,17 @@ const FRESH = { fresh: true } as const;
 // All functions require `username` so each user's overrides are stored under
 // DATA_DIR/users/<username>/sage-contact-overrides.json (isolated per user).
 
+/**
+ * Every override, with the user's people-profile choices applied (lib/privacy):
+ * with profiles off, or for a person the user excluded, only the user's own
+ * notes are returned. Briefings, meeting prep, digests and Today all read here.
+ */
 export async function getAllOverridesFromStore(username: string): Promise<OverrideMap> {
-  return readUserStore<OverrideMap>(username, OVERRIDES_FILE, {});
+  const [all, privacy] = await Promise.all([
+    readUserStore<OverrideMap>(username, OVERRIDES_FILE, {}),
+    getPrivacyOrClosed(username),
+  ]);
+  return applyPrivacy(all, privacy);
 }
 
 export async function getOverrideFromStore(
@@ -92,6 +103,24 @@ export async function appendToneObservation(
 
     all[contactId] = { ...existing, toneHistory: capped };
     await writeUserStore(username, OVERRIDES_FILE, all);
+  });
+}
+
+/**
+ * Delete what Basil inferred about a contact (profile fields, tone history).
+ * The user's own notes stay unless `notes` is set. Returns true when anything
+ * was removed.
+ */
+export async function forgetInferredInStore(username: string, contactId: string, opts: { notes?: boolean } = {}): Promise<boolean> {
+  return withLock(lockKey(username), async () => {
+    const all = await readUserStore<OverrideMap>(username, OVERRIDES_FILE, {}, FRESH);
+    const before = all[contactId];
+    if (!before) return false;
+    const kept = stripInferred(before, opts);
+    if (kept) all[contactId] = kept;
+    else delete all[contactId];
+    await writeUserStore(username, OVERRIDES_FILE, all);
+    return JSON.stringify(kept) !== JSON.stringify(before);
   });
 }
 

@@ -39,13 +39,16 @@ export async function GET(req: Request) {
     // Leave headroom under maxDuration (300s): back up within 240s, prune only
     // after a COMPLETE backup, in whatever is left before 285s.
     const backup = await backupAllUsers(todayKey, { deadline: started + 240_000 });
-    const prune = backup.complete
+    // A run where copies failed is not a recovery point: report it as a failure
+    // (it used to return 200 with failed > 0) and keep every older snapshot.
+    const good = backup.complete && backup.failed === 0;
+    const prune = good
       ? await pruneBackups(cutoffKey, { deadline: started + 285_000 })
       : { deleted: 0, complete: false };
     const line = `[cron/backup] snapshot ${todayKey}: copied=${backup.copied} failed=${backup.failed} complete=${backup.complete} pruned=${prune.deleted}${prune.complete ? "" : " (prune continues tomorrow)"} (retain ${retainDays}d) in ${Math.round((Date.now() - started) / 1000)}s`;
-    if (backup.complete && backup.failed === 0) console.info(line); else console.error(line);
-    return NextResponse.json({ ok: backup.complete && backup.failed === 0, date: todayKey, ...backup, pruned: prune.deleted, pruneComplete: prune.complete },
-      { status: backup.complete ? 200 : 500 });
+    if (good) console.info(line); else console.error(line);
+    return NextResponse.json({ ok: good, date: todayKey, ...backup, pruned: prune.deleted, pruneComplete: prune.complete },
+      { status: good ? 200 : 500 });
   } catch (err) {
     console.error("[cron/backup] failed:", err instanceof Error ? err.message : err);
     return NextResponse.json({ ok: false, error: "backup failed" }, { status: 500 });

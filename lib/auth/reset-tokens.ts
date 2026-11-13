@@ -13,6 +13,7 @@ import {
   readResetTokenRecords,
   writeResetTokenRecords,
   hashResetToken,
+  type HashedResetToken,
 } from "@/lib/storage/secure-auth-store";
 import { withLock } from "@/lib/storage/lock";
 import { randomBytes } from "node:crypto";
@@ -24,33 +25,57 @@ const TTL_MS = 60 * 60 * 1000; // 1 hour
 const RESET_LOCK = "secure-reset-tokens";
 
 /**
- * Create a reset token for the given user.
- * Any previous tokens for this user are invalidated.
+ * An invite link (lib/auth/invite.ts, 7 days) and a password-reset link (1 hour)
+ * share this store and the /reset-password page, but they are not the same
+ * thing: a forgot-password request — which anyone can make for any username —
+ * used to delete the invitee's pending invite link along with any old reset
+ * link (2026-11-10 bug pass, A11). A reset now replaces only reset links.
+ */
+export type ResetTokenKind = "reset" | "invite";
+type TokenRecord = HashedResetToken & { kind?: ResetTokenKind };
+
+/** Records written before kinds existed are told apart by lifetime: only an invite outlives the reset TTL. */
+function kindOf(t: TokenRecord, now: number): ResetTokenKind {
+  if (t.kind) return t.kind;
+  return new Date(t.expiresAt).getTime() - now > TTL_MS ? "invite" : "reset";
+}
+
+/**
+ * Create a reset (or invite) token for the given user.
+ * A new reset token invalidates the user's previous reset tokens but keeps a
+ * live invite token; a new invite token invalidates all of the user's tokens.
  *
  * Returns the raw (unhashed) token string for inclusion in a reset URL.
  * The raw token is never persisted — only its SHA-256 hash is stored.
  */
 /** `ttlMs`: an invite link lasts days (lib/auth/invite.ts); a reset link the default hour. */
-export async function createResetToken(username: string, email: string, ttlMs: number = TTL_MS): Promise<string> {
+export async function createResetToken(
+  username: string,
+  email: string,
+  ttlMs: number = TTL_MS,
+  kind: ResetTokenKind = ttlMs > TTL_MS ? "invite" : "reset",
+): Promise<string> {
   return withLock(RESET_LOCK, async () => {
     const now = Date.now();
-    const records = await readResetTokenRecords(true);
+    const records: TokenRecord[] = await readResetTokenRecords(true);
+    const mine = (t: TokenRecord) => t.username.toLowerCase() === username.toLowerCase();
 
-    // Drop expired/used tokens AND any existing tokens for this user in one pass.
+    // Drop expired/used tokens, and this user's tokens that the new one replaces.
     const others = records.filter(
       (t) =>
         !t.used &&
         new Date(t.expiresAt).getTime() > now &&
-        t.username.toLowerCase() !== username.toLowerCase(),
+        (!mine(t) || (kind === "reset" && kindOf(t, now) === "invite")),
     );
 
     const rawToken = randomBytes(32).toString("hex");
-    const entry = {
+    const entry: TokenRecord = {
       tokenHash: hashResetToken(rawToken),
       username,
       email,
       expiresAt: new Date(now + ttlMs).toISOString(),
       used: false,
+      kind,
     };
 
     await writeResetTokenRecords([...others, entry]);
