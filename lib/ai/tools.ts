@@ -46,6 +46,7 @@ import {
 import { findContactByName, timezoneFromLocation } from "@/lib/contacts-lookup";
 import { listUserContacts } from "@/lib/contacts/user-store";
 import { getUploadText, listUploads } from "@/lib/uploads/store";
+import { searchAIChats, chatStatus } from "@/lib/ai-chats/store";
 import { searchUploadText } from "@/lib/uploads/search";
 import { guardTools, untrustedTurn, webPageNeedsApproval, wrapUntrusted, type TurnTrust } from "@/lib/ai/injection-guard";
 // NOTE: domain sync (emitChange) is NOT called here — tools.ts runs server-side
@@ -268,6 +269,22 @@ export function buildAssistantTools(
         const texts = await Promise.all(ups.slice(0, 40).map(async (u) => ({ u, t: await getUploadText(username, u.id) })));
         const results = searchUploadText(texts, query, 15);
         return { results, count: results.length, searched: texts.length };
+      },
+    }),
+
+    searchAIChats: tool({
+      description: `Search ${name}'s own past conversations with Claude and ChatGPT — work ones only (personal ones are never kept). Use for "what did I work out about X", "did I draft something on Y", or before advising on a topic ${name} may already have explored. Returns each conversation's summary, decisions and open items with a link.`,
+      inputSchema: z.object({
+        query: z.string().describe("Words to look for — a person, company, project or topic"),
+      }),
+      execute: async ({ query }) => {
+        const results = await searchAIChats(username, query, 8);
+        if (results.length === 0) {
+          const { platforms } = await chatStatus(username);
+          const synced = platforms.some((p) => p.lastSync);
+          return { results: [], note: synced ? "No work conversations match." : `Basil has not read ${name}'s Claude or ChatGPT conversations yet.` };
+        }
+        return { results, count: results.length };
       },
     }),
 

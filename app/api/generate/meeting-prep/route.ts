@@ -44,6 +44,8 @@ import { getMemoriesForEntity, listMemories } from "@/lib/memory/store";
 import { getSessionUser } from "@/lib/auth";
 import { checkRateLimit, getClientIp } from "@/lib/rate-limit";
 import type { Memory } from "@/lib/memory/types";
+import { readChatIndex } from "@/lib/ai-chats/store";
+import { chatsAbout } from "@/lib/ai-chats/search";
 import {
   readGenerateCache,
   writeGenerateCache,
@@ -499,6 +501,20 @@ export async function POST(req: Request) {
 
   const extraBlock = formatExtraContextBlock(extra, who);
 
+  // ${who}'s own work conversations with Claude or ChatGPT about these people
+  // or their companies (lib/ai-chats) — what they have already thought through.
+  const attendeeCompanies = userContacts
+    .filter((c) => attendeeNamesLower.includes(c.name.toLowerCase()) && c.company)
+    .map((c) => c.company as string);
+  const aiChatBlock = await readChatIndex(username)
+    .then(({ entries }) => chatsAbout(Object.values(entries), [...attendeeNames, ...attendeeCompanies], new Date(Date.now() - 90 * 86_400_000).toISOString(), 4))
+    .then((hits) => hits.map((e) => {
+      const decided = e.decisions?.length ? ` Decided: ${e.decisions.join("; ")}.` : "";
+      const open = e.openItems?.length ? ` Still open: ${e.openItems.join("; ")}.` : "";
+      return `- "${e.title}" (${e.platform === "chatgpt" ? "ChatGPT" : "Claude"}, ${e.updatedAt.slice(0, 10)}): ${e.summary}${decided}${open}`;
+    }).join("\n"))
+    .catch((e) => { console.warn("[meeting-prep] AI conversations unavailable:", e instanceof Error ? e.message : e); return ""; });
+
   const promptText = `Generate a meeting prep cheatsheet for ${who} — sharp, opinionated, the kind of note a great chief of staff slides across before he walks in. Match the depth of a senior exec's handwritten pre-meeting notes.
 
 Meeting: ${title}
@@ -524,6 +540,7 @@ ${slackContext || "No recent Slack activity found with these attendees."}
 ## ZOOM SUMMARIES WITH ATTENDEES (AI Companion post-meeting recaps + Drive docs titled 'Zoom', last 14 days)
 ${zoomBlock}
 ${teamsBlock ? `\n## MICROSOFT TEAMS MEETINGS WITH ATTENDEES (Outlook Calendar online meetings, last 14 days)\n${teamsBlock}` : ""}
+${aiChatBlock ? `\n## ${who.toUpperCase()}'S OWN WORK WITH CLAUDE / CHATGPT ABOUT THESE PEOPLE (their thinking, not something said in a meeting — last 90 days)\n${aiChatBlock}` : ""}
 
 ## LOGGED DECISIONS RELEVANT TO THIS MEETING (from Decision Log — already made, use as context and to avoid re-litigating)
 ${decisionsBlock}

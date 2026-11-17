@@ -34,6 +34,7 @@ import {
 import { getSessionUser } from "@/lib/auth";
 import { isAdminUser } from "@/lib/users";
 import { getWorkCalendar } from "@/lib/away/store";
+import { readChatIndex } from "@/lib/ai-chats/store";
 import { awayStatus, daysBetween, shortDay } from "@/lib/away/calendar";
 import { resolveCronUser } from "@/lib/cron/identity";
 import { listActions, isActionStalled } from "@/lib/actions/store";
@@ -556,6 +557,20 @@ export async function POST(req: Request) {
     .filter((m) => new Date(m.updatedAt).getTime() > thirtyDaysAgo)
     .slice(0, 15);
 
+  // ── The user's own recent work with Claude / ChatGPT (lib/ai-chats) ──────
+  // What they have been thinking through since the last working day: one line
+  // each, with what is still open. Work conversations only; personal ones are
+  // never kept.
+  const aiChatSince = new Date(Date.now() - Math.max(gapDays, 1) * 86_400_000).toISOString();
+  const aiChatBlock = await readChatIndex(username)
+    .then(({ entries }) => Object.values(entries)
+      .filter((e) => e.work && e.updatedAt >= aiChatSince)
+      .sort((a, b) => (a.updatedAt < b.updatedAt ? 1 : -1))
+      .slice(0, 6)
+      .map((e) => `- "${e.title}" (${e.platform === "chatgpt" ? "ChatGPT" : "Claude"}, ${e.updatedAt.slice(0, 10)}): ${e.summary}${e.openItems?.length ? ` Still open: ${e.openItems.join("; ")}.` : ""}`)
+      .join("\n"))
+    .catch((e) => { console.warn("[briefing] AI conversations unavailable:", e instanceof Error ? e.message : e); return ""; });
+
   const memoryBlock =
     recentMemories.length > 0
       ? recentMemories
@@ -837,6 +852,9 @@ ${zoomBlock}
 ` : ""}${readBlock ? `
 ### READ.AI MEETING SUMMARIES — last 7 days (Read Assistant recaps — action items, key topics, and what was said)
 ${readBlock}
+` : ""}${aiChatBlock ? `
+### ${firstName.toUpperCase()}'S OWN WORK WITH CLAUDE / CHATGPT — what they have been thinking through since the last working day (their own drafts and analysis, not things others said). Connect it to today's meetings and open items where it fits.
+${aiChatBlock}
 ` : ""}${memoryBlock ? `
 ### RELATIONSHIP MEMORY — person/context notes accumulated over prior interactions
 ${memoryBlock}

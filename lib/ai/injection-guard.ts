@@ -21,7 +21,7 @@
 /** Tools that bring in text other people wrote. */
 export const EXTERNAL_READ_TOOLS: ReadonlySet<string> = new Set([
   "readEmail", "searchEmails", "searchSlack", "getSlackDMs", "lookupSlackUser",
-  "readWebPage", "searchWeb", "searchDrive", "searchUploads",
+  "readWebPage", "searchWeb", "searchDrive", "searchUploads", "searchAIChats",
   "getCalendarEvents", "listLinearIssues",
 ]);
 

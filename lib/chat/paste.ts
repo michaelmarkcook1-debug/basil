@@ -49,3 +49,42 @@ export function pastedFiles(cd: ClipboardLike, now = new Date()): File[] {
   }
   return out;
 }
+
+/**
+ * What a paste should do: attach files, or put text in at the cursor.
+ *
+ * An image copied as a file (a screenshot file copied in Finder or on the
+ * desktop) brings its file name as text too, and an image copied from a web
+ * page or Slack can bring its address. Until 2026-11-10 any text won, so those
+ * pastes dropped "Screenshot … .png" or a URL into the box and lost the
+ * picture. Now text that only names the files, or is a bare link, gives way to
+ * the files. Real text still wins: a spreadsheet range copies as text AND a
+ * picture of itself, and the text is what was meant.
+ */
+export function pasteAction(cd: ClipboardLike, now = new Date()): { files: File[] } | { text: string } | null {
+  const text = pastedText(cd);
+  const files = pastedFiles(cd, now);
+  if (files.length > 0 && (!text.trim() || onlyNamesOrLink(text, cd))) return { files };
+  if (text) return { text };
+  return null;
+}
+
+/** The clipboard's own names for its files (before pastedFiles renames "image.png"). */
+function clipboardFileNames(cd: ClipboardLike): string[] {
+  const names: string[] = [];
+  for (const item of Array.from(cd.items ?? [])) {
+    if (item.kind !== "file") continue;
+    const f = item.getAsFile();
+    if (f?.name) names.push(f.name);
+  }
+  return names;
+}
+
+function onlyNamesOrLink(text: string, cd: ClipboardLike): boolean {
+  const lines = text.split("\n").map((l) => l.trim()).filter(Boolean);
+  if (lines.length === 0) return true;
+  const names = new Set(clipboardFileNames(cd).map((n) => n.toLowerCase()));
+  const base = (l: string) => l.split(/[\\/]/).pop()!.toLowerCase();
+  if (lines.every((l) => names.has(l.toLowerCase()) || names.has(base(l)))) return true;
+  return lines.length === 1 && /^(https?:\/\/|file:\/\/)\S+$/i.test(lines[0]);
+}

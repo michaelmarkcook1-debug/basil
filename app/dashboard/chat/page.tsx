@@ -28,7 +28,7 @@ import { TrustLine, UndoTool } from "@/components/chat/trust";
 import useSWR from "swr";
 import { Button } from "@/components/ui/button";
 import { downscaleImage } from "@/lib/images/downscale";
-import { pastedText, pastedFiles } from "@/lib/chat/paste";
+import { pasteAction } from "@/lib/chat/paste";
 import { Markdown } from "@/components/ui/markdown";
 import { Textarea } from "@/components/ui/textarea";
 import { ScrollArea } from "@/components/ui/scroll-area";
@@ -533,17 +533,18 @@ function ChatPageInner() {
    * in a textarea, so it used to vanish without a word; it is now attached.
    * Text is put in at the cursor by hand rather than left to the browser, so a
    * paste from Slack, Gmail or a document always lands — including clipboards
-   * that carry only HTML. When the clipboard holds both (a spreadsheet range
-   * copies as text AND a picture of itself), the text wins.
+   * that carry only HTML. A picture copied as a file, or with its web address,
+   * attaches as the picture; real text alongside a picture (a spreadsheet range
+   * copies as both) still pastes as text. See pasteAction.
    */
   const handlePaste = useCallback((e: React.ClipboardEvent<HTMLTextAreaElement>) => {
     const cd = e.clipboardData;
     if (!cd) return;
-    const text = pastedText(cd);
-    const files = text ? [] : pastedFiles(cd);
-    if (!text && files.length === 0) return;
+    const action = pasteAction(cd);
+    if (!action) return;
     e.preventDefault();
-    if (files.length > 0) { void stageFiles(files); return; }
+    if ("files" in action) { void stageFiles(action.files); return; }
+    const { text } = action;
     const el = e.currentTarget;
     const start = el.selectionStart ?? el.value.length;
     const end = el.selectionEnd ?? start;

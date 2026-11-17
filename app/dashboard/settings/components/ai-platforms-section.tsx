@@ -1,5 +1,6 @@
 "use client";
 
+import { AIChatsPanel } from "@/components/settings/ai-chats-panel";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   CheckCircle2,
@@ -488,6 +489,7 @@ export function AIPlatformsSection() {
         )}
       </CardHeader>
       <CardContent>
+        <AIChatsPanel />
         <div className="grid gap-3 lg:grid-cols-2">
           {PLATFORMS.map((def) => (
             <PlatformCard

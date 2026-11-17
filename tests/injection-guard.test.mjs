@@ -103,7 +103,7 @@ function toolsModule() {
     "@/lib/calendar/unified": noop, "@/lib/calendar/writes": noop, "@/lib/microsoft/mail-provider": noop, "@/lib/microsoft/outlook-mail": noop,
     "@/lib/memory/store": noop, "@/lib/actions/store": noop, "@/lib/decisions/store": noop,
     "@/lib/events/audit": { emitAuditEvent: async () => {} }, "@/lib/linear/sync-actions": noop, "@/lib/linear/client": noop,
-    "@/lib/contacts-lookup": { findContactByName: () => undefined, timezoneFromLocation: () => undefined }, "@/lib/contacts/user-store": noop, "@/lib/uploads/store": noop, "@/lib/uploads/search": noop,
+    "@/lib/contacts-lookup": { findContactByName: () => undefined, timezoneFromLocation: () => undefined }, "@/lib/contacts/user-store": noop, "@/lib/uploads/store": noop, "@/lib/ai-chats/store": { searchAIChats: async () => [], chatStatus: async () => ({ platforms: [], latestWork: [] }) }, "@/lib/uploads/search": noop,
     "@/lib/settings/store": { getSettings: async () => ({ meetingUrl: "" }) },
   });
 }

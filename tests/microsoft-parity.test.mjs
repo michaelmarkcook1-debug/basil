@@ -566,7 +566,7 @@ function toolsWith({ google = true, microsoft = true, unified, writes, settings 
     "@/lib/memory/store": noop, "@/lib/actions/store": noop, "@/lib/decisions/store": noop,
     "@/lib/events/audit": { emitAuditEvent: async () => {} }, "@/lib/linear/sync-actions": noop, "@/lib/linear/client": noop,
     "@/lib/contacts-lookup": { findContactByName: () => undefined, timezoneFromLocation: () => undefined },
-    "@/lib/contacts/user-store": { listUserContacts: async () => [] }, "@/lib/uploads/store": noop, "@/lib/uploads/search": noop,
+    "@/lib/contacts/user-store": { listUserContacts: async () => [] }, "@/lib/uploads/store": noop, "@/lib/ai-chats/store": { searchAIChats: async () => [], chatStatus: async () => ({ platforms: [], latestWork: [] }) }, "@/lib/uploads/search": noop,
     "@/lib/settings/store": { getSettings: async () => ({ meetingUrl: "", ...settings }) },
   });
   return { tools: T.buildAssistantTools("u", "Fixture", "Europe/London"), sent, names: () => sent.map((s) => s[0]) };

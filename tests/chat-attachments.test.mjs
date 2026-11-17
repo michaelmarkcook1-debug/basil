@@ -55,7 +55,7 @@ test("images are downscaled BEFORE they are staged", () => {
   const handler = page.slice(page.indexOf("const stageFiles"));
   const body = handler.slice(0, handler.indexOf("}, []);"));
   assert.match(page, /await stageFiles\(files\);/, "the file picker stages through stageFiles");
-  assert.match(page, /void stageFiles\(files\)/, "a pasted file stages through stageFiles");
+  assert.match(page, /void stageFiles\(action\.files\)/, "a pasted file stages through stageFiles");
   assert.ok(/await Promise\.all\(files\.map\(\(f\) => downscaleImage\(f\)\)\)/.test(body),
     "downscaling must happen before setStagedFiles — staging the raw file first " +
     "would still send the oversized original");
