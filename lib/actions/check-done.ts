@@ -129,7 +129,19 @@ Answer one of:
 - "open": anything else, including messages that only discuss it, promise it, or that you are unsure about.
 Being wrong with "done" or "expired" hides real work, so choose "open" whenever in doubt.
 
-Respond with JSON only: {"state": "done" | "expired" | "open", "reason": "one short sentence", "evidence": "the message number and recipient, or empty"}`;
+Respond with JSON only, state first: {"state": "done" | "expired" | "open", "reason": "at most 15 words", "evidence": "the message number and recipient, or empty"}`;
+}
+
+/**
+ * The verdict from an answer that was cut off after the state: the model
+ * commits to "state" first, so a reply that stops mid-reason still says it.
+ * Nothing readable → open.
+ */
+export function lenientVerdict(text: string): DoneVerdict {
+  const state = /"state"\s*:\s*"(done|expired|open)"/.exec(text ?? "")?.[1] as DoneVerdict["state"] | undefined;
+  if (!state) return { state: "open", reason: "" };
+  const reason = /"reason"\s*:\s*"([^"]*)/.exec(text)?.[1]?.trim() ?? "";
+  return { state, reason: reason ? `${reason}${/"reason"\s*:\s*"[^"]*"/.test(text) ? "" : "…"}` : "" };
 }
 
 /** The note added when Basil closes an item, so the user can see why. */
@@ -163,12 +175,15 @@ export function makeDoneJudge(username: string): DoneJudge {
     try {
       const { text } = await generateTextSafe({
         model: getTextModel("balanced"),
-        maxOutputTokens: 200,
+        // 200 was too few: on the fallback provider (a reasoning model, used
+        // whenever Anthropic credit runs out) thinking spends the budget, and
+        // every answer from 14 to 16 Nov came back empty or cut mid-sentence.
+        maxOutputTokens: 1200,
         system: "You decide whether a to-do item is finished. Be conservative: when in doubt, it is open.",
         prompt,
       }, "balanced", { username, feature: "actions:check-done" });
       const parsed = parseAndValidate(text, VerdictSchema, "[check-done]");
-      return parsed.ok ? parsed.data : { state: "open", reason: "" };
+      return parsed.ok ? parsed.data : lenientVerdict(text);
     } catch (err) {
       console.warn("[check-done] judge failed, keeping the item open:", err instanceof Error ? err.message : err);
       return { state: "open", reason: "" };

@@ -186,7 +186,8 @@ export function makeModelSentimentJudge(username: string): SentimentJudge {
   return async (prompt) => {
     const { text } = await generateTextSafe({
       model: getTextModel("fast"),
-      maxOutputTokens: 500,
+      // Room for a reasoning fallback model to think and still answer (see check-done.ts).
+      maxOutputTokens: 1500,
       system: "You read working relationships from message history. Be measured: routine is neutral, and change must be visible to count.",
       prompt,
     }, "fast", { username, feature: "contacts:sentiment" });

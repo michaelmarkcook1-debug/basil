@@ -165,3 +165,14 @@ test("Today: each promise has Complete, Ongoing and Take me there, and the list 
   assert.match(src("app/api/actions/resolve-threads/route.ts"), /await checkDoneActions\(username\)/);
   assert.match(src("app/api/events/poll-ingest/route.ts"), /await checkDoneActions\(username\)/);
 });
+
+test("an answer cut off after the state still counts; an empty one is open (14–16 Nov every answer was cut)", () => {
+  const { D } = load();
+  same(D.lenientVerdict(`{"state": "open", "reason": "No message shows Michael sent Nos`), { state: "open", reason: "No message shows Michael sent Nos…" });
+  same(D.lenientVerdict(`{"state": "expired", "reason": "12 Nov has passed"`), { state: "expired", reason: "12 Nov has passed" });
+  same(D.lenientVerdict(`{"state":`), { state: "open", reason: "" });
+  same(D.lenientVerdict(""), { state: "open", reason: "" });
+  const src2 = src("lib/actions/check-done.ts");
+  assert.match(src2, /maxOutputTokens: 1200/);
+  assert.match(src2, /return parsed\.ok \? parsed\.data : lenientVerdict\(text\);/);
+});

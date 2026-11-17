@@ -208,12 +208,16 @@ test("the lock's retry budget outlasts its own TTL", () => {
 test("background maintenance takes ONE lock, not two on the same key", () => {
   // Two fire-and-forget withLock() calls on the same key, launched back-to-back,
   // contend with each other the moment the lock is genuinely cross-instance.
+  // Since 2026-11-16 every pass (dedup, category, owner purge, four archive
+  // sweeps) is queued and run by runMaintenance in a single acquisition.
   const src = read("lib/actions/store.ts");
   const listFn = src.slice(src.indexOf("export async function listActions"));
-  const body = listFn.slice(0, listFn.indexOf("\n  // ── Owner filter"));
-  const locks = [...body.matchAll(/withLock\(lockKey\(username\)/g)];
-  assert.equal(locks.length, 1,
-    `listActions must acquire the actions lock at most once for background maintenance (found ${locks.length})`);
+  const body = listFn.slice(0, listFn.indexOf("\nexport interface CreateActionInput"));
+  const inList = [...body.matchAll(/withLock\(lockKey\(username\)/g)];
+  assert.equal(inList.length, 0, `listActions must not take the lock itself (found ${inList.length})`);
+  const run = src.slice(src.indexOf("function runMaintenance"), src.indexOf("export async function listActions"));
+  assert.equal([...run.matchAll(/withLock\(lockKey\(username\)/g)].length, 1, "runMaintenance takes it once for every pass");
+  assert.match(body, /if \(maintenance\.length > 0\) runMaintenance\(username, maintenance\);/);
 });
 
 test("Redis gates accept the KV_* names the Marketplace actually provisions", () => {

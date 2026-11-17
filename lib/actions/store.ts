@@ -315,6 +315,42 @@ function mergeExistingDuplicates(items: ActionItem[]): { items: ActionItem[]; ch
 
 // ── Public interface ───────────────────────────────────────────────────────────
 
+/** One background pass over the fresh list: the next list, whether it changed, and a log line. */
+type MaintenancePass = (current: ActionItem[]) => { items: ActionItem[]; changed: boolean; log?: string };
+
+/** When this instance last ran (or is running) maintenance for a user. */
+const maintenanceAt = new Map<string, number>();
+export const MAINTENANCE_MIN_GAP_MS = 60_000;
+
+/**
+ * Run listActions' background passes in ONE lock acquisition: one fresh read,
+ * every pass in order, at most one write. Fire-and-forget, and at most once a
+ * minute per user per instance, so a burst of reads (Today opens five at once)
+ * does not queue maintenance ahead of the user's own clicks. Anything skipped
+ * is still pending on the next read.
+ */
+function runMaintenance(username: string, passes: MaintenancePass[]): void {
+  const key = username.toLowerCase();
+  const last = maintenanceAt.get(key) ?? 0;
+  if (Date.now() - last < MAINTENANCE_MIN_GAP_MS) return;
+  maintenanceAt.set(key, Date.now());
+  withLock(lockKey(username), async () => {
+    let items = await readAll(username, { fresh: true });
+    let changed = false;
+    const logs: string[] = [];
+    for (const pass of passes) {
+      const r = pass(items);
+      items = r.items;
+      if (r.changed) changed = true;
+      if (r.log) logs.push(r.log);
+    }
+    if (changed) {
+      await writeAll(username, items);
+      if (logs.length) console.log(`[actions] ${username}: ${logs.join("; ")}`);
+    }
+  }).catch((err) => console.error("[actions] background maintenance failed:", err instanceof Error ? err.message : err));
+}
+
 export async function listActions(username: string, options?: { fresh?: boolean }): Promise<ActionItem[]> {
   const items = await readAll(username, options);
   // The user's working calendar (stored values only; never waits on Google).
@@ -338,7 +374,21 @@ export async function listActions(username: string, options?: { fresh?: boolean 
   // Fire-and-forget: re-reads inside the lock to avoid races; never blocks the
   // response — the deduped view is returned to the caller immediately.
   const { items: deduped, changed: dedupChanged } = mergeExistingDuplicates(items);
-  const needsCategory = deduped.filter((a) => a.category === undefined && a.status !== "done");
+  // Only items the classifier can actually categorise. It used to be every
+  // uncategorised item, so one the classifier could not place took the lock on
+  // EVERY read, forever, and wrote nothing.
+  const needsCategory = deduped.filter((a) => {
+    if (a.category !== undefined || a.status === "done") return false;
+    const r = classifyAction(a.text, a.priority);
+    return r.category !== undefined || !!r.decisionRequired;
+  });
+  // Every background pass below goes into this list and runs in ONE lock
+  // acquisition with one fresh read and at most one write (runMaintenance).
+  // They used to be six separate withLock calls per read; with Today, the feed
+  // and the done-check all reading at once, user clicks queued behind them and
+  // failed with "[lock] could not acquire actions:<user> after 320 attempts"
+  // (2026-11-16: Complete and Delete both failed).
+  const maintenance: MaintenancePass[] = [];
 
   // ── Background maintenance: ONE lock, both passes ────────────────────────────
   // These used to be two separate fire-and-forget withLock() calls on the SAME
@@ -352,12 +402,9 @@ export async function listActions(username: string, options?: { fresh?: boolean 
   // them separately meant two Blob reads and two writes to accomplish what one
   // pass can. Combined: one acquisition, one read, at most one write.
   if (dedupChanged || needsCategory.length > 0) {
-    withLock(lockKey(username), async () => {
-      const current = await readAll(username, { fresh: true });
-
+    maintenance.push((current) => {
       const { items: clean, changed: cleanChanged } = mergeExistingDuplicates(current);
       let changed = cleanChanged;
-
       const patched = clean.map((a) => {
         if (a.category !== undefined || a.status === "done") return a;
         const result = classifyAction(a.text, a.priority);
@@ -369,9 +416,8 @@ export async function listActions(username: string, options?: { fresh?: boolean 
           ...(result.decisionRequired            && { decisionRequired: true }),
         };
       });
-
-      if (changed) await writeAll(username, patched);
-    }).catch((err) => console.error("[actions] background maintenance failed:", err));
+      return { items: patched, changed };
+    });
   }
 
   // ── Owner filter — group refs and named third-parties ──────────────────────
@@ -430,18 +476,13 @@ export async function listActions(username: string, options?: { fresh?: boolean 
   const notMineItems = deduped.filter(isNotMine);
 
   if (notMineItems.length > 0) {
-    withLock(lockKey(username), async () => {
-      const current = await readAll(username, { fresh: true });
+    maintenance.push((current) => {
       const cleaned = current.filter(
         (a) => !isGroupOwner(a.owner) && !isOtherPersonOwner(a.owner) && !isUnknownOwnerOverdue(a)
       );
-      if (cleaned.length !== current.length) {
-        await writeAll(username, cleaned);
-        console.log(
-          `[actions] purged ${current.length - cleaned.length} non-personal action(s) for ${username}`
-        );
-      }
-    }).catch((err) => console.error("[actions] owner purge failed:", err));
+      const n = current.length - cleaned.length;
+      return { items: cleaned, changed: n > 0, log: n > 0 ? `purged ${n} non-personal action(s)` : undefined };
+    });
   }
   const personalOnly = deduped.filter((a) => !isNotMine(a));
 
@@ -462,26 +503,15 @@ export async function listActions(username: string, options?: { fresh?: boolean 
   const staleOverdue = awayNow ? [] : withOverdue.filter((a) => isOverdueStale(a, awayDaysSince));
   if (staleOverdue.length > 0) {
     const staleIds = new Set(staleOverdue.map((a) => a.id));
-    withLock(lockKey(username), async () => {
-      const current = await readAll(username, { fresh: true });
-      let changed = false;
+    maintenance.push((current) => {
+      let n = 0;
       const archived = current.map((a) => {
         if (!staleIds.has(a.id) || a.status === "done") return a;
-        changed = true;
-        return {
-          ...a,
-          status: "done" as const,
-          archivedReason: "stale-overdue" as const,
-          updatedAt: new Date().toISOString(),
-        };
+        n++;
+        return { ...a, status: "done" as const, archivedReason: "stale-overdue" as const, updatedAt: new Date().toISOString() };
       });
-      if (changed) {
-        await writeAll(username, archived);
-        console.log(
-          `[actions] auto-archived ${staleOverdue.length} stale-overdue action(s) for ${username}`
-        );
-      }
-    }).catch((err) => console.error("[actions] stale-overdue archive failed:", err));
+      return { items: archived, changed: n > 0, log: n > 0 ? `auto-archived ${n} stale-overdue action(s)` : undefined };
+    });
   }
   const staleIds = new Set(staleOverdue.map((a) => a.id));
   const afterStale = withOverdue.map((a) =>
@@ -495,21 +525,15 @@ export async function listActions(username: string, options?: { fresh?: boolean 
   const pastMeeting = afterStale.filter((a) => isMeetingAttendancePast(a));
   if (pastMeeting.length > 0) {
     const pastMeetingIds = new Set(pastMeeting.map((a) => a.id));
-    withLock(lockKey(username), async () => {
-      const current = await readAll(username, { fresh: true });
-      let changed = false;
+    maintenance.push((current) => {
+      let n = 0;
       const archived = current.map((a) => {
         if (!pastMeetingIds.has(a.id) || a.status === "done") return a;
-        changed = true;
+        n++;
         return { ...a, status: "done" as const, archivedReason: "past-meeting" as const, updatedAt: new Date().toISOString() };
       });
-      if (changed) {
-        await writeAll(username, archived);
-        console.log(
-          `[actions] auto-archived ${pastMeeting.length} past-meeting attendance action(s) for ${username}`
-        );
-      }
-    }).catch((err) => console.error("[actions] past-meeting archive failed:", err));
+      return { items: archived, changed: n > 0, log: n > 0 ? `auto-archived ${n} past-meeting attendance action(s)` : undefined };
+    });
   }
   const pastMeetingIds = new Set(pastMeeting.map((a) => a.id));
   const afterPastMeeting = afterStale.map((a) =>
@@ -526,19 +550,15 @@ export async function listActions(username: string, options?: { fresh?: boolean 
   );
   if (expired.length > 0) {
     const expiredIds = new Set(expired.map((a) => a.id));
-    withLock(lockKey(username), async () => {
-      const current = await readAll(username, { fresh: true });
-      let changed = false;
+    maintenance.push((current) => {
+      let n = 0;
       const archived = current.map((a) => {
         if (!expiredIds.has(a.id) || a.status === "done") return a;
-        changed = true;
+        n++;
         return { ...a, status: "done" as const, archivedReason: "expired" as const, updatedAt: new Date().toISOString() };
       });
-      if (changed) {
-        await writeAll(username, archived);
-        console.log(`[actions] archived ${expired.length} expired time-bounded action(s) for ${username}`);
-      }
-    }).catch((err) => console.error("[actions] expiry archive failed:", err));
+      return { items: archived, changed: n > 0, log: n > 0 ? `archived ${n} expired time-bounded action(s)` : undefined };
+    });
   }
   const expiredIds = new Set(expired.map((a) => a.id));
   const afterExpired = afterPastMeeting.map((a) =>
@@ -552,24 +572,22 @@ export async function listActions(username: string, options?: { fresh?: boolean 
   const untouched = awayNow ? [] : afterExpired.filter((a) => untouchedStale(a, Date.now(), awayDaysSince));
   if (untouched.length > 0) {
     const untouchedIds = new Set(untouched.map((a) => a.id));
-    withLock(lockKey(username), async () => {
-      const current = await readAll(username, { fresh: true });
-      let changed = false;
+    maintenance.push((current) => {
+      let n = 0;
       const archived = current.map((a) => {
         if (!untouchedIds.has(a.id) || a.status === "done" || !untouchedStale(a, Date.now(), awayDaysSince)) return a;
-        changed = true;
+        n++;
         return { ...a, status: "done" as const, archivedReason: "stale-untouched" as const, updatedAt: new Date().toISOString() };
       });
-      if (changed) {
-        await writeAll(username, archived);
-        console.log(`[actions] archived ${untouched.length} untouched auto-extracted action(s) for ${username}`);
-      }
-    }).catch((err) => console.error("[actions] untouched archive failed:", err));
+      return { items: archived, changed: n > 0, log: n > 0 ? `archived ${n} untouched auto-extracted action(s)` : undefined };
+    });
   }
   const untouchedIds = new Set(untouched.map((a) => a.id));
   const live = afterExpired.map((a) =>
     untouchedIds.has(a.id) ? { ...a, status: "done" as const, archivedReason: "stale-untouched" as const } : a
   );
+
+  if (maintenance.length > 0) runMaintenance(username, maintenance);
 
   return live.sort(
     (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()

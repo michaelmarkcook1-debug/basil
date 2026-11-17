@@ -104,7 +104,8 @@ export function makeModelJudge(username: string): Judge {
     try {
       const { text } = await generateTextSafe({
         model: getTextModel("fast"),
-        maxOutputTokens: 200,
+        // Room for a reasoning fallback model to think and still answer (see check-done.ts).
+        maxOutputTokens: 1200,
         system: "You judge whether a to-do item is still outstanding. Be conservative: when in doubt, it is still needed.",
         prompt: judgePrompt(firstName, ask, view, mode),
       }, "fast", { username, feature: "resolve:thread" });

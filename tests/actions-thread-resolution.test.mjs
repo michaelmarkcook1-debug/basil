@@ -281,3 +281,42 @@ test("the email classifier treats review, survey, registration and waitlist requ
   const src = fs.readFileSync(path.join(ROOT, "lib/email/classify-email.ts"), "utf8");
   assert.match(src, /low_value_noise: [^\n]*leave a review, take a survey[^\n]*register for an event[^\n]*waitlist/);
 });
+
+test("one read starts at most ONE background lock, with one write, and not again within a minute (2026-11-16)", async () => {
+  // Several passes due at once: a stale untouched item, an expired one, and a
+  // group-owned one. They used to take six separate locks per read, and the
+  // user's Complete click queued behind them until it failed.
+  let file = [
+    action({ id: "old" }),
+    action({ id: "exp", expiresAt: ago(1), source: "manual" }),
+    action({ id: "grp", owner: "#general", source: "manual" }),
+    action({ id: "mine", source: "manual" }),
+  ];
+  let locks = 0; const writes = [];
+  const store = loadTs("lib/actions/store.ts", {
+    "@/lib/away/store": { getWorkCalendar: async () => { throw new Error("no working calendar in this test"); } },
+    "@/lib/away/calendar": loadTs("lib/away/calendar.ts"),
+    "@/lib/events/lock": { withLock: async (_k, fn) => { locks++; return fn(); } },
+    "@/lib/storage/user-store": { readUserStore: async () => structuredClone(file), writeUserStore: async (_u, _f, v) => { file = structuredClone(v); writes.push(v); } },
+    "./classify": { classifyAction: () => ({}) },
+    "./utils": utils,
+    "@/lib/self-identity": { getSelfIdentity: async () => ({ emails: [], names: [] }) },
+    "@/lib/security/sensitive": { redactSensitive: (s) => ({ text: s }) },
+  });
+  await store.listActions("u");
+  await new Promise((r) => setTimeout(r, 20));
+  assert.equal(locks, 1, "one lock for every pass");
+  assert.equal(writes.length, 1, "one write");
+  const byId = Object.fromEntries(file.map((a) => [a.id, a]));
+  assert.equal(byId.old.archivedReason, "stale-untouched");
+  assert.equal(byId.exp.archivedReason, "expired");
+  assert.equal(byId.grp, undefined, "group-owned purged");
+  assert.equal(byId.mine.status, "open");
+  file.push(action({ id: "old2" }));
+  await store.listActions("u");
+  await new Promise((r) => setTimeout(r, 20));
+  assert.equal(locks, 1, "a second read within a minute does not queue more maintenance");
+  // An uncategorisable item no longer takes the lock on every read.
+  const src = (await import("node:fs")).readFileSync(new URL("../lib/actions/store.ts", import.meta.url), "utf8");
+  assert.match(src, /return r\.category !== undefined \|\| !!r\.decisionRequired;/);
+});
