@@ -7,11 +7,15 @@
  * tool (with its own username) now both call this.
  */
 import "server-only";
-import { getTextModel, MAX_TOKENS, PROVIDER_MODE } from "@/lib/ai/model-config";
-import { getSystemPrompt } from "@/lib/ai/system-prompt";
+import { MAX_TOKENS, PROVIDER_MODE } from "@/lib/ai/model-config";
+import { getTaskSystemPrompt } from "@/lib/ai/system-prompt";
 import { generateValidated } from "@/lib/ai/generate-validated";
-import { ContactProfileSchema, type ContactProfileOutput } from "@/lib/ai/schemas";
-import { searchEmails, getRecentEmails, getEmailBody } from "@/lib/google/gmail";
+import { ContactProfileClaimsSchema, type ContactProfileOutput } from "@/lib/ai/schemas";
+import { numberEvidence, finalizeClaims, citedClaims, channelAndHourHabits, settingHabits, askHabits, exchangesIn, exchangeEvidence, WORKING_FIELDS, PROFILE_FIELDS, type ConvoMessage, type Setting, type ProfileField, type DropReason, type RawEvidence, type ProfileEvidence, type WorkingStyle } from "@/lib/contacts/profile-evidence";
+import { checkClaims } from "@/lib/contacts/profile-check";
+import { readFeedback, recordRun } from "@/lib/contacts/profile-feedback";
+import { editRatio, verdictsFor } from "@/lib/contacts/profile-quality";
+import { searchEmails, getRecentEmails, getEmailBody, getThreadState, type ThreadState } from "@/lib/google/gmail";
 import { getSelfIdentity } from "@/lib/self-identity";
 import { getSettings } from "@/lib/settings/store";
 import { getOverrideFromStore } from "@/lib/contacts/overrides-store";
@@ -19,10 +23,11 @@ import { assertProfilingAllowed } from "@/lib/privacy/store";
 import { listUserContacts } from "@/lib/contacts/user-store";
 import { interactionsWith, baselineInteractions } from "@/lib/contacts/sentiment";
 import { baselineOf, recentSignals, describeSignals } from "@/lib/contacts/relationship-signals";
-import { buildProfilePrompt, signalCount as countSignal } from "@/lib/contacts/profile-prompt";
+import { buildProfilePrompt, habitLines, personMatcher, signalCount as countSignal } from "@/lib/contacts/profile-prompt";
 import {
   getRecentSlackMessages,
   searchSlackMessages,
+  getUserProfile,
 } from "@/lib/slack/client";
 import { getZoomSummaries, filterByAttendees } from "@/lib/google/zoom-summaries";
 import { getWhatsAppSignalForContact } from "@/lib/whatsapp/dump-job";
@@ -71,10 +76,25 @@ export interface ContactProfileInput {
 
 /** What the route returns and the tool hands back: the profile plus how much it read. */
 export type ContactProfileDraft = ContactProfileOutput & {
+  /** Cited claims, the items they cite, and each field's strength (lib/contacts/profile-evidence). */
+  evidence: ProfileEvidence;
+  /** How to work with them (stored in the override layer). */
+  workingStyle: WorkingStyle;
   signalCount: number;
   bodiesRead: number;
   generatedAt: string;
 };
+
+/** "Guy Saunders" from `Guy Saunders <guy@x.io>` on a message from that address. Exported for tests. */
+export function fullNameFromHeaders(msgs: ReadonlyArray<{ from: string; fromEmail?: string }>, email: string): string | undefined {
+  const addr = email.toLowerCase();
+  for (const m of msgs) {
+    if ((m.fromEmail ?? "").toLowerCase() !== addr) continue;
+    const display = m.from.replace(/<[^>]*>/g, "").replace(/["']/g, "").trim();
+    if (display.split(/\s+/).length >= 2 && !display.includes("@")) return display;
+  }
+  return undefined;
+}
 
 /**
  * Throws SpendCapError / AIValidationError / Error as generateValidated does;
@@ -111,6 +131,9 @@ export async function generateContactProfile(username: string, body: ContactProf
     generatedAt: override?.generatedAt ?? stored?.generatedAt,
   };
   const ownerNotes = override?.ownerNotes;
+  // What the user confirmed or rejected on earlier drafts (recommendation 8).
+  const feedback = contactId ? await readFeedback(username).catch(() => null) : null; // ci-ok: no feedback store → no corrections carried
+  const judged = feedback && contactId ? verdictsFor(feedback, contactId) : { confirmed: [], rejected: [] };
 
   // Only hit Gmail/Slack/Zoom when the directory is "work" OR when we have an
   // email (which implies they might appear in inbox), and only while tone &
@@ -146,15 +169,11 @@ export async function generateContactProfile(username: string, body: ContactProf
       : Promise.resolve([]),
   ]);
 
-  // Filter emails: match sender/recipient against name or email
-  const emailSignal = emailsAll.filter((e) => {
-    const fromLower = e.from.toLowerCase();
-    if (email && fromLower.includes(email.toLowerCase())) return true;
-    return (
-      fromLower.includes(nameLower) ||
-      (nameFirst.length >= 3 && fromLower.includes(nameFirst.toLowerCase()))
-    );
-  });
+  // Whole words and exact addresses only (see personMatcher). An auto-added
+  // contact is often just "guy": take the full name from their own From header.
+  const fullName = name.trim().includes(" ") || !email ? name.trim() : (fullNameFromHeaders(emailsAll, email) ?? name.trim());
+  const who = personMatcher(fullName, email);
+  const emailSignal = emailsAll.filter((e) => who.sentEmail(e));
 
   // Also a targeted Gmail search by name / email — catches things outside the
   // recent window that still matter.
@@ -173,23 +192,30 @@ export async function generateContactProfile(username: string, body: ContactProf
     .slice(0, 30);
 
   // Their direct, non-bulk emails in full: where writing style actually shows.
-  const direct = emails.filter((e) => !e.bulk && ((email && e.fromEmail?.toLowerCase() === email.toLowerCase()) || e.from.toLowerCase().includes(nameLower))).slice(0, MAX_BODIES);
+  // Each with its thread (recommendation 3): what they were answering, and
+  // what happened next — a reply means little without the message it answers.
+  const direct = emails.filter((e) => !e.bulk && who.sentEmail(e)).slice(0, MAX_BODIES);
   const emailBodies = (await Promise.all(direct.map(async (e) => {
-    try { const b = await getEmailBody(username, e.id); return { date: b.date || e.date, subject: b.subject || e.subject, body: b.body }; }
+    try {
+      const [b, thread] = await Promise.all([getEmailBody(username, e.id), getThreadState(username, e.id).catch(() => null)]); // ci-ok: no thread → the email alone
+      return { id: e.id, date: b.date || e.date, subject: b.subject || e.subject, body: b.body, setting: emailSetting(e), thread };
+    }
     catch { return null; }
-  }))).filter((b): b is { date: string; subject: string; body: string } => !!b && b.body.trim().length > 0);
+  }))).filter((b): b is NonNullable<typeof b> => !!b && b.body.trim().length > 0);
 
-  // Merge recent Slack + targeted search, dedup by id, filter against name
+  // Slack identity: their user id from their email (users.lookupByEmail), so
+  // "written by them" is decided by who posted, not by a display name.
+  const slackId = shouldPullWorkSignal && email ? (await getUserProfile(username, email).catch(() => null))?.id : undefined; // ci-ok: no Slack identity → display-name matching
+  const slackAuthored = (m: { author: string; authorId?: string }) =>
+    slackId && m.authorId ? m.authorId === slackId : who.authored(m.author);
+
+  // Merge recent Slack + targeted search, dedup by id. Kept: what they wrote,
+  // what was said in a 1:1 DM with them (both sides), and messages naming them
+  // in full. A bare first name inside someone else's text is not them.
   const slackById = new Map<string, (typeof slackRecent)[number]>();
   for (const m of [...slackRecent, ...slackSearched]) {
-    const authorLower = m.author.toLowerCase();
-    const textLower = m.text.toLowerCase();
-    const hit =
-      authorLower.includes(nameLower) ||
-      (nameFirst.length >= 3 &&
-        (authorLower.includes(nameFirst.toLowerCase()) ||
-          textLower.includes(nameFirst.toLowerCase())));
-    if (!hit) continue;
+    const dmWithThem = m.channelMembers?.length === 1 && m.channelMembers[0] === nameFirst.toLowerCase();
+    if (!(slackAuthored(m) || dmWithThem || who.mentions(m.text))) continue;
     if (!slackById.has(m.id)) slackById.set(m.id, m);
   }
   const slackMsgs = [...slackById.values()]
@@ -204,9 +230,9 @@ export async function generateContactProfile(username: string, body: ContactProf
   const recent = recentSignals(interactionsWith(contactLike, sources, identity.names), baseline);
   const facts = describeSignals(baseline, recent);
 
-  // Zoom summaries mentioning the person
+  // Zoom summaries naming the person in full (AI summaries: context, never style).
   const zoom = shouldPullWorkSignal
-    ? filterByAttendees(zoomAll, [name]).slice(0, 4)
+    ? filterByAttendees(zoomAll, [name]).filter((z) => who.mentions(`${z.title} ${z.body}`) || who.authored(z.title)).slice(0, 4)
     : [];
 
   // Teams meetings with the person (from Outlook Calendar — no extra scope needed)
@@ -214,31 +240,85 @@ export async function generateContactProfile(username: string, body: ContactProf
     ? filterTeamsMeetingsByAttendees(teamsAllMeetings, [name]).slice(0, 4)
     : [];
 
-  // Teams chat + channel messages for the person
-  const teamsLines = [...teamsChatLines, ...teamsChannelLines].slice(0, 30);
-
-  const evidence = {
-    emailLines: emails.map((e) => `- [${e.date}] From ${e.from}: "${e.subject}" — ${e.snippet}`),
-    emailBodies,
-    slackLines: slackMsgs.map((m) => `- [${m.date}] ${m.author} in ${m.channel}: ${m.text}`),
-    zoomBlocks: zoom.map((z) => `- [${z.date}] (${z.source}) ${z.title}\n${z.body}`),
-    whatsappLines,
-    teamsLines,
-    teamsMeetingBlocks: teamsMeetings.map((m) => `- [${m.date}] (teams) ${m.title}\n${m.body}`),
+  // ── Numbered evidence: who wrote each item decides what it may support ──
+  const bodyIds = new Set(emailBodies.map((b) => b.id));
+  const speakerLine = (channel: string) => (line: string): RawEvidence => {
+    const m = /^\[(\d{4}-\d{2}-\d{2})[^\]]*\]\s*([^:]{1,80}):\s*([\s\S]*)$/.exec(line.trim());
+    if (!m) return { channel, by: "others", text: clip(line, 600) };
+    const speaker = m[2].trim();
+    const mine = speaker.toLowerCase() === username.toLowerCase() || identity.names.some((n) => n.toLowerCase() === speaker.toLowerCase());
+    return { channel, by: !mine && (who.authored(speaker) || speaker === "Them") ? "them" : "others", date: m[1], text: clip(`${speaker}: ${m[3]}`, 600) };
   };
-  const signalCount = countSignal(evidence);
+  // One-to-one Slack conversations with them, both sides, oldest first.
+  const dmConvos = new Map<string, ConvoMessage[]>();
+  for (const m of slackRecent) {
+    const dmWithThem = m.channelMembers?.length === 1 && m.channelMembers[0] === nameFirst.toLowerCase();
+    if (!dmWithThem || !m.channelId) continue;
+    const list = dmConvos.get(m.channelId) ?? [];
+    list.push({ fromUser: !!m.fromSelf, fromThem: !m.fromSelf && slackAuthored(m), at: m.date, text: m.text });
+    dmConvos.set(m.channelId, list);
+  }
+  const exchanges = [...dmConvos.values()].flatMap((c) => exchangesIn(c));
+  const slackSetting = (m: { channelMembers?: string[] }): Setting => (m.channelMembers?.length === 1 ? "1:1" : "group");
 
-  const promptText = buildProfilePrompt({
-    name, email, phone: body.phone, directory, selfFirst, notes, ownerNotes, prior, baseline, recent, facts, evidence,
+  const raw: RawEvidence[] = [
+    ...emailBodies.map((b) => ({ channel: "email", by: "them" as const, setting: b.setting, date: isoDay(b.date), title: b.subject, text: withThread(b, selfFirst) })),
+    ...emails.filter((e) => !bodyIds.has(e.id)).slice(0, 22).map((e) => ({
+      channel: "email",
+      by: who.sentEmail(e) ? "them" as const : "others" as const,
+      setting: emailSetting(e),
+      date: isoDay(e.date),
+      title: e.subject,
+      text: `Email from ${e.from}: "${e.subject}" — ${e.snippet}`,
+    })),
+    ...slackMsgs.map((m) => ({ channel: "slack", by: slackAuthored(m) ? "them" as const : "others" as const, setting: slackSetting(m), date: isoDay(m.date), title: m.channel, text: `${m.author} in ${m.channel}: ${clip(m.text, 600)}` })),
+    // Your asks in DMs, each with what they did next (newest 12).
+    ...exchanges.slice(-12).map((x) => exchangeEvidence(x, "slack", selfFirst, fullName)),
+    ...zoom.map((z) => ({ channel: "zoom", by: "others" as const, setting: "meeting" as const, date: isoDay(z.date), title: z.title, text: `Zoom AI summary "${z.title}": ${clip(z.body, 1200)}` })),
+    ...whatsappLines.map(speakerLine("whatsapp")),
+    ...[...teamsChatLines, ...teamsChannelLines].slice(0, 30).map(speakerLine("teams")),
+    ...teamsMeetings.map((m) => ({ channel: "meeting", by: "others" as const, setting: "meeting" as const, date: isoDay(m.date), title: m.title, text: `Teams meeting "${m.title}": ${clip(m.body, 800)}` })),
+  ];
+  // Their own messages, setting by setting (recommendation 6).
+  const theirMessages = [
+    ...emails.filter((e) => !e.bulk && who.sentEmail(e)).map((e) => ({ setting: emailSetting(e), text: e.snippet })),
+    ...slackRecent.filter((m) => slackAuthored(m)).map((m) => ({ setting: slackSetting(m), text: m.text })),
+  ];
+
+  // Where and when they write — measured from their own messages' timestamps.
+  const theirTimes = [
+    ...emailsAll.filter((e) => !e.bulk && who.sentEmail(e)).map((e) => ({ channel: "email", at: e.date })),
+    ...slackRecent.filter((m) => slackAuthored(m)).map((m) => ({ channel: "slack", at: m.date })),
+  ];
+  const items = numberEvidence({
+    notes: [
+      ownerNotes?.trim() ?? "",
+      notes?.trim() ?? "",
+      ...judged.confirmed.map((c) => `${selfFirst} confirmed this earlier: "${c}"`),
+    ].filter(Boolean),
+    habits: [
+      ...habitLines(baseline, facts),
+      ...channelAndHourHabits(theirTimes, settings.timezone || "Europe/London"),
+      ...settingHabits(theirMessages),
+      ...askHabits(exchanges),
+    ],
+    messages: raw,
   });
+  const signalCount = countSignal(items);
+
+  const promptText = buildProfilePrompt({ name: fullName, email, phone: body.phone, directory, selfFirst, prior, items, rejected: judged.rejected });
 
   const parsed = await generateValidated({
     kind: "object",
-    schema: ContactProfileSchema,
+    schema: ContactProfileClaimsSchema,
     schemaName: "ContactProfile",
-    model: getTextModel(),
+    // No explicit model: the tier's primary, then the other provider (an
+    // explicit one would retry the same, out-of-credit provider first).
     maxOutputTokens: MAX_TOKENS.default,
-    system: await getSystemPrompt(username),
+    // Background work: the task prompt (ground rules, data-not-instructions,
+    // memories about this person), not the ~15k-token chat prompt with its
+    // tool manuals, which a profile never uses.
+    system: await getTaskSystemPrompt(username, undefined, { memories: 8, focus: { text: fullName, entities: [fullName] }, glossaryFor: promptText.slice(0, 6_000) }),
     prompt: promptText,
     tag: "contact-profile",
     meter: { username, feature: "contact-profile" },
@@ -247,10 +327,70 @@ export async function generateContactProfile(username: string, body: ContactProf
       providerOptions: { gateway: { tags: ["feature:contact-profile", "env:production"] } },
     }),
   });
+  // The second check: each claim re-read against only its own sources, by the
+  // fast tier, without the draft in view. Fails open (null → nothing removed).
+  const checks = await checkClaims(username, citedClaims(parsed, items));
+  // Citations checked, fields scored, prose written — in code, not by the model.
+  const done = finalizeClaims(parsed, items, checks);
+  const { personality, whatMakesThemTick, watchOut, recentActivity, ...rest } = done.text;
+  const workingStyle: WorkingStyle = Object.fromEntries(WORKING_FIELDS.map((f) => [f, rest[f]]));
+
+  // Grade the run: what the checks removed, and how much the user had edited
+  // the last draft before asking for this one.
+  if (contactId) {
+    const lastClaims = override?.profileEvidence?.claims;
+    const keptText: Partial<Record<ProfileField, string | undefined>> = {
+      personality: override?.personality ?? stored?.personality,
+      whatMakesThemTick: override?.whatMakesThemTick ?? stored?.whatMakesThemTick,
+      watchOut: override?.watchOut ?? stored?.watchOut,
+      recentActivity: override?.recentActivity ?? stored?.recentActivity,
+      ...override?.workingStyle,
+    };
+    const edits: Partial<Record<ProfileField, number>> = {};
+    for (const f of PROFILE_FIELDS) {
+      const written = (lastClaims?.[f] ?? []).map((c) => c.text).join(f === "recentActivity" ? "\n" : " ");
+      if (written && keptText[f]) edits[f] = editRatio(written, keptText[f]!);
+    }
+    const dropped: Partial<Record<DropReason, number>> = {};
+    for (const d of done.evidence.dropped) dropped[d.why] = (dropped[d.why] ?? 0) + 1;
+    await recordRun(username, {
+      contactId,
+      kept: PROFILE_FIELDS.reduce((n, f) => n + done.evidence.claims[f].length, 0),
+      dropped,
+      checked: done.evidence.checked !== false,
+      ...(Object.keys(edits).length ? { edits } : {}),
+    }).catch((e) => console.warn("[contact-profile] could not log the run:", e instanceof Error ? e.message : e));
+  }
   return {
-    ...parsed,
+    personality, whatMakesThemTick, watchOut, recentActivity,
+    workingStyle,
+    activitySource: done.activitySource,
+    ...(parsed.changes ? { changes: parsed.changes } : {}),
+    ...(parsed.summary ? { summary: parsed.summary } : {}),
+    ...(parsed.canonicalFields ? { canonicalFields: parsed.canonicalFields } : {}),
+    evidence: done.evidence,
     signalCount,
     bodiesRead: emailBodies.length,
     generatedAt: new Date().toISOString(),
   };
 }
+
+/** One-to-one when it went to the user alone; group when others were on it. */
+function emailSetting(e: { to?: string; cc?: string }): Setting {
+  const n = [e.to ?? "", e.cc ?? ""].join(",").split(",").map((x) => x.trim()).filter((x) => x.includes("@")).length;
+  return n <= 1 ? "1:1" : "group";
+}
+
+/** Their email in full, with what it answered and what happened next in the thread. */
+function withThread(b: { date: string; subject: string; body: string; thread: ThreadState | null }, selfFirst: string): string {
+  const before = b.thread?.earlier?.[b.thread.earlier.length - 1];
+  const after = b.thread?.later?.[0];
+  const head = before
+    ? `Answering ${before.sent ? `${selfFirst}'s` : `${before.fromName || before.fromEmail}'s`} email of ${isoDay(before.date) ?? "earlier"}: "${clip(before.snippet, 240)}"\n`
+    : "";
+  const tail = after ? `\nNext in the thread: ${after.sent ? selfFirst : after.fromName || after.fromEmail}, ${isoDay(after.date) ?? "later"}: "${clip(after.snippet, 160)}"` : "";
+  return `${head}Email "${b.subject}" (in full):\n${clip(b.body, 1800)}${tail}`;
+}
+
+const isoDay = (d: string) => { const t = Date.parse(d); return Number.isFinite(t) ? new Date(t).toISOString().slice(0, 10) : undefined; };
+const clip = (s: string, n: number) => (s.length > n ? `${s.slice(0, n - 1).trimEnd()}…` : s);

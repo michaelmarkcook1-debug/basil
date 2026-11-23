@@ -1153,11 +1153,13 @@ export function buildAssistantTools(
           // Called directly: fetching /api/contacts/generate-profile from here
           // carried no session cookie, so it was always 401.
           const { generateContactProfile } = await import("@/lib/contacts/generate-profile");
-          const data = await generateContactProfile(username, { name: contactName, email, directory, notes });
+          const { evidence, ...data } = await generateContactProfile(username, { name: contactName, email, directory, notes });
           return {
             status: "drafted",
-            note: `Draft generated. ${name} can save it from the Contacts page.`,
+            note: `Draft generated. ${name} can save it from the Contacts page, where each claim shows the messages it rests on.`,
             ...data,
+            // How much each field rests on — not the cited messages themselves (they stay on the Contacts page).
+            strength: Object.fromEntries(Object.entries(evidence.strength).map(([k, v]) => [k, v.level])),
           };
         } catch (e) {
           return {

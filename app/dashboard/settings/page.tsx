@@ -7,6 +7,8 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { TimeAwayCard } from "@/components/settings/time-away-card";
 import { NotificationsCard } from "@/components/settings/notifications-card";
 import { PeopleProfilesCard } from "@/components/settings/people-profiles-card";
+import { WorkstreamsCard } from "@/components/settings/workstreams-card";
+import { ProfileQualityCard } from "@/components/settings/profile-quality-card";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -1699,9 +1701,11 @@ export default function SettingsPage() {
               </Button>
             </CardContent>
           </Card>
+          <WorkstreamsCard />
           <TimeAwayCard />
           <NotificationsCard />
           <PeopleProfilesCard />
+          <ProfileQualityCard />
         </TabsContent>
 
         {/* ── Security ──────────────────────────────────────────────────────── */}

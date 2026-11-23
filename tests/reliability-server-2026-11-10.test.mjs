@@ -265,7 +265,7 @@ test("D5. a stream error after a paid step commits that step; one before any ste
 
 // ── D5 + timeout. generate-validated ──────────────────────────────────────────
 
-function validated(generateText, settled, timeoutMs = 50) {
+function validated(generateText, settled, timeoutMs = 50, chain = (_k, m) => [["primary", m]]) {
   return loadTs("lib/ai/generate-validated.ts", {
     ai: { generateText, Output: { object: () => ({}), array: () => ({}) }, NoObjectGeneratedError: { isInstance: (e) => e?.noObject === true } },
     zod: require("zod"),
@@ -275,7 +275,7 @@ function validated(generateText, settled, timeoutMs = 50) {
       releaseSpend: async () => { settled.push(["release"]); },
       SpendCapError,
     },
-    "@/lib/ai/generate": { attemptTimeoutMs: () => timeoutMs },
+    "@/lib/ai/generate": { attemptTimeoutMs: () => timeoutMs, modelChain: chain },
   });
 }
 const vOpts = { kind: "object", schema: {}, schemaName: "S", model: "m", maxOutputTokens: 1, system: "s", prompt: "p", tag: "t", meter: { username: "f", feature: "t" } };
@@ -294,7 +294,42 @@ test("generate-validated: each attempt has a timeout, so a hung provider gives t
   const t0 = Date.now();
   await assert.rejects(V.generateValidated(vOpts), /aborted due to timeout/);
   assert.ok(Date.now() - t0 < 2_000);
-  assert.deepEqual(plain(settled), [["release"], ["release"]], "no usage known: refunded");
+  // A provider that never answered is not "repaired": one attempt, refunded.
+  assert.deepEqual(plain(settled), [["release"]], "no usage known: refunded");
+});
+
+test("generate-validated: a provider out of credit falls through to the next provider, not a repair retry", async () => {
+  const settled = [];
+  const seen = [];
+  const V = validated(async (o) => {
+    seen.push(o.model);
+    if (o.model === "anthropic") throw new Error("Your credit balance is too low to access the Anthropic API.");
+    return { output: { ok: true }, usage: { inputTokens: 10, outputTokens: 5 } };
+  }, settled, 50, () => [["primary", "anthropic"], ["openai-direct", "openai"]]);
+  const out = await V.generateValidated({ ...vOpts, model: undefined });
+  assert.deepEqual(plain(out), { ok: true });
+  assert.deepEqual(seen, ["anthropic", "openai"]);
+  assert.deepEqual(settled.map((s) => s[0]), ["release", "commit"]);
+});
+
+test("generate-validated: every provider failing surfaces the real error, once per provider", async () => {
+  const seen = [];
+  const V = validated(async (o) => { seen.push(o.model); throw new Error(`down: ${o.model}`); }, [], 50, () => [["primary", "a"], ["openai-direct", "b"]]);
+  await assert.rejects(V.generateValidated({ ...vOpts, model: undefined }), /down: b/);
+  assert.deepEqual(seen, ["a", "b"]);
+});
+
+test("generate-validated: the repair retry goes back to the provider that answered", async () => {
+  const seen = [];
+  let n = 0;
+  const V = validated(async (o) => {
+    seen.push(o.model);
+    if (o.model === "a") throw new Error("credit balance is too low");
+    if (n++ === 0) throw Object.assign(new Error("No object generated"), { noObject: true, text: "{" });
+    return { output: { ok: 1 }, usage: {} };
+  }, [], 50, () => [["primary", "a"], ["openai-direct", "b"]]);
+  assert.deepEqual(plain(await V.generateValidated({ ...vOpts, model: undefined })), { ok: 1 });
+  assert.deepEqual(seen, ["a", "b", "b"]);
 });
 
 // ── A10. Account deletion: provider revoke, then an awaited purge ─────────────

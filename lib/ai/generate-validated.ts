@@ -36,9 +36,17 @@ import type { LanguageModel } from "ai";
 import type { ProviderOptions } from "@ai-sdk/provider-utils";
 import type { ModelKind } from "@/lib/ai/model-config";
 import { reserveSpend, commitSpend, releaseSpend, SpendCapError, type SpendMeter } from "@/lib/ai/spend-guard";
-import { attemptTimeoutMs } from "@/lib/ai/generate";
+import { attemptTimeoutMs, modelChain } from "@/lib/ai/generate";
 
 // ── Error type ─────────────────────────────────────────────────────────────────
+
+/** Every provider in the chain failed before answering; `cause` is the last error. */
+class ProviderChainError extends Error {
+  constructor(public readonly cause: unknown) {
+    super(cause instanceof Error ? cause.message : String(cause));
+    this.name = "ProviderChainError";
+  }
+}
 
 export class AIValidationError extends Error {
   constructor(
@@ -59,7 +67,11 @@ export class AIValidationError extends Error {
 // ── Shared options ─────────────────────────────────────────────────────────────
 
 interface BaseOpts {
-  model: LanguageModel;
+  /**
+   * Omit to use the tier's model (meterKind) with the usual cross-provider
+   * fallback. An explicit model is still followed by the direct providers.
+   */
+  model?: LanguageModel;
   maxOutputTokens: number;
   system: string;
   prompt: string;
@@ -94,7 +106,7 @@ type Opts<T> = ObjectOpts<T> | ArrayOpts<T>;
  * Throws `AIValidationError` if both attempts fail.
  */
 export async function generateValidated<T>(opts: Opts<T>): Promise<T> {
-  async function attempt(repairHint?: string): Promise<T> {
+  async function attempt(model: LanguageModel, repairHint?: string): Promise<T> {
     const system = repairHint
       ? `${opts.system}\n\n---\nIMPORTANT: Your previous response failed validation. ${repairHint}\nReturn ONLY valid JSON that exactly matches the required schema. No extra keys, no markdown fences, no commentary.`
       : opts.system;
@@ -136,7 +148,7 @@ export async function generateValidated<T>(opts: Opts<T>): Promise<T> {
     };
     try {
       const result = await generateText({
-        model: opts.model,
+        model,
         maxOutputTokens: opts.maxOutputTokens,
         output,
         system,
@@ -163,6 +175,36 @@ export async function generateValidated<T>(opts: Opts<T>): Promise<T> {
     }
   }
 
+  // ── Provider chain ────────────────────────────────────────────────────────
+  // A provider failure (credit exhausted, outage, auth, timeout) is not a
+  // validation failure: move on to the next provider instead of "repairing" a
+  // prompt that never reached a model. Until 2026-11-23 the profile route sent
+  // both attempts to Anthropic while its credit was out, and every profile
+  // failed although OpenAI was configured as the fallback.
+  const kind = opts.meterKind ?? "default";
+  let chain = modelChain(kind, opts.model);
+
+  async function onAnyProvider(repairHint?: string): Promise<T> {
+    let lastErr: unknown = null;
+    for (let i = 0; i < chain.length; i++) {
+      const [name, model] = chain[i];
+      try {
+        return await attempt(model, repairHint);
+      } catch (err) {
+        if (err instanceof SpendCapError) throw err;
+        if (NoObjectGeneratedError.isInstance(err)) {
+          // This provider answered: the repair retry goes back to it first.
+          chain = [chain[i], ...chain.filter((_, j) => j !== i)];
+          throw err;
+        }
+        lastErr = err;
+        const msg = err instanceof Error ? err.message : String(err);
+        if (i < chain.length - 1) console.warn(`[${opts.tag}] ${name} provider failed, trying the next: ${msg.slice(0, 160)}`);
+      }
+    }
+    throw new ProviderChainError(lastErr);
+  }
+
   // ── Attempt 1 ─────────────────────────────────────────────────────────────
 
   let schemaPath = "unknown";
@@ -171,11 +213,13 @@ export async function generateValidated<T>(opts: Opts<T>): Promise<T> {
   let repairHint = "Ensure all required fields are present with the correct types.";
 
   try {
-    return await attempt();
+    return await onAnyProvider();
   } catch (err) {
     // A spend-cap rejection is not a validation failure — propagate it so the
     // caller can return 429 (and we don't waste a repair attempt on it).
     if (err instanceof SpendCapError) throw err;
+    // Every provider failed: no answer to repair. Surface the real error.
+    if (err instanceof ProviderChainError) throw err.cause ?? err;
     // Extract diagnostic info from NoObjectGeneratedError or Zod error
     if (NoObjectGeneratedError.isInstance(err)) {
       modelExcerpt = (err.text ?? "").slice(0, 300);
@@ -207,9 +251,10 @@ export async function generateValidated<T>(opts: Opts<T>): Promise<T> {
   // ── Attempt 2 (repair) ────────────────────────────────────────────────────
 
   try {
-    return await attempt(repairHint);
-  } catch (retryErr) {
-    if (retryErr instanceof SpendCapError) throw retryErr;
+    return await onAnyProvider(repairHint);
+  } catch (rawRetryErr) {
+    if (rawRetryErr instanceof SpendCapError) throw rawRetryErr;
+    const retryErr = rawRetryErr instanceof ProviderChainError ? (rawRetryErr.cause ?? rawRetryErr) : rawRetryErr;
     const retryExcerpt = NoObjectGeneratedError.isInstance(retryErr)
       ? (retryErr.text ?? "").slice(0, 300)
       : retryErr instanceof Error

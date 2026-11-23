@@ -70,9 +70,9 @@ test("bulk tiers keep a generous ceiling so long generations aren't killed", () 
 });
 
 test("redundant same-provider fallback is skipped when the primary is direct", () => {
-  assert.ok(/PROVIDER_MODE === "openai_direct"/.test(gen) && /fallbacks = \[anthropic\]/.test(gen),
+  assert.ok(/PROVIDER_MODE === "openai_direct"/.test(gen) && /list = \[anthropic\]/.test(gen),
     "openai-direct primary must fall back to Anthropic ONLY (no redundant OpenAI retry)");
-  assert.ok(/PROVIDER_MODE === "anthropic_direct"/.test(gen) && /fallbacks = \[openai\]/.test(gen),
+  assert.ok(/PROVIDER_MODE === "anthropic_direct"/.test(gen) && /list = \[openai\]/.test(gen),
     "anthropic-direct primary must fall back to OpenAI ONLY");
   // Gateway primary still tries both distinct direct providers.
   assert.ok(/preferOpenAI\(\) \? \[openai, anthropic\] : \[anthropic, openai\]/.test(gen),

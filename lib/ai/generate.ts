@@ -191,6 +191,35 @@ function isFallbackWorthTrying(err: unknown): boolean {
   return true;
 }
 
+/**
+ * The cross-provider fallbacks to try after the primary failed, in order.
+ *
+ * CRITICAL ordering rule: when the gateway is disabled the PRIMARY attempt
+ * already WAS a direct provider (getTextModel returns OpenAI-direct or
+ * Anthropic-direct). Retrying that SAME provider first is a wasted attempt — it
+ * just failed — and it burns a whole timeout budget, which pushed short-
+ * maxDuration routes past their limit into a 504. So:
+ *   • gateway (or caller-supplied model) primary → BOTH direct providers;
+ *   • openai primary    → Anthropic only;
+ *   • anthropic primary → OpenAI only.
+ * generateText's own maxRetries already retried the primary provider before it
+ * threw; a genuine cross-provider fallback is the resilience that matters.
+ */
+export function fallbackModelsFor(kind: ModelKind, primaryIsDirect: boolean): Array<readonly [string, LanguageModel]> {
+  const anthropic: readonly [string, LanguageModel | null] = ["anthropic-direct", getDirectAnthropicModel(kind)];
+  const openai: readonly [string, LanguageModel | null] = ["openai-direct", getDirectOpenAIModel(kind)];
+  let list: ReadonlyArray<readonly [string, LanguageModel | null]>;
+  if (primaryIsDirect && PROVIDER_MODE === "openai_direct") list = [anthropic];
+  else if (primaryIsDirect && PROVIDER_MODE === "anthropic_direct") list = [openai];
+  else list = preferOpenAI() ? [openai, anthropic] : [anthropic, openai];
+  return list.filter((f): f is readonly [string, LanguageModel] => !!f[1]);
+}
+
+/** The primary model for a tier, then its cross-provider fallbacks. */
+export function modelChain(kind: ModelKind, explicit?: LanguageModel): Array<readonly [string, LanguageModel]> {
+  return [["primary", explicit ?? getTextModel(kind)], ...fallbackModelsFor(kind, !explicit)];
+}
+
 // ── Public API ────────────────────────────────────────────────────────────────
 
 // `model` is OPTIONAL here: when omitted, getTextModel(kind) supplies it (the
@@ -283,33 +312,9 @@ export async function generateTextSafe(
     }
   }
 
-  // ── Fallback chain: direct providers. ──────────────────────────────────────
-  //    CRITICAL ordering rule: when the gateway is disabled the PRIMARY attempt
-  //    above already WAS a direct provider (getTextModel returns OpenAI-direct
-  //    or Anthropic-direct). Retrying that SAME provider first is a wasted
-  //    attempt — it just failed — and it burns a whole timeout budget, which is
-  //    exactly what pushed short-maxDuration routes (test-brain, 30s) past their
-  //    limit into a 504 (22s primary + 22s redundant retry > 30s). So:
-  //      • gateway primary  → try BOTH direct providers (neither was the primary).
-  //      • openai primary   → fall back to Anthropic ONLY (skip the redundant
-  //                           OpenAI retry; the SDK already retried it internally).
-  //      • anthropic primary→ fall back to OpenAI ONLY.
-  //    The dropped same-provider path isn't lost resilience: generateText's own
-  //    maxRetries already retried the primary provider before it threw here, and
-  //    a genuine cross-provider fallback is the resilience that actually matters.
-  const anthropic: readonly [string, LanguageModel | null] = ["anthropic-direct", getDirectAnthropicModel(kind)];
-  const openai: readonly [string, LanguageModel | null] = ["openai-direct", getDirectOpenAIModel(kind)];
+  // ── Fallback chain: the other direct providers (see fallbackModelsFor). ──
   const primaryIsDirect = !options.model; // explicit model ⇒ caller owns routing
-  let fallbacks: ReadonlyArray<readonly [string, LanguageModel | null]>;
-  if (primaryIsDirect && PROVIDER_MODE === "openai_direct") {
-    fallbacks = [anthropic];
-  } else if (primaryIsDirect && PROVIDER_MODE === "anthropic_direct") {
-    fallbacks = [openai];
-  } else {
-    // Gateway (or caller-supplied model) primary: both direct providers are
-    // valid distinct fallbacks, ordered by preference.
-    fallbacks = preferOpenAI() ? [openai, anthropic] : [anthropic, openai];
-  }
+  const fallbacks = fallbackModelsFor(kind, primaryIsDirect);
 
   let lastErr: unknown = null;
   let attempted = false;

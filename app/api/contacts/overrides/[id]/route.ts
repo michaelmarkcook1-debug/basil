@@ -34,6 +34,27 @@ export async function PUT(
         summary: z.string().optional(),
         ownerNotes: z.string().max(4000).optional(),
         changes: z.string().optional(),
+        // Cited claims + the items they cite (lib/contacts/profile-evidence). Shape is
+        // produced by our own code; bounded here so a client cannot store an essay.
+        profileEvidence: z
+          .object({
+            claims: z.record(z.enum(["personality", "whatMakesThemTick", "watchOut", "recentActivity", "howToLandIt", "reachThem", "decides", "badNews", "silence"]), z.array(z.object({ text: z.string().max(600), evidence: z.array(z.string().max(8)).max(20) })).max(12)),
+            cited: z.array(z.object({ id: z.string().max(8), by: z.enum(["them", "others", "stated", "measured"]), channel: z.string().max(16), date: z.string().max(10).optional(), label: z.string().max(120), excerpt: z.string().max(300) })).max(120),
+            strength: z.record(z.enum(["personality", "whatMakesThemTick", "watchOut", "recentActivity", "howToLandIt", "reachThem", "decides", "badNews", "silence"]), z.object({ level: z.enum(["stated", "strong", "some", "thin"]), items: z.number(), days: z.number(), channels: z.number() })),
+            dropped: z.array(z.object({ field: z.enum(["personality", "whatMakesThemTick", "watchOut", "recentActivity", "howToLandIt", "reachThem", "decides", "badNews", "silence"]), text: z.string().max(600), why: z.enum(["no-valid-citation", "style-without-their-words", "checker-unsupported", "checker-contradicted"]) })).max(40),
+            checked: z.boolean().optional(),
+          })
+          .optional(),
+        // "How to work with them" fields (lib/contacts/profile-evidence WORKING_FIELDS).
+        workingStyle: z
+          .object({
+            howToLandIt: z.string().max(400).optional(),
+            reachThem: z.string().max(1200).optional(),
+            decides: z.string().max(1200).optional(),
+            badNews: z.string().max(1200).optional(),
+            silence: z.string().max(1200).optional(),
+          })
+          .optional(),
         toneHistory: z
           .array(
             z.object({

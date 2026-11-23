@@ -419,21 +419,27 @@ test("8. the backup is a 200 only when complete with no failed copies, and only 
 test("9. the profile is generated for the given user directly, metered as contact-profile", async () => {
   const calls = [];
   const G = loadTs("lib/contacts/generate-profile.ts", looseMocks({
-    "@/lib/ai/generate-validated": { generateValidated: async (a) => { calls.push(a); return { personality: "p", whatMakesThemTick: "t", watchOut: "w", recentActivity: "r", activitySource: "s" }; } },
+    "@/lib/ai/generate-validated": { generateValidated: async (a) => { calls.push(a); return { personality: [{ text: "p", evidence: ["N1"] }], whatMakesThemTick: [], watchOut: [], recentActivity: [] }; } },
+    "@/lib/contacts/profile-evidence": loadTs("lib/contacts/profile-evidence.ts"),
+    "@/lib/contacts/profile-check": { checkClaims: async () => new Map() },
+    "@/lib/contacts/profile-feedback": { readFeedback: async () => ({ verdicts: [], runs: [] }), recordRun: async () => {} },
+    "@/lib/contacts/profile-quality": loadTs("lib/contacts/profile-quality.ts"),
     "@/lib/ai/model-config": { getTextModel: () => "model", MAX_TOKENS: { default: 4096 }, PROVIDER_MODE: "direct" },
     "@/lib/self-identity": { getSelfIdentity: async () => ({ emails: [], names: ["Guy Saunders"] }) },
     "@/lib/settings/store": { getSettings: async () => ({ toneSentiment: false }) },
     "@/lib/contacts/user-store": { listUserContacts: async () => [] },
     "@/lib/contacts/sentiment": { baselineInteractions: () => [], interactionsWith: () => [] },
     "@/lib/contacts/relationship-signals": { baselineOf: () => ({}), recentSignals: () => ({}), describeSignals: () => [] },
-    "@/lib/contacts/profile-prompt": { buildProfilePrompt: () => "PROMPT", signalCount: () => 0 },
-    "@/lib/ai/system-prompt": { getSystemPrompt: async () => "sys" },
-    "@/lib/ai/schemas": { ContactProfileSchema: {} },
+    "@/lib/contacts/profile-prompt": { buildProfilePrompt: () => "PROMPT", signalCount: () => 0, habitLines: () => [], personMatcher: () => ({ sentEmail: () => false, authored: () => false, mentions: () => false }) },
+    "@/lib/ai/system-prompt": { getTaskSystemPrompt: async () => "sys" },
+    "@/lib/ai/schemas": { ContactProfileClaimsSchema: {} },
   }));
-  const draft = await G.generateContactProfile("guy", { name: "Ed Baum" });
+  const draft = await G.generateContactProfile("guy", { name: "Ed Baum", notes: "Runs finance; prefers numbers." });
   assert.deepEqual(plain(calls[0].meter), { username: "guy", feature: "contact-profile" });
   assert.equal(calls[0].prompt, "PROMPT");
-  assert.equal(draft.personality, "p");
+  assert.equal(draft.personality, "p", "a claim citing the user's note survives");
+  assert.equal(draft.watchOut, "Not enough evidence yet.");
+  assert.equal(draft.evidence.strength.personality.level, "stated");
   assert.equal(draft.signalCount, 0);
   assert.equal(draft.bodiesRead, 0);
   assert.ok(draft.generatedAt);

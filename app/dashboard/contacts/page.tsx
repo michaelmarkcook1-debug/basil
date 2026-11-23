@@ -1,5 +1,8 @@
 "use client";
 
+import { CitedField, indexVerdicts, type Verdicts } from "@/components/contacts/cited-field";
+import type { ProfileEvidence, WorkingStyle } from "@/lib/contacts/profile-evidence";
+import { WorkingStyleBlock } from "@/components/contacts/working-style";
 import { useState, useEffect, useCallback, useMemo } from "react";
 import { ForgetPerson, type PrivacyView } from "@/components/contacts/forget-person";
 import Link from "next/link";
@@ -338,6 +341,17 @@ function ContactDetail({
     setNameSaving(false);
   }
 
+  // Thumbs up / down already given on this person's claims (lib/contacts/profile-feedback).
+  const [verdicts, setVerdicts] = useState<Verdicts>({});
+  useEffect(() => {
+    let live = true;
+    fetch(`/api/contacts/profile-feedback?contactId=${encodeURIComponent(contact.id)}`, { cache: "no-store" })
+      .then((r) => (r.ok ? r.json() : Promise.reject(new Error(String(r.status)))))
+      .then((d: { verdicts?: Array<{ field: string; text: string; verdict: "up" | "down" }> }) => { if (live) setVerdicts(indexVerdicts(d.verdicts)); })
+      .catch((e) => console.warn("[contacts] verdicts unavailable:", e instanceof Error ? e.message : e));
+    return () => { live = false; };
+  }, [contact.id]);
+
   // Clear ephemeral UI state when contact changes (usePersistentDraft handles draft reload).
   // contact.name dep keeps nameInput current after a rename.
   useEffect(() => {
@@ -370,6 +384,9 @@ function ContactDetail({
       }
       const data = (await res.json()) as ProfileOverride & {
         error?: string;
+        /** Cited claims and their sources (lib/contacts/profile-evidence). */
+        evidence?: ProfileEvidence;
+        workingStyle?: WorkingStyle;
         /** Structured fields explicitly stated in the user's notes. */
         canonicalFields?: Partial<Contact>;
       };
@@ -391,6 +408,8 @@ function ContactDetail({
         activitySource: data.activitySource,
         summary: data.summary,
         changes: data.changes,
+        ...(data.evidence ? { profileEvidence: data.evidence } : {}),
+        ...(data.workingStyle ? { workingStyle: data.workingStyle } : {}),
         generatedAt: new Date().toISOString(),
         // What the user typed becomes a stated fact that survives every regeneration.
         ...(genNotes.trim() ? { ownerNotes: [override?.ownerNotes?.trim(), genNotes.trim()].filter(Boolean).join("\n\n") } : {}),
@@ -437,11 +456,13 @@ function ContactDetail({
 
         // The user's notes and the change log live in the override layer for
         // every contact, so they survive regeneration and record edits alike.
-        if (preview.ownerNotes || preview.changes) {
+        // The citations live there too: the prose on the card, the evidence beside it.
+        if (preview.ownerNotes || preview.changes || preview.profileEvidence || preview.workingStyle) {
+          const layer = { ownerNotes: preview.ownerNotes, changes: preview.changes, generatedAt: preview.generatedAt, profileEvidence: preview.profileEvidence, workingStyle: preview.workingStyle };
           await fetch(`/api/contacts/overrides/${contact.id}`, {
             method: "PUT", headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ ownerNotes: preview.ownerNotes, changes: preview.changes, generatedAt: preview.generatedAt }),
-          }).then((r) => { if (r.ok) onSaveOverride({ ownerNotes: preview.ownerNotes, changes: preview.changes, generatedAt: preview.generatedAt }); })
+            body: JSON.stringify(layer),
+          }).then((r) => { if (r.ok) onSaveOverride(layer); })
             .catch((err) => { console.error("[contacts] could not save owner notes:", err instanceof Error ? err.message : err); });
         }
         const res = await fetch(`/api/contacts/user/${contact.id}`, {
@@ -831,22 +852,36 @@ function ContactDetail({
             <div className="rounded-lg bg-background/60 ring-1 ring-border p-3 space-y-3">
               {(
                 [
-                  ["Personality", preview.personality],
-                  ["What makes them tick", preview.whatMakesThemTick],
-                  ["Watch out", preview.watchOut],
-                  ["Recent activity", preview.recentActivity],
-                  ["Activity source", preview.activitySource],
+                  ["Personality", "personality", preview.personality],
+                  ["What makes them tick", "whatMakesThemTick", preview.whatMakesThemTick],
+                  ["Watch out", "watchOut", preview.watchOut],
+                  ["Recent activity", "recentActivity", preview.recentActivity],
                 ] as const
-              ).map(([label, value]) => (
+              ).map(([label, field, value]) => (
                 <div key={label}>
                   <p className="text-[12px] font-semibold tracking-widest uppercase text-[color:var(--w-carbon)]">
                     {label}
                   </p>
-                  <p className="text-sm leading-relaxed text-foreground/90 mt-1 whitespace-pre-line">
-                    {value}
-                  </p>
+                  <div className="mt-1">
+                    <CitedField field={field} text={value} evidence={preview.profileEvidence} contactId={contact.id} verdicts={verdicts} className="text-sm leading-relaxed text-foreground/90" />
+                  </div>
                 </div>
               ))}
+              {preview.workingStyle && (
+                <WorkingStyleBlock style={preview.workingStyle} evidence={preview.profileEvidence} contactId={contact.id} verdicts={verdicts} />
+              )}
+              <div>
+                <p className="text-[12px] font-semibold tracking-widest uppercase text-[color:var(--w-carbon)]">Activity source</p>
+                <p className="text-sm leading-relaxed text-foreground/90 mt-1">{preview.activitySource}</p>
+              </div>
+              {(preview.profileEvidence?.dropped.length ?? 0) > 0 && (
+                <p className="text-[12px] text-muted-foreground">
+                  Basil removed {preview.profileEvidence!.dropped.length} claim{preview.profileEvidence!.dropped.length === 1 ? "" : "s"} the evidence didn&rsquo;t support.
+                </p>
+              )}
+              {preview.profileEvidence?.checked === false && (
+                <p className="text-[12px] text-muted-foreground">The second check couldn&rsquo;t run this time, so claims were checked for citations only.</p>
+              )}
               {preview.summary && (
                 <p className="text-[12px] text-muted-foreground pt-2 border-t border-border/60">
                   {preview.summary}
@@ -961,7 +996,7 @@ function ContactDetail({
               </CardTitle>
             </CardHeader>
             <CardContent>
-              <p className="text-sm leading-relaxed">{contact.personality}</p>
+              <CitedField field="personality" text={contact.personality} evidence={override?.profileEvidence} contactId={contact.id} verdicts={verdicts} />
             </CardContent>
           </Card>
           <Card className="border-l border-l-[var(--w-filed)]">
@@ -971,7 +1006,7 @@ function ContactDetail({
               </CardTitle>
             </CardHeader>
             <CardContent>
-              <p className="text-sm leading-relaxed">{contact.whatMakesThemTick}</p>
+              <CitedField field="whatMakesThemTick" text={contact.whatMakesThemTick} evidence={override?.profileEvidence} contactId={contact.id} verdicts={verdicts} />
             </CardContent>
           </Card>
           <Card className="border-l border-l-[var(--w-manila)]">
@@ -981,9 +1016,19 @@ function ContactDetail({
               </CardTitle>
             </CardHeader>
             <CardContent>
-              <p className="text-sm leading-relaxed">{contact.watchOut}</p>
+              <CitedField field="watchOut" text={contact.watchOut} evidence={override?.profileEvidence} contactId={contact.id} verdicts={verdicts} />
             </CardContent>
           </Card>
+          {override?.workingStyle && Object.values(override.workingStyle).some(Boolean) && (
+            <Card className="border-l border-l-[var(--w-carbon)]">
+              <CardHeader className="pb-2">
+                <CardTitle className="text-xs font-semibold tracking-widest uppercase">How to work with them</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <WorkingStyleBlock style={override.workingStyle} evidence={override.profileEvidence} contactId={contact.id} verdicts={verdicts} bare />
+              </CardContent>
+            </Card>
+          )}
         </TabsContent>
 
         <TabsContent value="activity" className="space-y-4 mt-4">

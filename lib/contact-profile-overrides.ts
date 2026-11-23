@@ -16,6 +16,7 @@
 // Write pattern: optimistic local update first → then persist to server.
 // Read pattern: sync from cache (instant) + one async server fetch on mount.
 
+import type { ProfileEvidence, WorkingStyle } from "@/lib/contacts/profile-evidence";
 import { scopedKey } from "./session-user";
 
 // Stored per signed-in user via scopedKey(): the bare key was shared by everyone
@@ -61,6 +62,10 @@ export interface ProfileOverride {
   ownerNotes?: string;
   /** What the last regeneration changed, in the model's words. */
   changes?: string;
+  /** Cited claims, the messages they cite, and each field's strength (lib/contacts/profile-evidence). */
+  profileEvidence?: ProfileEvidence;
+  /** "How to work with them": how to land it, reaching them, how they decide, bad news, silence. */
+  workingStyle?: WorkingStyle;
   /**
    * Ordered history of detected tone/attitude shifts for this contact.
    * Capped at 20 entries — oldest dropped when the cap is exceeded.

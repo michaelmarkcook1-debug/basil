@@ -142,6 +142,8 @@ export interface SlackMessage {
   /** For DMs and Group DMs: lowercased first-names of non-self members. Lets the UI match on identity. */
   channelMembers?: string[];
   author: string;
+  /** Slack user id of the author — identity, where `author` is only a display name. */
+  authorId?: string;
   text: string;
   date: string;
   isMention: boolean;
@@ -445,6 +447,7 @@ export async function getRecentSlackMessages(
           channelId: convo.id,
           channelMembers,
           author: authorName,
+          ...(msg.user ? { authorId: msg.user } : {}),
           text: cleanSlackText(msg.text || ""),
           date: new Date(msgTime).toISOString(),
           isMention: mentionsSelf(msg.text, selfUserId),
@@ -524,6 +527,7 @@ export async function getChannelHistory(
         channel: channelName,
         channelId,
         author: authorName,
+        ...(msg.user ? { authorId: msg.user } : {}),
         text: cleanSlackText(msg.text || ""),
         date: msg.ts
           ? new Date(parseFloat(msg.ts) * 1000).toISOString()
@@ -560,6 +564,7 @@ export async function searchSlackMessages(
       id: m.ts || String(Date.now()),
       channel: m.channel?.name ? `#${m.channel.name}` : "DM",
       author: m.username || "Unknown",
+      ...(m.user ? { authorId: m.user } : {}),
       text: cleanSlackText(m.text || ""),
       date: m.ts ? new Date(parseFloat(m.ts) * 1000).toISOString() : new Date().toISOString(),
       isMention: mentionsSelf(m.text, selfUserId),
@@ -716,6 +721,8 @@ export async function getUserProfile(
   username:     string,
   nameOrEmail:  string
 ): Promise<{
+  /** Slack user id (from the email lookup). */
+  id?: string;
   name: string;
   email?: string;
   title?: string;
@@ -731,6 +738,7 @@ export async function getUserProfile(
       const res = await web.users.lookupByEmail({ email: nameOrEmail });
       if (res.user) {
         return {
+          ...(res.user.id ? { id: res.user.id } : {}),
           name: res.user.real_name || res.user.name || "",
           email: res.user.profile?.email,
           title: res.user.profile?.title,

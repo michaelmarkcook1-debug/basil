@@ -266,6 +266,33 @@ export const ContactProfileSchema = z.object({
 
 export type ContactProfileOutput = z.infer<typeof ContactProfileSchema>;
 
+/** One claim and the evidence ids it rests on ([E4], [N1], [H2]). */
+const ProfileClaimSchema = z.object({
+  text: z.string(),
+  evidence: z.array(z.string()).default([]),
+});
+
+/**
+ * What the model returns since 2026-11-23: every field a list of cited claims.
+ * Code (lib/contacts/profile-evidence finalizeClaims) checks the citations,
+ * scores each field and writes the prose of ContactProfileSchema from it.
+ */
+export const ContactProfileClaimsSchema = z.object({
+  personality:       z.array(ProfileClaimSchema).default([]),
+  whatMakesThemTick: z.array(ProfileClaimSchema).default([]),
+  watchOut:          z.array(ProfileClaimSchema).default([]),
+  recentActivity:    z.array(ProfileClaimSchema).default([]),
+  // How to work with them (2026-11-23, recommendation 7).
+  howToLandIt:       z.array(ProfileClaimSchema).default([]),
+  reachThem:         z.array(ProfileClaimSchema).default([]),
+  decides:           z.array(ProfileClaimSchema).default([]),
+  badNews:           z.array(ProfileClaimSchema).default([]),
+  silence:           z.array(ProfileClaimSchema).default([]),
+  changes:           z.string().optional(),
+  summary:           z.string().optional(),
+  canonicalFields:   ContactProfileSchema.shape.canonicalFields,
+});
+
 // ── Briefing ───────────────────────────────────────────────────────────────────
 
 /** AI-generated fields only — server adds generatedAt / extraContextSummary */

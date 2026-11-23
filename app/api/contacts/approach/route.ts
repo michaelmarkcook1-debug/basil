@@ -21,7 +21,8 @@ export const dynamic = "force-dynamic";
 function firstSentence(text: string | undefined, max = 110): string | null {
   if (!text) return null;
   const cleaned = text.trim();
-  if (!cleaned || /^SAMPLE placeholder/i.test(cleaned)) return null;
+  // "Not enough evidence yet." is the absence of a hint, not a hint.
+  if (!cleaned || /^SAMPLE placeholder/i.test(cleaned) || /^Not enough evidence yet\.?$/i.test(cleaned)) return null;
   const sentence = cleaned.split(/(?<=[.!?])\s+/)[0] ?? cleaned;
   return sentence.length > max ? `${sentence.slice(0, max - 1).trimEnd()}…` : sentence;
 }
@@ -48,9 +49,10 @@ export async function GET(req: Request) {
       return full === lower || lower.includes(full) || (first.length > 2 && lower.startsWith(first));
     });
     if (!contact) return [];
-    const ov = (overrides as Record<string, { whatMakesThemTick?: string; personality?: string; watchOut?: string }>)[contact.id] ?? {};
+    const ov = (overrides as Record<string, { whatMakesThemTick?: string; personality?: string; watchOut?: string; workingStyle?: { howToLandIt?: string } }>)[contact.id] ?? {};
     const c = contact as { whatMakesThemTick?: string; personality?: string; watchOut?: string };
-    const hint = firstSentence(ov.whatMakesThemTick ?? c.whatMakesThemTick) ?? firstSentence(ov.personality ?? c.personality);
+    // The dedicated "how to land it" line when the profile has one (2026-11-23).
+    const hint = firstSentence(ov.workingStyle?.howToLandIt, 140) ?? firstSentence(ov.whatMakesThemTick ?? c.whatMakesThemTick) ?? firstSentence(ov.personality ?? c.personality);
     const watchOut = firstSentence(ov.watchOut ?? c.watchOut, 90);
     if (!hint && !watchOut) return [];
     return [{ name: contact.name, contactId: contact.id, hint, watchOut }];
