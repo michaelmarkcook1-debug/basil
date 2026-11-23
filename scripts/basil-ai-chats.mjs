@@ -355,7 +355,10 @@ async function readChatGPT(page, seen, sinceIso) {
       const updated = isoOf(c.update_time ?? c.create_time);
       if (!c.id || !updated) continue;
       if (updated < sinceIso) { older = true; continue; }
-      if (seen[`chatgpt:${c.id}`] === updated) continue;
+      // The list's update_time runs up to ~70s behind the conversation's own (which
+      // is what Basil stores), so "not later than stored" means unchanged.
+      const stored = seen[`chatgpt:${c.id}`];
+      if (stored && updated <= stored) continue;
       wanted.push(c.id);
       if (wanted.length >= MAX_PER_PLATFORM) break;
     }
