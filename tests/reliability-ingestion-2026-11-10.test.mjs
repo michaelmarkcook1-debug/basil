@@ -375,6 +375,7 @@ test("D3. the reprocess after() callback holds until the marker is written", asy
   const rec = slowRecorder();
   const queued = [];
   const route = loadTs("app/api/events/reprocess/route.ts", {
+    "@/lib/events/reprocess-status": { writeReprocessStatus: async () => {} },
     "next/server": { NextResponse: nextServer.NextResponse, after: (fn) => queued.push(fn) },
     "@/lib/events/store": { listEvents: async () => [{ id: "1", source: "slack", externalId: "slack:C1:1.2", createdAt: new Date().toISOString(), entityName: "Guy", payload: { channel: "general" } }] },
     "@/lib/actions/store": { listActions: async () => [] },

@@ -788,3 +788,19 @@ test("D4. the public health check reuses one storage round trip instead of payin
   assert.ok(bodies.every((b) => b.ok === true && b.checks.storage === "blob-ok"));
   assert.ok(bodies.every((b) => typeof b.checks.storageCheckedAt === "string"));
 });
+
+// ── 2026-11-23: "how do I know it's analysing the queued data?" ───────────────
+test("the backfill reports progress, stops cleanly before the platform limit, and Settings shows it", () => {
+  const r = src("app/api/events/reprocess/route.ts");
+  assert.match(r, /writeReprocessStatus\(username, \{\s*startedAt/);
+  assert.match(r, /const outOfTime = \(\) => Date\.now\(\) - startedMs > 270_000/);
+  assert.equal((r.match(/if \(outOfTime\(\)\) \{ stoppedEarly = true; break; \}/g) ?? []).length, 4, "every source loop");
+  assert.match(r, /finishedAt: new Date\(\)\.toISOString\(\)/);
+  assert.match(r, /newActions: Math\.max\(0, afterActions\.length - before\.actions\)/);
+  assert.match(r, /export \{ POST as GET \}/, "the daily cron still calls GET");
+  assert.match(src("app/api/events/reprocess/status/route.ts"), /readReprocessStatus\(username\)/);
+  const ui = src("components/settings/reprocess-progress.tsx");
+  assert.match(ui, /Analysing \{s\.checked\} of \{s\.total\}/);
+  assert.match(ui, /press again to carry on/);
+  assert.match(src("app/dashboard/settings/page.tsx"), /<ReprocessProgress kick=\{reprocessKick\} \/>/);
+});

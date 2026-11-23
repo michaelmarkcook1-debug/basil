@@ -24,6 +24,7 @@ import { getSelfIdentity } from "@/lib/self-identity";
 import { hashContent } from "@/lib/ingest/content-hash";
 import { isHashUnchanged, recordIngest } from "@/lib/ingest/index";
 import { appendAuditEntries } from "@/lib/ingest/audit-log";
+import { writeReprocessStatus } from "@/lib/events/reprocess-status";
 
 /**
  * POST /api/events/reprocess
@@ -118,15 +119,44 @@ export async function POST(req: Request) {
   const selfIdentity = await getSelfIdentity(username).catch(() => ({ emails: [], names: [] }));
   const selfDisplayName = selfIdentity.names[0] ?? undefined;
 
+  const breakdown = [
+    emailEvents.length > 0 && `${emailEvents.length} email`,
+    zoomEvents.length  > 0 && `${zoomEvents.length} Zoom`,
+    slackEvents.length > 0 && `${slackEvents.length} Slack`,
+    teamsEvents.length > 0 && `${teamsEvents.length} Teams`,
+  ].filter(Boolean).join(", ");
+
+  // Progress, so the Settings page can show it (lib/events/reprocess-status).
+  const startedMs = Date.now();
+  const by = isCronCall ? "cron" as const : "button" as const;
+  await writeReprocessStatus(username, {
+    startedAt: new Date(startedMs).toISOString(), breakdown, total: toClassify.length,
+    checked: 0, unchanged: 0, failed: 0, by,
+    finishedAt: undefined, newActions: undefined, newDecisions: undefined, stoppedEarly: undefined,
+  }).catch((e) => console.warn("[reprocess] status write failed:", e instanceof Error ? e.message : e));
+  const before = { actions: actions.length, decisions: decisions.length };
+
   // ── Queue classification via after() ────────────────────────────────────
   after(async () => {
     let processed = 0;
+    let checked = 0;
+    let failed = 0;
+    let stoppedEarly = false;
+    // Stop cleanly before the platform's 300s limit kills the function mid-item:
+    // what is done stays done (recordIngest), and the next press carries on.
+    const outOfTime = () => Date.now() - startedMs > 270_000;
+    const progress = async () => {
+      checked++;
+      if (checked % 10 === 0) await writeReprocessStatus(username!, { checked, unchanged: skippedUnchanged, failed }).catch(() => {}); // ci-ok: progress is best-effort; the final write reports the truth
+    };
     // Counted and logged, not silent: this number IS the saving, and if it ever
     // collapses to 0 the guard has stopped working and the bill will climb again.
     let skippedUnchanged = 0;
 
     // ── Email (Gmail + Outlook) ────────────────────────────────────────────
     for (const ev of emailEvents) {
+      if (outOfTime()) { stoppedEarly = true; break; }
+      await progress();
       try {
         const externalId = ev.externalId!;
         const isOutlook  = externalId.startsWith("outlook:");
@@ -147,12 +177,15 @@ export async function POST(req: Request) {
         });
         processed++;
       } catch (err) {
+        failed++;
         console.error(`[reprocess] email failed for event ${ev.id}:`, err instanceof Error ? err.message : err);
       }
     }
 
     // ── Zoom meeting summaries ─────────────────────────────────────────────
     for (const ev of zoomEvents) {
+      if (outOfTime()) { stoppedEarly = true; break; }
+      await progress();
       try {
         const externalId = ev.externalId!;
         // Zoom emails always use Gmail as the transport layer
@@ -167,12 +200,15 @@ export async function POST(req: Request) {
         });
         processed++;
       } catch (err) {
+        failed++;
         console.error(`[reprocess] zoom failed for event ${ev.id}:`, err instanceof Error ? err.message : err);
       }
     }
 
     // ── Slack ──────────────────────────────────────────────────────────────
     for (const ev of slackEvents) {
+      if (outOfTime()) { stoppedEarly = true; break; }
+      await progress();
       try {
         const externalId = ev.externalId!;
         // externalId format: "slack:<channelId>:<messageTs>"
@@ -251,12 +287,15 @@ export async function POST(req: Request) {
         await appendAuditEntries(username, slackResult.auditEntries);
         processed++;
       } catch (err) {
+        failed++;
         console.error(`[reprocess] slack failed for event ${ev.id}:`, err instanceof Error ? err.message : err);
       }
     }
 
     // ── Teams ──────────────────────────────────────────────────────────────
     for (const ev of teamsEvents) {
+      if (outOfTime()) { stoppedEarly = true; break; }
+      await progress();
       try {
         const externalId = ev.externalId!;
         // externalId format: "teams:<chatOrChannelId>:<messageId>" or similar
@@ -328,24 +367,29 @@ export async function POST(req: Request) {
         await appendAuditEntries(username, teamsResult.auditEntries);
         processed++;
       } catch (err) {
+        failed++;
         console.error(`[reprocess] teams failed for event ${ev.id}:`, err instanceof Error ? err.message : err);
       }
     }
 
     // Flush snapshot so BASIL_DATA is updated before Vercel recycles the function.
     await forceFlushSnapshot();
+    const [afterActions, afterDecisions] = await Promise.all([
+      listActions(username!).catch(() => null), // ci-ok: counts are a nicety; null → not reported
+      listDecisions(username!).catch(() => null), // ci-ok: as above
+    ]);
+    await writeReprocessStatus(username!, {
+      checked, unchanged: skippedUnchanged, failed,
+      finishedAt: new Date().toISOString(),
+      ...(afterActions ? { newActions: Math.max(0, afterActions.length - before.actions) } : {}),
+      ...(afterDecisions ? { newDecisions: Math.max(0, afterDecisions.length - before.decisions) } : {}),
+      ...(stoppedEarly ? { stoppedEarly: true } : {}),
+    }).catch((e) => console.warn("[reprocess] status write failed:", e instanceof Error ? e.message : e));
     console.log(
       `[reprocess] completed: ${processed}/${toClassify.length} events processed` +
       `, ${skippedUnchanged} skipped as unchanged (each skip is an AI call not made)`
     );
   });
-
-  const breakdown = [
-    emailEvents.length > 0 && `${emailEvents.length} email`,
-    zoomEvents.length  > 0 && `${zoomEvents.length} Zoom`,
-    slackEvents.length > 0 && `${slackEvents.length} Slack`,
-    teamsEvents.length > 0 && `${teamsEvents.length} Teams`,
-  ].filter(Boolean).join(", ");
 
   return NextResponse.json({
     queued:  toClassify.length,

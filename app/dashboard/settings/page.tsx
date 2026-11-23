@@ -9,6 +9,7 @@ import { NotificationsCard } from "@/components/settings/notifications-card";
 import { PeopleProfilesCard } from "@/components/settings/people-profiles-card";
 import { WorkstreamsCard } from "@/components/settings/workstreams-card";
 import { ProfileQualityCard } from "@/components/settings/profile-quality-card";
+import { ReprocessProgress } from "@/components/settings/reprocess-progress";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -1014,6 +1015,7 @@ export default function SettingsPage() {
   const [pwMessage, setPwMessage] = useState<string | null>(null);
 
   const [reprocessing, setReprocessing] = useState(false);
+  const [reprocessKick, setReprocessKick] = useState(0);
   const [reprocessResult, setReprocessResult] = useState<string | null>(null);
 
   const [syncing, setSyncing] = useState(false);
@@ -1280,6 +1282,7 @@ export default function SettingsPage() {
   }
 
   async function triggerReprocess() {
+    setReprocessKick((n) => n + 1);
     setReprocessing(true);
     setReprocessResult(null);
     try {
@@ -1292,7 +1295,9 @@ export default function SettingsPage() {
       if (body.queued === 0) {
         setReprocessResult("Nothing to classify — all recent events are already processed.");
       } else {
-        setReprocessResult(body.message ?? "Backfill queued. Basil will re-classify recent signals.");
+        // Progress shows below (ReprocessProgress polls it).
+        setReprocessResult(null);
+        setReprocessKick((n) => n + 1);
       }
     } catch (err) {
       console.error("[settings] backfill failed:", err instanceof Error ? err.message : String(err));
@@ -1767,6 +1772,7 @@ export default function SettingsPage() {
                   Re-run classification across recent Slack, email, Zoom, calendar and imported signals. Safe to run; Basil should not duplicate existing actions.
                 </p>
                 {reprocessResult && <p className="rounded-md bg-muted px-3 py-2 text-xs text-muted-foreground">{reprocessResult}</p>}
+                <ReprocessProgress kick={reprocessKick} />
                 <Button variant="outline" size="sm" className="gap-1.5" onClick={triggerReprocess} disabled={reprocessing}>
                   <RefreshCw className={`h-3.5 w-3.5 ${reprocessing ? "animate-spin" : ""}`} />
                   Re-process recent events
