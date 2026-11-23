@@ -21,40 +21,92 @@ import { parseAndValidate } from "@/lib/ai/parse-json";
 
 const FILE = "email-reply-judgments.json";
 const MAX_STORED = 400;
-const BATCH = 12;
+const BATCH = 6;
+/**
+ * v2 (2026-11-23): the judge reads the whole latest message, who it is addressed
+ * to, the earlier thread and what the user has done with the sender since.
+ * v1 verdicts were made from a ~140-character preview under the premise "this is
+ * addressed to you" — "Anja, do you have time next week?" from Guy, with Michael
+ * only copied, was stored as "asks if Michael has time". v1 verdicts are re-judged.
+ */
+const VERSION = 2;
+
+/** Something the user did with the sender after the message (see lib/followups/context). */
+export interface ReplyTouch { channel: "email" | "slack" | "meeting"; at: string; text: string }
 
 export interface ReplyCandidate {
-  /** Gmail message id. */
+  /** Gmail message id, or "slack:<channel>" for a Slack DM. */
   id: string;
   from: string;
   subject: string;
-  /** Snippet / opening of the latest message. */
+  /** The latest message in full (quoted history removed), or its opening when that is all there is. */
   text: string;
+  channel?: "email" | "slack";
+  /** When it was sent. */
+  at?: string;
+  to?: string;
+  cc?: string;
+  /** The conversation before it, oldest first. */
+  earlier?: Array<{ from: string; at: string; text: string }>;
+  /** What the user has done with the sender since — any thread, Slack, meetings. */
+  since?: ReplyTouch[];
+  /** Changes when `since` changes, so a "still waiting" verdict is checked again. */
+  sinceSig?: string;
 }
 
 export interface ReplyVerdict { needsReply: boolean; reason: string }
-type Stored = ReplyVerdict & { at: string };
+type Stored = ReplyVerdict & { at: string; v?: number; sig?: string };
+
+export interface ReplyJudgeOptions {
+  /** The user's own addresses, so the judge can read the To and Cc lines. */
+  selfEmails?: string[];
+}
 
 /** Judge a batch. Returns a verdict per id it is confident about; omitted ids stay. */
-export type ReplyJudge = (firstName: string, batch: ReplyCandidate[]) => Promise<Map<string, ReplyVerdict>>;
+export type ReplyJudge = (firstName: string, batch: ReplyCandidate[], opts?: ReplyJudgeOptions) => Promise<Map<string, ReplyVerdict>>;
 
 const clip = (s: string, n = 400) => (s.length > n ? `${s.slice(0, n)}…` : s);
+const day = (iso?: string) => (iso ? iso.slice(0, 16).replace("T", " ") : "?");
+
+function describe(c: ReplyCandidate, firstName: string): string {
+  const head = [
+    `[${c.id}] ${c.channel === "slack" ? "Slack DM" : "Email"} from ${c.from}${c.at ? ` on ${day(c.at)}` : ""}`,
+    c.to ? `To: ${clip(c.to, 300)}` : "",
+    c.cc ? `Cc: ${clip(c.cc, 300)}` : "",
+    c.subject ? `Subject: ${clip(c.subject, 140)}` : "",
+  ].filter(Boolean).join("\n");
+  const earlier = (c.earlier ?? []).slice(-3).map((m) => `  - ${m.from} (${day(m.at)}): ${clip(m.text.replace(/\s+/g, " "), 280)}`).join("\n");
+  const since = (c.since ?? []).map((t) => `  - ${t.channel} (${day(t.at)}): ${clip(t.text, 240)}`).join("\n");
+  return [
+    head,
+    earlier ? `Earlier in the conversation:\n${earlier}` : "",
+    `Message:\n${clip(c.text, 2500)}`,
+    `Since then, ${firstName} has: ${since ? `\n${since}` : "nothing recorded"}`,
+  ].filter(Boolean).join("\n");
+}
 
 /** Exported for tests. */
-export function needsReplyPrompt(firstName: string, batch: ReplyCandidate[]): string {
-  return `${firstName} is triaging email. For each message below (the latest message in its conversation, addressed to ${firstName}), decide whether ${firstName} needs to REPLY.
+export function needsReplyPrompt(firstName: string, batch: ReplyCandidate[], opts: ReplyJudgeOptions = {}): string {
+  const mine = (opts.selfEmails ?? []).filter(Boolean);
+  return `${firstName} wants a list of messages that are still waiting on ${firstName} personally. Read each message in full and decide needsReply.
+${mine.length ? `${firstName}'s own addresses: ${mine.join(", ")}.\n` : ""}
+needsReply = true only when BOTH hold:
+1. The message asks ${firstName} personally for something — a question, a decision, approval, information, a document, a time to meet — or chases ${firstName} for one. Check who is being asked: the greeting ("Anja, …", "Hi team", "Hi ${firstName}") and the To line. A message to someone else that ${firstName} is copied on, or a colleague keeping ${firstName} in the loop, does not need ${firstName}.
+2. Nothing under "Since then" shows ${firstName} has already dealt with it: a reply by email in any thread, a Slack message to the person, or a meeting with them that covers the ask. A routine repeating meeting counts only when the ask is something to take up there.
 
 needsReply = false when the message:
-- only acknowledges or confirms ("I'll take a look", "thanks", "got it", "will do", "sounds good")
-- says the sender will act or report back ("will keep you posted", "I'll get back to you")
-- is an FYI, status update or announcement that asks nothing of ${firstName}
-- is an automatic confirmation or notification (meeting booked/scheduled, calendar invite, receipt, signature or agreement completed, system alert)
-- is a newsletter, marketing or a mass mailing
+- is addressed to, or asks, someone other than ${firstName}
+- only acknowledges or thanks ("I'll take a look", "got it", "sounds good")
+- says the sender will act or report back ("will keep you posted")
+- is an FYI, update or announcement that asks nothing of ${firstName}
+- is an automatic notification (meeting booked, invite, receipt, signature completed, alert), a newsletter or a mass mailing
+- has already been dealt with since, as above
 
-needsReply = true when it asks ${firstName} a question, asks for a decision, approval, information or a document, proposes something that needs an answer, or chases a reply. If unsure, answer true.
+If it clearly asks ${firstName} and you cannot tell whether ${firstName} has dealt with it, answer true.
 
 Messages:
-${batch.map((c) => `[${c.id}] From: ${c.from} | Subject: ${clip(c.subject, 140)}\n${clip(c.text)}`).join("\n\n")}
+
+${batch.map((c) => describe(c, firstName)).join("\n\n---\n\n")}
 
 Respond with JSON only: [{"id": "...", "needsReply": true or false, "reason": "a few words"}]`;
 }
@@ -66,14 +118,15 @@ const VerdictListSchema = z.array(z.object({
 }));
 
 export function makeModelReplyJudge(username: string): ReplyJudge {
-  return async (firstName, batch) => {
+  return async (firstName, batch, opts) => {
     const out = new Map<string, ReplyVerdict>();
     try {
       const { text } = await generateTextSafe({
         model: getTextModel("fast"),
-        maxOutputTokens: 60 + batch.length * 60,
-        system: "You decide whether emails need a reply. Be conservative: when in doubt, they do.",
-        prompt: needsReplyPrompt(firstName, batch),
+        // Room for a reasoning fallback model to think before it answers.
+        maxOutputTokens: 1_200 + batch.length * 80,
+        system: "You decide which messages still need the user to respond. Read every message in full before deciding.",
+        prompt: needsReplyPrompt(firstName, batch, opts),
       }, "fast", { username, feature: "followups:needs-reply" });
       const parsed = parseAndValidate(text, VerdictListSchema, "[needs-reply]");
       if (!parsed.ok) return out;
@@ -95,19 +148,27 @@ export async function filterNoReplyNeeded(
   firstName: string,
   candidates: ReplyCandidate[],
   judge: ReplyJudge = makeModelReplyJudge(username),
+  opts: ReplyJudgeOptions = {},
 ): Promise<Map<string, ReplyVerdict>> {
   const stored = await readUserStore<Record<string, Stored>>(username, FILE, {});
   const verdicts = new Map<string, ReplyVerdict>();
   const fresh: ReplyCandidate[] = [];
   for (const c of candidates) {
     const s = stored[c.id];
-    if (s) verdicts.set(c.id, s); else fresh.push(c);
+    // Reuse a current verdict: "no reply needed" stands; "still waiting" stands
+    // only while nothing new has happened with the sender since it was made.
+    const current = s && s.v === VERSION && (!s.needsReply || (s.sig ?? "0") === (c.sinceSig ?? "0"));
+    if (current && s) verdicts.set(c.id, { needsReply: s.needsReply, reason: s.reason }); else fresh.push(c);
   }
 
   const learned: Record<string, Stored> = {};
+  const sigOf = new Map(fresh.map((c) => [c.id, c.sinceSig ?? "0"]));
   for (let i = 0; i < fresh.length; i += BATCH) {
-    const got = await judge(firstName, fresh.slice(i, i + BATCH));
-    for (const [id, v] of got) { verdicts.set(id, v); learned[id] = { ...v, at: new Date().toISOString() }; }
+    const got = await judge(firstName, fresh.slice(i, i + BATCH), opts);
+    for (const [id, v] of got) {
+      verdicts.set(id, v);
+      learned[id] = { ...v, at: new Date().toISOString(), v: VERSION, sig: sigOf.get(id) ?? "0" };
+    }
   }
   if (Object.keys(learned).length) {
     await updateUserStore<Record<string, Stored>>(username, FILE, (cur) => {

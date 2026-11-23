@@ -14,6 +14,7 @@ const plain = (v) => structuredClone(v);
 
 function detector({ gmailThrows = false, slackThrows = false, googleConnected = true, slackConnected = true } = {}) {
   return loadTs("lib/followups/detect.ts", {
+    "@/lib/followups/context": loadTs("lib/followups/context.ts"),
     "@/lib/email/needs-reply": { filterNoReplyNeeded: async () => new Map() },
     "@/lib/email/view-cache": { decodeEntities: (s) => s },
     "@/lib/google/gmail": {

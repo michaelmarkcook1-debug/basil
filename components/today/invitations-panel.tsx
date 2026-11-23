@@ -9,9 +9,9 @@ import { useState } from "react";
 import { PanelFrame } from "./panels";
 import { Card } from "./primitives";
 import { RsvpControls, type RsvpEvent } from "@/components/calendar/rsvp-controls";
-import { needsAnswer } from "@/lib/calendar/invitations";
+import { pendingInvitations } from "@/lib/calendar/invitations";
 
-interface UpcomingEvent extends RsvpEvent { dateLabel?: string }
+interface UpcomingEvent extends RsvpEvent { dateLabel?: string; seriesId?: string }
 
 
 const when = (e: UpcomingEvent) => {
@@ -27,7 +27,7 @@ export function InvitationsPanel() {
     { revalidateOnFocus: false },
   );
   const [answered, setAnswered] = useState<Set<string>>(new Set());
-  const pending = (data?.events ?? []).filter((e) => needsAnswer(e) && !answered.has(e.id));
+  const pending = pendingInvitations(data?.events ?? []).filter((e) => !answered.has(e.id));
   if (pending.length === 0) return null;
 
   return (

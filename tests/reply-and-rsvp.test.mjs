@@ -296,7 +296,8 @@ test("every RSVP surface uses the shared controls, which check the server's answ
 
 test("Today's invitations panel lists only unanswered invitations from others that haven't ended", () => {
   const { needsAnswer } = loadTs("lib/calendar/invitations.ts");
-  assert.match(src("components/today/invitations-panel.tsx"), /needsAnswer\(e\)/);
+  // The panel uses pendingInvitations, which applies needsAnswer per date and the series rule on top.
+  assert.match(src("components/today/invitations-panel.tsx"), /pendingInvitations\(/);
   const now = Date.parse("2026-10-04T09:00:00Z");
   const ev = (o) => ({ id: "x", summary: "s", start: "2026-10-06T10:00:00Z", end: "2026-10-06T10:30:00Z", isOrganizer: false, myResponseStatus: "needsAction", ...o });
   assert.equal(needsAnswer(ev({}), now), true);

@@ -413,6 +413,8 @@ export interface ThreadState {
   original: ThreadMessage;
   /** Messages after the original, oldest first — replies from anyone. */
   later: ThreadMessage[];
+  /** Messages before the original, oldest first — the conversation it answers. */
+  earlier: ThreadMessage[];
 }
 
 /**
@@ -456,7 +458,10 @@ export async function getThreadState(username: string, messageId: string): Promi
     const later = msgs
       .filter((m) => m.id !== messageId && m.date > original.date)
       .sort((a, b) => a.date.localeCompare(b.date));
-    return { threadId, subject: subjectHeader, original, later };
+    const earlier = msgs
+      .filter((m) => m.id !== messageId && m.date < original.date)
+      .sort((a, b) => a.date.localeCompare(b.date));
+    return { threadId, subject: subjectHeader, original, later, earlier };
   } catch (err) {
     console.error("[gmail] getThreadState error:", err instanceof Error ? err.message : err);
     return null;

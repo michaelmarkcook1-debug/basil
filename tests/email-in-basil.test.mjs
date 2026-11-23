@@ -37,7 +37,7 @@ function needsReply(store, generate) {
 }
 
 test("needs-reply: judges each email once, reuses the verdict, and fails open", async () => {
-  const store = memStore({ "email-reply-judgments.json": { old: { needsReply: false, reason: "thanks only", at: "2026-10-01T00:00:00Z" } } });
+  const store = memStore({ "email-reply-judgments.json": { old: { needsReply: false, reason: "thanks only", at: "2026-10-01T00:00:00Z", v: 2 } } });
   const judged = [];
   const judge = async (_first, batch) => {
     judged.push(...batch.map((c) => c.id));
@@ -67,7 +67,7 @@ test("needs-reply: the model judge parses verdicts and keeps every card when the
   const broken = needsReply(memStore(), async () => { throw new Error("model down"); });
   assert.equal((await broken.makeModelReplyJudge("u")("Michael", [{ id: "a", from: "x", subject: "s", text: "t" }])).size, 0);
   const prompt = ok.needsReplyPrompt("Michael", [{ id: "m1", from: "Olivia", subject: "Re: mandate", text: "I'll take a look" }]);
-  assert.match(prompt, /\[m1\] From: Olivia/);
+  assert.match(prompt, /\[m1\] Email from Olivia/);
   assert.match(prompt, /I'll take a look/);
 });
 
@@ -75,6 +75,7 @@ test("needs-reply: the model judge parses verdicts and keeps every card when the
 
 function detector({ inbox, events = [], noReplyIds = [] }) {
   return loadTs("lib/followups/detect.ts", {
+    "@/lib/followups/context": loadTs("lib/followups/context.ts"),
     "@/lib/google/gmail": {
       getRecentEmails: async () => structuredClone(inbox),
       getGmailAddress: async () => "michael@fixture.invalid",

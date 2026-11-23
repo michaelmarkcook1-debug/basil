@@ -20,15 +20,19 @@
  * an empty result is disambiguated by the `sources` flags, not by length.
  */
 
-import { getRecentEmails, getGmailAddress, getThreadState } from "@/lib/google/gmail";
+import { getRecentEmails, getGmailAddress, getThreadState, getSentEmails, getEmailBody, type GmailMessage, type ThreadState } from "@/lib/google/gmail";
 import { loadKnownSenders } from "@/lib/email/known-senders";
-import { getEventsForDateRange } from "@/lib/google/calendar";
+import { getEventsForDateRange, type CalendarEvent } from "@/lib/google/calendar";
 import { findAnsweringCalendarEvent, type InviteCalendarEvent } from "@/lib/followups/invitation-rsvp";
 import { getSlackUserClientForUser, isSlackConnected } from "@/lib/slack/client";
 import { isGoogleConnected } from "@/lib/google/auth";
 import { getSelfIdentity, isSelf } from "@/lib/self-identity";
 import type { PendingFollowup, DetectFollowupsResult } from "@/lib/followups/types";
-import { filterNoReplyNeeded } from "@/lib/email/needs-reply";
+import { filterNoReplyNeeded, type ReplyCandidate } from "@/lib/email/needs-reply";
+import {
+  latestMessageText, touchesFromSent, touchesFromEvents, touchesFromSlackDm, touchSignature,
+  slackDirectory, type SlackDirectory, type SlackLike, type Touch,
+} from "@/lib/followups/context";
 import { decodeEntities } from "@/lib/email/view-cache";
 
 const DEFAULT_MAX_AGE_DAYS = 7;
@@ -138,6 +142,56 @@ async function mapLimit<T, R>(items: T[], limit: number, fn: (item: T) => Promis
   return out;
 }
 
+/** Never throws: a helper that is missing or fails yields the fallback. */
+async function safely<T>(f: () => Promise<T>, fallback: T, what: string): Promise<T> {
+  try {
+    return await f();
+  } catch (e) {
+    console.warn(`[followups] ${what} unavailable:`, e instanceof Error ? e.message : e);
+    return fallback;
+  }
+}
+
+/**
+ * Read once per detection and shared by the Gmail and Slack passes: the user's
+ * sent mail, the calendar around now and the Slack directory. They let the
+ * needs-reply judge see a card answered by ANOTHER route (a fresh email, a Slack
+ * DM, a meeting booked with the sender) — not only a reply in the same thread.
+ */
+interface Shared {
+  sent: Promise<GmailMessage[]>;
+  events: Promise<CalendarEvent[]>;
+  slack: Promise<{ web: SlackLike; selfId: string; dir: SlackDirectory | null } | null>;
+}
+
+function loadShared(username: string, maxAgeDays: number): Shared {
+  const memo = <T>(f: () => Promise<T>) => { let p: Promise<T> | undefined; return () => (p ??= f()); };
+  const sent = memo(() => safely(() => getSentEmails(username, 40, maxAgeDays), [] as GmailMessage[], "sent mail"));
+  const events = memo(() => loadRsvpEvents(username) as Promise<CalendarEvent[]>);
+  const slack = memo(() => safely(async () => {
+    const web = await getSlackUserClientForUser(username);
+    if (!web) return null;
+    const auth = await web.auth.test() as { user_id?: string };
+    if (!auth.user_id) return null;
+    const client = web as unknown as SlackLike;
+    return { web: client, selfId: auth.user_id, dir: await slackDirectory(client) };
+  }, null, "Slack directory"));
+  return {
+    get sent() { return sent(); },
+    get events() { return events(); },
+    get slack() { return slack(); },
+  };
+}
+
+/** Everything the user did with this person after `sinceIso`, newest first. */
+async function touchesWith(shared: Shared, email: string | undefined, sinceIso: string, opts: { slack?: boolean } = {}): Promise<Touch[]> {
+  if (!email) return [];
+  const [sent, events, slack] = await Promise.all([shared.sent, shared.events, opts.slack === false ? null : shared.slack]);
+  const dm = slack ? await touchesFromSlackDm(slack.web, slack.selfId, slack.dir, email, sinceIso) : [];
+  return [...touchesFromSent(sent, email, sinceIso), ...dm, ...touchesFromEvents(events, email, sinceIso)]
+    .sort((a, b) => b.at.localeCompare(a.at));
+}
+
 /**
  * Calendar events around now, for invitation-RSVP suppression.
  *
@@ -163,7 +217,8 @@ async function loadRsvpEvents(username: string): Promise<InviteCalendarEvent[]> 
 async function detectGmail(
   username: string,
   cutoff: number,
-  maxAgeDays: number
+  maxAgeDays: number,
+  shared: Shared = loadShared(username, maxAgeDays),
 ): Promise<{ items: PendingFollowup[]; connected: boolean }> {
   // Connection check is authoritative (empty inbox != disconnected).
   const address = await getGmailAddress(username);
@@ -235,8 +290,9 @@ async function detectGmail(
   // so without this an accepted meeting nags forever and climbs the ranking as
   // it ages. Best-effort — if calendar is unavailable we simply don't suppress
   // (showing an extra card is far better than hiding a real request).
-  const rsvpEvents = await loadRsvpEvents(username);
+  const rsvpEvents = await shared.events;
 
+  const threads = new Map<string, ThreadState>();
   const results = await mapLimit(candidates, GMAIL_CONCURRENCY, async (m) => {
     const answered = rsvpEvents.length
       ? findAnsweringCalendarEvent(
@@ -260,6 +316,7 @@ async function detectGmail(
     // ask them, that newer message is its own candidate above).
     const thread = await getThreadState(username, m.id);
     if (thread && thread.later.length > 0) return null;
+    if (thread) threads.set(m.id, thread);
     const followup: PendingFollowup = {
       id: `gmail:${m.id}`,
       source: "gmail",
@@ -278,16 +335,26 @@ async function detectGmail(
   const awaiting = results.filter((r): r is PendingFollowup => r !== null);
 
   // Still the last word, from a person, addressed to you — but does it ask
-  // anything of you? "I'll take a look" and "will keep you posted" do not.
+  // anything of YOU, and has it not been answered some other way? The judge
+  // reads the whole message (a ~140-character preview is not enough to tell
+  // "Anja, can we meet?" from "Michael, can we meet?"), who it went to, the
+  // earlier thread, and what the user has done with the sender since.
   const firstName = identity.names[0]?.trim().split(/\s+/)[0] || "the user";
-  const noReply = await filterNoReplyNeeded(
-    username, firstName,
-    awaiting.map((f) => {
-      const id = f.id.replace(/^gmail:/, "");
-      const full = candidates.find((m) => m.id === id)?.snippet;
-      return { id, from: f.fromName, subject: f.subject, text: full ? decodeEntities(full) : f.preview };
-    }),
-  ).catch((e) => {
+  const judged: ReplyCandidate[] = await mapLimit(awaiting, GMAIL_CONCURRENCY, async (f) => {
+    const id = f.id.replace(/^gmail:/, "");
+    const m = candidates.find((c) => c.id === id);
+    const thread = threads.get(id);
+    const body = await safely(() => getEmailBody(username, id).then((b) => latestMessageText(b.body || "")), "", "email body");
+    const since = await touchesWith(shared, f.fromEmail, f.lastInboundAt);
+    return {
+      id, channel: "email" as const, from: f.fromName, subject: f.subject, at: f.lastInboundAt,
+      text: body || (m?.snippet ? decodeEntities(m.snippet) : f.preview),
+      to: m?.to, cc: m?.cc,
+      earlier: (thread?.earlier ?? []).map((e) => ({ from: e.fromName || e.fromEmail, at: e.date, text: decodeEntities(e.snippet) })),
+      since, sinceSig: touchSignature(since),
+    };
+  });
+  const noReply = await filterNoReplyNeeded(username, firstName, judged, undefined, { selfEmails: [...selfEmails] }).catch((e) => {
     console.warn("[followups] needs-reply check failed, keeping every card:", e instanceof Error ? e.message : e);
     return new Map<string, { reason: string }>();
   });
@@ -301,7 +368,8 @@ async function detectGmail(
 
 async function detectSlack(
   username: string,
-  cutoff: number
+  cutoff: number,
+  shared?: Shared,
 ): Promise<{ items: PendingFollowup[]; connected: boolean }> {
   // Only a USER token gives trustworthy direction. No user client ⇒ skip Slack.
   const web = await getSlackUserClientForUser(username);
@@ -334,6 +402,8 @@ async function detectSlack(
   }
 
   const items: PendingFollowup[] = [];
+  const judged: ReplyCandidate[] = [];
+  const directory = shared ? (await shared.slack)?.dir ?? null : null;
   for (const c of channels) {
     if (!c.id) continue;
     try {
@@ -378,6 +448,21 @@ async function detectSlack(
         // Fall back to the conversation-level link already set above.
       }
 
+      // For the judge: the conversation before it, and what the user has done
+      // with this person since by email or in a meeting. Keyed by message, not
+      // channel, so a new message in the same DM is judged afresh.
+      const at = new Date(lastMs).toISOString();
+      const email = last.user ? directory?.emailById.get(last.user) : undefined;
+      const since = shared ? await touchesWith(shared, email, at, { slack: false }) : [];
+      const earlier = msgs
+        .filter((m) => m !== last && !m.subtype && m.text && m.ts && parseFloat(m.ts) * 1000 < lastMs)
+        .slice(0, 4).reverse()
+        .map((m) => ({ from: m.user === selfId ? "You" : fromName, at: new Date(parseFloat(m.ts as string) * 1000).toISOString(), text: cleanSlackText(m.text ?? "") }));
+      judged.push({
+        id: `slack:${c.id}:${last.ts}`, channel: "slack", from: fromName, subject: "", at,
+        text: cleanSlackText(last.text ?? ""), earlier, since, sinceSig: touchSignature(since),
+      });
+
       items.push({
         id: `slack:${c.id}`,
         source: "slack",
@@ -397,7 +482,17 @@ async function detectSlack(
     }
   }
 
-  return { items, connected: true };
+  // The same check as email: does it ask the user anything, and is it still open?
+  const firstName = (await getSelfIdentity(username)).names[0]?.trim().split(/\s+/)[0] || "the user";
+  const noReply = judged.length
+    ? await filterNoReplyNeeded(username, firstName, judged).catch((e) => {
+      console.warn("[followups] Slack needs-reply check failed, keeping every card:", e instanceof Error ? e.message : e);
+      return new Map<string, { reason: string }>();
+    })
+    : new Map<string, { reason: string }>();
+  const dropped = new Set([...noReply.keys()].map((k) => k.split(":").slice(0, 2).join(":")));
+  for (const [id, v] of noReply) console.log(`[followups] suppressed Slack ${id.split(":")[1]} — no reply needed (${v.reason})`);
+  return { items: items.filter((i) => !dropped.has(i.id)), connected: true };
 }
 
 /**
@@ -435,13 +530,14 @@ export async function detectPendingFollowups(
   // The failure is reported by NAME, and connectivity is looked up rather than
   // assumed false — a broken Gmail is still a connected Gmail.
   const degraded: string[] = [];
+  const shared = loadShared(username, maxAgeDays);
   const [gmail, slack] = await Promise.all([
-    detectGmail(username, cutoff, maxAgeDays).catch(async (err) => {
+    detectGmail(username, cutoff, maxAgeDays, shared).catch(async (err) => {
       console.warn("[followups] gmail detection failed:", err instanceof Error ? err.message : err);
       degraded.push("Gmail");
       return { items: [], connected: await isGoogleConnected(username).catch(() => false) };
     }),
-    detectSlack(username, cutoff).catch(async (err) => {
+    detectSlack(username, cutoff, shared).catch(async (err) => {
       console.warn("[followups] slack detection failed:", err instanceof Error ? err.message : err);
       degraded.push("Slack");
       return { items: [], connected: await isSlackConnected(username).catch(() => false) };

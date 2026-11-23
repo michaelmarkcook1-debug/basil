@@ -31,6 +31,8 @@ export interface CalendarEvent {
   guests?: GuestTally;
   /** One occurrence of a repeating meeting — cancelling it leaves the others. */
   recurring?: boolean;
+  /** The repeating meeting this occurrence belongs to (Google's recurringEventId). */
+  seriesId?: string;
   /** Google's event type: "default", "outOfOffice", "focusTime", "workingLocation". */
   eventType?: string;
   /** Which calendar it lives on. Outlook event ids also start with "ms:". */
@@ -137,6 +139,7 @@ function mapEvent(
     organizerEmail: e.organizer?.email || undefined,
     guests: guestTally(e.attendees),
     recurring: Boolean(e.recurringEventId),
+    ...(e.recurringEventId ? { seriesId: e.recurringEventId as string } : {}),
     eventType: e.eventType || undefined,
     ...(e.transparency === "transparent" ? { transparent: true } : {}),
     ...(e.iCalUID ? { iCalUID: e.iCalUID as string } : {}),
