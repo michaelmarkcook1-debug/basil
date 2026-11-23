@@ -60,7 +60,10 @@ export async function POST(req: Request) {
     out.forEach((r, j) => {
       if (r.status === "fulfilled" && r.value) done.push({ t: batch[j], digest: r.value });
       else if (r.status === "rejected" && r.reason instanceof SpendCapError) capReached = r.reason;
-      else failed++; // not recorded, so the next sync reads it again
+      else {
+        failed++; // not recorded, so the next sync reads it again
+        if (r.status === "rejected") console.warn("[ai-chats/ingest] digest failed:", r.reason instanceof Error ? r.reason.message : r.reason);
+      }
     });
   }
 

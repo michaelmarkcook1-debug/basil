@@ -175,7 +175,7 @@ function prepareCopiedProfile() {
 async function accountAllowed(label, email) {
   const who = (email || "").toLowerCase();
   if (ACCOUNT) {
-    if (who === ACCOUNT) { log("·", `Reading ${label} as ${who}`); return true; }
+    if (who === ACCOUNT) { log("·", `Reading ${label} as ${who}`); rememberAccount(who); return true; }
     log("■", `${label} here is signed in as ${who || "an unknown account"}, not ${ACCOUNT} — skipped, nothing sent`);
     return false;
   }
@@ -186,12 +186,16 @@ async function accountAllowed(label, email) {
   const a = await ask(`  ${label} in Chrome is signed in as ${who}. Send its work conversations to Basil? [y/N] `);
   if (!/^y/i.test(a)) { log("■", `${label} skipped, nothing sent`); return false; }
   ACCOUNT = who;
-  if (!fromEnvLocal("BASIL_CHAT_ACCOUNT")) {
-    const lead = existsSync(ENV_LOCAL) && !readFileSync(ENV_LOCAL, "utf8").endsWith("\n") ? "\n" : "";
-    appendFileSync(ENV_LOCAL, `${lead}BASIL_CHAT_ACCOUNT=${who}\n`, { mode: 0o600 });
-    log("✓", `Remembered ${who} — next time only this account is read, without asking.`);
-  }
+  rememberAccount(who);
   return true;
+}
+
+/** Keep the confirmed account in .env.local so later runs need no --account (and read nothing else). */
+function rememberAccount(who) {
+  if (fromEnvLocal("BASIL_CHAT_ACCOUNT")) return;
+  const lead = existsSync(ENV_LOCAL) && !readFileSync(ENV_LOCAL, "utf8").endsWith("\n") ? "\n" : "";
+  appendFileSync(ENV_LOCAL, `${lead}BASIL_CHAT_ACCOUNT=${who}\n`, { mode: 0o600 });
+  log("✓", `Remembered ${who} — next time only this account is read, without --account.`);
 }
 
 /**

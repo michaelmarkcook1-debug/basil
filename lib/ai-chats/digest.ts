@@ -48,7 +48,10 @@ export async function digestConversation(username: string, t: ChatTranscript): P
   const { text } = await generateTextSafe({
     // Categorisation tier: deciding what a thing IS, plus a short summary.
     model: getTextModel("balanced"),
-    maxOutputTokens: Math.min(MAX_TOKENS.balanced, 1_200),
+    // Room for a reasoning fallback model's thinking as well as the ~300-token
+    // answer: at 1,200 most digests came back cut off mid-summary (2026-11-23).
+    // Billing reconciles to tokens actually used, so the ceiling costs nothing.
+    maxOutputTokens: Math.min(MAX_TOKENS.balanced, 6_000),
     system: SYSTEM_GUARDED,
     prompt: `Platform: ${t.platform === "chatgpt" ? "ChatGPT" : "Claude"}\nLast active: ${t.updatedAt.slice(0, 10)}\n\n${readingText(t)}`,
   }, "balanced", { username, feature: "ai-chats:digest" });
