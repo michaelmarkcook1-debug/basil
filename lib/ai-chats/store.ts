@@ -31,14 +31,19 @@ export interface ChatIndex {
 const EMPTY_INDEX: ChatIndex = { entries: {}, lastSync: {} };
 const EMPTY_TEXT: { excerpts: Record<string, string> } = { excerpts: {} };
 
-export async function readChatIndex(username: string): Promise<ChatIndex> {
-  const idx = await readUserStore<ChatIndex>(username, INDEX_FILE, EMPTY_INDEX);
+/**
+ * fresh: bypass Blob's read cache, which can serve a body from before the last
+ * write (memory: basil-blob-cdn-stale). Used wherever a stale read would mislead
+ * the user or re-send conversations Basil already paid to read.
+ */
+export async function readChatIndex(username: string, opts?: { fresh?: boolean }): Promise<ChatIndex> {
+  const idx = await readUserStore<ChatIndex>(username, INDEX_FILE, EMPTY_INDEX, opts?.fresh ? { fresh: true } : undefined);
   return { entries: idx.entries ?? {}, lastSync: idx.lastSync ?? {} };
 }
 
 /** key → updatedAt of every conversation already read, so the browser sends only new or changed ones. */
 export async function seenConversations(username: string): Promise<Record<string, string>> {
-  const { entries } = await readChatIndex(username);
+  const { entries } = await readChatIndex(username, { fresh: true });
   return Object.fromEntries(Object.values(entries).map((e) => [e.key, e.updatedAt]));
 }
 
@@ -73,7 +78,7 @@ export async function saveDigests(
   const work = results.filter((r) => r.digest.work);
   const personalKeys = new Set(results.filter((r) => !r.digest.work).map((r) => chatKey(r.t)));
   if (work.length === 0 && personalKeys.size === 0) return;
-  const { entries: all } = await readChatIndex(username);
+  const { entries: all } = await readChatIndex(username, { fresh: true });
   await updateUserStore<typeof EMPTY_TEXT>(username, TEXT_FILE, (cur) => {
     const excerpts = { ...(cur.excerpts ?? {}) };
     for (const { t } of work) excerpts[chatKey(t)] = excerptOf(t);
@@ -96,8 +101,8 @@ export async function touchSync(username: string, platform: ChatPlatform): Promi
 
 export async function searchAIChats(username: string, query: string, limit = 8): Promise<ChatHit[]> {
   const [{ entries }, text] = await Promise.all([
-    readChatIndex(username),
-    readUserStore<typeof EMPTY_TEXT>(username, TEXT_FILE, EMPTY_TEXT),
+    readChatIndex(username, { fresh: true }),
+    readUserStore<typeof EMPTY_TEXT>(username, TEXT_FILE, EMPTY_TEXT, { fresh: true }),
   ]);
   return searchChats(Object.values(entries), text.excerpts ?? {}, query, limit);
 }
@@ -108,7 +113,7 @@ export interface ChatStatus {
 }
 
 export async function chatStatus(username: string): Promise<ChatStatus> {
-  const { entries, lastSync } = await readChatIndex(username);
+  const { entries, lastSync } = await readChatIndex(username, { fresh: true });
   const list = Object.values(entries);
   const count = (p: ChatPlatform, work: boolean) => list.filter((e) => e.platform === p && e.work === work).length;
   return {

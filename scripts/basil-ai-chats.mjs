@@ -12,8 +12,10 @@
  *   node scripts/basil-ai-chats.mjs --chrome-profile "Profile 1" --account you@company.com
  *
  * --chrome-profile picks which Chrome profile's sign-ins to use (default "Default").
- * --account names the Claude/ChatGPT account to read; any other account found
- * signed in is skipped, so a personal account is never sent to Basil.
+ * --account names the account to read; any other account found signed in is
+ * skipped, so a personal account is never sent to Basil. Claude and ChatGPT each
+ * remember their own account. --switch-chatgpt / --switch-claude signs that app
+ * out of the script's Chrome window first, to sign in with a different account.
  *
  * Sign-in to Basil: a token from Basil → Settings → Developer (starts "bsl_"),
  * passed as --token, or BASIL_TOKEN in the environment or in .env.local.
@@ -29,10 +31,10 @@
  */
 
 import { chromium } from "playwright";
-import { homedir, tmpdir } from "node:os";
+import { homedir, hostname, tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { appendFileSync, copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { appendFileSync, writeFileSync, copyFileSync, lstatSync, readlinkSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { createInterface } from "node:readline";
 
 const args = process.argv.slice(2);
@@ -65,9 +67,24 @@ const COPY_CHROME = has("copy-chrome") || has("chrome-profile");
 const OWN_PROFILE_DIR = join(homedir(), ".basil-chat-sync", "chrome");
 const SIGN_IN_WAIT_MS = 10 * 60_000;
 const CHROME_PROFILE = flag("chrome-profile") || "Default";
-let ACCOUNT = (flag("account") || process.env.BASIL_CHAT_ACCOUNT || fromEnvLocal("BASIL_CHAT_ACCOUNT") || "").trim().toLowerCase();
-// A placeholder copied from the docs ("you@yourcompany.com") counts as no account: ask instead.
-if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(ACCOUNT) || /yourcompany|example\.com/.test(ACCOUNT)) ACCOUNT = "";
+/**
+ * Which account to read, per app — your Claude and ChatGPT work accounts can be
+ * different. --account applies to whichever apps this run reads; otherwise the
+ * one remembered for that app in .env.local (BASIL_CLAUDE_ACCOUNT /
+ * BASIL_CHATGPT_ACCOUNT; the older BASIL_CHAT_ACCOUNT counts for Claude only).
+ */
+const validEmail = (e) => /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(e) && !/yourcompany|example\.com/.test(e);
+const ACCOUNT_KEY = { Claude: "BASIL_CLAUDE_ACCOUNT", ChatGPT: "BASIL_CHATGPT_ACCOUNT" };
+const ACCOUNTS = {};
+for (const label of ["Claude", "ChatGPT"]) {
+  const key = ACCOUNT_KEY[label];
+  const raw = flag("account") || process.env[key] || fromEnvLocal(key)
+    || (label === "Claude" ? process.env.BASIL_CHAT_ACCOUNT || fromEnvLocal("BASIL_CHAT_ACCOUNT") : "") || "";
+  const e = raw.trim().toLowerCase();
+  ACCOUNTS[label] = validEmail(e) ? e : "";
+}
+// --switch-chatgpt / --switch-claude: sign that app out of Basil's Chrome profile first.
+const SWITCH = { Claude: has("switch-claude"), ChatGPT: has("switch-chatgpt") };
 const BATCH = 25;
 // Vercel refuses request bodies over ~4.5 MB; stay well under it.
 const MAX_BATCH_BYTES = 3_000_000;
@@ -174,9 +191,10 @@ function prepareCopiedProfile() {
  */
 async function accountAllowed(label, email) {
   const who = (email || "").toLowerCase();
-  if (ACCOUNT) {
-    if (who === ACCOUNT) { log("·", `Reading ${label} as ${who}`); rememberAccount(who); return true; }
-    log("■", `${label} here is signed in as ${who || "an unknown account"}, not ${ACCOUNT} — skipped, nothing sent`);
+  const want = ACCOUNTS[label];
+  if (want) {
+    if (who === want) { log("·", `Reading ${label} as ${who}`); rememberAccount(label, who); return true; }
+    log("■", `${label} here is signed in as ${who || "an unknown account"}, not ${want} — skipped, nothing sent`);
     return false;
   }
   if (!who || !process.stdin.isTTY) {
@@ -184,18 +202,25 @@ async function accountAllowed(label, email) {
     return false;
   }
   const a = await ask(`  ${label} in Chrome is signed in as ${who}. Send its work conversations to Basil? [y/N] `);
-  if (!/^y/i.test(a)) { log("■", `${label} skipped, nothing sent`); return false; }
-  ACCOUNT = who;
-  rememberAccount(who);
+  if (!/^y/i.test(a)) { log("■", `${label} skipped, nothing sent (run with --switch-${label.toLowerCase()} to sign in as someone else)`); return false; }
+  ACCOUNTS[label] = who;
+  rememberAccount(label, who);
   return true;
 }
 
-/** Keep the confirmed account in .env.local so later runs need no --account (and read nothing else). */
-function rememberAccount(who) {
-  if (fromEnvLocal("BASIL_CHAT_ACCOUNT")) return;
-  const lead = existsSync(ENV_LOCAL) && !readFileSync(ENV_LOCAL, "utf8").endsWith("\n") ? "\n" : "";
-  appendFileSync(ENV_LOCAL, `${lead}BASIL_CHAT_ACCOUNT=${who}\n`, { mode: 0o600 });
-  log("✓", `Remembered ${who} — next time only this account is read, without --account.`);
+/** Keep the confirmed account per app in .env.local, so later runs read only that account. */
+function rememberAccount(label, who) {
+  const key = ACCOUNT_KEY[label];
+  if (fromEnvLocal(key) === who) return;
+  if (fromEnvLocal(key)) {
+    // A different account was chosen on purpose (--account / --switch-…): replace the old line.
+    const lines = readFileSync(ENV_LOCAL, "utf8").split("\n").filter((l) => !l.startsWith(`${key}=`));
+    writeFileSync(ENV_LOCAL, lines.join("\n").replace(/\n*$/, "\n") + `${key}=${who}\n`, { mode: 0o600 });
+  } else {
+    const lead = existsSync(ENV_LOCAL) && !readFileSync(ENV_LOCAL, "utf8").endsWith("\n") ? "\n" : "";
+    appendFileSync(ENV_LOCAL, `${lead}${key}=${who}\n`, { mode: 0o600 });
+  }
+  log("✓", `Remembered ${who} for ${label} — next time only this account is read.`);
 }
 
 /**
@@ -291,21 +316,31 @@ async function readClaude(page, seen, sinceIso) {
 
 async function readChatGPT(page, seen, sinceIso) {
   await page.goto("https://chatgpt.com/", { waitUntil: "domcontentloaded", timeout: 30_000 });
-  await wait(3000);
-  const session = await page.evaluate(async () => {
+  await page.waitForLoadState("networkidle", { timeout: 15_000 }).catch(() => {});
+  await wait(2000);
+  const opts = { home: "https://chatgpt.com/" };
+  const session = await inPage(page, async () => {
     const r = await fetch("/api/auth/session", { headers: { Accept: "application/json" } });
     if (!r.ok) return null;
     const s = await r.json();
     return s?.accessToken ? { accessToken: s.accessToken, email: s.user?.email ?? null } : null;
-  });
+  }, undefined, opts);
   if (!session) return { signedIn: false, conversations: [] };
   if (!(await accountAllowed("ChatGPT", session.email))) return { signedIn: true, skipped: true, conversations: [] };
   const { accessToken } = session;
 
-  const call = (path) => page.evaluate(async ({ path, accessToken }) => {
-    const r = await fetch(path, { headers: { Accept: "application/json", Authorization: `Bearer ${accessToken}` } });
+  // ChatGPT's page wraps window.fetch with its own code, which can refuse calls it
+  // didn't make. A hidden same-origin frame still has the browser's own fetch.
+  const call = (path) => inPage(page, async ({ path, accessToken }) => {
+    if (!window.__basilFetch || !document.getElementById("__basil_fetch")) {
+      const f = document.createElement("iframe");
+      f.id = "__basil_fetch"; f.style.display = "none"; f.src = "about:blank";
+      document.documentElement.appendChild(f);
+      window.__basilFetch = f.contentWindow.fetch.bind(f.contentWindow);
+    }
+    const r = await window.__basilFetch(location.origin + path, { credentials: "include", headers: { Accept: "application/json", Authorization: `Bearer ${accessToken}` } });
     return { status: r.status, body: r.ok ? await r.json() : null };
-  }, { path, accessToken });
+  }, { path, accessToken }, opts);
 
   const wanted = [];
   for (let offset = 0; wanted.length < MAX_PER_PLATFORM; offset += 100) {
@@ -329,21 +364,32 @@ async function readChatGPT(page, seen, sinceIso) {
 
   const conversations = [];
   for (const id of wanted) {
-    const r = await call(`/backend-api/conversation/${id}`);
+    let r;
+    try {
+      // ChatGPT rate-limits quick reads (429): wait and try again rather than skip.
+      for (let attempt = 0; attempt < 5; attempt++) {
+        r = await call(`/backend-api/conversation/${id}`);
+        if (r.status !== 429) break;
+        const pause = 15_000 * (attempt + 1);
+        if (attempt === 0) log("·", `ChatGPT asked to slow down — pausing ${pause / 1000}s`);
+        await wait(pause);
+      }
+    }
+    catch (err) { log("!", `Skipped one conversation (${err.message.slice(0, 80)})`); continue; }
     if (r.body) conversations.push({ ...r.body, id });
-    else log("·", `ChatGPT conversation ${id} answered ${r.status}; skipped`);
-    await wait(PAUSE_MS);
+    else log("·", `ChatGPT conversation ${id} answered ${r.status}; skipped (retried next run)`);
+    await wait(1200);
   }
   return { signedIn: true, conversations };
 }
 
 const READERS = {
   "claude-chat": {
-    label: "Claude", read: readClaude, signIn: "claude.ai", loginUrl: "https://claude.ai/login",
+    label: "Claude", read: readClaude, signIn: "claude.ai", loginUrl: "https://claude.ai/login", cookies: /(^|\.)(claude\.ai|anthropic\.com)$/,
     probe: async () => { const r = await fetch("/api/organizations", { headers: { Accept: "application/json" } }); if (!r.ok) return false; const o = await r.json(); return Array.isArray(o) && o.length > 0; },
   },
   chatgpt: {
-    label: "ChatGPT", read: readChatGPT, signIn: "chatgpt.com", loginUrl: "https://chatgpt.com/auth/login",
+    label: "ChatGPT", read: readChatGPT, signIn: "chatgpt.com", loginUrl: "https://chatgpt.com/auth/login", cookies: /(^|\.)(chatgpt\.com|openai\.com)$/,
     probe: async () => { const r = await fetch("/api/auth/session", { headers: { Accept: "application/json" } }); if (!r.ok) return false; const s = await r.json(); return Boolean(s?.accessToken); },
   },
 };
@@ -364,17 +410,25 @@ function slimClaude(c) {
 }
 
 function slimChatGPT(c) {
+  // Only the branch the user last saw (current_node back to the root) is read by
+  // Basil; edited-away branches and tool nodes can be most of a long thread.
+  const all = c.mapping ?? {};
+  const keep = new Set();
+  let node = c.current_node && all[c.current_node] ? c.current_node : null;
+  for (let guard = 0; node && guard < 10_000; guard++) { keep.add(node); node = all[node]?.parent ?? null; }
+  if (keep.size === 0) for (const k of Object.keys(all)) keep.add(k);
   const mapping = {};
-  for (const [k, n] of Object.entries(c.mapping ?? {})) {
+  for (const k of keep) {
+    const n = all[k];
     const m = n?.message;
-    let message = m ?? null;
-    if (m?.content) {
-      const parts = Array.isArray(m.content.parts) ? m.content.parts.map((x) => (typeof x === "string" ? x.slice(0, MSG_CHARS) : x && typeof x.text === "string" ? { text: x.text.slice(0, MSG_CHARS) } : null)).filter((x) => x !== null) : m.content.parts;
-      message = { ...m, content: { content_type: m.content.content_type, parts }, metadata: m.metadata ? { is_visually_hidden_from_conversation: m.metadata.is_visually_hidden_from_conversation } : undefined };
+    let message = null;
+    if (m?.content && Array.isArray(m.content.parts)) {
+      const parts = m.content.parts.map((x) => (typeof x === "string" ? x.slice(0, MSG_CHARS) : x && typeof x.text === "string" ? { text: x.text.slice(0, MSG_CHARS) } : null)).filter((x) => x !== null);
+      message = { author: { role: m.author?.role }, create_time: m.create_time, content: { content_type: m.content.content_type, parts }, metadata: { is_visually_hidden_from_conversation: m.metadata?.is_visually_hidden_from_conversation } };
     }
-    mapping[k] = { id: n?.id, parent: n?.parent, children: n?.children, message };
+    mapping[k] = { id: n?.id ?? k, parent: keep.has(n?.parent) ? n.parent : null, children: [], message };
   }
-  return { ...c, mapping };
+  return { id: c.id, conversation_id: c.conversation_id ?? c.id, title: c.title, create_time: c.create_time, update_time: c.update_time, current_node: c.current_node, mapping };
 }
 
 /** Batches of at most BATCH conversations and MAX_BATCH_BYTES of JSON. */
@@ -392,11 +446,18 @@ function batchesOf(items) {
   return out;
 }
 
+/** Remove one app's sign-in from Basil's own Chrome profile (never touches your everyday Chrome). */
+async function signOut(context, reader) {
+  await context.clearCookies({ domain: reader.cookies });
+  log("·", `Signed ${reader.label} out of Basil's Chrome window.`);
+}
+
 /** First run with Basil's own profile: open the sign-in page and wait for the user. */
 async function waitForSignIn(page, reader) {
   await page.goto(reader.loginUrl, { waitUntil: "domcontentloaded", timeout: 30_000 }).catch(() => {});
   try { await page.bringToFront(); } catch { /* fine */ }
-  log("→", `Sign in to ${reader.signIn} in the Chrome window that just opened${ACCOUNT ? ` — use ${ACCOUNT}` : " — with your WORK account"}.`);
+  const want = ACCOUNTS[reader.label];
+  log("→", `Sign in to ${reader.signIn} in the Chrome window that just opened${want ? ` — use ${want}` : " — with your WORK account"}.`);
   log(" ", "This is only needed once. Waiting up to 10 minutes…");
   const until = Date.now() + SIGN_IN_WAIT_MS;
   while (Date.now() < until) {
@@ -406,6 +467,35 @@ async function waitForSignIn(page, reader) {
   }
   log("✗", `Gave up waiting for the ${reader.signIn} sign-in.`);
   return false;
+}
+
+/**
+ * Chrome leaves a SingletonLock symlink ("<host>-<pid>") in a profile it has
+ * open. If a previous run of this script was stopped, its Chrome window can stay
+ * open and block the next run: find it, and offer to close it. Only ever this
+ * script's own profile, never your everyday Chrome.
+ */
+function ownChromePid() {
+  const lock = join(OWN_PROFILE_DIR, "SingletonLock");
+  try { lstatSync(lock); } catch { return null; }
+  const m = readlinkSync(lock).match(/^(.*)-(\d+)$/);
+  if (!m) return null;
+  const pid = Number(m[2]);
+  if (m[1] !== hostname()) return null;
+  try { process.kill(pid, 0); return pid; } catch { return null; }
+}
+
+async function closeLeftoverChrome() {
+  const pid = ownChromePid();
+  if (!pid) return true;
+  if (!process.stdin.isTTY) return false;
+  const a = await ask("  An earlier run's Chrome window is still open. Close it and carry on? [Y/n] ");
+  if (/^n/i.test(a)) return false;
+  try { process.kill(pid, "SIGTERM"); } catch { /* already gone */ }
+  for (let i = 0; i < 20 && ownChromePid(); i++) await wait(500);
+  if (ownChromePid()) { log("✗", "It didn't close — close that Chrome window yourself, then run again."); return false; }
+  log("✓", "Closed it.");
+  return true;
 }
 
 // ── Main ─────────────────────────────────────────────────────────────────────
@@ -442,6 +532,10 @@ async function main() {
       userDataDir = copiedDir; profileArg = "Default";
     } else {
       mkdirSync(OWN_PROFILE_DIR, { recursive: true, mode: 0o700 });
+      if (!(await closeLeftoverChrome())) {
+        console.error("  ✗  Another run of this script still has its Chrome window open. Close it, then run this again.");
+        process.exit(1);
+      }
       userDataDir = OWN_PROFILE_DIR; profileArg = "Default";
     }
     context = await chromium.launchPersistentContext(userDataDir, {
@@ -455,11 +549,13 @@ async function main() {
   } catch (err) {
     if (copiedDir) rmSync(copiedDir, { recursive: true, force: true });
     const msg = err.message ?? "";
-    if (/EPERM|operation not permitted/i.test(msg)) {
+    const ownProfileLocked = !USE_PROFILE && !COPY_CHROME && ownChromePid() !== null;
+    if (ownProfileLocked || /already in use|ProcessSingleton|SingletonLock|existing browser session/i.test(msg)) {
+      console.error("  ✗  Another run of this script still has its Chrome window open. Close that window (or press");
+      console.error("     Ctrl-C in the Terminal tab where it is waiting), then run this again.");
+    } else if (COPY_CHROME && /EPERM|operation not permitted/i.test(msg)) {
       console.error("  ✗  macOS won't let Terminal read your everyday Chrome's data. Run without --copy-chrome / --chrome-profile");
       console.error("     (the script then uses its own Chrome window — sign in once), or give Terminal Full Disk Access.");
-    } else if (/already in use|lock|SingletonLock/i.test(msg)) {
-      console.error("  ✗  That Chrome profile is already open. Close the other Basil sync window (or quit Chrome for --use-profile).");
     } else console.error(`  ✗  Could not start Chrome: ${msg}`);
     process.exit(1);
   }
@@ -473,10 +569,20 @@ async function main() {
     const reader = READERS[platform];
     console.log(`  ${reader.label}`);
     let got;
+    const ownProfile = !USE_PROFILE && !COPY_CHROME && !HEADLESS;
     try {
+      if (SWITCH[reader.label] && ownProfile) await signOut(context, reader);
       got = await reader.read(page, seen, sinceIso);
-      if (!got.signedIn && !USE_PROFILE && !COPY_CHROME && !HEADLESS) {
+      if (!got.signedIn && ownProfile) {
         if (await waitForSignIn(page, reader)) got = await reader.read(page, seen, sinceIso);
+      }
+      // Signed in as someone other than the account wanted: offer to switch, once.
+      if (got.skipped && ownProfile && ACCOUNTS[reader.label] && process.stdin.isTTY) {
+        const a = await ask(`  Sign ${reader.label} out here and sign in as ${ACCOUNTS[reader.label]} instead? [y/N] `);
+        if (/^y/i.test(a)) {
+          await signOut(context, reader);
+          if (await waitForSignIn(page, reader)) got = await reader.read(page, seen, sinceIso);
+        }
       }
     } catch (err) {
       log("✗", err.message);
