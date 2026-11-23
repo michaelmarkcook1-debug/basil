@@ -17,6 +17,9 @@ import { getAllOverridesFromStore } from "@/lib/contacts/overrides-store";
 import type { ToneObservation } from "@/lib/contact-profile-overrides";
 import { isLinearConnected, getMyOpenIssues, type LinearIssue } from "@/lib/linear/client";
 import { detectPendingFollowups } from "@/lib/followups/detect";
+import { assignWorkstreams } from "@/lib/workstreams/classify";
+import { actionSubject, feedSubject, stampFeed, workstreamTotals } from "@/lib/workstreams/attach";
+import type { Workstream } from "@/lib/workstreams/types";
 import { getLearning } from "@/lib/learning/store";
 import { listMemories } from "@/lib/memory/store";
 import { extractCadenceRules } from "@/lib/contacts/cadence-rules";
@@ -255,10 +258,25 @@ export async function computeTodayFeed(username: string): Promise<TodayFeedRespo
     for (const item of [...changeItems, ...followupItems, ...linearItems]) {
       if (!byId.has(item.id)) byId.set(item.id, item);
     }
-    const all = [...byId.values()].sort(byRank);
+    const ranked = [...byId.values()].sort(byRank);
+
+    // Workstreams (lib/workstreams): every card, and every open action — the
+    // classifier runs here, in the background refresh, never on page load.
+    const allById = new Map(allActions.map((a) => [a.id, a]));
+    const subjects = [
+      ...ranked.map((i) => feedSubject(i, allById)),
+      ...allActions.filter((a) => a.status !== "done").map(actionSubject),
+    ];
+    const uniqueSubjects = [...new Map(subjects.map((s) => [s.key, s])).values()];
+    const placed = await assignWorkstreams(username, uniqueSubjects).catch((e) => {
+      console.warn("[today] workstreams failed:", e instanceof Error ? e.message : e);
+      return new Map();
+    });
+    const all = stampFeed(ranked, placed);
 
     return {
       items: all,
+      workstreamTotals: workstreamTotals(all),
       total: all.length,
       totals: { changes: changeItems.length, followups: followupItems.length, linear: linearItems.length },
       truncated: false,
@@ -283,7 +301,17 @@ const byRank = (a: TodayFeedItem, b: TodayFeedItem) =>
  * capped, so their `total` is the best figure available until the cache
  * refreshes.
  */
-export function presentFeed(feed: TodayFeedResponse, opts: { full?: boolean } = {}): TodayFeedResponse {
+export function presentFeed(feed: TodayFeedResponse, opts: { full?: boolean; workstream?: Workstream | "unsorted" } = {}): TodayFeedResponse {
+  if (opts.workstream) {
+    // One workstream: filter BEFORE the cap, so a quiet workstream is not
+    // shown empty because the busier ones filled the sixteen slots. Totals
+    // stay whole-feed — the bar shows every workstream's count.
+    const want = opts.workstream;
+    const wsTotals = feed.workstreamTotals ?? workstreamTotals(feed.items);
+    const inWs = feed.items.filter((i) => (i.workstream ?? "unsorted") === want);
+    const inner = presentFeed({ ...feed, items: inWs, totals: undefined, total: inWs.length, workstreamTotals: wsTotals }, { full: opts.full });
+    return { ...inner, workstreamTotals: wsTotals };
+  }
   const totals = feed.totals ?? {
     changes: feed.items.filter((i) => i.kind === "change").length,
     followups: feed.items.filter((i) => i.kind === "followup").length,
@@ -291,7 +319,8 @@ export function presentFeed(feed: TodayFeedResponse, opts: { full?: boolean } = 
   };
   const total = feed.totals ? feed.total : feed.items.length;
   const degraded = feed.degraded ?? [];
-  if (opts.full) return { ...feed, totals, total, truncated: false, degraded };
+  const wsTotals = feed.workstreamTotals ?? workstreamTotals(feed.items);
+  if (opts.full) return { ...feed, totals, total, truncated: false, degraded, workstreamTotals: wsTotals };
 
   const top = (kind: TodayFeedItem["kind"], cap: number) =>
     feed.items.filter((i) => i.kind === kind).sort(byRank).slice(0, cap);
@@ -301,6 +330,6 @@ export function presentFeed(feed: TodayFeedResponse, opts: { full?: boolean } = 
     ...top("linear", CAP_PER_SOURCE.linear),
   ].sort(byRank).slice(0, CAP_TOTAL);
 
-  return { ...feed, items, totals, total, truncated: items.length < total, degraded };
+  return { ...feed, items, totals, total, truncated: items.length < total, degraded, workstreamTotals: wsTotals };
 }
 

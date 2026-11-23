@@ -73,6 +73,8 @@ test("the feed carries follow-up degradation through to the dashboard", async ()
       "@/lib/followups/detect": { detectPendingFollowups: async () => ({ items: [], sources: { gmail: true, slack: true }, degraded: ["Gmail"] }) },
       "@/lib/learning/store": { getLearning: async () => ({}) }, "@/lib/settings/store": { getSettings: async () => ({}) },
       "@/lib/learning/priors": { computeCategoryPriors: () => ({}) },
+      "@/lib/workstreams/classify": { assignWorkstreams: async () => new Map() },
+      "@/lib/workstreams/attach": loadTs("lib/workstreams/attach.ts", { "@/lib/workstreams/types": loadTs("lib/workstreams/types.ts") }),
     });
     const feed = await F.computeTodayFeed("fixture");
     assert.deepEqual(plain(feed.degraded), ["Gmail", "Linear"]);

@@ -15,6 +15,7 @@
  * a score that sounds authoritative and means nothing.
  */
 
+import type { Workstream, WorkstreamBy } from "@/lib/workstreams/types";
 import type { TodayFeedItem, TodayFeedResponse } from "./types";
 import type { CalendarEvent } from "@/lib/google/calendar";
 import type { ActionItem } from "@/lib/types/action";
@@ -88,6 +89,12 @@ export interface Priority {
   groupedCount?: number;
   /** The items folded into this card, for the "Why?" disclosure. */
   members?: TodayFeedItem[];
+  /** Workstream (lib/workstreams) and what filing it by hand needs. Absent on grouped cards. */
+  workstream?: Workstream | null;
+  workstreamBy?: WorkstreamBy;
+  workstreamKey?: string;
+  /** A rule "Always file … here" can teach: the sender, or the Linear project. */
+  learn?: { field: "sender" | "project"; value: string; label: string };
 }
 
 /**
@@ -151,7 +158,28 @@ function toPriority(item: TodayFeedItem): Priority {
     occurredAt: item.occurredAt,
     rank: item.rank,
     ...(typeof item.confidence === "number" ? { confidence: item.confidence } : {}),
+    workstream: item.workstream,
+    workstreamBy: item.workstreamBy,
+    workstreamKey: feedKey(item),
+    ...learnOf(item),
   };
+}
+
+/** The key a card's workstream is stored under — lib/workstreams/attach.feedKey (kept import-free here). */
+function feedKey(item: TodayFeedItem): string {
+  if (item.kind === "change" && item.change.source === "actions" && item.change.entityId) return `action:${item.change.entityId}`;
+  return item.id;
+}
+
+function learnOf(item: TodayFeedItem): Pick<Priority, "learn"> {
+  if (item.kind === "followup" && item.followup.fromEmail) {
+    const e = item.followup.fromEmail.toLowerCase();
+    return { learn: { field: "sender", value: e, label: `everything from ${item.followup.fromName || e}` } };
+  }
+  if (item.kind === "linear" && item.issue.project?.name) {
+    return { learn: { field: "project", value: item.issue.project.name.toLowerCase(), label: `the ${item.issue.project.name} project` } };
+  }
+  return {};
 }
 
 /**

@@ -11,6 +11,19 @@ import { computeTodayFeed, presentFeed } from "@/lib/today/feed";
 import type { TodayFeedResponse } from "@/lib/today/types";
 import { warmEmailViews } from "@/lib/email/view-cache";
 import { getTodayAway } from "@/lib/away/store";
+import { overlayWorkstreams } from "@/lib/workstreams/classify";
+import { feedSubject, workstreamTotals } from "@/lib/workstreams/attach";
+import { isWorkstream, type Workstream } from "@/lib/workstreams/types";
+
+/** The user's latest corrections and rules over a cached feed (no classifier call). */
+async function withCurrentWorkstreams(username: string, feed: TodayFeedResponse): Promise<TodayFeedResponse> {
+  try {
+    const items = await overlayWorkstreams(username, feed.items ?? [], (i) => feedSubject(i));
+    return { ...feed, items, workstreamTotals: workstreamTotals(items) };
+  } catch {
+    return feed;
+  }
+}
 // after() background refreshes run on the same invocation, so the budget must
 // cover a full fan-out recompute — mirrors contacts/activity.
 export const maxDuration = 120;
@@ -51,6 +64,10 @@ export async function GET(req: NextRequest) {
   // ?full=1 — the whole queue, for /dashboard/threads. The cache holds the
   // uncapped feed; the cap is applied at presentation.
   const full = req.nextUrl.searchParams.get("full") === "1";
+  // ?workstream=product — one workstream, filtered before the display cap.
+  const wsParam = req.nextUrl.searchParams.get("workstream");
+  const workstream: Workstream | "unsorted" | undefined = isWorkstream(wsParam) || wsParam === "unsorted" ? wsParam : undefined;
+  const present = async (feed: TodayFeedResponse) => presentFeed(await withCurrentWorkstreams(username!, feed), { full, workstream });
   if (!username) return NextResponse.json({ error: "Unauthorised" }, { status: 401 });
 
   try {
@@ -66,7 +83,7 @@ export async function GET(req: NextRequest) {
     if (cached?.content) {
       if (isCacheValid(cached)) {
         warmEmails(username, cached.content);
-        return NextResponse.json({ ...presentFeed(cached.content, { full }), away, cache: "hit" });
+        return NextResponse.json({ ...(await present(cached.content)), away, cache: "hit" });
       }
       // Stale: hand back what we have immediately, refresh after the response.
       after(async () => {
@@ -81,7 +98,7 @@ export async function GET(req: NextRequest) {
           console.error("[today] background refresh failed:", e instanceof Error ? e.message : e);
         }
       });
-      return NextResponse.json({ ...presentFeed(cached.content, { full }), away, cache: "stale" });
+      return NextResponse.json({ ...(await present(cached.content)), away, cache: "stale" });
     }
 
     // Cold start — pay for it once.
@@ -91,7 +108,7 @@ export async function GET(req: NextRequest) {
       ttlMs: TODAY_FEED_TTL_MS,
     }).catch((e) => console.error("[today] cache write failed:", e));
     warmEmails(username, fresh);
-    return NextResponse.json({ ...presentFeed(fresh, { full }), away, cache: "miss" });
+    return NextResponse.json({ ...(await present(fresh)), away, cache: "miss" });
   } catch (err) {
     console.error("[today]", err);
     return NextResponse.json({ error: "Failed to build today feed." }, { status: 500 });

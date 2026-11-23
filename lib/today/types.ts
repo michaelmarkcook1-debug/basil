@@ -22,6 +22,7 @@
 import type { ChangeEvent } from "@/lib/delta/types";
 import type { PendingFollowup } from "@/lib/followups/types";
 import type { LinearIssue } from "@/lib/linear/client";
+import type { Workstream, WorkstreamBy } from "@/lib/workstreams/types";
 
 /** Discriminator for the feed union. */
 export type TodayItemKind = "change" | "followup" | "linear";
@@ -54,6 +55,9 @@ interface TodayItemBase {
   hint?: string;
   /** Pre-suggested action verb (highlights that control). Action-backed only. */
   suggest?: SuggestVerb;
+  /** Which of the user's workstreams this belongs to (lib/workstreams); null = fits none. */
+  workstream?: Workstream | null;
+  workstreamBy?: WorkstreamBy;
 }
 
 export interface TodayChangeItem extends TodayItemBase {
@@ -101,6 +105,8 @@ export interface TodayFeedResponse {
    * twenty unanswered threads read as six, with no sign that six was a cut.
    */
   total: number;
+  /** Items per workstream before the cap ("unsorted" = none yet). Absent on older cached responses. */
+  workstreamTotals?: Record<Workstream | "unsorted", number>;
   /** Per-source counts before the cap. Absent on responses cached before 2026-09-15. */
   totals?: { changes: number; followups: number; linear: number };
   /** True when `items` is shorter than `total`. Absent on older cached responses. */

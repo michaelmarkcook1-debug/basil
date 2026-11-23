@@ -45,6 +45,7 @@ import { GetTheApp } from "@/components/pwa/get-the-app";
 import { fellDueWhileAway } from "@/lib/away/fell-due";
 import { shortDay } from "@/lib/away/calendar";
 import { formatDueDay } from "@/lib/dashboard/day";
+import { WorkstreamBar, useWorkstreamFilter } from "@/components/workstreams/workstream-bar";
 
 async function swrFetch(url: string) {
   const r = await fetch(url, { cache: "no-store" });
@@ -72,7 +73,11 @@ function personOf(item: TodayFeedItem | undefined): string | undefined {
 }
 
 export default function Today() {
-  const { data: feed, isLoading: feedLoading, error: feedError, mutate: refreshFeed } = useSWR<TodayFeedResponse>("/api/today", swrFetch, SWR_OPTS);
+  // Which workstream is in view (remembered per device). The feed is filtered
+  // on the server, before its display cap, so a quiet workstream isn't empty
+  // just because busier ones filled the slots.
+  const [ws, setWs] = useWorkstreamFilter();
+  const { data: feed, isLoading: feedLoading, error: feedError, mutate: refreshFeed } = useSWR<TodayFeedResponse>(ws === "all" ? "/api/today" : `/api/today?workstream=${ws}`, swrFetch, { ...SWR_OPTS, keepPreviousData: true });
   const { data: cal, error: calError } = useSWR<{ connected: boolean; events?: CalendarEvent[] }>("/api/calendar/upcoming", swrFetch, SWR_OPTS);
   const { data: actions, error: actionsError, mutate: refreshActions } = useSWR<{ actions?: ActionItem[] }>("/api/actions", swrFetch, SWR_OPTS);
   const { data: settings } = useSWR<{ name?: string; timezone?: string; workStart?: string; workEnd?: string }>("/api/settings", swrFetch, SWR_OPTS);
@@ -125,8 +130,9 @@ export default function Today() {
 
   const all = useMemo(() => actions?.actions ?? [], [actions]);
   const selfNames = useMemo(() => (selfName ? [selfName] : []), [selfName]);
-  const mine = useMemo(() => all.filter((a) => a.status !== "done" && !isWaitingOnOthers(a, selfNames)), [all, selfNames]);
-  const waiting = useMemo(() => all.filter((a) => a.status !== "done" && isWaitingOnOthers(a, selfNames)), [all, selfNames]);
+  const inWs = useMemo(() => (a: ActionItem) => ws === "all" || (a.workstream ?? "unsorted") === ws, [ws]);
+  const mine = useMemo(() => all.filter((a) => a.status !== "done" && !isWaitingOnOthers(a, selfNames) && inWs(a)), [all, selfNames, inWs]);
+  const waiting = useMemo(() => all.filter((a) => a.status !== "done" && isWaitingOnOthers(a, selfNames) && inWs(a)), [all, selfNames, inWs]);
   const buckets = useMemo(() => (actions ? bucketCommitments(mine, clock, timeZone) : null), [actions, mine, clock, timeZone]);
   const promised = useMemo(() => (buckets ? [
     ...buckets.overdue.map((a) => ({ a, due: "Overdue", color: "#8E2A20" })),
@@ -224,6 +230,8 @@ export default function Today() {
         <ConnectPrompt />
         <GetTheApp />
 
+        <WorkstreamBar value={ws} onChange={setWs} totals={feed?.workstreamTotals} />
+
         {away && (
           <AwayCard
             away={away}
@@ -304,6 +312,7 @@ export default function Today() {
                     toneColor={toneOf(person)}
                     delay={300 + i * 70}
                     onFocusPerson={setFocus}
+                    onWorkstreamChanged={() => Promise.all([refreshFeed(), refreshActions()])}
                   />
                 );
               })

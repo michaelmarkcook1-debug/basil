@@ -118,6 +118,8 @@ function feedModule({ linearOn = false, linearThrows = false, followups = 0 } = 
     lastInboundAt: new Date().toISOString(), href: `https://example.test/${i}`,
   }));
   return loadTs("lib/today/feed.ts", {
+    "@/lib/workstreams/classify": { assignWorkstreams: async () => new Map() },
+    "@/lib/workstreams/attach": loadTs("lib/workstreams/attach.ts", { "@/lib/workstreams/types": loadTs("lib/workstreams/types.ts") }),
     // lib/away: no working calendar here — the code falls back to its every-day behaviour.
     "@/lib/away/store": { getWorkCalendar: async () => { throw new Error("no working calendar in this test"); }, declareAway: async () => ({}), endDeclaredAway: async () => 0, invalidateCalendarAbsences: async () => {} },
     "@/lib/away/calendar": loadTs("lib/away/calendar.ts"),

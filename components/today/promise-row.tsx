@@ -16,6 +16,8 @@ import { ArrowUpRight, Check, Clock3, Loader2 } from "lucide-react";
 import { EmailPanel } from "@/components/email/email-panel";
 import type { ActionItem } from "@/lib/types/action";
 import type { ActionLink } from "@/lib/actions/destination";
+import { WorkstreamChip } from "@/components/workstreams/workstream-chip";
+import { actionKey } from "@/lib/workstreams/attach";
 
 interface Destination { emailId: string | null; links: ActionLink[] }
 
@@ -81,7 +83,10 @@ export function PromiseRow({ action, due, color, onChanged }: {
         <span className="mt-1.5 h-2 w-2 shrink-0 rounded-full" style={{ background: color }} />
         <span className="flex min-w-0 flex-col gap-1">
           <span className="text-[15px] leading-snug text-[color:var(--w-ink)]">{action.text}</span>
-          <span className="text-[13px] text-[color:var(--w-ink-soft)]"><span className="font-semibold" style={{ color }}>{due}</span> · from {action.source}</span>
+          <span className="flex flex-wrap items-center gap-2 text-[13px] text-[color:var(--w-ink-soft)]">
+            <span><span className="font-semibold" style={{ color }}>{due}</span> · from {action.source}</span>
+            <WorkstreamChip size="sm" itemKey={actionKey(action.id)} workstream={action.workstream} by={action.workstreamBy} text={action.text} onChanged={() => onChanged()} />
+          </span>
         </span>
       </div>
       <div className="flex flex-wrap gap-2 pl-[22px]">

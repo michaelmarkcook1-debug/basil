@@ -9,6 +9,9 @@
  * handlers, filters and what marking done / deleting sends are unchanged.
  */
 
+import { WorkstreamChip } from "@/components/workstreams/workstream-chip";
+import { WorkstreamBar, useWorkstreamFilter } from "@/components/workstreams/workstream-bar";
+import { actionKey, workstreamTotals } from "@/lib/workstreams/attach";
 import { Fragment, useState, useEffect, useRef, useCallback, useMemo } from "react";
 import { ReplyButton } from "@/components/email/reply-composer";
 import { useDomainSync } from "@/lib/sync/use-domain-sync";
@@ -452,6 +455,14 @@ function ActionCard({
           <ExpiryBadge expiresAt={action.expiresAt} />
           <PriorityBadge priority={action.priority} />
           <SourceBadge source={action.source} />
+          <WorkstreamChip
+            size="sm"
+            itemKey={actionKey(action.id)}
+            workstream={action.workstream}
+            by={action.workstreamBy}
+            text={action.text}
+            onChanged={() => { window.dispatchEvent(new Event("basil:workstreams-changed")); }}
+          />
           <CategoryChip category={action.category} />
           {action.needsReview && <NeedsReviewBadge />}
 
@@ -1258,6 +1269,8 @@ export default function ActionsPage() {
   const [fetchError, setFetchError] = useState<Error | null>(null);
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState<string>("all");
+  // The same workstream filter as Today, remembered across both pages.
+  const [ws, setWs] = useWorkstreamFilter();
   // Whose action is it: someone else's commitment ("Carter to send…") is
   // waiting-on — tracked under its own filter, never in your list or counts.
   const [selfName, setSelfName] = useState<string | null>(null);
@@ -1372,6 +1385,13 @@ export default function ActionsPage() {
       setLoading(false);
     }
   }, []);
+
+  // A workstream was changed on a card: re-read so the filter and counts agree.
+  useEffect(() => {
+    const on = () => { void refresh(); };
+    window.addEventListener("basil:workstreams-changed", on);
+    return () => window.removeEventListener("basil:workstreams-changed", on);
+  }, [refresh]);
 
   const notify = useDomainSync("actions", refresh);
 
@@ -1708,7 +1728,10 @@ export default function ActionsPage() {
   // ── Filter ─────────────────────────────────────────────────────────────────
   const isTheirs = (a: ActionItem) => isWaitingOnOthers(a, selfName ? [selfName] : []);
   const waitingCount = actions.filter((a) => a.status !== "done" && isTheirs(a)).length;
+  const inWs = (a: ActionItem) => ws === "all" || (a.workstream ?? "unsorted") === ws;
+  const wsTotals = workstreamTotals(actions.filter((a) => a.status !== "done" && !isTheirs(a)));
   const filtered = actions.filter((a) => {
+    if (!inWs(a)) return false;
     const matchesSearch =
       !search ||
       a.text.toLowerCase().includes(search.toLowerCase()) ||
@@ -1954,6 +1977,8 @@ export default function ActionsPage() {
           onClearFilter={() => setStatusFilter("all")}
           delay={80}
         />
+
+        <WorkstreamBar value={ws} onChange={setWs} totals={wsTotals} />
 
         {/* Filters */}
         <div className="basil-rise flex flex-wrap gap-3" style={{ animationDelay: "160ms" }}>

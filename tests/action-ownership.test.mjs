@@ -60,9 +60,9 @@ test("Today and the Actions page count only the user's actions; others' are 'Wai
   // Today (redesigned 2026-10-14): your open actions exclude others', and only
   // those are bucketed; others' open actions feed "Waiting on others".
   const today = src("app/dashboard/page.tsx");
-  assert.match(today, /const mine = useMemo\(\(\) => all\.filter\(\(a\) => a\.status !== "done" && !isWaitingOnOthers\(a, selfNames\)\)/);
+  assert.match(today, /const mine = useMemo\(\(\) => all\.filter\(\(a\) => a\.status !== "done" && !isWaitingOnOthers\(a, selfNames\)( && inWs\(a\))?\)/);
   assert.match(today, /bucketCommitments\(mine, clock, timeZone\)/);
-  assert.match(today, /const waiting = useMemo\(\(\) => all\.filter\(\(a\) => a\.status !== "done" && isWaitingOnOthers\(a, selfNames\)\)/);
+  assert.match(today, /const waiting = useMemo\(\(\) => all\.filter\(\(a\) => a\.status !== "done" && isWaitingOnOthers\(a, selfNames\)( && inWs\(a\))?\)/);
   const page = src("app/dashboard/actions/page.tsx");
   assert.match(page, /if \(statusFilter === "waiting"\) return matchesSearch && a\.status !== "done" && isTheirs\(a\);\s*if \(isTheirs\(a\)\) return false;/);
   assert.match(page, /Waiting on others \(\{waitingCount\}\)/);

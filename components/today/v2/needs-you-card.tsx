@@ -12,6 +12,7 @@ import { ChevronDown, Mail } from "lucide-react";
 import type { Priority } from "@/lib/today/executive";
 import { EmailPanel } from "@/components/email/email-panel";
 import { gmailIdOf } from "@/components/email/use-email";
+import { WorkstreamChip } from "@/components/workstreams/workstream-chip";
 
 const URGENCY: Record<Priority["urgency"], { label: string; bg: string; fg: string }> = {
   "act-now": { label: "Act now", bg: "rgba(180,55,42,.10)", fg: "#8E2A20" },
@@ -26,7 +27,7 @@ export function initialsOf(name: string): string {
 }
 
 export function NeedsYouCard({
-  priority: p, howTo, person, toneColor, delay = 0, onFocusPerson,
+  priority: p, howTo, person, toneColor, delay = 0, onFocusPerson, onWorkstreamChanged,
 }: {
   priority: Priority;
   /** One line on how to approach this person, from their profile. */
@@ -36,6 +37,8 @@ export function NeedsYouCard({
   toneColor?: string;
   delay?: number;
   onFocusPerson?: (name: string | null) => void;
+  /** Re-read the feed after the user files this card under another workstream. */
+  onWorkstreamChanged?: () => void | Promise<unknown>;
 }) {
   const [why, setWhy] = useState(false);
   const messageId = gmailIdOf(p.id);
@@ -64,6 +67,16 @@ export function NeedsYouCard({
             {person && <span className="text-[16px] font-semibold text-[color:var(--w-ink)]">{person}</span>}
             <span>{p.source}</span>
             <span className="rounded-full px-2.5 py-0.5 text-[12px] font-semibold" style={{ background: u.bg, color: u.fg }}>{u.label}</span>
+            {p.workstreamKey && (
+              <WorkstreamChip
+                itemKey={p.workstreamKey}
+                workstream={p.workstream}
+                by={p.workstreamBy}
+                text={`${p.title} — ${p.why}`}
+                learn={p.learn}
+                onChanged={onWorkstreamChanged}
+              />
+            )}
           </div>
           <h3 className="text-[16px] font-semibold leading-snug text-[color:var(--w-ink)]">{p.title}</h3>
           <p className="text-[15px] leading-relaxed text-[color:var(--w-ink-soft)]">{p.why}</p>

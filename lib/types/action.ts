@@ -1,3 +1,5 @@
+import type { Workstream, WorkstreamBy } from "@/lib/workstreams/types";
+
 export type ActionPriority = "high" | "medium" | "low";
 
 /**
@@ -111,6 +113,13 @@ export interface ActionItem {
   decisionRequired?: boolean;
   /** ID of a decision the user created in response to the decisionRequired flag. */
   linkedDecisionId?: string;
+  /**
+   * Which of the user's workstreams this belongs to. NOT stored on the action:
+   * attached on read from lib/workstreams (one verdict store for actions and
+   * Today items alike), so a correction shows everywhere at once.
+   */
+  workstream?: Workstream | null;
+  workstreamBy?: WorkstreamBy;
 
   /**
    * ISO timestamp at which this action automatically expires and is silently

@@ -1,4 +1,6 @@
 import { NextResponse } from "next/server";
+import { overlayWorkstreams } from "@/lib/workstreams/classify";
+import { actionSubject } from "@/lib/workstreams/attach";
 import {
   listActions,
   createAction,
@@ -16,7 +18,10 @@ export async function GET(req: Request) {
   // data even when the write landed on a different Fluid Compute instance.
   const { searchParams } = new URL(req.url);
   const fresh = searchParams.get("fresh") === "true";
-  const actions = await listActions(username, { fresh });
+  const listed = await listActions(username, { fresh });
+  // Workstreams are attached on read (lib/workstreams): the user's choices,
+  // their rules and stored verdicts. No classifier call here.
+  const actions = await overlayWorkstreams(username, listed, actionSubject).catch(() => listed);
   return NextResponse.json({ actions });
 }
 
