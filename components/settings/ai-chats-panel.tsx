@@ -14,6 +14,7 @@ interface ChatStatus {
 
 const LABEL: Record<string, string> = { "claude-chat": "Claude", chatgpt: "ChatGPT" };
 const COMMAND = "node scripts/basil-ai-chats.mjs --account you@yourcompany.com";
+const commandWith = (token: string) => `cd ~/execautoclaude && BASIL_TOKEN=${token} ${COMMAND}`;
 
 function when(iso: string | null): string {
   if (!iso) return "never";
@@ -23,6 +24,12 @@ function when(iso: string | null): string {
 export function AIChatsPanel() {
   const [status, setStatus] = useState<ChatStatus | null>(null);
   const [failed, setFailed] = useState(false);
+  // Personal token (the same one Siri uses — Basil keeps one per person).
+  const [tokenActive, setTokenActive] = useState<boolean | null>(null);
+  const [freshToken, setFreshToken] = useState<string | null>(null);
+  const [tokenBusy, setTokenBusy] = useState(false);
+  const [tokenError, setTokenError] = useState<string | null>(null);
+  const [copied, setCopied] = useState(false);
 
   useEffect(() => {
     let live = true;
@@ -30,8 +37,34 @@ export function AIChatsPanel() {
       .then((r) => (r.ok ? r.json() : Promise.reject(new Error(String(r.status)))))
       .then((d: ChatStatus) => { if (live) setStatus(d); })
       .catch(() => { if (live) setFailed(true); });
+    fetch("/api/siri/token", { cache: "no-store" })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d: { active?: boolean } | null) => { if (live) setTokenActive(Boolean(d?.active)); })
+      .catch(() => { if (live) setTokenActive(null); });
     return () => { live = false; };
   }, []);
+
+  async function createToken() {
+    if (tokenActive && !window.confirm("You already have a Basil token (used by Siri). A new one replaces it, so any Siri shortcut will need the new token too. Continue?")) return;
+    setTokenBusy(true);
+    setTokenError(null);
+    try {
+      const r = await fetch("/api/siri/token", { method: "POST" });
+      if (!r.ok) throw new Error(String(r.status));
+      const d = (await r.json()) as { token: string };
+      setFreshToken(d.token);
+      setTokenActive(true);
+    } catch (e) {
+      setTokenError(`Could not create a token (${e instanceof Error ? e.message : "error"}). Try again.`);
+    } finally {
+      setTokenBusy(false);
+    }
+  }
+
+  async function copyCommand() {
+    if (!freshToken) return;
+    try { await navigator.clipboard.writeText(commandWith(freshToken)); setCopied(true); setTimeout(() => setCopied(false), 2000); } catch { /* select-all fallback below */ }
+  }
 
   return (
     <div className="mb-4 rounded-lg border bg-muted/30 p-4 text-sm">
@@ -68,11 +101,37 @@ export function AIChatsPanel() {
           )}
         </>
       )}
-      <p className="mt-3 text-xs text-muted-foreground">
-        To send new conversations, run this on your Mac from the Basil folder, with a token from Developer below in
-        <code className="mx-1">BASIL_TOKEN</code>(a Chrome window opens and closes):
-      </p>
-      <code className="mt-1 block select-all rounded bg-background px-2 py-1 text-[11px]">{COMMAND}</code>
+      {freshToken ? (
+        <div className="mt-3 rounded-md border bg-background p-3 text-xs">
+          <div className="font-medium">Your token is ready — it is shown only once.</div>
+          <p className="mt-1 text-muted-foreground">
+            Copy this command and run it in Terminal on your Mac (put your work email after <code>--account</code>). A Chrome window
+            opens and closes. The first time, the script offers to remember the token so you won&apos;t need it again.
+          </p>
+          <code className="mt-2 block select-all break-all rounded bg-muted px-2 py-1 text-[11px]">{commandWith(freshToken)}</code>
+          <button type="button" onClick={() => void copyCommand()} className="mt-2 rounded-md border px-2 py-1 font-medium hover:bg-muted">
+            {copied ? "Copied" : "Copy command"}
+          </button>
+        </div>
+      ) : (
+        <div className="mt-3 text-xs">
+          <p className="text-muted-foreground">
+            To send conversations, Basil needs a personal token for the script that runs on your Mac.
+            {tokenActive ? " You already have one (it is also your Siri token); if you no longer have it, create a new one." : ""}
+          </p>
+          <button
+            type="button"
+            disabled={tokenBusy}
+            onClick={() => void createToken()}
+            className="mt-2 rounded-md border bg-background px-3 py-1.5 font-medium hover:bg-muted disabled:opacity-50"
+          >
+            {tokenBusy ? "Creating…" : tokenActive ? "Create a new token" : "Create my token"}
+          </button>
+          {tokenError && <p className="mt-2 text-[color:var(--w-stamp)]">{tokenError}</p>}
+          <p className="mt-2 text-muted-foreground">Then run, from the Basil folder (the script asks for the token if it isn&apos;t set):</p>
+          <code className="mt-1 block select-all rounded bg-background px-2 py-1 text-[11px]">{COMMAND}</code>
+        </div>
+      )}
     </div>
   );
 }

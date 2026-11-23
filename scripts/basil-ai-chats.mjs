@@ -29,7 +29,8 @@
 import { chromium } from "playwright";
 import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
-import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { appendFileSync, copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { createInterface } from "node:readline";
 
 const args = process.argv.slice(2);
 const flag = (name) => { const i = args.indexOf(`--${name}`); return i !== -1 ? args[i + 1] : null; };
@@ -42,7 +43,9 @@ function fromEnvLocal(key) {
 }
 
 const BASIL_URL = (flag("url") || "https://basil-app.vercel.app").replace(/\/$/, "");
-const TOKEN = flag("token") || process.env.BASIL_TOKEN || fromEnvLocal("BASIL_TOKEN");
+let TOKEN = flag("token") || process.env.BASIL_TOKEN || fromEnvLocal("BASIL_TOKEN");
+/** A real Basil token, not empty and not a placeholder left in a copied command. */
+const looksLikeToken = (t) => typeof t === "string" && /^bsl_[A-Za-z0-9_-]{16,}$/.test(t.trim()) && !/paste/i.test(t);
 const PLATFORMS = (flag("platforms") || "claude-chat,chatgpt").split(",").map((s) => s.trim());
 const SINCE_DAYS = Number(flag("since-days") || 180);
 const MAX_PER_PLATFORM = Number(flag("max") || 300);
@@ -64,6 +67,51 @@ const isoOf = (v) => {
   const t = Date.parse(v ?? "");
   return Number.isFinite(t) ? new Date(t).toISOString() : null;
 };
+
+/** Ask on the terminal without echoing what is typed or pasted. */
+function askHidden(question) {
+  return new Promise((resolve) => {
+    const rl = createInterface({ input: process.stdin, output: process.stdout, terminal: true });
+    let asked = false;
+    rl._writeToOutput = (s) => { if (!asked) { process.stdout.write(s); asked = true; } };
+    rl.question(question, (answer) => { rl.close(); process.stdout.write("\n"); resolve(answer.trim()); });
+  });
+}
+
+function ask(question) {
+  return new Promise((resolve) => {
+    const rl = createInterface({ input: process.stdin, output: process.stdout });
+    rl.question(question, (answer) => { rl.close(); resolve(answer.trim()); });
+  });
+}
+
+/** Get a usable token: from flags/env/.env.local, or by asking (and offering to remember it). */
+async function ensureToken() {
+  if (looksLikeToken(TOKEN)) return;
+  if (TOKEN) console.log("  !  The token given isn't a Basil token (they start bsl_ and are long) — maybe the placeholder was left in.");
+  if (!process.stdin.isTTY) {
+    console.error("  ✗  No Basil token. Create one in Basil → Settings → Developer, then pass --token bsl_… or set BASIL_TOKEN.");
+    process.exit(1);
+  }
+  console.log("  Create a token in Basil → Settings → Developer, copy it, and paste it here (it won't show as you paste).");
+  for (let tries = 0; tries < 3; tries++) {
+    const t = await askHidden("  Basil token: ");
+    if (looksLikeToken(t)) { TOKEN = t; break; }
+    console.log("  !  That doesn't look like a Basil token (it should start bsl_). Try again.");
+  }
+  if (!looksLikeToken(TOKEN)) { console.error("  ✗  No usable token."); process.exit(1); }
+}
+
+/** Once Basil has accepted a pasted token, offer to keep it in the git-ignored .env.local. */
+async function offerToRemember() {
+  if (!process.stdin.isTTY || fromEnvLocal("BASIL_TOKEN") === TOKEN || flag("token") || process.env.BASIL_TOKEN) return;
+  const a = await ask("  Remember this token in .env.local (git-ignored) so you don't paste it next time? [Y/n] ");
+  if (/^n/i.test(a)) return;
+  const p = join(process.cwd(), ".env.local");
+  const lead = existsSync(p) && !readFileSync(p, "utf8").endsWith("\n") ? "\n" : "";
+  appendFileSync(p, `${lead}BASIL_TOKEN=${TOKEN}\n`, { mode: 0o600 });
+  log("✓", "Saved. Next time just run the command without BASIL_TOKEN.");
+}
 
 async function basil(path, init = {}) {
   const res = await fetch(`${BASIL_URL}${path}`, {
@@ -228,19 +276,18 @@ const READERS = {
 
 async function main() {
   console.log(`\n  basil-ai-chats → ${BASIL_URL}${DRY_RUN ? "  (dry run)" : ""}\n`);
-  if (!TOKEN && !DRY_RUN) {
-    console.error("  ✗  No Basil token. Create one in Basil → Settings → Developer, then pass --token bsl_… or set BASIL_TOKEN.");
-    process.exit(1);
-  }
+  if (!DRY_RUN) await ensureToken();
   const unknown = PLATFORMS.filter((p) => !READERS[p]);
   if (unknown.length) { console.error(`  ✗  Unknown platform(s): ${unknown.join(", ")}. Use claude-chat, chatgpt.`); process.exit(1); }
 
   let seen = {};
   if (!DRY_RUN) {
     const s = await basil("/api/ai-chats?seen=1");
-    if (s.status === 401) { console.error("  ✗  Basil did not accept the token. Create a new one in Settings → Developer."); process.exit(1); }
+    if (s.status === 401) { console.error("  ✗  Basil did not accept the token. It may have been revoked — create a new one in Settings → Developer."); process.exit(1); }
     if (s.status !== 200) { console.error(`  ✗  Basil answered ${s.status}: ${s.text.slice(0, 200)}`); process.exit(1); }
     seen = s.json?.seen ?? {};
+    log("✓", "Basil accepted the token.");
+    await offerToRemember();
   }
   const sinceIso = new Date(Date.now() - SINCE_DAYS * 86_400_000).toISOString();
 
