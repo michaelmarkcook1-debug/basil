@@ -28,7 +28,8 @@
 
 import { chromium } from "playwright";
 import { homedir, tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { appendFileSync, copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { createInterface } from "node:readline";
 
@@ -36,8 +37,12 @@ const args = process.argv.slice(2);
 const flag = (name) => { const i = args.indexOf(`--${name}`); return i !== -1 ? args[i + 1] : null; };
 const has = (name) => args.includes(`--${name}`);
 
+/** The Basil folder (one up from scripts/), so the script works from any directory. */
+const REPO_DIR = join(dirname(fileURLToPath(import.meta.url)), "..");
+const ENV_LOCAL = join(REPO_DIR, ".env.local");
+
 function fromEnvLocal(key) {
-  const p = join(process.cwd(), ".env.local");
+  const p = ENV_LOCAL;
   if (!existsSync(p)) return null;
   return readFileSync(p, "utf8").match(new RegExp(`^${key}=["']?([^"'\\n]+)`, "m"))?.[1]?.trim() ?? null;
 }
@@ -53,7 +58,9 @@ const DRY_RUN = has("dry-run");
 const HEADLESS = has("headless");
 const USE_PROFILE = has("use-profile");
 const CHROME_PROFILE = flag("chrome-profile") || "Default";
-const ACCOUNT = (flag("account") || process.env.BASIL_CHAT_ACCOUNT || "").trim().toLowerCase();
+let ACCOUNT = (flag("account") || process.env.BASIL_CHAT_ACCOUNT || fromEnvLocal("BASIL_CHAT_ACCOUNT") || "").trim().toLowerCase();
+// A placeholder copied from the docs ("you@yourcompany.com") counts as no account: ask instead.
+if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(ACCOUNT) || /yourcompany|example\.com/.test(ACCOUNT)) ACCOUNT = "";
 const BATCH = 25;
 const PAUSE_MS = 250;
 
@@ -107,7 +114,7 @@ async function offerToRemember() {
   if (!process.stdin.isTTY || fromEnvLocal("BASIL_TOKEN") === TOKEN || flag("token") || process.env.BASIL_TOKEN) return;
   const a = await ask("  Remember this token in .env.local (git-ignored) so you don't paste it next time? [Y/n] ");
   if (/^n/i.test(a)) return;
-  const p = join(process.cwd(), ".env.local");
+  const p = ENV_LOCAL;
   const lead = existsSync(p) && !readFileSync(p, "utf8").endsWith("\n") ? "\n" : "";
   appendFileSync(p, `${lead}BASIL_TOKEN=${TOKEN}\n`, { mode: 0o600 });
   log("✓", "Saved. Next time just run the command without BASIL_TOKEN.");
@@ -150,12 +157,30 @@ function prepareCopiedProfile() {
 }
 
 /** True when the signed-in account may be read; says which account it is either way. */
-function accountAllowed(label, email) {
+/**
+ * Only ever send conversations from the account the user means. With --account
+ * (or one remembered in .env.local) anything else is skipped; without it, ask.
+ */
+async function accountAllowed(label, email) {
   const who = (email || "").toLowerCase();
-  if (!ACCOUNT) { log("·", `Reading ${label} as ${who || "an account whose email could not be read"}`); return true; }
-  if (who === ACCOUNT) { log("·", `Reading ${label} as ${who}`); return true; }
-  log("■", `${label} here is signed in as ${who || "an unknown account"}, not ${ACCOUNT} — skipped, nothing sent`);
-  return false;
+  if (ACCOUNT) {
+    if (who === ACCOUNT) { log("·", `Reading ${label} as ${who}`); return true; }
+    log("■", `${label} here is signed in as ${who || "an unknown account"}, not ${ACCOUNT} — skipped, nothing sent`);
+    return false;
+  }
+  if (!who || !process.stdin.isTTY) {
+    log("■", `${label}: no --account given and ${who ? "no one to ask" : "the signed-in email could not be read"} — skipped, nothing sent`);
+    return false;
+  }
+  const a = await ask(`  ${label} in Chrome is signed in as ${who}. Send its work conversations to Basil? [y/N] `);
+  if (!/^y/i.test(a)) { log("■", `${label} skipped, nothing sent`); return false; }
+  ACCOUNT = who;
+  if (!fromEnvLocal("BASIL_CHAT_ACCOUNT")) {
+    const lead = existsSync(ENV_LOCAL) && !readFileSync(ENV_LOCAL, "utf8").endsWith("\n") ? "\n" : "";
+    appendFileSync(ENV_LOCAL, `${lead}BASIL_CHAT_ACCOUNT=${who}\n`, { mode: 0o600 });
+    log("✓", `Remembered ${who} — next time only this account is read, without asking.`);
+  }
+  return true;
 }
 
 // ── Claude.ai ────────────────────────────────────────────────────────────────
@@ -178,7 +203,7 @@ async function readClaude(page, seen, sinceIso) {
     const a = await r.json();
     return a?.email_address ?? a?.account?.email_address ?? null;
   });
-  if (!accountAllowed("Claude", email)) return { signedIn: true, skipped: true, conversations: [] };
+  if (!(await accountAllowed("Claude", email))) return { signedIn: true, skipped: true, conversations: [] };
 
   const wanted = [];
   for (let offset = 0; wanted.length < MAX_PER_PLATFORM; offset += 50) {
@@ -229,7 +254,7 @@ async function readChatGPT(page, seen, sinceIso) {
     return s?.accessToken ? { accessToken: s.accessToken, email: s.user?.email ?? null } : null;
   });
   if (!session) return { signedIn: false, conversations: [] };
-  if (!accountAllowed("ChatGPT", session.email)) return { signedIn: true, skipped: true, conversations: [] };
+  if (!(await accountAllowed("ChatGPT", session.email))) return { signedIn: true, skipped: true, conversations: [] };
   const { accessToken } = session;
 
   const call = (path) => page.evaluate(async ({ path, accessToken }) => {

@@ -13,8 +13,9 @@ interface ChatStatus {
 }
 
 const LABEL: Record<string, string> = { "claude-chat": "Claude", chatgpt: "ChatGPT" };
-const COMMAND = "node scripts/basil-ai-chats.mjs --account you@yourcompany.com";
-const commandWith = (token: string) => `cd ~/execautoclaude && BASIL_TOKEN=${token} ${COMMAND}`;
+// Works pasted into any Terminal window; the script asks which Claude/ChatGPT account to read.
+const COMMAND = "cd ~/execautoclaude && node scripts/basil-ai-chats.mjs";
+const commandWith = (token: string) => `cd ~/execautoclaude && BASIL_TOKEN=${token} node scripts/basil-ai-chats.mjs`;
 
 function when(iso: string | null): string {
   if (!iso) return "never";
@@ -105,8 +106,8 @@ export function AIChatsPanel() {
         <div className="mt-3 rounded-md border bg-background p-3 text-xs">
           <div className="font-medium">Your token is ready — it is shown only once.</div>
           <p className="mt-1 text-muted-foreground">
-            Copy this command and run it in Terminal on your Mac (put your work email after <code>--account</code>). A Chrome window
-            opens and closes. The first time, the script offers to remember the token so you won&apos;t need it again.
+            Copy this command and run it in Terminal on your Mac. A Chrome window opens and closes; the script shows which
+            Claude and ChatGPT accounts are signed in and asks before sending anything. It offers to remember the token.
           </p>
           <code className="mt-2 block select-all break-all rounded bg-muted px-2 py-1 text-[11px]">{commandWith(freshToken)}</code>
           <button type="button" onClick={() => void copyCommand()} className="mt-2 rounded-md border px-2 py-1 font-medium hover:bg-muted">
@@ -128,7 +129,7 @@ export function AIChatsPanel() {
             {tokenBusy ? "Creating…" : tokenActive ? "Create a new token" : "Create my token"}
           </button>
           {tokenError && <p className="mt-2 text-[color:var(--w-stamp)]">{tokenError}</p>}
-          <p className="mt-2 text-muted-foreground">Then run, from the Basil folder (the script asks for the token if it isn&apos;t set):</p>
+          <p className="mt-2 text-muted-foreground">Then run this in Terminal on your Mac (it asks for the token and which account to read):</p>
           <code className="mt-1 block select-all rounded bg-background px-2 py-1 text-[11px]">{COMMAND}</code>
         </div>
       )}
