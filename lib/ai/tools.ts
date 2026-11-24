@@ -40,6 +40,8 @@ import { getPipedriveConfig, getPipedriveSnapshot, dealUrl } from "@/lib/pipedri
 import { dueActivities, daysBetween, money } from "@/lib/pipedrive/shape";
 import { briefingBlock, accountBlock, meetingNotes } from "@/lib/pipedrive/context";
 import { collateralFor } from "@/lib/pipedrive/collateral-server";
+import { adviceForQuery } from "@/lib/psychology/followup-advice";
+import { principlesFor, principleLines, timingFor, ETHICS } from "@/lib/psychology/playbook";
 import { syncLinearActionStates } from "@/lib/linear/sync-actions";
 import {
   isLinearConnected,
@@ -1390,6 +1392,31 @@ export function buildAssistantTools(
         return {
           note: "Present the suggestions with their reasons, and give the prompt for the one(s) the user wants, verbatim in a code block. Do not draft the collateral yourself.",
           deals: r.deals,
+        };
+      },
+    }),
+
+    followUpAdvice: tool({
+      description: `How ${name} should follow up with a person, company or deal: when (how long to wait), which channel and time, the opening line, what to say, what to do, what to avoid — from the CRM history and meeting notes, the person's profile and tone, and sales psychology applied ethically. Use when ${name} asks how/when to follow up, chase, nudge, re-engage, or what to say next to someone.`,
+      inputSchema: z.object({
+        query: z.string().describe("The person, company or deal."),
+        situation: z.enum(["after-meeting", "after-proposal", "awaiting-their-reply", "going-cold", "past-close", "they-are-waiting"]).optional()
+          .describe("Use when the person is not a Pipedrive follow-up: what is happening."),
+      }),
+      execute: async ({ query, situation }) => {
+        const hit = await adviceForQuery(username, query).catch((e) => {
+          console.warn("[tools/followUpAdvice]", e instanceof Error ? e.message : e);
+          return null;
+        });
+        if (hit) return { followup: hit.suggestion.title, why: hit.suggestion.why, advice: hit.advice };
+        // Not a Pipedrive follow-up: give the playbook for the situation and let the model ground it with other tools.
+        const s = situation ?? "awaiting-their-reply";
+        const tz = (await getSettings(username).catch(() => null))?.timezone; // ci-ok: no settings → London default
+        return {
+          note: `No Pipedrive follow-up matches "${query}". Ground the advice in what you can find (searchEmails, getSlackDMs, listPipedrive account, their profile) — never invent history.`,
+          timing: timingFor({ situation: s, today: dayIn(Date.now(), tz ?? "Europe/London") }),
+          principles: principleLines(principlesFor({ situation: s })),
+          ethics: ETHICS,
         };
       },
     }),

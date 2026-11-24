@@ -14,6 +14,8 @@ export async function GET(_req: Request, { params }: { params: Promise<{ id: str
   const { id } = await params;
   const upload = await getUpload(username, id);
   if (!upload) return new Response("Not found", { status: 404 });
+  // Plaud recordings keep their audio in Plaud; Basil holds only the transcript.
+  if (upload.source === "plaud" || !upload.pathname) return new Response("The audio for this recording stays in Plaud — open it in the Plaud app.", { status: 404 });
   const res = await get(upload.pathname, { access: "private", useCache: false });
   if (!res || res.statusCode !== 200 || !res.stream) return new Response("The file could not be read from storage.", { status: 502 });
   const name = upload.filename.replace(/["\r\n]/g, "");

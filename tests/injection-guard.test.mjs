@@ -14,7 +14,7 @@ import { loadTs } from "./_helpers/load-ts.mjs";
 const PD_SHAPE = loadTs("lib/pipedrive/shape.ts");
 const PD_CLIENT = { getPipedriveConfig: async () => ({}), getPipedriveSnapshot: async () => null, getStoredPipedriveSnapshot: async () => null, activityUrl: () => "", dealUrl: () => "" };
 const PD_CONTEXT = loadTs("lib/pipedrive/context.ts", { "@/lib/pipedrive/shape": PD_SHAPE });
-const PD_FOLLOWUPS = loadTs("lib/pipedrive/followups.ts", { "@/lib/pipedrive/shape": PD_SHAPE });
+const PD_FOLLOWUPS = loadTs("lib/pipedrive/followups.ts", { "@/lib/pipedrive/shape": PD_SHAPE, "@/lib/psychology/playbook": loadTs("lib/psychology/playbook.ts") });
 const PD_AUTO = { readAutomation: async () => ({ mode: "off", staleDays: 14, meetingMinutes: 30, dismissed: {}, booked: {} }) };
 
 const require = createRequire(import.meta.url);
@@ -109,7 +109,7 @@ function toolsModule() {
     "@/lib/google/calendar": noop, "@/lib/google/out-of-office": noop, "@/lib/google/gmail": noop, "@/lib/google/drive": noop, "@/lib/slack/client": noop,
     "@/lib/calendar/unified": noop, "@/lib/calendar/writes": noop, "@/lib/microsoft/mail-provider": noop, "@/lib/microsoft/outlook-mail": noop,
     "@/lib/memory/store": noop, "@/lib/actions/store": noop, "@/lib/decisions/store": noop,
-    "@/lib/events/audit": { emitAuditEvent: async () => {} }, "@/lib/linear/sync-actions": noop, "@/lib/pipedrive/client": PD_CLIENT, "@/lib/pipedrive/shape": PD_SHAPE, "@/lib/pipedrive/context": PD_CONTEXT, "@/lib/pipedrive/followups": PD_FOLLOWUPS, "@/lib/pipedrive/automation": PD_AUTO, "@/lib/pipedrive/collateral-server": { collateralFor: async () => ({ deals: [], readAt: null }) }, "@/lib/linear/client": noop,
+    "@/lib/events/audit": { emitAuditEvent: async () => {} }, "@/lib/linear/sync-actions": noop, "@/lib/pipedrive/client": PD_CLIENT, "@/lib/pipedrive/shape": PD_SHAPE, "@/lib/pipedrive/context": PD_CONTEXT, "@/lib/pipedrive/followups": PD_FOLLOWUPS, "@/lib/pipedrive/automation": PD_AUTO, "@/lib/pipedrive/collateral-server": { collateralFor: async () => ({ deals: [], readAt: null }) }, "@/lib/psychology/followup-advice": { adviceForQuery: async () => null }, "@/lib/psychology/playbook": loadTs("lib/psychology/playbook.ts"), "@/lib/linear/client": noop,
     "@/lib/contacts-lookup": { findContactByName: () => undefined, timezoneFromLocation: () => undefined }, "@/lib/contacts/user-store": noop, "@/lib/uploads/store": noop, "@/lib/ai-chats/store": { searchAIChats: async () => [], chatStatus: async () => ({ platforms: [], latestWork: [] }) }, "@/lib/uploads/search": noop,
     "@/lib/settings/store": { getSettings: async () => ({ meetingUrl: "" }) },
   });

@@ -46,7 +46,9 @@ import { checkRateLimit, getClientIp } from "@/lib/rate-limit";
 import type { Memory } from "@/lib/memory/types";
 import { readChatIndex } from "@/lib/ai-chats/store";
 import { getPipedriveSnapshot } from "@/lib/pipedrive/client";
-import { accountBlock as pipedriveAccountBlock } from "@/lib/pipedrive/context";
+import { accountBlock as pipedriveAccountBlock, meetingNotes as pdMeetingNotes, resolveAccounts as pdResolve } from "@/lib/pipedrive/context";
+import { objectionsIn, personaOf } from "@/lib/pipedrive/collateral";
+import { meetingPlaybook, type AttendeeRead } from "@/lib/psychology/playbook";
 import { chatsAbout } from "@/lib/ai-chats/search";
 import {
   readGenerateCache,
@@ -514,11 +516,54 @@ export async function POST(req: Request) {
     ...(attendees as string[]).filter((a) => typeof a === "string" && a.includes("@")),
     ...userContacts.filter((c) => attendeeNamesLower.includes(c.name.toLowerCase()) && c.email).map((c) => c.email as string),
   ];
-  const pipedriveBlock = await getPipedriveSnapshot(username)
-    .then((snap) => snap
-      ? pipedriveAccountBlock(snap, { emails: attendeeEmails, names: [...attendeeNames, ...attendeeCompanies] }, new Date().toLocaleDateString("en-CA", { timeZone: tz }), { maxNotes: 10, maxActivities: 8, maxMeetingNotes: 8, meetingNoteChars: 1_200 })
-      : "")
-    .catch((e) => { console.warn("[meeting-prep] Pipedrive unreadable:", e instanceof Error ? e.message : e); return ""; });
+  const pdSnap = await getPipedriveSnapshot(username)
+    .catch((e) => { console.warn("[meeting-prep] Pipedrive unreadable:", e instanceof Error ? e.message : e); return null; });
+  const pdQuery = { emails: attendeeEmails, names: [...attendeeNames, ...attendeeCompanies] };
+  const pipedriveBlock = pdSnap
+    ? pipedriveAccountBlock(pdSnap, pdQuery, new Date().toLocaleDateString("en-CA", { timeZone: tz }), { maxNotes: 10, maxActivities: 8, maxMeetingNotes: 8, meetingNoteChars: 1_200 })
+    : "";
+
+  // ── How to land it (sales psychology) ──
+  // Internal = every attendee is on the user's own domain or marked internal.
+  const ownDomains = new Set(selfIdentity.emails.map((e) => e.split("@")[1]).filter(Boolean));
+  const attendeeContacts = attendeeNames.map((n: string) => findContactByName(n, userContacts));
+  const internalMeeting = attendeeNames.length > 0 && attendeeNames.every((n: string, i: number) => {
+    const c = attendeeContacts[i];
+    const email = c?.email ?? (n.includes("@") ? n : "");
+    return c?.type === "internal" || (!!email && ownDomains.has(email.split("@")[1]));
+  });
+  const pdAccounts = pdSnap ? pdResolve(pdSnap, pdQuery) : { persons: [], orgs: [] };
+  const pdPersonIds = new Set(pdAccounts.persons.map((p) => p.id));
+  const pdOrgIds = new Set(pdAccounts.orgs.map((o) => o.id));
+  const pdTouches = (x: { personId: number | null; orgId: number | null }) => (x.personId !== null && pdPersonIds.has(x.personId)) || (x.orgId !== null && pdOrgIds.has(x.orgId));
+  const meetingObjections = pdSnap ? objectionsIn({
+    meetings: pdMeetingNotes({ activities: pdSnap.activities.filter(pdTouches) }),
+    notes: pdSnap.notes.filter(pdTouches),
+  }).map((o) => o.theme) : [];
+  const openDealStage = pdSnap?.deals.find((d) => d.status === "open" && pdTouches(d))?.stage;
+  const attendeeReads: AttendeeRead[] = attendeeNames.map((name: string, i: number) => {
+    const c = attendeeContacts[i];
+    const ov = c ? (overrideMap as Record<string, { workingStyle?: Record<string, string>; toneHistory?: Array<{ direction: string }> }>)[c.id] : undefined;
+    const ws = ov?.workingStyle ?? {};
+    const real = (v?: string) => (v && !/not enough evidence/i.test(v) ? v.slice(0, 220) : undefined);
+    const pdPerson = pdAccounts.persons.find((p) => p.name.toLowerCase() === name.toLowerCase());
+    const role = pdPerson?.jobTitle || c?.title || undefined;
+    const lastTone = ov?.toneHistory?.at(-1)?.direction as AttendeeRead["tone"];
+    return {
+      name, ...(role ? { role } : {}), ...(personaOf(role) ? { persona: personaOf(role) } : {}),
+      ...(real(ws.howToLandIt) ? { howToLandIt: real(ws.howToLandIt) } : {}),
+      ...(real(ws.decides) ? { decides: real(ws.decides) } : {}),
+      ...(real(ws.badNews) ? { badNews: real(ws.badNews) } : {}),
+      ...(real(ws.reachThem) ? { reachThem: real(ws.reachThem) } : {}),
+      ...(lastTone ? { tone: lastTone } : {}),
+    };
+  });
+  const influenceBlock = meetingPlaybook({
+    kind: internalMeeting ? "internal" : "external",
+    attendees: attendeeReads,
+    ...(openDealStage ? { dealStage: openDealStage } : {}),
+    objections: meetingObjections,
+  });
   const aiChatBlock = await readChatIndex(username)
     .then(({ entries }) => chatsAbout(Object.values(entries), [...attendeeNames, ...attendeeCompanies], new Date(Date.now() - 90 * 86_400_000).toISOString(), 4))
     .then((hits) => hits.map((e) => {
@@ -558,7 +603,10 @@ ${aiChatBlock ? `\n## ${who.toUpperCase()}'S OWN WORK WITH CLAUDE / CHATGPT ABOU
 ${pipedriveBlock ? `## PIPEDRIVE — CRM RECORD OF THESE ATTENDEES AND THEIR COMPANIES (deals, values, stages, notes, activities — the only source for deal figures; raise open next steps and anything past its close date)
 ${pipedriveBlock}
 
-` : ""}## LOGGED DECISIONS RELEVANT TO THIS MEETING (from Decision Log — already made, use as context and to avoid re-litigating)
+` : ""}## HOW TO LAND IT — SALES PSYCHOLOGY FOR THIS MEETING (style and approach guidance; claims still need the evidence above)
+${influenceBlock}
+
+## LOGGED DECISIONS RELEVANT TO THIS MEETING (from Decision Log — already made, use as context and to avoid re-litigating)
 ${decisionsBlock}
 
 ## OPEN ACTIONS RELEVANT TO THIS MEETING (from Action Tracker — overdue/stalled items need particular attention)
@@ -595,6 +643,12 @@ ${totalSignal < 3 && !extraBlock ? "⚠️ LOW SIGNAL: You have very little hard
 
 **suggestedQuestions** — 2-5 specific, grounded questions Michael should ask in this meeting. Root each in a concrete signal: an overdue action, an unresolved prior decision, a commitment made on a Zoom call, or a blocker in memory. Never generic ("how are things going?"). Each question should be specific enough that a wrong answer would be notable. Examples: "Did the Tier 1 outreach actually go out last week, or was it still on hold?" / "Has the budget for the new engineering hire been signed off?"
 
+**influencePlan** — how ${who} lands this meeting, using HOW TO LAND IT above:
+- people: for each attendee who matters (max 5): drivers (what they care about, from their profile, the CRM or what they said — say "unknown" rather than guess), approach (how to frame things for them, one or two sentences), avoid (one thing not to do with them).
+- yourPitch: when ${who} has an idea, project, proposal or ask to sell in this meeting (from the title, extra context, open actions or recent threads) — idea (one line), frame (the problem the others feel and the cost of leaving it, in their terms), theAsk (the ONE decision or commitment to ask for, early in the meeting), proof (evidence ${who} actually has — name the source; "none found — bring X" if missing), pushback (the likely objection and a respectful answer), smallFirstYes (a smaller step if the full ask is too much). null when there is nothing to sell.
+- principles: 2–4 principles from the block above that fit, each with how it applies here in one sentence.
+Ethical line: persuade with value and evidence; no invented urgency, numbers, scarcity or references.
+
 **unresolvedRisks** — 0-4 risks that are **explicitly documented** in the data blocks above — email, Slack, Zoom summaries, or blocker memory. Not inferred — only what is clearly stated somewhere in the inputs. Each: risk (what the specific risk is), source (e.g. "Slack from Sam Rivera, April 21" or "Zoom summary April 15"), raisedDate (YYYY-MM-DD if evident from context, omit otherwise). Return empty array if no explicit risks found.
 
 ## Factual guardrails — non-negotiable
@@ -626,7 +680,8 @@ Return ONLY valid JSON, no markdown code fences:
   "suggestedQuestions": ["..."],
   "thingsToLand": ["..."],
   "watchOuts": ["..."],
-  "unresolvedRisks": [{"risk": "...", "source": "...", "raisedDate": "YYYY-MM-DD or omit"}]
+  "unresolvedRisks": [{"risk": "...", "source": "...", "raisedDate": "YYYY-MM-DD or omit"}],
+  "influencePlan": {"people": [{"name": "...", "drivers": "...", "approach": "...", "avoid": "..."}], "yourPitch": {"idea": "...", "frame": "...", "theAsk": "...", "proof": "...", "pushback": "...", "smallFirstYes": "..."} or null, "principles": [{"name": "...", "how": "..."}]}
 }`;
 
   const messages: ModelMessage[] | undefined =

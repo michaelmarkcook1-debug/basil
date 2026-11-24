@@ -17,6 +17,7 @@
 
 import type { PdActivity, PdDeal, PdOrg, PdPerson } from "@/lib/pipedrive/shape";
 import { daysBetween, money } from "@/lib/pipedrive/shape";
+import { timingFor, type Timing } from "@/lib/psychology/playbook";
 
 export type FollowupKind = "after-meeting" | "past-close" | "going-cold" | "no-next-step";
 
@@ -37,6 +38,8 @@ export interface FollowupSuggestion {
   since: string;
   /** For ordering: higher first. */
   weight: number;
+  /** When to send it and why (lib/psychology/playbook timingFor). */
+  timing?: Timing;
 }
 
 export interface FollowupInput {
@@ -164,7 +167,8 @@ export function suggestFollowups(s: FollowupInput, opts: FollowupOptions): Follo
   const dismissed = opts.dismissed ?? {};
   return [...byKey.values()]
     .filter((x) => !dismissed[x.id] || daysBetween(dismissed[x.id].slice(0, 10), today) > DISMISS_DAYS)
-    .sort((a, b) => b.weight - a.weight);
+    .sort((a, b) => b.weight - a.weight)
+    .map((x) => ({ ...x, timing: timingFor({ situation: x.kind, today, daysSinceTouch: daysBetween(x.since, today) }) }));
 }
 
 /** The agenda Basil puts in a follow-up invite: what it is about, from the CRM. */

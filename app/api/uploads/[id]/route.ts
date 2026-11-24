@@ -26,7 +26,7 @@ export async function DELETE(_req: Request, { params }: { params: Promise<{ id: 
   const { id } = await params;
   const upload = await getUpload(username, id);
   if (!upload) return NextResponse.json({ error: "Not found" }, { status: 404 });
-  try { await del(upload.pathname); } catch (e) {
+  try { if (upload.pathname) await del(upload.pathname); } catch (e) {
     console.warn("[uploads] original could not be deleted:", e instanceof Error ? e.message : e);
   }
   await removeUpload(username, id);

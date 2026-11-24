@@ -25,7 +25,7 @@ import { readUserStore, writeUserStore } from "@/lib/storage/user-store";
 
 // ── Supported providers ───────────────────────────────────────────────────────
 
-export type SupportedProvider = "google" | "microsoft" | "slack" | "zoom" | "linear" | "pipedrive" | "github" | "openai" | "anthropic" | "gemini" | "perplexity" | "grok";
+export type SupportedProvider = "google" | "microsoft" | "slack" | "zoom" | "linear" | "pipedrive" | "plaud" | "github" | "openai" | "anthropic" | "gemini" | "perplexity" | "grok";
 
 // Mapping from provider → legacy plaintext filename (for migration)
 const LEGACY_FILES: Record<SupportedProvider, string> = {
@@ -35,6 +35,7 @@ const LEGACY_FILES: Record<SupportedProvider, string> = {
   zoom:       "zoom-tokens.json",
   linear:     "linear-config.json",
   pipedrive:  "pipedrive-config.json",
+  plaud:      "plaud-tokens.json",
   github:     "github-token.json",
   openai:     "openai-token.json",
   anthropic:  "anthropic-token.json",

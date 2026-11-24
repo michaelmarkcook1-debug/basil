@@ -9,7 +9,7 @@ import { loadTs } from "./_helpers/load-ts.mjs";
 
 const S = loadTs("lib/pipedrive/shape.ts");
 const C = loadTs("lib/pipedrive/context.ts", { "@/lib/pipedrive/shape": S });
-const F = loadTs("lib/pipedrive/followups.ts", { "@/lib/pipedrive/shape": S });
+const F = loadTs("lib/pipedrive/followups.ts", { "@/lib/pipedrive/shape": S, "@/lib/psychology/playbook": loadTs("lib/psychology/playbook.ts") });
 const src = (p) => readFileSync(new URL(`../${p}`, import.meta.url), "utf8");
 
 const TODAY = "2026-11-24";

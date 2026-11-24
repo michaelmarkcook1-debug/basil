@@ -49,6 +49,7 @@ import {
   XCircle,
   Handshake,
 } from "lucide-react";
+import { PlaudSync } from "@/components/settings/plaud-sync";
 import { PipedriveConnect } from "@/components/settings/pipedrive-connect";
 
 interface ReadinessBannerData {
@@ -72,6 +73,7 @@ interface AllStatuses {
   microsoft?: IntegrationStatus & { microsoft?: { mail: boolean; calendar: boolean; drive: boolean; teams: boolean } };
   linear?: IntegrationStatus;
   pipedrive?: IntegrationStatus;
+  plaud?: IntegrationStatus;
   claude: IntegrationStatus;
   zoom?: IntegrationStatus;
   snapshot?: SnapshotDiagnostics;
@@ -137,7 +139,7 @@ interface UserSettings {
   };
 }
 
-type AppKey = "slack" | "google" | "linear" | "pipedrive" | "zoom" | "notion" | "apple" | "whatsapp" | "microsoft";
+type AppKey = "slack" | "google" | "linear" | "pipedrive" | "plaud" | "zoom" | "notion" | "apple" | "whatsapp" | "microsoft";
 
 interface AppDef {
   key: AppKey;
@@ -988,6 +990,8 @@ function ConnectionCard({
           <Badge variant="secondary">Planned</Badge>
         )}
 
+        {app.key === "plaud" && connected && <PlaudSync />}
+
         {app.scopes && app.scopes.length > 0 && (
           <p className="text-xs text-muted-foreground">Scopes: {app.scopes.slice(0, 5).join(", ")}{app.scopes.length > 5 ? "…" : ""}</p>
         )}
@@ -1402,6 +1406,18 @@ export default function SettingsPage() {
         void loadAll();
       },
       setup: ["Paste your personal API token from Pipedrive → Personal preferences → API. Basil checks it, stores it encrypted, and only reads."],
+    },
+    {
+      key: "plaud",
+      name: "Plaud",
+      role: "Your Plaud recorder: every recording's transcript and AI notes become meeting notes, decisions and actions in Basil.",
+      priority: "core",
+      icon: Mic,
+      status: statuses?.plaud,
+      mode: "oauth",
+      connectUrl: "/api/auth/plaud",
+      disconnect: () => disconnect("/api/auth/plaud", "plaud"),
+      setup: ["Sign in to Plaud and approve Basil. Read-only: Basil lists and reads your recordings through Plaud's official connector."],
     },
     {
       key: "zoom",

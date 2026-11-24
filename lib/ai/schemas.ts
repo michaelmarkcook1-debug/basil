@@ -349,6 +349,28 @@ export const MeetingPrepOutputSchema = z.object({
     source:      z.string(),
     raisedDate:  z.string().optional(),
   })).default([]),
+  /**
+   * How to land it (sales psychology, 2026-11-24): per person, what drives
+   * them and how to approach them; and, for the user's own idea or project,
+   * the pitch — framed, with the one ask and the likely pushback.
+   */
+  influencePlan: z.object({
+    people: z.array(z.object({
+      name:     z.string(),
+      drivers:  z.string().default(""),
+      approach: z.string().default(""),
+      avoid:    z.string().default(""),
+    })).default([]),
+    yourPitch: z.object({
+      idea:        z.string().default(""),
+      frame:       z.string().default(""),
+      theAsk:      z.string().default(""),
+      proof:       z.string().default(""),
+      pushback:    z.string().default(""),
+      smallFirstYes: z.string().default(""),
+    }).nullable().default(null),
+    principles: z.array(z.object({ name: z.string(), how: z.string().default("") })).default([]),
+  }).default({ people: [], yourPitch: null, principles: [] }),
 });
 
 export type MeetingPrepOutput = z.infer<typeof MeetingPrepOutputSchema>;

@@ -15,6 +15,7 @@ import { gmailIdOf } from "@/components/email/use-email";
 import { WorkstreamChip } from "@/components/workstreams/workstream-chip";
 import { FollowupActions } from "@/components/today/v2/followup-actions";
 import { CollateralPrompts } from "@/components/today/v2/collateral-prompts";
+import { FollowupAdvicePanel } from "@/components/today/v2/followup-advice";
 
 const URGENCY: Record<Priority["urgency"], { label: string; bg: string; fg: string }> = {
   "act-now": { label: "Act now", bg: "rgba(180,55,42,.10)", fg: "#8E2A20" },
@@ -124,7 +125,14 @@ export function NeedsYouCard({
 
       {p.followup && (
         <div className="pl-16">
+          {p.followup.when && (
+            <p className="mb-2 text-[13.5px] text-[color:var(--w-ink)]">
+              <span className="font-semibold">When: {p.followup.when.label}</span>
+              <span className="text-[color:var(--w-ink-soft)]"> — {p.followup.when.why}</span>
+            </p>
+          )}
           <FollowupActions id={p.followup.id} schedulable={p.followup.schedulable} contact={p.followup.contact} onDone={onWorkstreamChanged} />
+          <div className="mt-2"><FollowupAdvicePanel id={p.followup.id} /></div>
           {p.followup.dealId ? <div className="mt-2"><CollateralPrompts dealId={p.followup.dealId} /></div> : null}
         </div>
       )}

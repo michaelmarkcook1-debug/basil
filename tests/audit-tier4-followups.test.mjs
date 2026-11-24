@@ -13,7 +13,7 @@ import { loadTs } from "./_helpers/load-ts.mjs";
 const PD_SHAPE = loadTs("lib/pipedrive/shape.ts");
 const PD_CLIENT = { getPipedriveConfig: async () => ({}), getPipedriveSnapshot: async () => null, getStoredPipedriveSnapshot: async () => null, activityUrl: () => "", dealUrl: () => "" };
 const PD_CONTEXT = loadTs("lib/pipedrive/context.ts", { "@/lib/pipedrive/shape": PD_SHAPE });
-const PD_FOLLOWUPS = loadTs("lib/pipedrive/followups.ts", { "@/lib/pipedrive/shape": PD_SHAPE });
+const PD_FOLLOWUPS = loadTs("lib/pipedrive/followups.ts", { "@/lib/pipedrive/shape": PD_SHAPE, "@/lib/psychology/playbook": loadTs("lib/psychology/playbook.ts") });
 const PD_AUTO = { readAutomation: async () => ({ mode: "off", staleDays: 14, meetingMinutes: 30, dismissed: {}, booked: {} }) };
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
@@ -76,7 +76,7 @@ test("the feed carries follow-up degradation through to the dashboard", async ()
       "@/lib/delta/store": { getSinceDate: async () => new Date().toISOString() },
       "@/lib/actions/store": { listActions: async () => [] }, "@/lib/decisions/store": { listDecisions: async () => [] },
       "@/lib/contacts/user-store": { listUserContacts: async () => [] }, "@/lib/contacts/overrides-store": { getAllOverridesFromStore: async () => ({}) },
-      "@/lib/pipedrive/client": PD_CLIENT, "@/lib/pipedrive/shape": PD_SHAPE, "@/lib/pipedrive/context": PD_CONTEXT, "@/lib/pipedrive/followups": PD_FOLLOWUPS, "@/lib/pipedrive/automation": PD_AUTO, "@/lib/pipedrive/collateral-server": { collateralFor: async () => ({ deals: [], readAt: null }) }, "@/lib/linear/client": { isLinearConnected: async () => true, getMyOpenIssues: async () => { throw new Error("linear outage"); } },
+      "@/lib/pipedrive/client": PD_CLIENT, "@/lib/pipedrive/shape": PD_SHAPE, "@/lib/pipedrive/context": PD_CONTEXT, "@/lib/pipedrive/followups": PD_FOLLOWUPS, "@/lib/pipedrive/automation": PD_AUTO, "@/lib/pipedrive/collateral-server": { collateralFor: async () => ({ deals: [], readAt: null }) }, "@/lib/psychology/followup-advice": { adviceForQuery: async () => null }, "@/lib/psychology/playbook": loadTs("lib/psychology/playbook.ts"), "@/lib/linear/client": { isLinearConnected: async () => true, getMyOpenIssues: async () => { throw new Error("linear outage"); } },
       "@/lib/followups/detect": { detectPendingFollowups: async () => ({ items: [], sources: { gmail: true, slack: true }, degraded: ["Gmail"] }) },
       "@/lib/learning/store": { getLearning: async () => ({}) }, "@/lib/settings/store": { getSettings: async () => ({}) },
       "@/lib/learning/priors": { computeCategoryPriors: () => ({}) },

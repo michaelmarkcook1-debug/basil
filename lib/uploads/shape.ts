@@ -41,6 +41,10 @@ export interface UploadRecord {
   counts?: { actions: number; decisions: number; notes: number };
   /** Transcription cost actually incurred, USD. */
   costUsd?: number;
+  /** Where it came from when not uploaded by hand: "plaud" = synced from the user's Plaud account (lib/plaud/sync). */
+  source?: "plaud";
+  /** The recording's id in that source. */
+  externalId?: string;
   createdAt: string;
   updatedAt: string;
 }

@@ -80,6 +80,40 @@ async function results(username: string, ref: string): Promise<{ counts: { actio
   };
 }
 
+/**
+ * Text already in hand (a transcript or document) → notes, decisions, actions
+ * and who was there, filed under the upload. Shared by uploads and the Plaud
+ * sync (lib/plaud/sync.ts). `extraContext` is prepended (e.g. Plaud's own notes).
+ * Throws when the AI step fails, so the caller marks the upload failed.
+ */
+export async function analyseUploadText(username: string, rec: UploadRecord, text: string, opts: { extraContext?: string; sourceLabel?: string } = {}): Promise<void> {
+  const id = rec.id;
+  const ref = `upload:${id}`;
+  await patchUpload(username, id, { status: "analysing", detail: "Pulling out notes, decisions and actions…" });
+  const label = rec.kind === "recording" ? "Recording" : "Document";
+  const body = text.length > DIRECT_LIMIT ? await condense(username, rec, text) : text;
+  const header = `${label}: ${rec.title}\nDate: ${rec.occurredAt}\n${rec.people.length ? `Meeting participants: ${rec.people.join(", ")}\n` : ""}${opts.extraContext ? `${opts.extraContext.slice(0, 3_000)}\n` : ""}`;
+  const event = await createEvent(username, eventFromIngest({
+    source: "upload", externalId: ref, title: rec.title,
+    body: `${opts.sourceLabel ?? `${label} uploaded`}${rec.people.length ? ` · with ${rec.people.join(", ")}` : ""}`, date: rec.occurredAt,
+  }));
+  const outcome = await processZoomEmail({
+    username, gmailId: "", externalId: ref, eventId: event.id, subject: rec.title,
+    dateFallback: rec.occurredAt, body: `${header}\n${body}`, ensureAttendees: rec.people,
+    notesOnly: !rec.extractActions, label,
+  });
+  // A failed AI step is a failed upload, not "nothing clear enough to file".
+  if (outcome?.extractionFailed) {
+    throw new Error("The text was read, but pulling out notes failed (the AI step did not answer). Try again shortly.");
+  }
+  const r = await results(username, ref);
+  await patchUpload(username, id, {
+    status: "ready",
+    detail: r.counts.notes || r.counts.actions || r.counts.decisions ? undefined : "Read in full, but nothing clear enough to file as a note, decision or action.",
+    counts: r.counts, summary: r.summary,
+  });
+}
+
 export async function processUpload(username: string, id: string): Promise<void> {
   const rec = await getUpload(username, id);
   if (!rec) return;
@@ -125,30 +159,7 @@ export async function processUpload(username: string, id: string): Promise<void>
       await patchUpload(username, id, { textChars: text.length });
     }
 
-    await patchUpload(username, id, { status: "analysing", detail: "Pulling out notes, decisions and actions…" });
-    const label = rec.kind === "recording" ? "Recording" : "Document";
-    const body = text.length > DIRECT_LIMIT ? await condense(username, rec, text) : text;
-    const header = `${label}: ${rec.title}\nDate: ${rec.occurredAt}\n${rec.people.length ? `Meeting participants: ${rec.people.join(", ")}\n` : ""}`;
-    const event = await createEvent(username, eventFromIngest({
-      source: "upload", externalId: ref, title: rec.title,
-      body: `${label} uploaded${rec.people.length ? ` · with ${rec.people.join(", ")}` : ""}`, date: rec.occurredAt,
-    }));
-    const outcome = await processZoomEmail({
-      username, gmailId: "", externalId: ref, eventId: event.id, subject: rec.title,
-      dateFallback: rec.occurredAt, body: `${header}\n${body}`, ensureAttendees: rec.people,
-      notesOnly: !rec.extractActions, label,
-    });
-    // A failed AI step is a failed upload, not "nothing clear enough to file".
-    if (outcome?.extractionFailed) {
-      throw new Error("The text was read, but pulling out notes failed (the AI step did not answer). Try again shortly.");
-    }
-
-    const r = await results(username, ref);
-    await patchUpload(username, id, {
-      status: "ready",
-      detail: r.counts.notes || r.counts.actions || r.counts.decisions ? undefined : "Read in full, but nothing clear enough to file as a note, decision or action.",
-      counts: r.counts, summary: r.summary,
-    });
+    await analyseUploadText(username, rec, text);
   } catch (e) {
     const msg = e instanceof SpendCapError ? spendCapMessage(e) : e instanceof Error ? e.message : String(e);
     console.error(`[uploads] ${id} failed:`, msg);

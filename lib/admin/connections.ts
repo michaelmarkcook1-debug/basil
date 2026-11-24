@@ -25,9 +25,10 @@ import { getSlackConfig } from "@/lib/slack/client";
 import { getLinearConfig } from "@/lib/linear/client";
 import { isZoomConnected } from "@/lib/zoom/auth";
 import { getPipedriveConfig, validatePipedriveToken } from "@/lib/pipedrive/client";
+import { isPlaudConnected } from "@/lib/plaud/oauth";
 import { autoRegisterGoogleWebhooks } from "@/lib/google/register-webhooks";
 
-export type SourceId = "google" | "slack" | "zoom" | "linear" | "pipedrive" | "microsoft";
+export type SourceId = "google" | "slack" | "zoom" | "linear" | "pipedrive" | "plaud" | "microsoft";
 export type SourceState = "ok" | "broken" | "off" | "unchecked";
 
 export interface SourceCheck {
@@ -50,6 +51,7 @@ export const RECONNECT_PATH: Record<SourceId, string> = {
   zoom: "/api/auth/zoom?from=%2Fdashboard%2Fsettings%3Fconnected%3Dzoom",
   linear: "/dashboard/settings",
   pipedrive: "/dashboard/settings",
+  plaud: "/api/auth/plaud",
   microsoft: "/api/auth/microsoft?from=settings",
 };
 
@@ -120,6 +122,15 @@ async function checkPipedrive(username: string): Promise<SourceCheck> {
   }
 }
 
+async function checkPlaud(username: string): Promise<SourceCheck> {
+  try {
+    // Signed-in check only: Plaud rotates refresh tokens, so a test call would be a write.
+    return (await isPlaudConnected(username)) ? { state: "ok", detail: "Sign-in saved (not test-called)" } : { state: "off" };
+  } catch (e) {
+    return { state: "broken", detail: msg(e) };
+  }
+}
+
 async function checkMicrosoft(username: string): Promise<SourceCheck> {
   try {
     const s = await getMicrosoftConnectionStatus(username);
@@ -145,12 +156,13 @@ export async function checkAllConnections(): Promise<AccountConnections[]> {
   const users = await getUsers();
   return Promise.all(
     users.map(async (u) => {
-      const [google, slack, zoom, linear, pipedrive, microsoft] = await Promise.all([
+      const [google, slack, zoom, linear, pipedrive, plaud, microsoft] = await Promise.all([
         withTimeout(checkGoogle(u.username), timedOut),
         withTimeout(checkSlack(u.username), timedOut),
         withTimeout(checkZoom(u.username), timedOut),
         withTimeout(checkLinear(u.username), timedOut),
         withTimeout(checkPipedrive(u.username), timedOut),
+        withTimeout(checkPlaud(u.username), timedOut),
         withTimeout(checkMicrosoft(u.username), timedOut),
       ]);
       return {
@@ -158,7 +170,7 @@ export async function checkAllConnections(): Promise<AccountConnections[]> {
         name: [u.name, u.surname].filter(Boolean).join(" ") || u.username,
         email: u.email,
         disabled: !!u.disabled,
-        sources: { google, slack, zoom, linear, pipedrive, microsoft },
+        sources: { google, slack, zoom, linear, pipedrive, plaud, microsoft },
       };
     }),
   );

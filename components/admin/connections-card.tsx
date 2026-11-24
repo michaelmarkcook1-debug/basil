@@ -12,7 +12,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
 
-type SourceId = "google" | "slack" | "zoom" | "linear" | "pipedrive" | "microsoft";
+type SourceId = "google" | "slack" | "zoom" | "linear" | "pipedrive" | "plaud" | "microsoft";
 type SourceState = "ok" | "broken" | "off" | "unchecked";
 interface SourceCheck { state: SourceState; detail?: string }
 interface Account { username: string; name: string; email: string; disabled: boolean; sources: Record<SourceId, SourceCheck> }
@@ -24,6 +24,7 @@ const SOURCES: { id: SourceId; label: string }[] = [
   { id: "zoom", label: "Zoom" },
   { id: "linear", label: "Linear" },
   { id: "pipedrive", label: "Pipedrive" },
+  { id: "plaud", label: "Plaud" },
   { id: "microsoft", label: "Microsoft" },
 ];
 
@@ -33,6 +34,7 @@ const RECONNECT_PATH: Record<SourceId, string> = {
   zoom: "/api/auth/zoom?from=%2Fdashboard%2Fsettings%3Fconnected%3Dzoom",
   linear: "/dashboard/settings",
   pipedrive: "/dashboard/settings",
+  plaud: "/api/auth/plaud",
   microsoft: "/api/auth/microsoft?from=settings",
 };
 

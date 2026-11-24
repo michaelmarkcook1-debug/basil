@@ -18,6 +18,10 @@
       "schedule": "45 5 * * *"
     },
     {
+      "path": "/api/cron/plaud-sync",
+      "schedule": "15 5 * * *"
+    },
+    {
       "path": "/api/cron/pipedrive-sync",
       "schedule": "30 5 * * *"
     },

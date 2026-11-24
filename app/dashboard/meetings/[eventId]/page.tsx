@@ -87,6 +87,11 @@ interface PrepData {
   thingsToLand?: string[];
   watchOuts?: string[];
   unresolvedRisks?: UnresolvedRisk[];
+  influencePlan?: {
+    people?: { name: string; drivers: string; approach: string; avoid: string }[];
+    yourPitch?: { idea: string; frame: string; theAsk: string; proof: string; pushback: string; smallFirstYes: string } | null;
+    principles?: { name: string; how: string }[];
+  };
   openActions?: OpenAction[];
   priorDecisions?: PriorDecision[];
   generatedAt?: string;
@@ -600,6 +605,44 @@ export default function MeetingPrepPage() {
                     </li>
                   ))}
                 </ul>
+              </SectionCard>
+            )}
+
+            {/* How to land it — sales psychology, per person, and the user's own pitch */}
+            {prep.influencePlan && ((prep.influencePlan.people?.length ?? 0) > 0 || prep.influencePlan.yourPitch) && (
+              <SectionCard id="land-h" title="How to land it" delay={390}>
+                <div className="flex flex-col gap-4">
+                  {prep.influencePlan.yourPitch && prep.influencePlan.yourPitch.idea && (
+                    <div className="rounded-xl border border-[var(--w-rule)] bg-[var(--w-flimsy)] p-3">
+                      <p className="text-[13px] font-semibold uppercase tracking-wide text-[color:var(--w-ink-soft)]">Selling your idea</p>
+                      <p className={`${PROSE} font-semibold`}>{prep.influencePlan.yourPitch.idea}</p>
+                      <dl className="mt-2 grid gap-1.5 text-[14px]">
+                        {([
+                          ["Frame it as", prep.influencePlan.yourPitch.frame],
+                          ["The one ask", prep.influencePlan.yourPitch.theAsk],
+                          ["Your proof", prep.influencePlan.yourPitch.proof],
+                          ["Likely pushback", prep.influencePlan.yourPitch.pushback],
+                          ["If that's too much", prep.influencePlan.yourPitch.smallFirstYes],
+                        ] as const).filter(([, v]) => v).map(([k, v]) => (
+                          <div key={k}><dt className="inline font-semibold text-[color:var(--w-ink)]">{k}: </dt><dd className="inline text-[color:var(--w-ink-soft)]">{v}</dd></div>
+                        ))}
+                      </dl>
+                    </div>
+                  )}
+                  {(prep.influencePlan.people ?? []).map((p) => (
+                    <div key={p.name}>
+                      <p className={`${PROSE} font-semibold`}>{p.name}</p>
+                      {p.drivers && <p className="text-[14px] text-[color:var(--w-ink-soft)]"><span className="font-medium text-[color:var(--w-ink)]">Cares about:</span> {p.drivers}</p>}
+                      {p.approach && <p className="text-[14px] text-[color:var(--w-ink-soft)]"><span className="font-medium text-[color:var(--w-ink)]">Approach:</span> {p.approach}</p>}
+                      {p.avoid && <p className="text-[14px] text-[color:var(--w-ink-soft)]"><span className="font-medium text-[color:var(--w-ink)]">Avoid:</span> {p.avoid}</p>}
+                    </div>
+                  ))}
+                  {(prep.influencePlan.principles?.length ?? 0) > 0 && (
+                    <p className="text-[13px] text-[color:var(--w-ink-soft)]">
+                      Why: {prep.influencePlan.principles!.map((x) => `${x.name} — ${x.how}`).join(" · ")}
+                    </p>
+                  )}
+                </div>
               </SectionCard>
             )}
 
