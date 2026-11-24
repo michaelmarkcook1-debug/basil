@@ -55,6 +55,7 @@ import { runGmailShadow } from "@/core/ingestion/shadow-runner";
 import { normalizeGmailSignal } from "@/core/signals/normalizers/gmail.normalizer";
 import { enrichAndWriteSignal } from "@/core/ingestion/signal-pipeline";
 import { recordMeeting } from "@/lib/meetings/history-store";
+import { draftMeetingFollowUp } from "@/lib/meetings/follow-up";
 
 // ── Bot identity check (mirrors suggest route) ────────────────────────────────
 
@@ -743,7 +744,7 @@ export async function processZoomEmail(opts: ProcessZoomEmailOpts): Promise<{ ex
     // The summary memory above is short-lived context; this record is kept for
     // good and found by attendee name or email.
     if (extract.confidence >= ZOOM_REVIEW_FLOOR && (extract.summary?.trim() || extract.attendees.length)) {
-      await recordMeeting(username, {
+      const meetingRec = {
         id: sourceRef,
         source: opts.label ?? "Zoom meeting",
         title: extract.meetingTitle,
@@ -755,7 +756,10 @@ export async function processZoomEmail(opts: ProcessZoomEmailOpts): Promise<{ ex
         decisions: extract.decisions.map((d) => d.text).filter(Boolean),
         actions: extract.actionItems.map((a) => ({ text: a.text, ...(a.owner ? { owner: a.owner } : {}) })).filter((a) => a.text),
         openQuestions: extract.blockers ?? [],
-      }).catch((e) => console.error("[zoom-process] meeting history write failed:", e instanceof Error ? e.message : e));
+      };
+      await recordMeeting(username, meetingRec).catch((e) => console.error("[zoom-process] meeting history write failed:", e instanceof Error ? e.message : e));
+      // A recap email to the outside attendees, queued for approval (lib/meetings/follow-up).
+      await draftMeetingFollowUp(username, meetingRec);
     }
 
     // ── Per-attendee person memories (contact recency tracking) ───────────────

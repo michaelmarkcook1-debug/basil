@@ -40,8 +40,8 @@ test("their own words come from speaker-labelled transcript lines; one-word repl
 });
 
 test("wiring: every meeting path records it; prep, profiles and chat read it", () => {
-  assert.match(src("lib/email/process-gmail-message.ts"), /await recordMeeting\(username, \{/);
-  assert.match(src("lib/zoom/process-meeting.ts"), /await recordMeeting\(username, \{/);
+  assert.match(src("lib/email/process-gmail-message.ts"), /await recordMeeting\(username, meetingRec\)/);
+  assert.match(src("lib/zoom/process-meeting.ts"), /await recordMeeting\(username, meetingRec\)/);
   assert.match(src("app/api/generate/meeting-prep/route.ts"), /## EARLIER MEETINGS WITH THESE ATTENDEES/);
   assert.match(src("lib/contacts/generate-profile.ts"), /by: "them", setting: "meeting"/);
   assert.match(src("lib/ai/tools.ts"), /meetingHistory: tool\(/);

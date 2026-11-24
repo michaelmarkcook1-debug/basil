@@ -26,6 +26,7 @@ import { actionAutoBar } from "@/lib/learning/calibration-store";
 import { actionTier, decisionTier, memoryTier, needsReviewFlag } from "@/lib/trust/policy";
 import { getTaskSystemPrompt } from "@/lib/ai/system-prompt";
 import { recordMeeting } from "@/lib/meetings/history-store";
+import { draftMeetingFollowUp } from "@/lib/meetings/follow-up";
 import type { ZoomMeeting, ZoomParticipant, ZoomRecording } from "./client";
 
 export interface ProcessZoomMeetingOpts {
@@ -213,7 +214,7 @@ export async function processZoomMeeting(
           intel.summary;
 
         // Permanent meeting history, by person (lib/meetings/history).
-        await recordMeeting(username, {
+        const meetingRec = {
           id: sourceRef, source: "Zoom meeting", title: meeting.topic, date: meeting.startTime ?? new Date().toISOString(),
           attendees: attendeeNames as string[],
           attendeeEmails: participants.map((p) => p.email?.toLowerCase()).filter((e): e is string => !!e),
@@ -221,7 +222,10 @@ export async function processZoomMeeting(
           decisions: intel.decisions.map((d) => d.text).filter(Boolean),
           actions: intel.actions.map((a) => ({ text: a.text, ...(a.owner ? { owner: a.owner } : {}) })),
           openQuestions: [],
-        }).catch((e) => console.error("[process-meeting] meeting history write failed:", e instanceof Error ? e.message : e));
+        };
+        await recordMeeting(username, meetingRec).catch((e) => console.error("[process-meeting] meeting history write failed:", e instanceof Error ? e.message : e));
+        // A recap email to the outside attendees, queued for approval (lib/meetings/follow-up).
+        await draftMeetingFollowUp(username, meetingRec);
 
         const tier = memoryTier(0.85); // direct API data is high-confidence
         if (tier !== "skip") {
