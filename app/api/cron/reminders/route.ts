@@ -13,6 +13,9 @@
  *     users who opted in (Settings → Pipedrive: "alert" or "schedule"): one
  *     notification listing follow-ups not alerted before. From the stored
  *     daily copy — no Pipedrive call here.
+ *   • chasers (2026-11-24) — at the start of the working day: what others owe
+ *     the user that has gone quiet (lib/actions/chasers), once a week each, with
+ *     a template chaser queued for approval when the address is known.
  *
  * No AI calls: this costs nothing but a few Blob reads per user per hour.
  */
@@ -32,6 +35,10 @@ import {
 import { captureCronFailures } from "@/lib/observability/capture";
 import { followupState } from "@/lib/pipedrive/followups-server";
 import { followupNotification } from "@/lib/pipedrive/alerts";
+import { chaseCandidates, chaseKey, chaseNotification, chaserDraft, MAX_PER_DAY } from "@/lib/actions/chasers";
+import { getPeopleIndexSafe } from "@/lib/people/directory-store";
+import { findPerson } from "@/lib/people/directory";
+import { createEventIfNew } from "@/lib/events/store";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 120;
@@ -84,6 +91,44 @@ export async function GET(req: Request) {
             out.reminders = n
               ? { count: fresh.length, ...(await notifyUser(username, n, { onceKeys: fresh.map(reminderKey) })) }
               : { count: 0 };
+
+            // ── Chasers: what others owe the user, gone quiet (lib/actions/chasers) ──
+            const chases = chaseCandidates(actions, identity.names, now)
+              .filter((c) => !state.sent[chaseKey(c.action.id, now)])
+              .slice(0, MAX_PER_DAY);
+            if (chases.length) {
+              const ix = await getPeopleIndexSafe(username).catch((e) => {
+                console.warn(`[cron/reminders] ${username}: people directory unreadable, chasers without drafts:`, e instanceof Error ? e.message : e);
+                return null;
+              });
+              const firstName = settings.name?.trim().split(/\s+/)[0] || username;
+              let drafted = 0;
+              for (const c of chases) {
+                const email = ix ? findPerson(ix, c.who)?.emails[0] : undefined;
+                if (!email) continue;
+                const d = chaserDraft(c, firstName);
+                const { created } = await createEventIfNew(username, {
+                  sourceRef: chaseKey(c.action.id, now),
+                  source: "manual",
+                  headline: `Chase ${c.who}: ${c.action.text.slice(0, 80)} (${c.days} days)`,
+                  context: `Waiting on ${c.who} for ${c.days} days with no activity: ${c.action.text}`,
+                  entityName: c.who,
+                  disposition: "draft",
+                  priority: "normal",
+                  status: "pending",
+                  actionType: "send_email",
+                  rationale: `Open for ${c.days} days with nothing heard. A template chaser — edit it, send it or drop it.`,
+                  confidence: 0.7,
+                  tags: ["chaser", "waiting-on"],
+                  draft: { channel: "email", to: email, subject: d.subject, body: d.body, generatedAt: new Date(now).toISOString() },
+                });
+                if (created) drafted++;
+              }
+              const cn = chaseNotification(chases);
+              out.chasers = cn
+                ? { count: chases.length, drafted, ...(await notifyUser(username, cn, { onceKeys: chases.map((c) => chaseKey(c.action.id, now)) })) }
+                : { count: 0 };
+            }
           }
         }
       }
