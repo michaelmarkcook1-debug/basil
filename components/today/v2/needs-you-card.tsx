@@ -13,6 +13,7 @@ import type { Priority } from "@/lib/today/executive";
 import { EmailPanel } from "@/components/email/email-panel";
 import { gmailIdOf } from "@/components/email/use-email";
 import { WorkstreamChip } from "@/components/workstreams/workstream-chip";
+import { FollowupActions } from "@/components/today/v2/followup-actions";
 
 const URGENCY: Record<Priority["urgency"], { label: string; bg: string; fg: string }> = {
   "act-now": { label: "Act now", bg: "rgba(180,55,42,.10)", fg: "#8E2A20" },
@@ -119,6 +120,12 @@ export function NeedsYouCard({
           <ChevronDown className={`h-4 w-4 motion-safe:transition-transform ${why ? "rotate-180" : ""}`} aria-hidden />
         </button>
       </div>
+
+      {p.followup && (
+        <div className="pl-16">
+          <FollowupActions id={p.followup.id} schedulable={p.followup.schedulable} contact={p.followup.contact} onDone={onWorkstreamChanged} />
+        </div>
+      )}
 
       {messageId && reading && !replied && (
         <div id={`email-${slug}`} className="ml-16 rounded-2xl border border-[var(--w-rule)] bg-[var(--w-paper)] p-3">

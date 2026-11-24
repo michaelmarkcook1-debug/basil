@@ -14,11 +14,23 @@ import { getTodayAway } from "@/lib/away/store";
 import { overlayWorkstreams } from "@/lib/workstreams/classify";
 import { feedSubject, workstreamTotals } from "@/lib/workstreams/attach";
 import { isWorkstream, type Workstream } from "@/lib/workstreams/types";
+import { readAutomation } from "@/lib/pipedrive/automation";
 
-/** The user's latest corrections and rules over a cached feed (no classifier call). */
+/**
+ * The user's latest corrections and rules over a cached feed (no classifier
+ * call) — and Pipedrive follow-ups they dismissed or booked since it was cached.
+ */
 async function withCurrentWorkstreams(username: string, feed: TodayFeedResponse): Promise<TodayFeedResponse> {
   try {
-    const items = await overlayWorkstreams(username, feed.items ?? [], (i) => feedSubject(i));
+    let base = feed.items ?? [];
+    if (base.some((i) => i.kind === "pipedrive" && i.followup)) {
+      const auto = await readAutomation(username).catch((e) => {
+        console.warn("[today] pipedrive automation unreadable:", e instanceof Error ? e.message : e);
+        return null;
+      });
+      if (auto) base = base.filter((i) => !(i.kind === "pipedrive" && i.followup && (auto.mode === "off" || auto.dismissed[i.followup.id] || auto.booked[i.followup.id])));
+    }
+    const items = await overlayWorkstreams(username, base, (i) => feedSubject(i));
     return { ...feed, items, workstreamTotals: workstreamTotals(items) };
   } catch {
     return feed;

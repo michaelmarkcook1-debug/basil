@@ -72,6 +72,10 @@ function briefingCacheKey(type: string | null): CacheType {
   return `briefing-${t}` as CacheType;
 }
 import { buildProjectTruth, formatProjectRadar } from "@/lib/projects/truth";
+import { isPipedriveConnected, getPipedriveSnapshot } from "@/lib/pipedrive/client";
+import { briefingBlock as pipedriveBriefingBlock } from "@/lib/pipedrive/context";
+import { suggestFollowups } from "@/lib/pipedrive/followups";
+import { readAutomation } from "@/lib/pipedrive/automation";
 import { checkRateLimit, getClientIp } from "@/lib/rate-limit";
 
 const GEN_BRIEFING_RATE_LIMIT = 5; // Briefings are expensive — 5 per minute per IP
@@ -312,6 +316,7 @@ export async function POST(req: Request) {
     projectTruthResult,
     overridesResult,
     contactsResult,
+    pipedriveResult,
   ] = await Promise.all([
     getTodayEvents(username, tz).catch((err) => {
       console.error("Calendar fetch failed:", err instanceof Error ? err.message : String(err));
@@ -370,6 +375,16 @@ export async function POST(req: Request) {
       return {} as Record<string, ProfileOverride>;
     }),
     listUserContacts(username).catch(() => [] as Awaited<ReturnType<typeof listUserContacts>>),
+    // Pipedrive: the copy the 05:30 daily read stored (refreshed here only if
+    // that read was missed). null = not connected; "error" = connected, unreadable.
+    (async () => {
+      if (!(await isPipedriveConnected(username))) return null;
+      const [snap, auto] = await Promise.all([getPipedriveSnapshot(username), readAutomation(username)]);
+      return snap ? { snap, auto } : null;
+    })().catch((err) => {
+      console.error("Pipedrive fetch failed:", err instanceof Error ? err.message : err);
+      return "error" as const;
+    }),
   ]);
 
   // ── Calendar ─────────────────────────────────────────────────────────────
@@ -631,6 +646,17 @@ export async function POST(req: Request) {
     zoomResult.length +
     readResult.length;
 
+  // ── Pipedrive — pipeline, due work and suggested follow-ups ──────────────
+  let pipedriveBlock = "";
+  if (pipedriveResult && pipedriveResult !== "error") {
+    const { snap, auto } = pipedriveResult;
+    const sugs = auto.mode === "off" ? [] : suggestFollowups(snap, { today: todayDate, staleDays: auto.staleDays, dismissed: auto.dismissed }).filter((x) => !auto.booked[x.id]);
+    pipedriveBlock = [
+      pipedriveBriefingBlock(snap, todayDate, { sinceDays: Math.max(7, gapDays) }),
+      sugs.length ? `Suggested follow-ups (${sugs.length}):\n${sugs.slice(0, 8).map((x) => `- ${x.title} — ${x.why}`).join("\n")}` : "",
+    ].filter(Boolean).join("\n\n");
+  }
+
   // ── Source readiness — explicit connection/availability for AI context ──
   const googleConnected = calendarResult !== null || emailResult !== null;
   const slackConnected  = slackResult !== null;
@@ -681,6 +707,10 @@ export async function POST(req: Request) {
       count:     projectTruthResult?.projects.length ?? 0,
       status:    projectTruthResult ? "ok" : "error",
     },
+    pipedrive: {
+      connected: pipedriveResult !== null,
+      status:    pipedriveResult === null ? "not_connected" : pipedriveResult === "error" ? "error" : "ok",
+    },
   };
 
   // ── Source attribution — human-readable for the briefing footer ─────────
@@ -722,6 +752,10 @@ export async function POST(req: Request) {
     connectedSources.push(`Memory (${recentMemories.length} notes)`);
   if ((projectTruthResult?.projects.length ?? 0) > 0)
     connectedSources.push(`Projects (${projectTruthResult!.projects.length})`);
+  if (pipedriveResult && pipedriveResult !== "error")
+    connectedSources.push(`Pipedrive (${pipedriveResult.snap.deals.filter((d) => d.status === "open").length} open deals)`);
+  else if (pipedriveResult === "error")
+    unavailableSources.push("Pipedrive (could not be read)");
 
   // ── Manual-only mode — all external sources disconnected ───────────────
   const allExternalMissing = !googleConnected && !slackConnected;
@@ -833,7 +867,13 @@ ${otherActionsBlock}
 ` : ""}
 ### DECISION LOG — active decisions from last 14 days (already made — use only for follow-up context)
 ${decisionsBlock}
-
+${pipedriveBlock ? `
+### PIPEDRIVE — the sales pipeline (CRM, read once a day). Deal values, stages and dates come only from here. Overdue/due sales activities belong in criticalToday; suggested follow-ups and stalled deals in followUps; accounts with movement in peopleAndAccounts.
+${pipedriveBlock}
+` : sourceReadiness.pipedrive.status === "error" ? `
+### PIPEDRIVE
+Pipedrive is connected but could not be read today — say so once; do not describe the pipeline.
+` : ""}
 ### EMAILS — last 48h
 ${emailBlock}
 

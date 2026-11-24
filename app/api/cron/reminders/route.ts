@@ -9,6 +9,10 @@
  *   • connections — when Slack, Gmail, Calendar or another source needs the
  *     user to sign in again, once per break, between 08:00 and 20:00 local.
  *     Read from health-meta.json, which slack-sync and poll-ingest write.
+ *   • Pipedrive follow-ups (2026-11-24) — at the start of the working day, for
+ *     users who opted in (Settings → Pipedrive: "alert" or "schedule"): one
+ *     notification listing follow-ups not alerted before. From the stored
+ *     daily copy — no Pipedrive call here.
  *
  * No AI calls: this costs nothing but a few Blob reads per user per hour.
  */
@@ -26,6 +30,8 @@ import {
   brokenConnections, connectionNotification, dueReminders, hourIn, reminderKey, reminderNotification, startHour,
 } from "@/lib/notify/rules";
 import { captureCronFailures } from "@/lib/observability/capture";
+import { followupState } from "@/lib/pipedrive/followups-server";
+import { followupNotification } from "@/lib/pipedrive/alerts";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 120;
@@ -79,6 +85,21 @@ export async function GET(req: Request) {
               ? { count: fresh.length, ...(await notifyUser(username, n, { onceKeys: fresh.map(reminderKey) })) }
               : { count: 0 };
           }
+        }
+      }
+      // ── Pipedrive follow-ups (opt-in) ──
+      if (hour === startHour(settings.workStart)) {
+        const fu = await followupState(username, { storedOnly: true }).catch((e) => {
+          console.warn(`[cron/reminders] ${username}: Pipedrive follow-ups unreadable:`, e instanceof Error ? e.message : e);
+          return null;
+        });
+        if (fu && (fu.automation.mode === "alert" || fu.automation.mode === "schedule") && fu.suggestions.length > 0) {
+          const state = await getNotifyState(username);
+          const fresh = fu.suggestions.filter((s) => !state.sent[`pd-followup:${s.id}`]);
+          const n = followupNotification(fresh);
+          out.pipedrive = n
+            ? { count: fresh.length, ...(await notifyUser(username, n, { onceKeys: fresh.map((s) => `pd-followup:${s.id}`) })) }
+            : { count: 0 };
         }
       }
       results[username] = out;

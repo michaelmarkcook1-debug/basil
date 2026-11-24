@@ -3,9 +3,11 @@
  *        (validated against Pipedrive before it is stored, encrypted).
  * DELETE /api/auth/pipedrive — forget it.
  */
-import { NextResponse } from "next/server";
+import { NextResponse, after } from "next/server";
 import { getSessionUser } from "@/lib/auth";
-import { savePipedriveToken, deletePipedriveConfig, PipedriveError } from "@/lib/pipedrive/client";
+import { savePipedriveToken, deletePipedriveConfig, refreshPipedriveSnapshot, PipedriveError } from "@/lib/pipedrive/client";
+
+export const maxDuration = 120;
 
 export async function POST(req: Request) {
   const username = await getSessionUser();
@@ -26,6 +28,9 @@ export async function POST(req: Request) {
   try {
     const cfg = await savePipedriveToken(username, apiToken);
     console.log(`[pipedrive/connect] connected for ${username} (Pipedrive user ${cfg.userId}, company ${cfg.companyDomain}).`);
+    // The first full read, after the response: Basil has the CRM within a minute or two.
+    after(() => refreshPipedriveSnapshot(username).then(() => undefined, (e) =>
+      console.warn(`[pipedrive/connect] first read failed for ${username}:`, e instanceof Error ? e.message : e)));
     return NextResponse.json({ ok: true, userName: cfg.userName, companyName: cfg.companyName });
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);

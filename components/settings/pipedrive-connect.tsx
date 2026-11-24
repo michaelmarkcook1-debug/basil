@@ -8,6 +8,7 @@ import { useState } from "react";
 import { ExternalLink, KeyRound, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { PipedriveAutomation } from "@/components/settings/pipedrive-automation";
 
 export function PipedriveConnect({ connected, onChanged }: { connected: boolean; onChanged: (message?: string) => void }) {
   const [token, setToken] = useState("");
@@ -48,9 +49,12 @@ export function PipedriveConnect({ connected, onChanged }: { connected: boolean;
 
   if (connected) {
     return (
-      <Button variant="ghost" size="sm" className="h-8 text-xs text-muted-foreground hover:text-destructive" onClick={() => void disconnect()} disabled={saving}>
-        Disconnect
-      </Button>
+      <div className="space-y-2">
+        <PipedriveAutomation />
+        <Button variant="ghost" size="sm" className="h-8 text-xs text-muted-foreground hover:text-destructive" onClick={() => void disconnect()} disabled={saving}>
+          Disconnect
+        </Button>
+      </div>
     );
   }
 

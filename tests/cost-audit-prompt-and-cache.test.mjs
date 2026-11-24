@@ -42,7 +42,7 @@ const BOOK = [
 ];
 
 function systemPromptModule({ memoryCalls = [] } = {}) {
-  return loadTs("lib/ai/system-prompt.ts", {
+  return loadTs("lib/ai/system-prompt.ts", { "@/lib/pipedrive/client": { getStoredPipedriveSnapshot: async () => null }, "@/lib/pipedrive/context": { accountBlock: () => "", mentionedIn: () => ({}) },
     "@/lib/ai/injection-guard": loadTs("lib/ai/injection-guard.ts"),
     "@/lib/contacts/user-store": { listUserContacts: async () => BOOK },
     "@/lib/memory/store": {

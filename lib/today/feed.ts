@@ -16,7 +16,9 @@ import { listUserContacts } from "@/lib/contacts/user-store";
 import { getAllOverridesFromStore } from "@/lib/contacts/overrides-store";
 import type { ToneObservation } from "@/lib/contact-profile-overrides";
 import { isLinearConnected, getMyOpenIssues, type LinearIssue } from "@/lib/linear/client";
-import { getPipedriveConfig, getPipedriveSnapshot, activityUrl, type PipedriveSnapshot } from "@/lib/pipedrive/client";
+import { getPipedriveConfig, getPipedriveSnapshot, activityUrl, dealUrl, type PipedriveSnapshot } from "@/lib/pipedrive/client";
+import { suggestFollowups } from "@/lib/pipedrive/followups";
+import { readAutomation } from "@/lib/pipedrive/automation";
 import { dueActivities, daysBetween, emailDomain, isClientSender } from "@/lib/pipedrive/shape";
 import { detectPendingFollowups } from "@/lib/followups/detect";
 import { assignWorkstreams } from "@/lib/workstreams/classify";
@@ -278,7 +280,9 @@ export async function computeTodayFeed(username: string): Promise<TodayFeedRespo
       const deals = new Map(pd.deals.map((d) => [d.id, d]));
       const persons = new Map(pd.persons.map((p) => [p.id, p]));
       const orgs = new Map(pd.orgs.map((o) => [o.id, o]));
-      const { overdue, dueToday } = dueActivities(pd.activities, pdToday);
+      // Only your own open activities: colleagues' are context, not your Today.
+      const mine = pd.activities.filter((a) => !a.done && (a.ownerId == null || a.ownerId === pd.userId));
+      const { overdue, dueToday } = dueActivities(mine, pdToday);
       for (const a of [...overdue, ...dueToday]) {
         const overdueDays = daysBetween(a.dueDate!, pdToday);
         const deal = a.dealId ? deals.get(a.dealId) : undefined;
@@ -302,6 +306,37 @@ export async function computeTodayFeed(username: string): Promise<TodayFeedRespo
           ...(deal ? { dealTitle: deal.title } : {}),
           ...(person?.emails[0] ? { personEmail: person.emails[0].toLowerCase() } : {}),
         });
+      }
+    }
+
+    // 5. Pipedrive — suggested follow-ups (opt-out in Settings → Pipedrive).
+    if (pd) {
+      const auto = await readAutomation(username).catch((e) => {
+        console.warn("[today] pipedrive automation unreadable:", e instanceof Error ? e.message : e);
+        return null;
+      });
+      if (auto && auto.mode !== "off") {
+        const companyDomain = "companyDomain" in pdConfig ? pdConfig.companyDomain : undefined;
+        const sugs = suggestFollowups(pd, { today: pdToday, staleDays: auto.staleDays, dismissed: auto.dismissed })
+          .filter((s) => !auto.booked[s.id])
+          .slice(0, 8);
+        for (const s of sugs) {
+          const sev: ChangeSeverity = s.kind === "after-meeting" || s.kind === "past-close" ? "high" : s.kind === "going-cold" ? "medium" : "low";
+          pipedriveItems.push({
+            id: `pipedrive:followup:${s.id}`,
+            kind: "pipedrive",
+            rank: SEVERITY_WEIGHT[sev] * CATEGORY_CONFIG.urgency.weight * 0.5,
+            lane: s.kind === "no-next-step" ? "later" : "needs-you",
+            title: s.title,
+            subtitle: s.why,
+            occurredAt: `${s.since}T09:00:00Z`,
+            ...(s.dealId ? { href: dealUrl(companyDomain, s.dealId) } : {}),
+            overdueDays: 0,
+            followup: { ...s, schedulable: auto.mode === "schedule" },
+            ...(s.dealTitle ? { dealTitle: s.dealTitle } : {}),
+            ...(s.contactEmail ? { personEmail: s.contactEmail } : {}),
+          });
+        }
       }
     }
 

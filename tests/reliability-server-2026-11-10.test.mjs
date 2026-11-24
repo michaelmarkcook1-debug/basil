@@ -31,7 +31,10 @@ import { loadTs, makeLock, nextServer } from "./_helpers/load-ts.mjs";
 
 // Pipedrive (added 2026-11-24): not connected in these tests; the pure helpers are real.
 const PD_SHAPE = loadTs("lib/pipedrive/shape.ts");
-const PD_CLIENT = { getPipedriveConfig: async () => ({}), getPipedriveSnapshot: async () => null, activityUrl: () => "", dealUrl: () => "" };
+const PD_CLIENT = { getPipedriveConfig: async () => ({}), getPipedriveSnapshot: async () => null, getStoredPipedriveSnapshot: async () => null, activityUrl: () => "", dealUrl: () => "" };
+const PD_CONTEXT = loadTs("lib/pipedrive/context.ts", { "@/lib/pipedrive/shape": PD_SHAPE });
+const PD_FOLLOWUPS = loadTs("lib/pipedrive/followups.ts", { "@/lib/pipedrive/shape": PD_SHAPE });
+const PD_AUTO = { readAutomation: async () => ({ mode: "off", staleDays: 14, meetingMinutes: 30, dismissed: {}, booked: {} }) };
 
 const require = createRequire(import.meta.url);
 const ai = require("ai");
@@ -706,7 +709,7 @@ test("C3. the sync keeps imported projects and platforms whose fetch came back e
     "./platforms/openai": { fetchOpenAIProjects: async () => [] },
     "./platforms/perplexity": { fetchPerplexityProjects: async () => [] },
     "./platforms/grok": { fetchGrokProjects: async () => [] },
-    "@/lib/pipedrive/client": PD_CLIENT, "@/lib/pipedrive/shape": PD_SHAPE, "@/lib/linear/client": { isLinearConnected: async () => true },
+    "@/lib/pipedrive/client": PD_CLIENT, "@/lib/pipedrive/shape": PD_SHAPE, "@/lib/pipedrive/context": PD_CONTEXT, "@/lib/pipedrive/followups": PD_FOLLOWUPS, "@/lib/pipedrive/automation": PD_AUTO, "@/lib/linear/client": { isLinearConnected: async () => true },
     "@/lib/ai-platforms/credentials": { getAIPlatformKey: async (_u, p) => (p === "github" ? "gh-key-fixture" : null) },
     "@/lib/auth/env-credential-owner": { isEnvCredentialOwner: () => false },
   });

@@ -38,6 +38,7 @@ import {
 import { emitAuditEvent } from "@/lib/events/audit";
 import { getPipedriveConfig, getPipedriveSnapshot, dealUrl } from "@/lib/pipedrive/client";
 import { dueActivities, daysBetween, money } from "@/lib/pipedrive/shape";
+import { briefingBlock, accountBlock } from "@/lib/pipedrive/context";
 import { syncLinearActionStates } from "@/lib/linear/sync-actions";
 import {
   isLinearConnected,
@@ -1250,12 +1251,17 @@ export function buildAssistantTools(
     }),
 
     listPipedrive: tool({
-      description: `Read ${name}'s Pipedrive CRM (read-only): open deals they own with stage, value and expected close; their overdue and upcoming sales activities; and people/organisations. Use when ${name} asks about deals, the pipeline, a client or prospect, what sales follow-ups are due, or who someone is at a company.`,
+      description: `Read ${name}'s Pipedrive CRM (read-only) — the whole account: deals in every status and owner, activities, people, organisations, notes and leads. Use for anything about deals, the pipeline, forecast, a client or prospect, what was said or noted about an account, sales follow-ups, won/lost deals, or leads.`,
       inputSchema: z.object({
-        view: z.enum(["deals", "activities", "contact"]).describe('"deals" = open deals; "activities" = overdue + next 14 days; "contact" = find a person or organisation by name or email.'),
-        query: z.string().optional().describe("For contact: a name, company or email. For deals/activities: optional text to filter by deal, person or company."),
+        view: z.enum(["pipeline", "deals", "account", "activities", "notes", "leads"]).describe(
+          '"pipeline" = overview: due/overdue activities, deals closing soon or past close, stage moves, won/lost, going cold, new leads, recent notes. ' +
+          '"deals" = list deals (filter with status/query). "account" = everything on a person or company (query = name or email): deals, notes, activities. ' +
+          '"activities" = overdue + next 14 days. "notes" = search CRM notes (query = words). "leads" = open leads.'),
+        query: z.string().optional().describe("A name, company, email, deal title or words to filter by."),
+        status: z.enum(["open", "won", "lost", "all"]).optional().describe('For "deals": defaults to open.'),
+        mineOnly: z.boolean().optional().describe(`Only ${name}'s own deals/activities. Defaults to false for deals, true for activities.`),
       }),
-      execute: async ({ view, query }) => {
+      execute: async ({ view, query, status, mineOnly }) => {
         const cfg = await getPipedriveConfig(username);
         if (!cfg.apiToken) return { error: "Pipedrive isn't connected. Connect it in Settings → Connected sources." };
         let pd;
@@ -1268,50 +1274,85 @@ export function buildAssistantTools(
           };
         }
         if (!pd) return { error: "Pipedrive isn't connected." };
+        const tz = (await getSettings(username).catch(() => null))?.timezone; // ci-ok: no settings → London default
+        const today = dayIn(Date.now(), tz ?? "Europe/London");
+        const staleNote = pd.stale ? { note: `Pipedrive could not be refreshed; this is the copy from ${new Date(pd.at).toISOString()}.` } : {};
         const q = query?.trim().toLowerCase();
         const persons = new Map(pd.persons.map((p) => [p.id, p]));
         const orgs = new Map(pd.orgs.map((o) => [o.id, o]));
         const deals = new Map(pd.deals.map((d) => [d.id, d]));
+        const owner = (id?: number | null) => (id ? pd.users[String(id)] : undefined);
         const label = (personId: number | null, orgId: number | null) => ({
           person: personId ? persons.get(personId)?.name : undefined,
           organisation: orgId ? orgs.get(orgId)?.name : undefined,
         });
-        const matches = (...parts: (string | undefined)[]) => !q || parts.some((x) => x?.toLowerCase().includes(q));
+        const matches = (...parts: (string | undefined | null)[]) => !q || parts.some((x) => x?.toLowerCase().includes(q));
+        const mine = (ownerId?: number | null) => ownerId == null || ownerId === pd.userId;
+
+        if (view === "pipeline") return { ...staleNote, today, pipeline: briefingBlock(pd, today) };
+
+        if (view === "account") {
+          if (!q) return { error: "Give a person's or company's name or email." };
+          const isEmail = q.includes("@");
+          const names = [query!.trim(), ...pd.orgs.filter((o) => o.name.toLowerCase().includes(q)).slice(0, 3).map((o) => o.name), ...pd.persons.filter((p) => p.name.toLowerCase().includes(q)).slice(0, 3).map((p) => p.name)];
+          const block = accountBlock(pd, isEmail ? { emails: [q] } : { names }, today, { maxNotes: 15, maxActivities: 12 });
+          return block ? { ...staleNote, account: block } : { ...staleNote, account: null, note: `Nobody matching "${query}" in Pipedrive.` };
+        }
+
         if (view === "deals") {
+          const want = status ?? "open";
           const list = pd.deals
+            .filter((d) => (want === "all" || d.status === want) && (!mineOnly || mine(d.ownerId)))
             .map((d) => ({ d, ...label(d.personId, d.orgId) }))
-            .filter(({ d, person, organisation }) => matches(d.title, person, organisation));
+            .filter(({ d, person, organisation }) => matches(d.title, person, organisation, d.stage, d.pipeline));
           return {
+            ...staleNote,
             count: list.length,
-            deals: list.slice(0, 40).map(({ d, person, organisation }) => ({
-              title: d.title, stage: d.stage, value: money(d.value, d.currency), expectedClose: d.expectedClose,
-              lastStageChange: d.stageChangeTime?.slice(0, 10), person, organisation, url: dealUrl(cfg.companyDomain, d.id),
+            deals: list.slice(0, 50).map(({ d, person, organisation }) => ({
+              title: d.title, status: d.status, pipeline: d.pipeline, stage: d.stage, value: money(d.value, d.currency),
+              expectedClose: d.expectedClose, lastStageChange: d.stageChangeTime?.slice(0, 10), updated: d.updateTime.slice(0, 10),
+              wonOn: d.wonTime?.slice(0, 10), lostOn: d.lostTime?.slice(0, 10), lostReason: d.lostReason ?? undefined,
+              owner: owner(d.ownerId), person, organisation, url: dealUrl(cfg.companyDomain, d.id),
             })),
           };
         }
+
         if (view === "activities") {
-          const tz = (await getSettings(username).catch(() => null))?.timezone; // ci-ok: no settings → London default
-          const today = dayIn(Date.now(), tz ?? "Europe/London");
-          const { overdue } = dueActivities(pd.activities, today);
-          const upcoming = pd.activities.filter((a) => a.dueDate && a.dueDate >= today && daysBetween(today, a.dueDate) <= 14);
+          const scope = pd.activities.filter((a) => !a.done && (mineOnly === false || mine(a.ownerId)));
+          const { overdue } = dueActivities(scope, today);
+          const upcoming = scope.filter((a) => a.dueDate && a.dueDate >= today && daysBetween(today, a.dueDate) <= 14);
           const shape = (a: (typeof pd.activities)[number]) => {
             const deal = a.dealId ? deals.get(a.dealId) : undefined;
-            return { subject: a.subject, type: a.type, due: [a.dueDate, a.dueTime].filter(Boolean).join(" "), deal: deal?.title, ...label(a.personId, a.orgId), note: a.note };
+            return { subject: a.subject, type: a.type, due: [a.dueDate, a.dueTime].filter(Boolean).join(" "), deal: deal?.title, owner: owner(a.ownerId), ...label(a.personId, a.orgId), note: a.note };
           };
           const keep = (a: (typeof pd.activities)[number]) => { const x = shape(a); return matches(x.subject, x.deal, x.person, x.organisation); };
-          return { today, overdue: overdue.filter(keep).slice(0, 30).map(shape), upcoming: upcoming.filter(keep).slice(0, 30).map(shape) };
+          return { ...staleNote, today, overdue: overdue.filter(keep).slice(0, 30).map(shape), upcoming: upcoming.filter(keep).slice(0, 30).map(shape) };
         }
-        if (!q) return { error: "Give a name, company or email to look up." };
-        const people = pd.persons.filter((p) => matches(p.name, ...p.emails, p.orgId ? orgs.get(p.orgId)?.name : undefined)).slice(0, 10);
-        const companies = pd.orgs.filter((o) => matches(o.name, o.domain)).slice(0, 10);
+
+        if (view === "notes") {
+          const words = (q ?? "").split(/\s+/).filter((w) => w.length > 2);
+          const hits = pd.notes.filter((n) => {
+            const on = [n.dealId ? deals.get(n.dealId)?.title : "", n.personId ? persons.get(n.personId)?.name : "", n.orgId ? orgs.get(n.orgId)?.name : ""].join(" ").toLowerCase();
+            const hay = `${n.content.toLowerCase()} ${on}`;
+            return words.length === 0 || words.every((w) => hay.includes(w));
+          });
+          return {
+            ...staleNote,
+            count: hits.length,
+            notes: hits.slice(0, 20).map((n) => ({
+              date: n.addTime.slice(0, 10), by: owner(n.userId), deal: n.dealId ? deals.get(n.dealId)?.title : undefined,
+              ...label(n.personId, n.orgId), text: n.content.slice(0, 800),
+            })),
+          };
+        }
+
+        const leads = pd.leads.filter((l) => !l.archived).map((l) => ({ l, ...label(l.personId, l.orgId) })).filter(({ l, person, organisation }) => matches(l.title, person, organisation));
         return {
-          people: people.map((p) => ({
-            name: p.name, jobTitle: p.jobTitle, emails: p.emails, organisation: p.orgId ? orgs.get(p.orgId)?.name : undefined,
-            openDeals: pd.deals.filter((d) => d.personId === p.id).map((d) => `${d.title} (${d.stage})`),
-          })),
-          organisations: companies.map((o) => ({
-            name: o.name, website: o.website,
-            openDeals: pd.deals.filter((d) => d.orgId === o.id).map((d) => `${d.title} (${d.stage}, ${money(d.value, d.currency)})`),
+          ...staleNote,
+          count: leads.length,
+          leads: leads.slice(0, 30).map(({ l, person, organisation }) => ({
+            title: l.title, person, organisation, owner: owner(l.ownerId), source: l.source ?? undefined, added: l.addTime.slice(0, 10),
+            value: l.value ? money(l.value.amount, l.value.currency) : undefined, expectedClose: l.expectedClose,
           })),
         };
       },

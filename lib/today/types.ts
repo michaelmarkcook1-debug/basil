@@ -24,6 +24,7 @@ import type { ChangeEvent } from "@/lib/delta/types";
 import type { PendingFollowup } from "@/lib/followups/types";
 import type { LinearIssue } from "@/lib/linear/client";
 import type { PdActivity } from "@/lib/pipedrive/shape";
+import type { FollowupSuggestion } from "@/lib/pipedrive/followups";
 import type { Workstream, WorkstreamBy } from "@/lib/workstreams/types";
 
 /** Discriminator for the feed union. */
@@ -82,7 +83,10 @@ export interface TodayLinearItem extends TodayItemBase {
 
 export interface TodayPipedriveItem extends TodayItemBase {
   kind: "pipedrive";
-  activity: PdActivity;
+  /** A due or overdue Pipedrive activity… */
+  activity?: PdActivity;
+  /** …or a suggested follow-up (lib/pipedrive/followups), with whether "Find a time" is on. */
+  followup?: FollowupSuggestion & { schedulable: boolean };
   /** Days overdue (0 = due today). */
   overdueDays: number;
   dealTitle?: string;

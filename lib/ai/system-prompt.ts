@@ -5,6 +5,8 @@ import { getSettings } from "@/lib/settings/store";
 import { findByUsername } from "@/lib/users";
 import type { Contact } from "@/lib/contacts-data";
 import { getGlossary } from "@/lib/glossary/store";
+import { getStoredPipedriveSnapshot } from "@/lib/pipedrive/client";
+import { accountBlock, mentionedIn } from "@/lib/pipedrive/context";
 import { glossaryLines, sortEntries, termsIn, type GlossaryEntry } from "@/lib/glossary/match";
 
 // ── Why this module is split in three ───────────────────────────────────────
@@ -317,6 +319,7 @@ Never propose a time without first checking availability. Never guess someone's 
 - **Uploads** — recordings and documents the user uploaded (Uploads page): \`searchUploads\` finds lines in their timestamped transcripts and text. Quote the time a thing was said.
 - **Claude & ChatGPT** — the user's own past work conversations with other AI assistants: \`searchAIChats\` returns what they worked out, decided and left open, with a link. Check it before advising on a topic they may already have explored, and say when an answer comes from one of those conversations.
 - **Linear** — \`listLinearIssues\` reads issues/tickets across the workspace (status, assignee, team, priority); by default it returns only NOT-done issues since those are the actionable ones. \`updateLinearIssueStatus\` (approval) changes an issue's status — e.g. "mark ANA-135 done", "move the bug to In Progress". Identify issues by their identifier like "ANA-135". When ${firstName} asks about Linear work or wants to move/close/reopen a ticket, use these.
+- **Pipedrive (CRM)** — \`listPipedrive\` reads the whole account, read-only: views "pipeline" (what is due, closing, moved, won/lost, going cold), "deals" (status open/won/lost/all), "account" (everything on a person or company: deals, notes, activities), "activities", "notes" (search what was written about an account) and "leads". When ${firstName} asks about a client, prospect, deal, forecast, or what was agreed with an account, use it. Deal values, stages and dates come only from it — never estimate them.
 - **Contact profiles** — \`generateContactProfile\` drafts personality fields from Gmail/Slack/Zoom signal plus ${firstName}'s notes. Use when ${firstName} asks for a read on someone, wants to learn about a new contact, or wants you to refresh an existing profile. The draft shows up in the Contacts page for ${firstName} to save or discard.
 
 When ${firstName} asks what's on their action list, what they decided, or what's open — call the tool. Never speculate from memory.
@@ -353,6 +356,24 @@ Instead, say something concise like "Skipped that message" or "That DM declined 
 You're Basil. Not "your AI assistant." Just Basil — a colleague who happens to be incredibly capable.`;
 }
 
+/**
+ * The Pipedrive record of any client, prospect or company this message names
+ * (lib/pipedrive/context). Reads the stored daily snapshot only — never calls
+ * Pipedrive while the user waits. Empty when Pipedrive is not connected or the
+ * message names nobody it knows.
+ */
+async function crmSection(username: string, text: string, timezone: string): Promise<string> {
+  if (!text.trim()) return "";
+  const snap = await getStoredPipedriveSnapshot(username).catch((e) => {
+    console.warn("[system-prompt] Pipedrive snapshot unreadable:", e instanceof Error ? e.message : e);
+    return null;
+  });
+  if (!snap) return "";
+  const today = new Intl.DateTimeFormat("en-CA", { timeZone: timezone || "Europe/London" }).format(new Date());
+  const block = accountBlock(snap, mentionedIn(snap, text), today, { maxNotes: 6, maxActivities: 5 });
+  return block ? `## Pipedrive — CRM record of the people and companies named (read ${new Date(snap.at).toISOString().slice(0, 10)}; use \`listPipedrive\` for more)\n${block}` : "";
+}
+
 /** Clock, relevant memories and relevant people — the part that changes per message. */
 async function chatTurnContext(
   username: string,
@@ -364,7 +385,8 @@ async function chatTurnContext(
     memoriesForPrompt(username, focus),
   ]);
   const people = selectPersonaContacts(contacts, [focus?.text, ...(focus?.entities ?? [])].filter(Boolean).join(" "));
-  return [rightNowSection(b.timezone), learnedSection(memories), personaSection(b.firstName, people)]
+  const crm = await crmSection(username, [focus?.text, ...(focus?.entities ?? [])].filter(Boolean).join(" "), b.timezone);
+  return [rightNowSection(b.timezone), learnedSection(memories), personaSection(b.firstName, people), crm]
     .filter(Boolean)
     .join("\n\n");
 }

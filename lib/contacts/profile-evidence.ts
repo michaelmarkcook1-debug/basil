@@ -97,7 +97,7 @@ const shortDate = (d?: string) => {
   return Number.isFinite(t) ? new Date(t).toLocaleDateString("en-GB", { day: "numeric", month: "short", timeZone: "UTC" }) : d;
 };
 const CHANNEL_LABEL: Record<string, string> = {
-  email: "Email", slack: "Slack", zoom: "Zoom summary", whatsapp: "WhatsApp", teams: "Teams", meeting: "Meeting", note: "Your note", habit: "Measured",
+  email: "Email", slack: "Slack", crm: "Pipedrive", zoom: "Zoom summary", whatsapp: "WhatsApp", teams: "Teams", meeting: "Meeting", note: "Your note", habit: "Measured",
 };
 
 export interface RawEvidence {

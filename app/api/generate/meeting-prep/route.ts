@@ -45,6 +45,8 @@ import { getSessionUser } from "@/lib/auth";
 import { checkRateLimit, getClientIp } from "@/lib/rate-limit";
 import type { Memory } from "@/lib/memory/types";
 import { readChatIndex } from "@/lib/ai-chats/store";
+import { getPipedriveSnapshot } from "@/lib/pipedrive/client";
+import { accountBlock as pipedriveAccountBlock } from "@/lib/pipedrive/context";
 import { chatsAbout } from "@/lib/ai-chats/search";
 import {
   readGenerateCache,
@@ -506,6 +508,17 @@ export async function POST(req: Request) {
   const attendeeCompanies = userContacts
     .filter((c) => attendeeNamesLower.includes(c.name.toLowerCase()) && c.company)
     .map((c) => c.company as string);
+  // Pipedrive: the CRM record of the attendees and their companies — deals in
+  // every status, notes (including meeting notes), planned and recent activities.
+  const attendeeEmails = [
+    ...(attendees as string[]).filter((a) => typeof a === "string" && a.includes("@")),
+    ...userContacts.filter((c) => attendeeNamesLower.includes(c.name.toLowerCase()) && c.email).map((c) => c.email as string),
+  ];
+  const pipedriveBlock = await getPipedriveSnapshot(username)
+    .then((snap) => snap
+      ? pipedriveAccountBlock(snap, { emails: attendeeEmails, names: [...attendeeNames, ...attendeeCompanies] }, new Date().toLocaleDateString("en-CA", { timeZone: tz }), { maxNotes: 10, maxActivities: 8 })
+      : "")
+    .catch((e) => { console.warn("[meeting-prep] Pipedrive unreadable:", e instanceof Error ? e.message : e); return ""; });
   const aiChatBlock = await readChatIndex(username)
     .then(({ entries }) => chatsAbout(Object.values(entries), [...attendeeNames, ...attendeeCompanies], new Date(Date.now() - 90 * 86_400_000).toISOString(), 4))
     .then((hits) => hits.map((e) => {
@@ -542,7 +555,10 @@ ${zoomBlock}
 ${teamsBlock ? `\n## MICROSOFT TEAMS MEETINGS WITH ATTENDEES (Outlook Calendar online meetings, last 14 days)\n${teamsBlock}` : ""}
 ${aiChatBlock ? `\n## ${who.toUpperCase()}'S OWN WORK WITH CLAUDE / CHATGPT ABOUT THESE PEOPLE (their thinking, not something said in a meeting — last 90 days)\n${aiChatBlock}` : ""}
 
-## LOGGED DECISIONS RELEVANT TO THIS MEETING (from Decision Log — already made, use as context and to avoid re-litigating)
+${pipedriveBlock ? `## PIPEDRIVE — CRM RECORD OF THESE ATTENDEES AND THEIR COMPANIES (deals, values, stages, notes, activities — the only source for deal figures; raise open next steps and anything past its close date)
+${pipedriveBlock}
+
+` : ""}## LOGGED DECISIONS RELEVANT TO THIS MEETING (from Decision Log — already made, use as context and to avoid re-litigating)
 ${decisionsBlock}
 
 ## OPEN ACTIONS RELEVANT TO THIS MEETING (from Action Tracker — overdue/stalled items need particular attention)

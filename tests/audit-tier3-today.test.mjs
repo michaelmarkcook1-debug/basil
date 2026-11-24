@@ -20,7 +20,10 @@ import { loadTs } from "./_helpers/load-ts.mjs";
 
 // Pipedrive (added 2026-11-24): not connected in these tests; the pure helpers are real.
 const PD_SHAPE = loadTs("lib/pipedrive/shape.ts");
-const PD_CLIENT = { getPipedriveConfig: async () => ({}), getPipedriveSnapshot: async () => null, activityUrl: () => "", dealUrl: () => "" };
+const PD_CLIENT = { getPipedriveConfig: async () => ({}), getPipedriveSnapshot: async () => null, getStoredPipedriveSnapshot: async () => null, activityUrl: () => "", dealUrl: () => "" };
+const PD_CONTEXT = loadTs("lib/pipedrive/context.ts", { "@/lib/pipedrive/shape": PD_SHAPE });
+const PD_FOLLOWUPS = loadTs("lib/pipedrive/followups.ts", { "@/lib/pipedrive/shape": PD_SHAPE });
+const PD_AUTO = { readAutomation: async () => ({ mode: "off", staleDays: 14, meetingMinutes: 30, dismissed: {}, booked: {} }) };
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 /**
@@ -138,7 +141,7 @@ function feedModule({ linearOn = false, linearThrows = false, followups = 0 } = 
     "@/lib/decisions/store": { listDecisions: async () => [] },
     "@/lib/contacts/user-store": { listUserContacts: async () => [] },
     "@/lib/contacts/overrides-store": { getAllOverridesFromStore: async () => ({}) },
-    "@/lib/pipedrive/client": PD_CLIENT, "@/lib/pipedrive/shape": PD_SHAPE, "@/lib/linear/client": {
+    "@/lib/pipedrive/client": PD_CLIENT, "@/lib/pipedrive/shape": PD_SHAPE, "@/lib/pipedrive/context": PD_CONTEXT, "@/lib/pipedrive/followups": PD_FOLLOWUPS, "@/lib/pipedrive/automation": PD_AUTO, "@/lib/linear/client": {
       isLinearConnected: async () => linearOn,
       getMyOpenIssues: async () => { if (linearThrows) throw new Error("synthetic Linear outage"); return []; },
     },

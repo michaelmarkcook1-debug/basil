@@ -16,6 +16,9 @@ export interface PdActivity {
   orgId: number | null;
   note?: string;
   updateTime: string;
+  ownerId?: number | null;
+  done?: boolean;
+  doneTime?: string | null;
 }
 
 export interface PdDeal {
@@ -30,10 +33,44 @@ export interface PdDeal {
   expectedClose: string | null;
   updateTime: string;
   stageChangeTime: string | null;
+  ownerId?: number | null;
+  pipeline?: string;
+  addTime?: string;
+  wonTime?: string | null;
+  lostTime?: string | null;
+  lostReason?: string | null;
+  probability?: number | null;
 }
 
-export interface PdPerson { id: number; name: string; emails: string[]; orgId: number | null; jobTitle?: string }
-export interface PdOrg { id: number; name: string; website?: string; domain?: string }
+export interface PdPerson { id: number; name: string; emails: string[]; orgId: number | null; jobTitle?: string; phones?: string[] }
+export interface PdOrg { id: number; name: string; website?: string; domain?: string; industry?: string }
+
+/** A note on a deal, person, organisation or lead — written by the user or a colleague. */
+export interface PdNote {
+  id: number;
+  content: string;
+  dealId: number | null;
+  personId: number | null;
+  orgId: number | null;
+  leadId: string | null;
+  userId: number | null;
+  addTime: string;
+  updateTime: string;
+}
+
+export interface PdLead {
+  id: string;
+  title: string;
+  personId: number | null;
+  orgId: number | null;
+  ownerId: number | null;
+  value?: { amount: number; currency: string } | null;
+  expectedClose: string | null;
+  source?: string | null;
+  addTime: string;
+  updateTime: string;
+  archived?: boolean;
+}
 
 export interface CrmDirectory {
   emails: Set<string>;

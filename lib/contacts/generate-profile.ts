@@ -31,6 +31,8 @@ import {
 } from "@/lib/slack/client";
 import { getZoomSummaries, filterByAttendees } from "@/lib/google/zoom-summaries";
 import { getWhatsAppSignalForContact } from "@/lib/whatsapp/dump-job";
+import { getStoredPipedriveSnapshot } from "@/lib/pipedrive/client";
+import { profileEvidence as pipedriveEvidence } from "@/lib/pipedrive/context";
 import {
   getTeamsChatSignalForContact,
   getTeamsChannelSignalForContact,
@@ -261,7 +263,18 @@ export async function generateContactProfile(username: string, body: ContactProf
   const exchanges = [...dmConvos.values()].flatMap((c) => exchangesIn(c));
   const slackSetting = (m: { channelMembers?: string[] }): Setting => (m.channelMembers?.length === 1 ? "1:1" : "group");
 
+  // Pipedrive: their deals, notes and meetings — account context, never style.
+  const crm = directory === "work"
+    ? await getStoredPipedriveSnapshot(username)
+        .then((snap) => {
+          const ev = snap ? pipedriveEvidence(snap, { emails: email ? [email] : [], names: [fullName] }) : [];
+          return Array.isArray(ev) ? ev : [];
+        })
+        .catch((e) => { console.warn("[contact-profile] Pipedrive unreadable:", e instanceof Error ? e.message : e); return []; })
+    : [];
+
   const raw: RawEvidence[] = [
+    ...crm,
     ...emailBodies.map((b) => ({ channel: "email", by: "them" as const, setting: b.setting, date: isoDay(b.date), title: b.subject, text: withThread(b, selfFirst) })),
     ...emails.filter((e) => !bodyIds.has(e.id)).slice(0, 22).map((e) => ({
       channel: "email",
