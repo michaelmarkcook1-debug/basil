@@ -18,6 +18,7 @@ import { loadEmailView } from "@/lib/email/view-cache";
 import { updateAction } from "@/lib/actions/store";
 import { emitAuditEvent } from "@/lib/events/audit";
 import { checkRateLimitDurable } from "@/lib/rate-limit";
+import { recordDraftOutcome } from "@/lib/drafts/style-store";
 
 export const dynamic = "force-dynamic";
 const MAX_BODY = 20_000;
@@ -47,7 +48,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
   const rl = await checkRateLimitDurable(`email:reply:${g.username}`, 20);
   if (!rl.allowed) return NextResponse.json({ error: "Too many emails in a minute — try again shortly." }, { status: 429 });
   const { id } = await params;
-  let body: { body?: unknown; replyAll?: unknown; actionId?: unknown; to?: unknown; cc?: unknown; bcc?: unknown };
+  let body: { body?: unknown; replyAll?: unknown; actionId?: unknown; to?: unknown; cc?: unknown; bcc?: unknown; basilDraft?: unknown };
   try { body = await req.json(); } catch { return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 }); }
   const text = typeof body.body === "string" ? body.body : "";
   if (!text.trim()) return NextResponse.json({ error: "Write a reply first." }, { status: 400 });
@@ -68,6 +69,10 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
   } catch (e) {
     console.error("[email/reply] send failed:", e instanceof Error ? e.message : e);
     return NextResponse.json({ error: "The reply was not sent." }, { status: 502 });
+  }
+  // Started as a Basil draft: what the user kept or changed teaches the drafter.
+  if (typeof body.basilDraft === "string" && body.basilDraft.trim() && sent.to[0]?.email) {
+    await recordDraftOutcome(g.username, { to: sent.to[0].email, toName: sent.to[0].name, channel: "email", draft: body.basilDraft, sent: text });
   }
   const recipients = [...sent.to, ...sent.cc].map((a) => a.email).join(", ")
     + (sent.bcc.length ? ` · Bcc: ${sent.bcc.map((a) => a.email).join(", ")}` : "");

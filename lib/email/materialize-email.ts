@@ -18,6 +18,7 @@ import { getSelfIdentity } from "@/lib/self-identity";
 import { isCalendarThread } from "./triage";
 import { createDecisionTracked, linkActionToDecision } from "@/lib/decisions/store";
 import { createMemoryTracked } from "@/lib/memory/store";
+import { actionAutoBar } from "@/lib/learning/calibration-store";
 import { actionTier, decisionTier, memoryTier, needsReviewFlag } from "@/lib/trust/policy";
 import {
   auditCreated,
@@ -118,7 +119,7 @@ export async function materializeEmailIntelligence(
   const auditEntries: AuditEntry[] = [];
 
   // ── Trust policy tier for this email's confidence ─────────────────────────
-  const aTier = actionTier(intel.confidence);
+  const aTier = actionTier(intel.confidence, await actionAutoBar(username, "email"));
   const dTier = decisionTier(intel.confidence);
 
   // ── Actions ────────────────────────────────────────────────────────────────

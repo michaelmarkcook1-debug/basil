@@ -22,6 +22,7 @@ import { getSystemPrompt } from "@/lib/ai/system-prompt";
 import { searchEmails, getEmailBody } from "@/lib/google/gmail";
 import { findContactByName, getPersonaSummary } from "@/lib/contacts-lookup";
 import type { BasilEvent } from "./types";
+import { draftStyleFor } from "@/lib/drafts/style-store";
 
 // ── Public interface ──────────────────────────────────────────────────────────
 
@@ -162,7 +163,11 @@ export async function generateDraftForEvent(event: BasilEvent, username: string)
     personaBlock = `\n\n## Sender profile (tone guidance only — not factual source)\n${summary}`;
   }
 
-  const toneGuidance = getToneGuidance(from);
+  const displayFirst = username.split(/[@._]/)[0] || username;
+  // Learned from what the user did with earlier drafts; the fixed line until then.
+  const learnedStyle = await draftStyleFor(username, { address: extractEmail(from) ?? undefined, name: from.replace(/<[^>]*>/, "").trim() }, displayFirst)
+    .catch((e) => { console.warn("[drafter] style unavailable:", e instanceof Error ? e.message : e); return ""; });
+  const toneGuidance = learnedStyle ? "Follow the learned style below." : getToneGuidance(from);
 
   // ── 2. Compose the prompt ────────────────────────────────────────────────
 
@@ -179,7 +184,7 @@ export async function generateDraftForEvent(event: BasilEvent, username: string)
 From: ${from}
 ${subject && isEmail ? `Subject: ${subject}\n` : ""}
 ${messageBody || "(message body unavailable)"}
-${recentExchangesBlock}${personaBlock}
+${recentExchangesBlock}${personaBlock}${learnedStyle ? `\n\n${learnedStyle}` : ""}
 
 ## DRAFTING INSTRUCTIONS
 1. **Be specific** — address the actual content of this message. Do NOT produce a generic holding reply unless there is genuinely nothing to respond to yet.

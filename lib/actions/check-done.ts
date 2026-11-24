@@ -32,6 +32,7 @@ import { getWorkCalendar } from "@/lib/away/store";
 import { generateTextSafe } from "@/lib/ai/generate";
 import { getTextModel } from "@/lib/ai/model-config";
 import { parseAndValidate } from "@/lib/ai/parse-json";
+import { readDoneLessons, lessonsBlock, type DoneLesson } from "@/lib/actions/done-lessons";
 
 export const DONE_CHECK_AFTER_HOURS = 20;
 export const MAX_DONE_CHECKS = 40;
@@ -89,8 +90,11 @@ export function properNouns(text: string, selfNames: readonly string[] = []): Se
  * they name someone or something the action names, or share two of its
  * meaningful words. Most relevant first.
  */
-export function evidenceFor(action: Pick<ActionItem, "text" | "createdAt" | "owner">, events: readonly OutboundEvent[], max = 6, selfNames: readonly string[] = []): OutboundEvent[] {
-  const since = Date.parse(action.createdAt) - 3_600_000;
+export function evidenceFor(action: Pick<ActionItem, "text" | "createdAt" | "owner" | "reopenedAt">, events: readonly OutboundEvent[], max = 6, selfNames: readonly string[] = []): OutboundEvent[] {
+  // Reopened after Basil closed it: what was sent before the reopen already
+  // fooled the judge once — only later messages count.
+  const reopened = action.reopenedAt ? Date.parse(action.reopenedAt) : NaN;
+  const since = Number.isFinite(reopened) ? reopened : Date.parse(action.createdAt) - 3_600_000;
   const words = keywords(action.text);
   const names = properNouns(action.text, selfNames);
   const scored: { e: OutboundEvent; score: number }[] = [];
@@ -114,16 +118,18 @@ export function doneCheckPrompt(input: {
   action: Pick<ActionItem, "text" | "createdAt" | "dueDate" | "source">;
   evidence: readonly OutboundEvent[];
   absences: readonly string[];
+  lessons?: readonly DoneLesson[];
 }): string {
   const clip = (s: string, n = 400) => s.replace(/\s+/g, " ").trim().slice(0, n);
   const { firstName, today, action, evidence, absences } = input;
+  const lessons = lessonsBlock(input.lessons ?? [], firstName);
   return `Today is ${today}. This is on ${firstName}'s to-do list (created ${action.createdAt.slice(0, 10)} from ${action.source}${action.dueDate ? `, due ${action.dueDate.slice(0, 10)}` : ""}):
 "${clip(action.text)}"
 
 ${absences.length ? `${firstName}'s time away: ${absences.join("; ")}.\n\n` : ""}Messages ${firstName} has sent since it was created that may be related:
 ${evidence.length ? evidence.map((e, i) => `${i + 1}. ${e.at.slice(0, 10)} ${e.channel} to ${clip(e.to, 80)}: ${clip(e.subject, 120)} | ${clip(e.text)}`).join("\n") : "(none)"}
 
-Answer one of:
+${lessons}Answer one of:
 - "done": a message above clearly shows ${firstName} did it (sent the thing, gave the answer, confirmed the change), or told someone it is done.
 - "expired": the item is tied to a specific date or event that has clearly passed, so doing it now would make no sense (a meeting or deadline that is over, "before" a trip that has started or ended).
 - "open": anything else, including messages that only discuss it, promise it, or that you are unsure about.
@@ -227,9 +233,10 @@ export async function checkDoneActions(
 
   const oldest = Math.min(...due.map((a) => Date.parse(a.createdAt) || now));
   const days = Math.min(60, Math.max(3, Math.ceil((now - oldest) / 86_400_000) + 1));
-  const [outbound, cal] = await Promise.all([
+  const [outbound, cal, lessons] = await Promise.all([
     deps.outbound ?? loadOutbound(username, days),
     getWorkCalendar(username).catch((e) => { console.warn("[check-done] working calendar unavailable:", e instanceof Error ? e.message : e); return null; }),
+    readDoneLessons(username).catch((e) => { console.warn("[check-done] lessons unavailable:", e instanceof Error ? e.message : e); return [] as DoneLesson[]; }),
   ]);
   const absences = (cal?.away ?? [])
     .filter((p) => p.end >= new Date(now - 90 * 86_400_000).toISOString().slice(0, 10))
@@ -243,7 +250,7 @@ export async function checkDoneActions(
   for (let i = 0; i < due.length; i += 4) {
     await Promise.all(due.slice(i, i + 4).map(async (a) => {
       const evidence = evidenceFor(a, outbound, 6, identity.names);
-      verdicts.set(a.id, await judge(doneCheckPrompt({ firstName, today, action: a, evidence, absences })));
+      verdicts.set(a.id, await judge(doneCheckPrompt({ firstName, today, action: a, evidence, absences, lessons })));
     }));
   }
 

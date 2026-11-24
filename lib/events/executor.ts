@@ -11,6 +11,7 @@
  */
 
 import type { BasilEvent, EventActionType } from "./types";
+import { recordDraftOutcome } from "@/lib/drafts/style-store";
 import { sendEmail } from "@/lib/google/gmail";
 import { sendSlackMessage } from "@/lib/slack/client";
 import { createAction } from "@/lib/actions/store";
@@ -73,6 +74,9 @@ export async function executeEvent(
 
   // The body to send/store — prefer the user's edited version over the stored draft
   let resolvedBody = (draftBody ?? event.draft?.body ?? "").trim();
+  // The user saw Basil's draft and sent their own version: learn from it.
+  const basilDraft = (event.draft?.body ?? "").trim();
+  const learnFromSend = !!basilDraft && draftBody !== undefined && (actionType === "send_email" || actionType === "send_slack");
 
   // LAZY DRAFT: generate only at the moment of use.
   //
@@ -125,6 +129,7 @@ export async function executeEvent(
       }
       try {
         const result = await sendEmail(username, to, subject ?? "(no subject)", resolvedBody);
+        if (learnFromSend) await recordDraftOutcome(username, { to, toName: event.entityName, channel: "email", draft: basilDraft, sent: resolvedBody });
         return {
           ok: true,
           summary: `Email sent to ${to}`,
@@ -172,6 +177,7 @@ export async function executeEvent(
             summary: "",
           };
         }
+        if (learnFromSend) await recordDraftOutcome(username, { to, toName: event.entityName, channel: "slack", draft: basilDraft, sent: resolvedBody });
         return {
           ok: true,
           summary: `Slack message sent to ${to}`,

@@ -308,7 +308,7 @@ test("B8. a message deleted before we fetched it (404) is not a failure; a page 
 // ── D2. Zoom API sync ─────────────────────────────────────────────────────────
 
 function meetingProcessor(generateTextSafe, parse) {
-  return loadTs("lib/zoom/process-meeting.ts", { "@/lib/meetings/history-store": { recordMeeting: async () => {} },
+  return loadTs("lib/zoom/process-meeting.ts", { "@/lib/learning/calibration-store": { actionAutoBar: async () => 0.6 }, "@/lib/meetings/history-store": { recordMeeting: async () => {} },
     "@/lib/ai/generate": { generateTextSafe },
     "@/lib/ai/model-config": { getTextModel: () => "m", MAX_TOKENS: { fast: 1024 } },
     "@/lib/ai/parse-json": { parseAndValidate: parse },

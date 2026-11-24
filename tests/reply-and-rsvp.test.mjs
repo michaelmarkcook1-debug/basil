@@ -234,6 +234,7 @@ test("RSVP route: validates the answer, reports failures honestly", async () => 
 test("reply route: sends only with a body, and closes the action that asked for the reply", async () => {
   const sends = [], updates = [];
   const route = loadTs("app/api/email/[id]/reply/route.ts", {
+    "@/lib/drafts/style-store": { recordDraftOutcome: async () => {} },
     "next/server": nextServer,
     "@/lib/google/auth": { isGoogleConnected: async () => true },
     "@/lib/auth": { getSessionUser: async () => "u" },

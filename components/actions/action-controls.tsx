@@ -93,8 +93,7 @@ export function ActionControls({
     if (!window.confirm("Delete this commitment?")) return;
     setBusy("delete");
     try {
-      // Log BEFORE deleting so the server can still resolve the action's source.
-      await logInteraction(actionId, "delete");
+      // The DELETE route records the learning signal itself (every delete path counts once).
       await fetch(`/api/actions/${actionId}`, { method: "DELETE" });
       await revalidate();
     } catch {

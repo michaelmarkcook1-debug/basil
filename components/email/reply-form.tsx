@@ -29,6 +29,8 @@ export function ReplyForm({
   const [showCopies, setShowCopies] = useState(initialReplyAll && view.replyAllCc.length > 0);
   const [text, setText] = useState("");
   const [previous, setPrevious] = useState<string | null>(null);
+  // Basil's latest draft, so the server can learn what was changed (lib/drafts/style).
+  const [basilDraft, setBasilDraft] = useState<string | null>(null);
   const [instruction, setInstruction] = useState("");
   const [drafting, setDrafting] = useState(false);
   const [sending, setSending] = useState(false);
@@ -39,12 +41,15 @@ export function ReplyForm({
     setDrafting(true); setError(null);
     try {
       const res = await fetch(`/api/email/${encodeURIComponent(messageId)}/draft-reply`, {
-        method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ instruction }),
+        method: "POST", headers: { "Content-Type": "application/json" },
+        // Asking again over an untouched Basil draft = that draft was rejected.
+        body: JSON.stringify({ instruction, ...(basilDraft && text === basilDraft ? { rejectedDraft: basilDraft } : {}) }),
       });
       const j = await res.json().catch(() => ({})) as { body?: string; error?: string };
       if (!res.ok || !j.body) throw new Error(j.error || "Basil could not draft a reply.");
       setPrevious(text);
       setText(j.body);
+      setBasilDraft(j.body);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Basil could not draft a reply.");
     } finally {
@@ -57,7 +62,7 @@ export function ReplyForm({
     try {
       const res = await fetch(`/api/email/${encodeURIComponent(messageId)}/reply`, {
         method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ body: text, to, cc, bcc, actionId }),
+        body: JSON.stringify({ body: text, to, cc, bcc, actionId, ...(basilDraft ? { basilDraft } : {}) }),
       });
       const j = await res.json().catch(() => ({})) as { error?: string; to?: Address[]; cc?: Address[]; bcc?: Address[] };
       if (!res.ok) throw new Error(j.error || "The reply was not sent.");

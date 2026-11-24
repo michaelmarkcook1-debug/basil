@@ -270,6 +270,8 @@ test("actions PATCH: clearing needsReview records a `confirmed` interaction, a p
   const recorded = [];
   const items = [{ id: "a1", text: "t", source: "email", category: "task", needsReview: true, confidence: 0.55 }, { id: "a2", text: "t", source: "email", needsReview: false }];
   const route = loadTs("app/api/actions/[id]/route.ts", {
+    "@/lib/slack/cleanup-nonmember": { parseSlackChannelId: () => null },
+    "@/lib/actions/done-lessons": { readDoneLessons: async () => [], lessonsBlock: () => "", recordDoneMistake: async () => {} },
     "next/server": nextServer, zod: require("zod"),
     "@/lib/auth": { getSessionUser: async () => "u" },
     "@/lib/api/respond": { parseBody: async (req, schema) => { const d = schema.safeParse(await req.json()); return d.success ? { ok: true, data: d.data } : { ok: false, response: { status: 400 } }; } },

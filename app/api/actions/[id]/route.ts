@@ -2,6 +2,8 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { updateAction, deleteAction, listActions } from "@/lib/actions/store";
 import { recordInteraction } from "@/lib/learning/store";
+import { recordDoneMistake } from "@/lib/actions/done-lessons";
+import { parseSlackChannelId } from "@/lib/slack/cleanup-nonmember";
 import { getSessionUser } from "@/lib/auth";
 import { parseBody } from "@/lib/api/respond";
 
@@ -52,9 +54,11 @@ export async function PATCH(
     if (!parsed.ok) return parsed.response;
     // A review being cleared is a "Basil was right" signal. Read the prior
     // state first so a plain edit of an already-confirmed item is not counted.
-    const confirming = parsed.data.needsReview === false
-      ? (await listActions(username)).find((a) => a.id === id)?.needsReview === true
-      : false;
+    // Reopening also needs the prior state: was it Basil that closed it?
+    const prior = parsed.data.needsReview === false || parsed.data.status === "open"
+      ? (await listActions(username)).find((a) => a.id === id)
+      : undefined;
+    const confirming = parsed.data.needsReview === false && prior?.needsReview === true;
     const patch: Record<string, unknown> = { ...parsed.data };
     if (parsed.data.ongoing === true) {
       patch.ongoingSince = new Date().toISOString();
@@ -77,6 +81,13 @@ export async function PATCH(
     if (parsed.data.status === "open") {
       patch.archivedReason = undefined;
       patch.closedByBasil = undefined;
+      // Basil closed it and was wrong: a lesson for the done-judge, and only
+      // messages after now count when it looks again.
+      if (prior?.closedByBasil && prior.status === "done") {
+        patch.reopenedAt = new Date().toISOString();
+        void recordDoneMistake(username, prior)
+          .catch((e) => console.warn(`[actions/${id}] could not record the reopen lesson:`, e instanceof Error ? e.message : e));
+      }
     }
     const updated = await updateAction(username, id, patch as Parameters<typeof updateAction>[2]);
     if (!updated) {
@@ -108,7 +119,17 @@ export async function DELETE(
     const username = await getSessionUser();
     if (!username) return NextResponse.json({ error: "Unauthorised" }, { status: 401 });
     ({ id } = await ctx.params);
+    // Every delete is a learning signal (per-source review bar, channel mutes),
+    // whichever page it came from. Read the item first: after the delete it is gone.
+    const item = (await listActions(username)).find((a) => a.id === id);
     const ok = await deleteAction(username, id);
+    if (ok && item) {
+      const channelId = parseSlackChannelId(item.sourceRef);
+      await recordInteraction(username, {
+        itemId: id, sourceKey: channelId ? `slack:${channelId}` : item.source || "unknown", category: item.category,
+        action: "delete", ts: new Date().toISOString(), inferred: !!item.needsReview, confidence: item.confidence,
+      }).catch((e) => console.warn(`[actions/${id}] deleted, but the learning signal was not recorded:`, e instanceof Error ? e.message : e));
+    }
     return NextResponse.json(
       { status: ok ? "deleted" : "not_found", id },
       { status: ok ? 200 : 404 }

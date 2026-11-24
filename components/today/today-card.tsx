@@ -16,15 +16,19 @@ import { CATEGORY_CONFIG } from "@/lib/delta/types";
 import type { TodayFeedItem } from "@/lib/today/types";
 import { ActionControls } from "@/components/actions/action-controls";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import { logOpened } from "@/lib/learning/log-opened";
 
 function CardShell({
   href,
   critical,
   footer,
   summary,
+  onOpen,
   children,
 }: {
   href?: string;
+  /** Called when the user follows the card's link (the "opened" learning signal). */
+  onOpen?: () => void;
   critical?: boolean;
   footer?: React.ReactNode;
   /** Plain-text summary shown on hover (native tooltip) — "what's going on". */
@@ -54,9 +58,9 @@ function CardShell({
   if (href) {
     const external = href.startsWith("http");
     bodyEl = external ? (
-      <a href={href} target="_blank" rel="noopener noreferrer" className={bodyClass}>{body}</a>
+      <a href={href} target="_blank" rel="noopener noreferrer" className={bodyClass} onClick={onOpen}>{body}</a>
     ) : (
-      <Link href={href} className={bodyClass}>{body}</Link>
+      <Link href={href} className={bodyClass} onClick={onOpen}>{body}</Link>
     );
   } else {
     bodyEl = <div className={bodyClass}>{body}</div>;
@@ -93,6 +97,7 @@ export function TodayCard({ item }: { item: TodayFeedItem }) {
         href={item.href}
         critical={critical}
         summary={summary}
+        onOpen={actionId ? () => logOpened(actionId) : undefined}
         footer={actionId ? <ActionControls actionId={actionId} suggest={item.suggest} /> : undefined}
       >
         <span className={cn("mt-1.5 h-2 w-2 shrink-0 rounded-full", cfg.dotClass)} />

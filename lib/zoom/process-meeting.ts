@@ -22,6 +22,7 @@ import { createAction } from "@/lib/actions/store";
 import { createDecision } from "@/lib/decisions/store";
 import { createMemory } from "@/lib/memory/store";
 import { writeToneObservations } from "@/lib/contacts/tone-store";
+import { actionAutoBar } from "@/lib/learning/calibration-store";
 import { actionTier, decisionTier, memoryTier, needsReviewFlag } from "@/lib/trust/policy";
 import { getTaskSystemPrompt } from "@/lib/ai/system-prompt";
 import { recordMeeting } from "@/lib/meetings/history-store";
@@ -111,6 +112,7 @@ export async function processZoomMeeting(
 ): Promise<ProcessZoomMeetingResult> {
   const { username, meeting, participants = [], recording, eventId } = opts;
   const sourceRef = `zoom-api:${meeting.id}`;
+  const meetingBar = await actionAutoBar(username, "meeting");
   const dateStr = meeting.startTime?.split("T")[0] ?? new Date().toISOString().split("T")[0];
   let actionsCreated  = 0;
   let decisionsCreated = 0;
@@ -153,7 +155,7 @@ export async function processZoomMeeting(
       });
       // Actions
       for (const item of intel.actions) {
-        const tier = actionTier(item.confidence);
+        const tier = actionTier(item.confidence, meetingBar);
         if (tier === "skip") continue;
         await createAction(username, {
           text:       item.text,

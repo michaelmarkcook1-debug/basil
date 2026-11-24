@@ -15,6 +15,7 @@
 import { createActionTracked } from "@/lib/actions/store";
 import { createDecisionTracked, linkActionToDecision } from "@/lib/decisions/store";
 import { createMemoryTracked } from "@/lib/memory/store";
+import { actionAutoBar } from "@/lib/learning/calibration-store";
 import { actionTier, decisionTier, memoryTier, needsReviewFlag } from "@/lib/trust/policy";
 import {
   auditCreated,
@@ -99,7 +100,7 @@ export async function materializeTeamsIntelligence(
   const auditEntries: AuditEntry[] = [];
 
   // ── Trust policy tier for this Teams message's confidence ─────────────────
-  const aTier = actionTier(intel.confidence);
+  const aTier = actionTier(intel.confidence, await actionAutoBar(username, "teams"));
   const dTier = decisionTier(intel.confidence);
 
   // ── Actions ────────────────────────────────────────────────────────────────

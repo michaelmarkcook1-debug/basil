@@ -49,6 +49,12 @@ export interface ActionItem {
   /** Closed by Basil (done elsewhere, or its moment passed) rather than by the user; the note says why. */
   closedByBasil?: boolean;
   /**
+   * When the user reopened an item Basil had closed. The judge then looks only
+   * at messages sent after this, and the mistake is kept as a lesson
+   * (lib/actions/done-lessons.ts).
+   */
+  reopenedAt?: string;
+  /**
    * The user delegated it (Delegate on the card): who to, and when. A delegated
    * action is the user's to chase, so the clean-up that drops other people's
    * auto-extracted commitments must never remove it (bug fixed 2026-11-24:

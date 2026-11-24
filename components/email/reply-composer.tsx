@@ -11,6 +11,7 @@ import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { ReplyForm } from "./reply-form";
 import { useEmail } from "./use-email";
+import { logOpened } from "@/lib/learning/log-opened";
 
 export function ReplyButton({
   messageId, actionId, onSent, size = "xs", label = "Reply",
@@ -18,7 +19,7 @@ export function ReplyButton({
   const [open, setOpen] = useState(false);
   return (
     <>
-      <Button type="button" size={size} variant="outline" onClick={(e) => { e.preventDefault(); e.stopPropagation(); setOpen(true); }}>
+      <Button type="button" size={size} variant="outline" onClick={(e) => { e.preventDefault(); e.stopPropagation(); setOpen(true); logOpened(actionId); }}>
         <Reply /> {label}
       </Button>
       {open && <ReplyComposer messageId={messageId} actionId={actionId} open={open} onOpenChange={setOpen} onSent={onSent} />}

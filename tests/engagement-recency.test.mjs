@@ -82,7 +82,7 @@ test("your own Slack DM / group-DM messages count as contact with the others in 
 
 test("a Zoom meeting fetched from the API records contact with every participant, by email", async () => {
   const touches = [];
-  const Z = loadTs("lib/zoom/process-meeting.ts", { "@/lib/meetings/history-store": { recordMeeting: async () => {} },
+  const Z = loadTs("lib/zoom/process-meeting.ts", { "@/lib/learning/calibration-store": { actionAutoBar: async () => 0.6 }, "@/lib/meetings/history-store": { recordMeeting: async () => {} },
     "@/lib/ai/generate": {}, "@/lib/ai/model-config": {}, "@/lib/ai/parse-json": {}, "@/lib/ai/schemas": {},
     "@/lib/actions/store": {}, "@/lib/decisions/store": {}, "@/lib/contacts/tone-store": {}, "@/lib/ai/system-prompt": {},
     "@/lib/memory/store": { createMemory: async () => ({ id: "m" }) },

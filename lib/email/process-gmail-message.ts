@@ -17,6 +17,7 @@
  *   eventId   → the BasilEvent that triggered this ingestion
  */
 
+import { actionAutoBar } from "@/lib/learning/calibration-store";
 import { getEmailBody } from "@/lib/google/gmail";
 import { classifyEmail, shouldMaterialize } from "@/lib/email/classify-email";
 import { materializeEmailIntelligence } from "@/lib/email/materialize-email";
@@ -496,7 +497,8 @@ export async function processZoomEmail(opts: ProcessZoomEmailOpts): Promise<{ ex
     }
 
     const zoomAuditEntries: AuditEntry[] = [];
-    const zoomATier = opts.notesOnly ? "skip" : zoomActionTier(extract.confidence);
+    const meetingBar = await actionAutoBar(username, "meeting");
+    const zoomATier = opts.notesOnly ? "skip" : zoomActionTier(extract.confidence, meetingBar);
     // Follow-ups, blockers and decision consequences are meeting NOTES. Each
     // becomes an action only when it names the user (theirs) or reads "<Name>
     // to …" (waiting on that person); the rest stay in the recap. Every one of
@@ -528,7 +530,7 @@ export async function processZoomEmail(opts: ProcessZoomEmailOpts): Promise<{ ex
       for (const item of extract.actionItems) {
         if (!item.text?.trim()) continue;
         const itemConf = item.confidence ?? extract.confidence;
-        const itemTier = zoomActionTier(itemConf);
+        const itemTier = zoomActionTier(itemConf, meetingBar);
         if (itemTier === "skip") continue;
         try {
           const textLower = item.text.toLowerCase();

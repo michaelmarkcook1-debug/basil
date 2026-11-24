@@ -99,8 +99,9 @@ export const ZOOM_REVIEW_FLOOR  = ZOOM_FLOOR;              // 0.30
 export type ConfidenceTier = "auto" | "review" | "skip";
 
 /** Returns the trust tier for an extracted action item. */
-export function actionTier(confidence: number): ConfidenceTier {
-  if (confidence >= ACTION_CONFIDENCE.AUTO) return "auto";
+export function actionTier(confidence: number, autoBar: number = ACTION_CONFIDENCE.AUTO): ConfidenceTier {
+  // autoBar: the per-source bar learned from confirms vs deletes (lib/learning/calibration.ts).
+  if (confidence >= Math.max(autoBar, ACTION_CONFIDENCE.SKIP)) return "auto";
   if (confidence >= ACTION_CONFIDENCE.SKIP) return "review";
   return "skip";
 }
@@ -134,8 +135,8 @@ export function memoryTier(confidence: number): ConfidenceTier {
  * | 0.30 – 0.59     | review | true        |
  * | ≥ 0.60          | auto   | false       |
  */
-export function zoomActionTier(confidence: number): ConfidenceTier {
-  if (confidence >= ACTION_CONFIDENCE.AUTO) return "auto";
+export function zoomActionTier(confidence: number, autoBar: number = ACTION_CONFIDENCE.AUTO): ConfidenceTier {
+  if (confidence >= Math.max(autoBar, ZOOM_REVIEW_FLOOR)) return "auto";
   if (confidence >= ZOOM_REVIEW_FLOOR) return "review";
   return "skip";
 }

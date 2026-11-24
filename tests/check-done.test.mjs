@@ -32,7 +32,7 @@ function load({ actions = [], judge, sent = [] } = {}) {
     "@/lib/away/store": { getWorkCalendar: async () => ({ away: [{ start: "2026-10-24", end: "2026-11-07", label: "Honeymoon" }] }) },
     "@/lib/ai/generate": { generateTextSafe: async () => { throw new Error("no model in tests"); } },
     "@/lib/ai/model-config": { getTextModel: () => "balanced" },
-    "@/lib/ai/parse-json": loadTs("lib/ai/parse-json.ts", { zod: require("zod") }),
+    "@/lib/actions/done-lessons": { readDoneLessons: async () => [], lessonsBlock: () => "", recordDoneMistake: async () => {} }, "@/lib/ai/parse-json": loadTs("lib/ai/parse-json.ts", { zod: require("zod") }),
   });
   return { D, writes };
 }

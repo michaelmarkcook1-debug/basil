@@ -13,6 +13,7 @@ import { SpendCapError, spendCapResponse } from "@/lib/ai/spend-guard";
 import { getSettings } from "@/lib/settings/store";
 import { checkRateLimitDurable } from "@/lib/rate-limit";
 import { redactSensitive } from "@/lib/security/sensitive";
+import { draftStyleFor, recordDraftOutcome } from "@/lib/drafts/style-store";
 
 export const maxDuration = 60;
 
@@ -24,7 +25,12 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
   if (!rl.allowed) return NextResponse.json({ error: "Too many drafts — try again shortly." }, { status: 429 });
   const { id } = await params;
   let instruction = "";
-  try { const b = await req.json() as { instruction?: unknown }; instruction = typeof b.instruction === "string" ? b.instruction.slice(0, 500) : ""; } catch { /* no body is fine */ }
+  let rejectedDraft = "";
+  try {
+    const b = await req.json() as { instruction?: unknown; rejectedDraft?: unknown };
+    instruction = typeof b.instruction === "string" ? b.instruction.slice(0, 500) : "";
+    rejectedDraft = typeof b.rejectedDraft === "string" ? b.rejectedDraft.slice(0, 2_000) : "";
+  } catch { /* no body is fine */ }
 
   try {
     const [ctx, settings] = await Promise.all([getReplyContext(username, id), getSettings(username)]);
@@ -37,6 +43,9 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
       glossaryFor: ctx.body.slice(0, 6_000),
     });
     const original = redactSensitive(ctx.body.slice(0, 6_000)).text;
+    if (rejectedDraft) await recordDraftOutcome(username, { to: ctx.from.email, toName: ctx.from.name, channel: "email", draft: rejectedDraft });
+    // How the user actually writes, in general and to this person (lib/drafts/style).
+    const style = await draftStyleFor(username, { address: ctx.from.email, name: ctx.from.name }, first);
     const { text } = await generateTextSafe({
       model: getTextModel("default"),
       maxOutputTokens: 700,
@@ -44,7 +53,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
       prompt: `Draft ${first}'s reply to this email, in ${first}'s voice: direct, warm, brief.
 Write only the reply body — greeting and sign-off included, no subject line, no quoted original.
 Use only facts from the email${instruction ? " and the instruction" : ""}; do not commit ${first} to anything the instruction does not.
-${instruction ? `\nInstruction from ${first}: ${instruction}\n` : ""}
+${instruction ? `\nInstruction from ${first}: ${instruction}\n` : ""}${style ? `\n${style}\n` : ""}
 From: ${ctx.from.name || ctx.from.email} <${ctx.from.email}>
 Subject: ${ctx.subject}
 
