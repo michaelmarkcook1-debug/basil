@@ -49,6 +49,14 @@ export interface ActionItem {
   /** Closed by Basil (done elsewhere, or its moment passed) rather than by the user; the note says why. */
   closedByBasil?: boolean;
   /**
+   * The user delegated it (Delegate on the card): who to, and when. A delegated
+   * action is the user's to chase, so the clean-up that drops other people's
+   * auto-extracted commitments must never remove it (bug fixed 2026-11-24:
+   * Delegate used to delete the action on the next list load).
+   */
+  delegatedTo?: string;
+  delegatedAt?: string;
+  /**
    * The user marked it "Ongoing": in hand, not forgotten. Shown as ongoing
    * rather than overdue, and checked in on again at its follow-up date.
    */

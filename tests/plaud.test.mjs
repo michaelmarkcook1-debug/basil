@@ -62,7 +62,7 @@ test("wiring: OAuth with PKCE and state, read-only, daily cron, Plaud items have
   assert.match(oauth, /token_endpoint_auth_method: "none"/, "public client, no secret");
   assert.match(src("app/api/auth/plaud/callback/route.ts"), /verifyOAuthState\("plaud"/);
   assert.match(src("vercel.json"), /"\/api\/cron\/plaud-sync"/);
-  assert.match(src("app/api/uploads/[id]/file/route.ts"), /stays in Plaud/);
+  assert.match(src("app/api/uploads/[id]/file/route.ts"), /stays in \$\{upload.source === "readai" \? "Read AI" : "Plaud"\}/);
   assert.doesNotMatch(src("lib/plaud/client.ts"), /"(delete|update|create)_/, "only reads");
   assert.match(src("lib/uploads/process.ts"), /export async function analyseUploadText/);
 });

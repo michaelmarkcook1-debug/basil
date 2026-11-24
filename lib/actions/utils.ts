@@ -186,6 +186,15 @@ export function isGroupOwner(owner: string | undefined): boolean {
 const SELF_OWNERS = new Set(["", "me", "you", "myself", "i"]);
 
 /**
+ * The owner on this action was set by the user — they delegated it, or they
+ * created the action themselves. Clean-ups that drop "someone else's"
+ * auto-extracted commitments must leave these alone. Pure.
+ */
+export function ownerSetByUser(a: { delegatedAt?: string; source?: string }): boolean {
+  return !!a.delegatedAt || (a.source ?? "manual") === "manual";
+}
+
+/**
  * True when the action belongs to someone else. `selfNames` are the user's
  * names ("Michael Cook", "Michael"); with none known, nothing is assumed to
  * be someone else's — better to show an action than to hide one.

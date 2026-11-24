@@ -157,7 +157,7 @@ async function reprocess(events, intel) {
   const recorded = [];
   const queued = [];
   const route = loadTs("app/api/events/reprocess/route.ts", {
-    "@/lib/events/reprocess-status": { writeReprocessStatus: async () => {} },
+    "@/lib/events/reprocess-status": { writeReprocessStatus: async () => {} }, "@/lib/workstreams/sort-actions": { sortOpenActions: async () => ({ checked: 0, filed: 0 }) },
     "next/server": { NextResponse: nextServer.NextResponse, after: (fn) => queued.push(fn) },
     "@/lib/events/store": { listEvents: async () => events },
     "@/lib/actions/store": { listActions: async () => [] },

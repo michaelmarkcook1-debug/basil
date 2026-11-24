@@ -5,6 +5,7 @@ import { isSlackConnected } from "@/lib/slack/client";
 import { isLinearConnected } from "@/lib/linear/client";
 import { isPipedriveConnected } from "@/lib/pipedrive/client";
 import { isPlaudConnected } from "@/lib/plaud/oauth";
+import { isReadAiConnected } from "@/lib/readai/oauth";
 import { isZoomConnected } from "@/lib/zoom/auth";
 import { getSnapshotDiagnostics } from "@/lib/storage/persistent";
 import { getSessionUser } from "@/lib/auth";
@@ -114,6 +115,11 @@ export async function GET() {
       return false;
     });
     const plaud: IntegrationStatus = { id: "plaud", state: plaudConnected ? "connected" : "disconnected", lastCheckedAt: now };
+    const readaiConnected = await isReadAiConnected(username).catch((e) => {
+      console.error("[integrations/status] Read AI status check failed:", e instanceof Error ? e.message : e);
+      return false;
+    });
+    const readai: IntegrationStatus = { id: "readai", state: readaiConnected ? "connected" : "disconnected", lastCheckedAt: now };
 
     // ── Claude / Anthropic ──────────────────────────────────────────────────
     const claude: IntegrationStatus = {
@@ -133,7 +139,7 @@ export async function GET() {
     // ── Snapshot diagnostics ────────────────────────────────────────────────
     const snapshot = getSnapshotDiagnostics();
 
-    return NextResponse.json({ google, slack, microsoft, linear, pipedrive, plaud, claude, zoom, snapshot, watchHealth });
+    return NextResponse.json({ google, slack, microsoft, linear, pipedrive, plaud, readai, claude, zoom, snapshot, watchHealth });
   } catch (err) {
     console.error("[integrations/status] Unexpected error:", err);
     return NextResponse.json(

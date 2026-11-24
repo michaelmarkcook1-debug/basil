@@ -25,6 +25,7 @@ import { hashContent } from "@/lib/ingest/content-hash";
 import { isHashUnchanged, recordIngest } from "@/lib/ingest/index";
 import { appendAuditEntries } from "@/lib/ingest/audit-log";
 import { writeReprocessStatus } from "@/lib/events/reprocess-status";
+import { sortOpenActions } from "@/lib/workstreams/sort-actions";
 
 /**
  * POST /api/events/reprocess
@@ -374,6 +375,11 @@ export async function POST(req: Request) {
 
     // Flush snapshot so BASIL_DATA is updated before Vercel recycles the function.
     await forceFlushSnapshot();
+    // File every open commitment (new ones from this run included) into a workstream.
+    if (!outOfTime()) {
+      await sortOpenActions(username!, { force: true }).catch((e) =>
+        console.warn("[reprocess] workstream sort failed:", e instanceof Error ? e.message : e));
+    }
     const [afterActions, afterDecisions] = await Promise.all([
       listActions(username!).catch(() => null), // ci-ok: counts are a nicety; null → not reported
       listDecisions(username!).catch(() => null), // ci-ok: as above

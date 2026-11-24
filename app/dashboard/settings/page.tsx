@@ -49,7 +49,7 @@ import {
   XCircle,
   Handshake,
 } from "lucide-react";
-import { PlaudSync } from "@/components/settings/plaud-sync";
+import { PlaudSync, ReadAiSync } from "@/components/settings/plaud-sync";
 import { PipedriveConnect } from "@/components/settings/pipedrive-connect";
 
 interface ReadinessBannerData {
@@ -74,6 +74,7 @@ interface AllStatuses {
   linear?: IntegrationStatus;
   pipedrive?: IntegrationStatus;
   plaud?: IntegrationStatus;
+  readai?: IntegrationStatus;
   claude: IntegrationStatus;
   zoom?: IntegrationStatus;
   snapshot?: SnapshotDiagnostics;
@@ -139,7 +140,7 @@ interface UserSettings {
   };
 }
 
-type AppKey = "slack" | "google" | "linear" | "pipedrive" | "plaud" | "zoom" | "notion" | "apple" | "whatsapp" | "microsoft";
+type AppKey = "slack" | "google" | "linear" | "pipedrive" | "plaud" | "readai" | "zoom" | "notion" | "apple" | "whatsapp" | "microsoft";
 
 interface AppDef {
   key: AppKey;
@@ -991,6 +992,7 @@ function ConnectionCard({
         )}
 
         {app.key === "plaud" && connected && <PlaudSync />}
+        {app.key === "readai" && connected && <ReadAiSync />}
 
         {app.scopes && app.scopes.length > 0 && (
           <p className="text-xs text-muted-foreground">Scopes: {app.scopes.slice(0, 5).join(", ")}{app.scopes.length > 5 ? "…" : ""}</p>
@@ -1418,6 +1420,18 @@ export default function SettingsPage() {
       connectUrl: "/api/auth/plaud",
       disconnect: () => disconnect("/api/auth/plaud", "plaud"),
       setup: ["Sign in to Plaud and approve Basil. Read-only: Basil lists and reads your recordings through Plaud's official connector."],
+    },
+    {
+      key: "readai",
+      name: "Read AI",
+      role: "Full meeting transcripts with speakers, plus Read's summaries, action items and key questions — into meeting notes, decisions, actions and meeting prep.",
+      priority: "core",
+      icon: Video,
+      status: statuses?.readai,
+      mode: "oauth",
+      connectUrl: "/api/auth/readai",
+      disconnect: () => disconnect("/api/auth/readai", "readai"),
+      setup: ["Sign in to Read AI and approve Basil (read meetings only). Works on every Read AI plan."],
     },
     {
       key: "zoom",

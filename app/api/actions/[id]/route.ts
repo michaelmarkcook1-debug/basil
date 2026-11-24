@@ -61,6 +61,18 @@ export async function PATCH(
       // Check in again in a week unless the user already set a later follow-up.
       if (!parsed.data.followUpDate) patch.followUpDate = new Date(Date.now() + 7 * 86_400_000).toISOString().slice(0, 10);
     }
+    // Delegate: the user set the owner. Record it, so clean-ups that drop other
+    // people's auto-extracted commitments never remove a delegated action.
+    if (typeof parsed.data.owner === "string") {
+      const o = parsed.data.owner.trim();
+      if (o && !["me", "i", "myself", "you", "self"].includes(o.toLowerCase())) {
+        patch.delegatedTo = o;
+        patch.delegatedAt = new Date().toISOString();
+      } else {
+        patch.delegatedTo = undefined;
+        patch.delegatedAt = undefined;
+      }
+    }
     // Reopening something Basil (or a sweep) closed: it is the user's again.
     if (parsed.data.status === "open") {
       patch.archivedReason = undefined;

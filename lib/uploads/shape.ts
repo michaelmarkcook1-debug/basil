@@ -41,10 +41,16 @@ export interface UploadRecord {
   counts?: { actions: number; decisions: number; notes: number };
   /** Transcription cost actually incurred, USD. */
   costUsd?: number;
-  /** Where it came from when not uploaded by hand: "plaud" = synced from the user's Plaud account (lib/plaud/sync). */
-  source?: "plaud";
+  /** Where it came from when not uploaded by hand: synced from the user's Plaud (lib/plaud/sync) or Read AI (lib/readai/sync) account. */
+  source?: "plaud" | "readai";
   /** The recording's id in that source. */
   externalId?: string;
+  /** Link to the source's own report (Read AI). */
+  externalUrl?: string;
+  /** Participants' email addresses when the source knows them — joins the meeting to people across Basil. */
+  participantEmails?: string[];
+  /** Meeting metrics from the source (Read AI): 0–1 / -1–1 as Read reports them. */
+  metrics?: { readScore?: number; sentiment?: number; engagement?: number };
   createdAt: string;
   updatedAt: string;
 }

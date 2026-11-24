@@ -18,6 +18,10 @@
       "schedule": "45 5 * * *"
     },
     {
+      "path": "/api/cron/readai-sync",
+      "schedule": "5 5 * * *"
+    },
+    {
       "path": "/api/cron/plaud-sync",
       "schedule": "15 5 * * *"
     },

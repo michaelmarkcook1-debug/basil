@@ -34,7 +34,7 @@ export {
   STALE_OVERDUE_THRESHOLD_DAYS,
   UNTOUCHED_ARCHIVE_DAYS,
 } from "./utils";
-import { isUntouchedStale as untouchedStale } from "./utils";
+import { isUntouchedStale as untouchedStale, ownerSetByUser } from "./utils";
 import { getWorkCalendar } from "@/lib/away/store";
 import { awayOn, dayIn, pausedDays } from "@/lib/away/calendar";
 
@@ -471,15 +471,15 @@ export async function listActions(username: string, options?: { fresh?: boolean 
     return a.status === "overdue" || (a.status === "open" && !!a.dueDate && a.dueDate < t2);
   }
 
+  // Never an action whose owner the user set (delegated, or created by hand):
+  // Delegate wrote a person's name into owner, and this filter then deleted it.
   const isNotMine = (a: ActionItem) =>
-    isGroupOwner(a.owner) || isOtherPersonOwner(a.owner) || isUnknownOwnerOverdue(a);
+    !a.delegatedAt && (isGroupOwner(a.owner) || (!ownerSetByUser(a) && isOtherPersonOwner(a.owner)) || isUnknownOwnerOverdue(a));
   const notMineItems = deduped.filter(isNotMine);
 
   if (notMineItems.length > 0) {
     maintenance.push((current) => {
-      const cleaned = current.filter(
-        (a) => !isGroupOwner(a.owner) && !isOtherPersonOwner(a.owner) && !isUnknownOwnerOverdue(a)
-      );
+      const cleaned = current.filter((a) => !isNotMine(a));
       const n = current.length - cleaned.length;
       return { items: cleaned, changed: n > 0, log: n > 0 ? `purged ${n} non-personal action(s)` : undefined };
     });

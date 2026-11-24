@@ -250,14 +250,17 @@ function UploadRow({ u, stalled, open, onToggle, onDelete }: { u: UploadRecord; 
             {whenLabel(u.occurredAt)}
             {u.durationSec ? ` · ${offsetLabel(u.durationSec)}` : ""}
             {u.people.length ? ` · with ${u.people.join(", ")}` : ""}
-            {u.source === "plaud" ? " · from Plaud" : ""}
+            {u.source === "plaud" ? " · from Plaud" : u.source === "readai" ? " · from Read AI" : ""}
           </p>
         </div>
         <div className="flex items-center gap-2">
           <span className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs ${u.status === "failed" || stalled ? "bg-signal-critical-subtle text-signal-critical" : u.status === "ready" ? "bg-signal-positive-subtle text-signal-positive" : "bg-signal-neutral-subtle text-muted-foreground"}`}>
             {working && <Loader2 className="h-3 w-3 animate-spin" aria-hidden />}{stalled ? "Stalled" : STATUS_TEXT[u.status]}
           </span>
-          {u.source !== "plaud" && (
+          {u.source === "readai" && u.externalUrl && (
+            <a href={u.externalUrl} target="_blank" rel="noreferrer" className="text-xs text-muted-foreground underline hover:text-foreground">Read report</a>
+          )}
+          {!u.source && (
             <a href={`/api/uploads/${u.id}/file`} className="text-muted-foreground hover:text-foreground" aria-label={`Download ${u.filename}`}><Download className="h-4 w-4" /></a>
           )}
           <button type="button" onClick={onDelete} className="text-muted-foreground hover:text-foreground" aria-label={`Delete ${u.title}`}><Trash2 className="h-4 w-4" /></button>

@@ -15,14 +15,23 @@ import { overlayWorkstreams } from "@/lib/workstreams/classify";
 import { feedSubject, workstreamTotals } from "@/lib/workstreams/attach";
 import { isWorkstream, type Workstream } from "@/lib/workstreams/types";
 import { readAutomation } from "@/lib/pipedrive/automation";
+import { listActions } from "@/lib/actions/store";
 
 /**
  * The user's latest corrections and rules over a cached feed (no classifier
- * call) — and Pipedrive follow-ups they dismissed or booked since it was cached.
+ * call) — and Pipedrive follow-ups they dismissed or booked since it was cached,
+ * and commitments completed or removed since (so Today and Actions agree).
  */
 async function withCurrentWorkstreams(username: string, feed: TodayFeedResponse): Promise<TodayFeedResponse> {
   try {
     let base = feed.items ?? [];
+    if (base.some((i) => i.kind === "change" && i.change.source === "actions")) {
+      const open = await listActions(username).then(
+        (all) => new Set(all.filter((a) => a.status !== "done").map((a) => a.id)),
+        (e) => { console.warn("[today] actions unreadable for the overlay:", e instanceof Error ? e.message : e); return null; },
+      );
+      if (open) base = base.filter((i) => !(i.kind === "change" && i.change.source === "actions" && i.change.entityId && !open.has(i.change.entityId)));
+    }
     if (base.some((i) => i.kind === "pipedrive" && i.followup)) {
       const auto = await readAutomation(username).catch((e) => {
         console.warn("[today] pipedrive automation unreadable:", e instanceof Error ? e.message : e);

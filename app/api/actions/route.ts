@@ -1,4 +1,5 @@
-import { NextResponse } from "next/server";
+import { NextResponse, after } from "next/server";
+import { sortOpenActions } from "@/lib/workstreams/sort-actions";
 import { overlayWorkstreams } from "@/lib/workstreams/classify";
 import { actionSubject } from "@/lib/workstreams/attach";
 import {
@@ -22,6 +23,12 @@ export async function GET(req: Request) {
   // Workstreams are attached on read (lib/workstreams): the user's choices,
   // their rules and stored verdicts. No classifier call here.
   const actions = await overlayWorkstreams(username, listed, actionSubject).catch(() => listed);
+  // Open commitments with no workstream yet: file them in the background, so
+  // the next read shows them sorted (lib/workstreams/sort-actions).
+  if (actions.some((a) => a.status !== "done" && !a.workstream && a.workstreamBy === undefined)) {
+    after(() => sortOpenActions(username).then(() => undefined, (e) =>
+      console.warn("[actions] background sort failed:", e instanceof Error ? e.message : e)));
+  }
   return NextResponse.json({ actions });
 }
 
