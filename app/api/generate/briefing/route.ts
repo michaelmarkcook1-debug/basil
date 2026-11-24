@@ -45,6 +45,8 @@ import { getZoomSummariesFromGmail } from "@/lib/google/zoom-summaries";
 import type { ZoomSummary } from "@/lib/google/zoom-summaries";
 import { getReadSummariesFromGmail } from "@/lib/google/read-summaries";
 import type { ReadSummary } from "@/lib/google/read-summaries";
+import { readBriefingHistory, recordBriefingDay } from "@/lib/briefing/history-store";
+import { recurringBlock, recurringItems } from "@/lib/briefing/history";
 import { listMemories, rankForPrompt } from "@/lib/memory/store";
 import type { Memory } from "@/lib/memory/types";
 import { getAllOverridesFromStore } from "@/lib/contacts/overrides-store";
@@ -852,11 +854,16 @@ ${firstName} was away from ${shortDay(returning.start)} to ${shortDay(returning.
 The sources reach back to ${shortDay(sinceDay)}, the last working day, so include anything that arrived over the weekend or bank holiday.
 `
       : "";
+  // What keeps coming back, briefing after briefing (lib/briefing/history).
+  const recurringText = briefingType === "meeting" ? "" : recurringBlock(
+    recurringItems(await readBriefingHistory(username), todayDate), firstName,
+  );
   const promptText = `Generate ${firstName}'s ${briefingType} briefing for ${today}.
 Goal: 3-minute executive read. Not a log — intelligence. Tell ${firstName} what to do today, who to respond to, what to watch, and what to prepare for.
 
 ${BRIEFING_TYPE_FRAMING[briefingType]}
-${catchUpBlock}
+${catchUpBlock}${recurringText ? `${recurringText}
+` : ""}
 ---
 
 ${sourceStatusBlock}
@@ -1111,6 +1118,8 @@ Return ONLY valid JSON, no markdown code fences:
         inputHash,
         ttlMs: BRIEFING_TTL_MS,
       });
+      // The morning briefing's items join the history the next one reads.
+      if (briefingType === "morning") await recordBriefingDay(username, todayDate, briefingData);
     } catch (e) {
       console.warn("[briefing] Failed to cache briefing:", e instanceof Error ? e.message : e);
     }
