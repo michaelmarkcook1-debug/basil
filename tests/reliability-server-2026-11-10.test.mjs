@@ -215,6 +215,8 @@ function chatRoute({ streamText, buildTools = () => ({}) }) {
   const settled = [];
   const route = loadTs("app/api/chat/route.ts", {
     "@/lib/ai/injection-guard": loadTs("lib/ai/injection-guard.ts"),
+    "@/lib/people/directory-store": { getPeopleIndexSafe: async () => ({ people: [] }) },
+    "@/lib/people/carry-over": loadTs("lib/people/carry-over.ts"),
     "@/lib/trust/ledger": { getDelegations: async () => new Set(), recordApprovalResponses: async () => 0, recordDelegatedRuns: async () => 0 },
     ai: { ...ai, streamText },
     "@/lib/ai/model-config": { getChatModel: () => "mock-model", MAX_TOKENS: { default: 1 }, PROVIDER_MODE: "openai_direct" },

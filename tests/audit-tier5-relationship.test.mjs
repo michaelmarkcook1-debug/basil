@@ -322,6 +322,8 @@ test("chat route: decisions are harvested, delegations reach the tools, the turn
   const calls = { harvested: 0, delegatedSeen: null, focus: null };
   const route = loadTs("app/api/chat/route.ts", {
     "@/lib/ai/injection-guard": loadTs("lib/ai/injection-guard.ts"),
+    "@/lib/people/directory-store": { getPeopleIndexSafe: async () => ({ people: [] }) },
+    "@/lib/people/carry-over": loadTs("lib/people/carry-over.ts"),
     ai: { ...ai, streamText: () => ({ toUIMessageStreamResponse: () => new Response("ok"), consumeStream: async () => {} }) },
     "@/lib/ai/model-config": { getChatModel: () => "mock-model", MAX_TOKENS: { default: 1 }, PROVIDER_MODE: "openai_direct" },
     "@/lib/ai/system-prompt": { getChatPromptParts: async (_u, _tz, focus) => { calls.focus = focus; return { instructions: "sys", turnContext: "ctx" }; } },

@@ -8,8 +8,8 @@ import { getTaskSystemPrompt } from "@/lib/ai/system-prompt";
 import { parseAndValidate } from "@/lib/ai/parse-json";
 import { DigestOutputSchema } from "@/lib/ai/schemas";
 import { getSettings } from "@/lib/settings/store";
-import { getEventsForMonth } from "@/lib/google/calendar";
-import { getRecentEmails, getSentEmails } from "@/lib/google/gmail";
+import { readCalendar } from "@/lib/calendar/unified";
+import { recentInbox, recentSent } from "@/lib/mail/unified";
 import { fromSentEmail, fromOwnSlackMessage, formatOutboundBlock } from "@/lib/briefing/outbound-evidence";
 import { getRecentSlackMessages } from "@/lib/slack/client";
 import { getZoomSummariesFromGmail } from "@/lib/google/zoom-summaries";
@@ -202,31 +202,14 @@ export async function POST() {
     overridesResult,
     contactsResult,
   ] = await Promise.all([
+    // Every connected calendar (Google and Outlook, merged) for the 15 days
+    // around today; Google only until 2026-11-24.
     (async (): Promise<CalendarEvent[]> => {
       try {
-        const currentYear = now.getFullYear();
-        const currentMonth = now.getMonth();
-        const currentMonthEvents = await getEventsForMonth(username, currentYear, currentMonth);
-
-        let prevMonthEvents: CalendarEvent[] = [];
-        if (sevenDaysAgo.getMonth() !== currentMonth) {
-          prevMonthEvents = await getEventsForMonth(
-            username,
-            sevenDaysAgo.getFullYear(),
-            sevenDaysAgo.getMonth()
-          );
-        }
-
-        let nextMonthEvents: CalendarEvent[] = [];
-        if (sevenDaysAhead.getMonth() !== currentMonth) {
-          nextMonthEvents = await getEventsForMonth(
-            username,
-            sevenDaysAhead.getFullYear(),
-            sevenDaysAhead.getMonth()
-          );
-        }
-
-        return [...prevMonthEvents, ...currentMonthEvents, ...nextMonthEvents];
+        const day = (d: Date) => d.toLocaleDateString("en-CA", { timeZone: tz });
+        const cal = await readCalendar(username, { from: day(sevenDaysAgo), to: day(sevenDaysAhead) }, tz);
+        for (const d of cal.degraded) console.warn(`[digest] ${d.provider} calendar unreadable:`, d.error);
+        return cal.events;
       } catch (e) {
         console.error("Failed to fetch calendar events:", e);
         return [];
@@ -235,8 +218,9 @@ export async function POST() {
 
     (async (): Promise<GmailMessage[]> => {
       try {
-        // 7 days, as the prompt says (it read Gmail's 2-day default until 2026-11-24).
-        return await getRecentEmails(username, 50, 7);
+        // 7 days, as the prompt says (it read Gmail's 2-day default until
+        // 2026-11-24); Gmail and Outlook merged.
+        return (await recentInbox(username, 50, 7))?.messages ?? [];
       } catch (e) {
         console.error("Failed to fetch emails:", e);
         return [];
@@ -258,7 +242,7 @@ export async function POST() {
     // BLOCKERS. 14 days: the weekly brief looks back further than the daily one.
     (async (): Promise<GmailMessage[]> => {
       try {
-        return await getSentEmails(username, 30, 14);
+        return (await recentSent(username, 30, 14))?.messages ?? [];
       } catch (e) {
         console.error("Failed to fetch sent emails:", e);
         return [];

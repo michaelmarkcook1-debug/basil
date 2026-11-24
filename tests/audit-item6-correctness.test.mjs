@@ -20,7 +20,7 @@ test("briefing headers name the window each source really reads", () => {
 
 test("digest reads the 7 days of email its prompt says it covers", () => {
   const d = read("app/api/generate/digest/route.ts");
-  assert.match(d, /getRecentEmails\(username, 50, 7\)/);
+  assert.match(d, /recentInbox\(username, 50, 7\)/);
   assert.doesNotMatch(d, /getRecentEmails\(username, 30\)\s*;/);
   assert.match(d, /RECENT EMAILS \(last 7 days\)/);
 });
@@ -43,4 +43,57 @@ test("whoIs returns the saved contact profile when the person is on the Contacts
   const t = read("lib/ai/tools.ts");
   assert.match(t, /getOverrideFromStore\(username, hit\.contactId!\)/);
   assert.match(t, /return \{ person: hit, \.\.\.\(savedProfile \? \{ savedProfile \} : \{\}\) \}/);
+});
+
+// Part 3 entry 8: Microsoft parity.
+test("briefing, meeting prep and digest read every connected calendar and mailbox", () => {
+  const b = read("app/api/generate/briefing/route.ts");
+  assert.match(b, /readCalendar\(username, \{ days: 1 \}, tz\)/);
+  assert.match(b, /recentInbox\(username/);
+  assert.match(b, /recentSent\(username/);
+  assert.doesNotMatch(b, /getTodayEvents\(|getRecentEmails\(|getSentEmails\(/);
+  const m = read("app/api/generate/meeting-prep/route.ts");
+  assert.match(m, /recentInbox\(username, 50, MEETING_PREP_EMAIL_DAYS\)/);
+  assert.match(m, /recentSent\(username, 30, MEETING_PREP_EMAIL_DAYS\)/);
+  assert.match(m, /readCalendar\(username, \{ days: 1 \}\)/);
+  assert.match(m, /YOU SENT to/);
+  const d = read("app/api/generate/digest/route.ts");
+  assert.match(d, /readCalendar\(username, \{ from: day\(sevenDaysAgo\), to: day\(sevenDaysAhead\) \}, tz\)/);
+  assert.doesNotMatch(d, /getEventsForMonth|getRecentEmails\(|getSentEmails\(/);
+  const u = read("lib/mail/unified.ts");
+  assert.match(u, /folder: "inbox" \| "sent"/);
+  assert.match(u, /id: `outlook:\$\{m\.id\}`/);
+  assert.match(u, /No mailbox could be read/);
+  assert.match(read("lib/microsoft/outlook-mail.ts"), /\/me\/mailFolders\/sentitems\/messages/);
+});
+
+// Part 3 entry 9: chat remembers who the conversation is about.
+import { loadTs } from "./_helpers/load-ts.mjs";
+const C = loadTs("lib/people/carry-over.ts");
+const person = (name, names = [name]) => ({ id: `name:${name.toLowerCase()}`, name, names, emails: [], phones: [], slackIds: [], pipedrivePersonIds: [], sources: [] });
+const people = [person("Jane Doe", ["Jane Doe", "Jane"]), person("Tom Smith"), person("Olivia Price")];
+
+test("carry-over: a follow-up that names nobody inherits the people from earlier turns", () => {
+  assert.deepEqual([...C.carryOverPeople("what does she want?", ["Jane Doe wants the pricing by Friday", "what's going on with Jane Doe?"], people)], ["Jane Doe"]);
+});
+
+test("carry-over: a message that names someone new does not inherit", () => {
+  assert.deepEqual([...C.carryOverPeople("what about Tom Smith?", ["Jane Doe wants pricing"], people)], []);
+});
+
+test("carry-over: first names and words inside other words never match", () => {
+  assert.deepEqual([...C.fullNamesIn("Jane said yes", people)], []);
+  assert.deepEqual([...C.fullNamesIn("tomsmith@x.com", people)], []);
+  assert.deepEqual([...C.fullNamesIn("Olivia Price and Tom Smith", people)], ["Tom Smith", "Olivia Price"]);
+});
+
+test("carry-over: newest turn first, at most three people", () => {
+  const many = [...people, person("Ann Lee"), person("Raj Patel")];
+  assert.deepEqual([...C.carryOverPeople("and her?", ["Ann Lee and Raj Patel", "Jane Doe, Tom Smith"], many)], ["Raj Patel", "Ann Lee", "Tom Smith"]);
+});
+
+test("chat passes carried people as memory focus entities", () => {
+  const r = read("app/api/chat/route.ts");
+  assert.match(r, /carryOverPeople\(focusText, earlier, ix\.people\)/);
+  assert.match(r, /entities: carried/);
 });

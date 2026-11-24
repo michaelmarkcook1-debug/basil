@@ -13,6 +13,8 @@
  */
 export const maxDuration = 300;
 
+import { getPeopleIndexSafe } from "@/lib/people/directory-store";
+import { carryOverPeople } from "@/lib/people/carry-over";
 import {
   streamText,
   UIMessage,
@@ -173,7 +175,18 @@ export async function POST(req: Request) {
       .map((p) => p.text).join(" ");
     // Instructions go in a cached system block; the clock, memories and people
     // for THIS message ride on the latest message so the cached prefix survives.
-    const { instructions, turnContext } = await getChatPromptParts(username, timezone, { text: focusText });
+    // People named in the last few turns carry into a message that names
+    // nobody ("what does she want?") — lib/people/carry-over.
+    const textOf = (m: (typeof messages)[number]) => (m.parts ?? [])
+      .filter((p): p is { type: "text"; text: string } => p.type === "text" && typeof (p as { text?: unknown }).text === "string")
+      .map((p) => p.text).join(" ");
+    const earlier = messages.slice(0, lastUser ? messages.lastIndexOf(lastUser) : messages.length).slice(-6).reverse().map(textOf);
+    const carried = earlier.length
+      ? await getPeopleIndexSafe(username)
+        .then((ix) => carryOverPeople(focusText, earlier, ix.people))
+        .catch((e) => { console.warn("[api/chat] carry-over skipped:", e instanceof Error ? e.message : e); return [] as string[]; })
+      : [];
+    const { instructions, turnContext } = await getChatPromptParts(username, timezone, { text: focusText, ...(carried.length ? { entities: carried } : {}) });
     system        = cachedSystem(instructions);
     modelMessages = withTurnContext(modelMessages, turnContext);
   } catch (err) {

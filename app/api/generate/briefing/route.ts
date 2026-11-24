@@ -24,8 +24,10 @@ import { getTaskSystemPrompt } from "@/lib/ai/system-prompt";
 import { parseAndValidate } from "@/lib/ai/parse-json";
 import { BriefingOutputSchema } from "@/lib/ai/schemas";
 import { getSettings } from "@/lib/settings/store";
-import { getTodayEvents, type CalendarEvent } from "@/lib/google/calendar";
-import { getRecentEmails, getSentEmails, type GmailMessage } from "@/lib/google/gmail";
+import { type CalendarEvent } from "@/lib/google/calendar";
+import { readCalendar } from "@/lib/calendar/unified";
+import { recentInbox, recentSent } from "@/lib/mail/unified";
+import { type GmailMessage } from "@/lib/google/gmail";
 import { fromSentEmail, fromOwnSlackMessage, formatOutboundBlock } from "@/lib/briefing/outbound-evidence";
 import {
   getRecentSlackMessages,
@@ -322,13 +324,19 @@ export async function POST(req: Request) {
     contactsResult,
     pipedriveResult,
   ] = await Promise.all([
-    getTodayEvents(username, tz).catch((err) => {
+    // Every connected calendar — Google and Outlook, merged and de-duplicated
+    // (Google only until 2026-11-24). null = no calendar could be read.
+    readCalendar(username, { days: 1 }, tz).then((c) => {
+      for (const d of c.degraded) console.warn(`[briefing] ${d.provider} calendar unreadable:`, d.error);
+      return c.providers.length ? c.events : null;
+    }).catch((err) => {
       console.error("Calendar fetch failed:", err instanceof Error ? err.message : String(err));
       return null;
     }),
     // 20 emails gives enough signal to split unread / read meaningfully; more
     // after a weekend or an absence, so the gap is not cut at the newest 20.
-    getRecentEmails(username, gapDays > 2 ? Math.min(60, 10 * gapDays) : 20, gapDays).catch((err) => {
+    // Gmail and Outlook inboxes merged (lib/mail/unified).
+    recentInbox(username, gapDays > 2 ? Math.min(60, 10 * gapDays) : 20, gapDays).then((m) => m?.messages ?? null).catch((err) => {
       console.error("Email fetch failed:", err);
       return null;
     }),
@@ -341,7 +349,7 @@ export async function POST(req: Request) {
     // source. Without this the brief cannot see the user solving anything by
     // email and reports settled work as blocked. 7 days so a blocker raised
     // last week can still be matched to the reply that closed it.
-    getSentEmails(username, gapDays > 7 ? 40 : 25, Math.max(7, gapDays)).catch((err) => {
+    recentSent(username, gapDays > 7 ? 40 : 25, Math.max(7, gapDays)).then((m) => m?.messages ?? null).catch((err) => {
       console.error("Sent-mail fetch failed:", err);
       return null;
     }),
@@ -394,7 +402,7 @@ export async function POST(req: Request) {
   // ── Calendar ─────────────────────────────────────────────────────────────
   const calendarBlock =
     calendarResult === null
-      ? "Google Calendar not connected."
+      ? "No calendar connected (or none could be read)."
       : formatCalendarBlock(calendarResult, tz);
 
   // ── Emails — unread (full snippet) vs recently-read ──────────────────────
@@ -404,7 +412,7 @@ export async function POST(req: Request) {
 
   const emailBlock =
     emailResult === null
-      ? "Gmail not connected."
+      ? "No mailbox connected (or none could be read)."
       : emails.length === 0
         ? "Inbox is quiet — no recent emails."
         : [

@@ -13,7 +13,7 @@ import { getAllOverridesFromStore } from "@/lib/contacts/overrides-store";
 import type { Contact } from "@/lib/contacts-data";
 import { parseAndValidate } from "@/lib/ai/parse-json";
 import { MeetingPrepOutputSchema } from "@/lib/ai/schemas";
-import { getRecentEmails } from "@/lib/google/gmail";
+import { recentInbox, recentSent } from "@/lib/mail/unified";
 
 // ── Context window constants ───────────────────────────────────────────────────
 /**
@@ -29,7 +29,7 @@ const MEETING_PREP_EMAIL_DAYS = 7;
  */
 const CARRY_IN_HOURS = 24;
 import { getRecentSlackMessages, searchSlackMessages } from "@/lib/slack/client";
-import { getTodayEvents } from "@/lib/google/calendar";
+import { readCalendar } from "@/lib/calendar/unified";
 import { getZoomSummaries, filterByAttendees } from "@/lib/google/zoom-summaries";
 import { getTeamsMeetings, filterTeamsMeetingsByAttendees } from "@/lib/microsoft/teams";
 import { listDecisions } from "@/lib/decisions/store";
@@ -215,16 +215,23 @@ export async function POST(req: Request) {
   // Fetch emails + Slack (recent + targeted search) + today's calendar + Zoom
   // summaries + decisions in parallel. Targeted search is critical — relying
   // only on the last 60 recent messages buries any conversation older than a day.
-  const [emails, slackMessages, todaysCal, zoomSummariesAll, teamsMeetingsAll, perAttendeeSlack, allDecisions, allActions, perAttendeeMemories, allMemories] = await Promise.all([
-    getRecentEmails(username, 50, MEETING_PREP_EMAIL_DAYS).catch((err) => {
+  const [emails, sentEmails, slackMessages, todaysCal, zoomSummariesAll, teamsMeetingsAll, perAttendeeSlack, allDecisions, allActions, perAttendeeMemories, allMemories] = await Promise.all([
+    // Gmail and Outlook inboxes merged (Gmail only until 2026-11-24).
+    recentInbox(username, 50, MEETING_PREP_EMAIL_DAYS).then((m) => m?.messages ?? []).catch((err) => {
       console.error("Failed to fetch emails for meeting prep:", err);
+      return [];
+    }),
+    // What the user last sent the attendees — the other half of the thread.
+    recentSent(username, 30, MEETING_PREP_EMAIL_DAYS).then((m) => m?.messages ?? []).catch((err) => {
+      console.error("Failed to fetch sent mail for meeting prep:", err);
       return [];
     }),
     getRecentSlackMessages(username, 60).catch((err) => {
       console.error("Failed to fetch Slack messages for meeting prep:", err);
       return [];
     }),
-    getTodayEvents(username).catch((err) => {
+    // Every connected calendar (Google and Outlook).
+    readCalendar(username, { days: 1 }).then((c) => c.events).catch((err) => {
       console.error("Failed to fetch today's calendar:", err);
       return [];
     }),
@@ -342,12 +349,16 @@ export async function POST(req: Request) {
     .slice(0, 25);
 
   // Format email context
-  const emailContext = relevantEmails.length > 0
-    ? relevantEmails
-        .slice(0, 10)
-        .map((e) => `- [${e.date}] From ${e.from}: "${e.subject}" — ${redactSensitive(e.snippet).text}`)
-        .join("\n")
-    : null;
+  // Mail the user sent to an attendee (by address).
+  const attendeeAddrs = attendeeIds.emails.map((e) => e.toLowerCase());
+  const sentToAttendees = attendeeAddrs.length
+    ? sentEmails.filter((e) => { const to = `${e.to} ${e.cc ?? ""}`.toLowerCase(); return attendeeAddrs.some((a) => to.includes(a)); })
+    : [];
+  const emailLines = [
+    ...relevantEmails.slice(0, 10).map((e) => ({ date: e.date, line: `- [${e.date}] From ${e.from}: "${e.subject}" — ${redactSensitive(e.snippet).text}` })),
+    ...sentToAttendees.slice(0, 6).map((e) => ({ date: e.date, line: `- [${e.date}] YOU SENT to ${e.to}: "${e.subject}" — ${redactSensitive(e.snippet).text}` })),
+  ].sort((a, b) => (Date.parse(b.date) || 0) - (Date.parse(a.date) || 0));
+  const emailContext = emailLines.length > 0 ? emailLines.map((x) => x.line).join("\n") : null;
 
   // Format Slack context
   const slackContext = relevantSlack.length > 0

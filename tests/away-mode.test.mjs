@@ -246,7 +246,7 @@ test("no briefing is written or emailed on a leave day or a day off; it is on a 
 test("the briefing reads back to the last working day, and the first day back is a catch-up", () => {
   const b = src("app/api/generate/briefing/route.ts");
   assert.match(b, /const gapDays = sinceDay \? Math\.min\(21, Math\.max\(2, daysBetween\(sinceDay, todayDate\)\)\) : 2;/);
-  assert.match(b, /getRecentEmails\(username, gapDays > 2 \? Math\.min\(60, 10 \* gapDays\) : 20, gapDays\)/);
+  assert.match(b, /recentInbox\(username, gapDays > 2 \? Math\.min\(60, 10 \* gapDays\) : 20, gapDays\)/);
   assert.match(b, /## WELCOME BACK/);
   assert.match(b, /Commitments that fell due during the absence are not failures/);
   assert.match(b, /\$\{catchUpBlock\}/);

@@ -133,12 +133,13 @@ export async function searchOutlookMessages(
 /**
  * Search Outlook mail. Null when Microsoft is not connected; THROWS on a Graph
  * error so a failed search is never reported as "no messages".
- * `folder: "all"` searches every folder (like Gmail search), "inbox" the inbox.
+ * `folder: "all"` searches every folder (like Gmail search), "inbox" the inbox,
+ * "sent" the Sent Items folder.
  */
 export async function queryOutlookMessages(
   username: string,
   query: string | undefined,
-  opts: { maxResults?: number; maxAgeDays?: number; folder?: "inbox" | "all" } = {},
+  opts: { maxResults?: number; maxAgeDays?: number; folder?: "inbox" | "all" | "sent" } = {},
 ): Promise<OutlookMessage[] | null> {
   const params = new URLSearchParams({
     $top:     String(opts.maxResults ?? 10),
@@ -155,7 +156,7 @@ export async function queryOutlookMessages(
     params.set("$filter", `receivedDateTime ge '${toGraphDateFilter(effectiveDays)}'`);
   }
 
-  const base = opts.folder === "all" ? "/me/messages" : "/me/mailFolders/inbox/messages";
+  const base = opts.folder === "all" ? "/me/messages" : opts.folder === "sent" ? "/me/mailFolders/sentitems/messages" : "/me/mailFolders/inbox/messages";
   const data = await graphGet<GraphListResponse<GraphMessage>>(username, `${base}?${params}`);
   if (!data) return null;
   return (data.value || []).map(mapMessage);

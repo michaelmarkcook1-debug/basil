@@ -41,7 +41,7 @@ test("sent mail is reachable, and kept separate from the inbox feed", () => {
 });
 
 test("the digest reads outbound evidence and is told not to mine it for work", () => {
-  assert.ok(/getSentEmails\(username/.test(digest), "digest must fetch sent mail");
+  assert.ok(/recentSent\(username/.test(digest), "digest must fetch sent mail (Gmail and Outlook, lib/mail/unified)");
   assert.ok(/fromSelf/.test(digest), "digest must include the user's OWN Slack messages");
   assert.ok(/WHAT \$\{who\.toUpperCase\(\)\} ALREADY DID/.test(digest), "the block must be present in the prompt");
   assert.ok(/NOT a source of new actions/.test(digest),
