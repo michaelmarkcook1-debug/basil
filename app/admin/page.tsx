@@ -18,6 +18,7 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { cn } from "@/lib/utils";
+import { ConnectionsCard } from "@/components/admin/connections-card";
 
 interface AdminUser {
   id: string;
@@ -289,6 +290,8 @@ export default function AdminPage() {
         </div>
 
         <InviteCard onInvited={() => void load()} />
+
+        <ConnectionsCard />
 
         {/* Users list */}
         <Card className="shadow-sm">
