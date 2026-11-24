@@ -5,8 +5,10 @@
  * CRON_SECRET authentication.  Runs after poll-ingest + reprocess so the
  * briefing has fresh, classified signals to work from.
  *
- * Schedule (vercel.json):
- *   0 6 * * *  — 6:15am UTC (7:15am BST) daily
+ * Schedule (vercel.json): hourly at :25. Each user's briefing is written at
+ * their own local morning — an hour before their working day starts — with
+ * two hourly retries, once a day (lib/briefing/schedule.ts). Until 2026-11-24
+ * it ran once at 06:15 UTC for everyone, whatever their time zone.
  *
  * This endpoint simply POSTs to /api/generate/briefing on behalf of each
  * user via an internal loopback call.  Briefing generation requires a full
@@ -25,7 +27,10 @@ import type { Briefing } from "@/lib/types/briefing";
 import { getWorkCalendar } from "@/lib/away/store";
 import { awayStatus, dayIn } from "@/lib/away/calendar";
 import { notifyUser } from "@/lib/notify";
-import { briefingTeaser } from "@/lib/notify/rules";
+import { briefingTeaser, hourIn } from "@/lib/notify/rules";
+import { getSettings } from "@/lib/settings/store";
+import { readGenerateCache } from "@/lib/generate-cache/store";
+import { alreadyWrittenToday, briefingDueNow } from "@/lib/briefing/schedule";
 
 export const dynamic = "force-dynamic";
 
@@ -47,6 +52,7 @@ export async function GET(req: Request) {
   }
 
   const host = selfOrigin();
+  const forceNow = new URL(req.url).searchParams.get("now") === "1";
 
   const users = await getUsers();
   const results: Record<string, unknown> = {};
@@ -61,7 +67,25 @@ export async function GET(req: Request) {
       // Paywall: only generate daily briefings for users whose plan includes
       // them (Pro / trial / admin). Free users are skipped — no unattended spend.
       if (!(await hasFeature(user.username, "briefings"))) {
-        results[user.username] = { ok: false, skipped: "not-entitled" };
+        results[user.username] = { ok: true, skipped: "not-entitled" };
+        continue;
+      }
+
+      // Their local morning only, and once a day. ?now=1 (manual trigger)
+      // writes it regardless of the hour.
+      const settings = await getSettings(user.username);
+      const tz = settings.timezone || "Europe/London";
+      const localHour = hourIn(Date.now(), tz);
+      if (!forceNow && !briefingDueNow(localHour, settings.workStart)) {
+        results[user.username] = { ok: true, skipped: "not-their-morning", localHour };
+        continue;
+      }
+      const existing = await readGenerateCache<Briefing>(user.username, "briefing-morning").catch((e) => {
+        console.warn(`[cron/generate-briefing] ${user.username}: cached briefing unreadable, writing a new one:`, e instanceof Error ? e.message : e);
+        return null;
+      });
+      if (!forceNow && alreadyWrittenToday(existing?.generatedAt, dayIn(Date.now(), tz), tz)) {
+        results[user.username] = { ok: true, skipped: "already-written-today" };
         continue;
       }
 

@@ -194,7 +194,7 @@ test("the calendar is read at most hourly, and a failed read keeps the last good
 
 // ── The briefing ────────────────────────────────────────────────────────────
 
-function cron({ calendar, calendarFails = false, disabled = false } = {}) {
+function cron({ calendar, calendarFails = false, disabled = false, due = true, written = false } = {}) {
   const calls = [];
   const R = loadTs("app/api/cron/generate-briefing/route.ts", {
     "next/server": nextServer,
@@ -208,6 +208,9 @@ function cron({ calendar, calendarFails = false, disabled = false } = {}) {
     "@/lib/away/calendar": C,
     "@/lib/notify": { notifyUser: async () => ({ pushed: 1, emailed: false }) },
     "@/lib/notify/rules": loadTs("lib/notify/rules.ts", { "@/lib/actions/utils": loadTs("lib/actions/utils.ts", {}) }),
+    "@/lib/settings/store": { getSettings: async () => ({ timezone: "Europe/London", workStart: "09:00" }) },
+    "@/lib/generate-cache/store": { readGenerateCache: async () => (written ? { generatedAt: new Date().toISOString() } : null) },
+    "@/lib/briefing/schedule": { briefingDueNow: () => due, alreadyWrittenToday: () => written },
   }, { CRON_SECRET: "s" }, {
     fetch: async (url) => { calls.push(String(url)); return new Response(JSON.stringify({ generatedAt: "now" }), { status: 200 }); },
   });
@@ -338,4 +341,38 @@ test("an admin can reset one person's AI spend for today; the spend log is untou
   const route = src("app/api/admin/ai-spend/route.ts");
   assert.match(route, /if \(!isAdminUser\(admin\)\) return NextResponse\.json\(\{ error: "Forbidden" \}, \{ status: 403 \}\);/);
   assert.match(src("app/admin/page.tsx"), /action: "reset-today", username: user\.username/);
+});
+
+// Audit 2026-11-24, Part 3 entry 11: the briefing at the user's local morning.
+const S = loadTs("lib/briefing/schedule.ts", { "@/lib/notify/rules": loadTs("lib/notify/rules.ts", { "@/lib/actions/utils": loadTs("lib/actions/utils.ts", {}) }) });
+
+test("briefing hour: an hour before work starts, never before 05:00, two hourly retries", () => {
+  assert.equal(S.briefingHour("09:00"), 8);
+  assert.equal(S.briefingHour("05:30"), 5);
+  assert.equal(S.briefingHour(undefined), 8);
+  assert.equal(S.briefingDueNow(7, "09:00"), false);
+  assert.equal(S.briefingDueNow(8, "09:00"), true);
+  assert.equal(S.briefingDueNow(10, "09:00"), true);
+  assert.equal(S.briefingDueNow(11, "09:00"), false);
+});
+
+test("already written today is judged on the user's local day", () => {
+  assert.equal(S.alreadyWrittenToday("2026-11-24T07:05:00Z", "2026-11-24", "Europe/London"), true);
+  assert.equal(S.alreadyWrittenToday("2026-11-23T23:30:00Z", "2026-11-24", "Europe/London"), false);
+  // 23:30 UTC on the 23rd is already the 24th in Sydney.
+  assert.equal(S.alreadyWrittenToday("2026-11-23T23:30:00Z", "2026-11-24", "Australia/Sydney"), true);
+  assert.equal(S.alreadyWrittenToday(undefined, "2026-11-24", "Europe/London"), false);
+});
+
+test("the hourly cron writes nothing outside the user's morning, or twice in a day", async () => {
+  const working = cal({ workingDays: [0, 1, 2, 3, 4, 5, 6], holidayRegion: "none" });
+  const early = cron({ calendar: working, due: false });
+  const r1 = await early.run();
+  assert.equal(early.calls.length, 0);
+  assert.equal(r1.body.results.michael.skipped, "not-their-morning");
+  const again = cron({ calendar: working, written: true });
+  const r2 = await again.run();
+  assert.equal(again.calls.length, 0);
+  assert.equal(r2.body.results.michael.skipped, "already-written-today");
+  assert.match(fs.readFileSync(new URL("../vercel.json", import.meta.url), "utf8"), /"path": "\/api\/cron\/generate-briefing",\s+"schedule": "25 \* \* \* \*"/);
 });
