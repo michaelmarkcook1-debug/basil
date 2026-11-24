@@ -144,7 +144,7 @@ test("the generator splits who wrote what by identity and finishes the profile i
   assert.match(r, /ownerNotes = override\?\.ownerNotes/);
   assert.match(r, /settings\.toneSentiment !== false/, "tone & sentiment off → no message data is read");
   assert.match(r, /getUserProfile\(username, email\)/, "Slack identity from their email");
-  assert.match(r, /m\.authorId === slackId/);
+  assert.match(r, /slackIds\.has\(m\.authorId\)/, "authorship by Slack ID — every ID the person has (lib/people)");
   assert.match(r, /schema: ContactProfileClaimsSchema/);
   assert.match(r, /finalizeClaims\(parsed, items, checks\)/);
   assert.match(src("lib/slack/client.ts"), /authorId: msg\.user/);

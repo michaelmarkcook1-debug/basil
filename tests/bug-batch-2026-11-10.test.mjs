@@ -434,6 +434,8 @@ test("9. the profile is generated for the given user directly, metered as contac
     "@/lib/contacts/profile-prompt": { buildProfilePrompt: () => "PROMPT", signalCount: () => 0, habitLines: () => [], personMatcher: () => ({ sentEmail: () => false, authored: () => false, mentions: () => false }) },
     "@/lib/ai/system-prompt": { getTaskSystemPrompt: async () => "sys" },
     "@/lib/ai/schemas": { ContactProfileClaimsSchema: {} },
+    "@/lib/people/directory-store": { getPeopleIndexSafe: async () => ({ people: [], byEmail: new Map(), bySlack: new Map(), byPhone: new Map(), byFullName: new Map(), byBareName: new Map() }) },
+    "@/lib/people/directory": loadTs("lib/people/directory.ts"),
   }));
   const draft = await G.generateContactProfile("guy", { name: "Ed Baum", notes: "Runs finance; prefers numbers." });
   assert.deepEqual(plain(calls[0].meter), { username: "guy", feature: "contact-profile" });

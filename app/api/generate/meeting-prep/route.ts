@@ -51,6 +51,8 @@ import { objectionsIn, personaOf } from "@/lib/pipedrive/collateral";
 import { meetingPlaybook, type AttendeeRead } from "@/lib/psychology/playbook";
 import { meetingHistoryWith } from "@/lib/meetings/history-store";
 import { historyBlock } from "@/lib/meetings/history";
+import { getPeopleIndexSafe } from "@/lib/people/directory-store";
+import { findPerson, fullNameKey, identifiersFor, isFrom, type Person } from "@/lib/people/directory";
 import { chatsAbout } from "@/lib/ai-chats/search";
 import {
   readGenerateCache,
@@ -139,7 +141,23 @@ export async function POST(req: Request) {
   ]);
 
   // The user isn't an attendee of their own meeting — strip them everywhere.
-  const attendeeNames = stripSelf(attendees as string[], selfIdentity);
+  // One identity per person (lib/people): an attendee who arrives as a bare
+  // address is shown and searched by their name, and every name, address and
+  // Slack ID they go by is used to find their emails, messages and meetings.
+  const peopleIx = await getPeopleIndexSafe(username);
+  const rawAttendeeNames = stripSelf(attendees as string[], selfIdentity);
+  const attendeePeople: Array<Person | null> = rawAttendeeNames.map((n) => findPerson(peopleIx, n));
+  const attendeeNames = rawAttendeeNames.map((n, i) => (n.includes("@") && attendeePeople[i]?.name && !attendeePeople[i]!.name.includes("@") ? attendeePeople[i]!.name : n));
+  const attendeeIds = identifiersFor(peopleIx, rawAttendeeNames);
+  // Several-word names only when matching other records: a bare Slack handle
+  // or first name ("jane") would claim strangers.
+  const attendeeFullNames = [...new Set([...attendeeNames, ...attendeeIds.names.filter((n) => fullNameKey(n))])];
+  const contactFor = (name: string, i: number): Contact | undefined => {
+    const p = attendeePeople[i];
+    return (p?.contactId ? userContacts.find((c) => c.id === p.contactId) : undefined)
+      ?? findContactByName(name, userContacts)
+      ?? (p ? p.names.map((n) => findContactByName(n, userContacts)).find(Boolean) : undefined);
+  };
   const attendeeNamesLower = attendeeNames.map((n: string) => n.toLowerCase());
 
   // ── Server-side cache check ────────────────────────────────────────────────
@@ -175,8 +193,8 @@ export async function POST(req: Request) {
   }
 
   const attendeeProfiles = attendeeNames
-    .map((name: string) => {
-      const contact = findContactByName(name, userContacts);
+    .map((name: string, i: number) => {
+      const contact = contactFor(name, i);
       if (!contact) return `${name} — no profile on file`;
       // Apply any AI-generated override on top of the base contact record
       const ov = (overrideMap as Record<string, {
@@ -243,9 +261,13 @@ export async function POST(req: Request) {
 
     // Per-attendee memories — relationship context, prior person signals
     Promise.all(
-      attendeeNames.map((name: string) =>
-        getMemoriesForEntity(username, name).catch((): Memory[] => [])
-      )
+      // Under every name the person goes by ("Jane Doe", "Jane D", their Slack name).
+      attendeeNames.map(async (name: string, i: number) => {
+        const names = [...new Set([name, ...(attendeePeople[i]?.names ?? []).slice(0, 3)])];
+        const lists = await Promise.all(names.map((n) => getMemoriesForEntity(username, n).catch((): Memory[] => [])));
+        const seen = new Set<string>();
+        return lists.flat().filter((m) => (seen.has(m.id) ? false : (seen.add(m.id), true)));
+      })
     ),
 
     // All memories — scan for active blockers (last 30 days)
@@ -255,10 +277,13 @@ export async function POST(req: Request) {
     }),
   ]);
 
-  // Filter emails where the sender name matches any attendee
+  // Emails from an attendee: by address or full name for anyone the directory
+  // knows; the loose name match only for attendees it doesn't.
+  const unresolvedLower = attendeeIds.unresolved.map((n) => n.toLowerCase());
   const relevantEmails = emails.filter((email) => {
+    if (attendeeIds.people.length && isFrom(attendeeIds, { email: email.fromEmail, name: email.from })) return true;
     const fromLower = email.from.toLowerCase();
-    return attendeeNamesLower.some(
+    return unresolvedLower.some(
       (name) =>
         fromLower.includes(name) ||
         name.split(" ").some((part) => part.length > 2 && fromLower.includes(part))
@@ -267,6 +292,7 @@ export async function POST(req: Request) {
 
   // Merge recent-feed filter + targeted search. Dedupe by message id.
   const recentSlackFiltered = slackMessages.filter((msg) => {
+    if (msg.authorId && attendeeIds.slackIds.includes(msg.authorId)) return true;
     const authorLower = msg.author.toLowerCase();
     const textLower = msg.text.toLowerCase();
     return attendeeNamesLower.some(
@@ -509,23 +535,25 @@ export async function POST(req: Request) {
 
   // ${who}'s own work conversations with Claude or ChatGPT about these people
   // or their companies (lib/ai-chats) — what they have already thought through.
-  const attendeeCompanies = userContacts
-    .filter((c) => attendeeNamesLower.includes(c.name.toLowerCase()) && c.company)
-    .map((c) => c.company as string);
+  const attendeeCompanies = [...new Set([
+    ...userContacts.filter((c) => attendeeNamesLower.includes(c.name.toLowerCase()) && c.company).map((c) => c.company as string),
+    ...attendeeIds.people.map((p) => p.company).filter((c): c is string => !!c),
+  ])];
   // Pipedrive: the CRM record of the attendees and their companies — deals in
   // every status, notes (including meeting notes), planned and recent activities.
   const attendeeEmails = [
     ...(attendees as string[]).filter((a) => typeof a === "string" && a.includes("@")),
     ...userContacts.filter((c) => attendeeNamesLower.includes(c.name.toLowerCase()) && c.email).map((c) => c.email as string),
+    ...attendeeIds.emails,
   ];
   // The running history with these people: every earlier meeting Basil
   // processed (Zoom, Read AI, Plaud, recordings), kept for good.
-  const pastMeetings = await meetingHistoryWith(username, { names: attendeeNames, emails: attendeeEmails }, 6)
+  const pastMeetings = await meetingHistoryWith(username, { names: attendeeFullNames, emails: attendeeEmails }, 6)
     .catch((e) => { console.warn("[meeting-prep] meeting history unreadable:", e instanceof Error ? e.message : e); return []; });
   const pastMeetingsBlock = historyBlock(pastMeetings, { summaryChars: 700 });
   const pdSnap = await getPipedriveSnapshot(username)
     .catch((e) => { console.warn("[meeting-prep] Pipedrive unreadable:", e instanceof Error ? e.message : e); return null; });
-  const pdQuery = { emails: attendeeEmails, names: [...attendeeNames, ...attendeeCompanies] };
+  const pdQuery = { emails: attendeeEmails, names: [...attendeeFullNames, ...attendeeCompanies], personIds: attendeeIds.people.flatMap((p) => p.pipedrivePersonIds) };
   const pipedriveBlock = pdSnap
     ? pipedriveAccountBlock(pdSnap, pdQuery, new Date().toLocaleDateString("en-CA", { timeZone: tz }), { maxNotes: 10, maxActivities: 8, maxMeetingNotes: 8, meetingNoteChars: 1_200 })
     : "";
@@ -533,7 +561,7 @@ export async function POST(req: Request) {
   // ── How to land it (sales psychology) ──
   // Internal = every attendee is on the user's own domain or marked internal.
   const ownDomains = new Set(selfIdentity.emails.map((e) => e.split("@")[1]).filter(Boolean));
-  const attendeeContacts = attendeeNames.map((n: string) => findContactByName(n, userContacts));
+  const attendeeContacts = attendeeNames.map((n: string, i: number) => contactFor(n, i));
   const internalMeeting = attendeeNames.length > 0 && attendeeNames.every((n: string, i: number) => {
     const c = attendeeContacts[i];
     const email = c?.email ?? (n.includes("@") ? n : "");
@@ -553,7 +581,8 @@ export async function POST(req: Request) {
     const ov = c ? (overrideMap as Record<string, { workingStyle?: Record<string, string>; toneHistory?: Array<{ direction: string }> }>)[c.id] : undefined;
     const ws = ov?.workingStyle ?? {};
     const real = (v?: string) => (v && !/not enough evidence/i.test(v) ? v.slice(0, 220) : undefined);
-    const pdPerson = pdAccounts.persons.find((p) => p.name.toLowerCase() === name.toLowerCase());
+    const pdPerson = pdAccounts.persons.find((p) => attendeePeople[i]?.pipedrivePersonIds.includes(p.id))
+      ?? pdAccounts.persons.find((p) => p.name.toLowerCase() === name.toLowerCase());
     const role = pdPerson?.jobTitle || c?.title || undefined;
     const lastTone = ov?.toneHistory?.at(-1)?.direction as AttendeeRead["tone"];
     return {

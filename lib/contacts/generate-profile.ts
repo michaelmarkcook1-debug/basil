@@ -33,6 +33,8 @@ import { getZoomSummaries, filterByAttendees } from "@/lib/google/zoom-summaries
 import { getWhatsAppSignalForContact } from "@/lib/whatsapp/dump-job";
 import { getStoredPipedriveSnapshot } from "@/lib/pipedrive/client";
 import { meetingHistoryWith } from "@/lib/meetings/history-store";
+import { getPeopleIndexSafe } from "@/lib/people/directory-store";
+import { findPerson, fullNameKey, normEmail } from "@/lib/people/directory";
 import { spokenBy } from "@/lib/meetings/history";
 import { getUploadText } from "@/lib/uploads/store";
 import { profileEvidence as pipedriveEvidence } from "@/lib/pipedrive/context";
@@ -126,6 +128,12 @@ export async function generateContactProfile(username: string, body: ContactProf
     ? contacts.find((c) => c.id === body.contactId)
     : contacts.find((c) => c.name.toLowerCase() === nameLower || (!!email && c.email?.toLowerCase() === email.toLowerCase()));
   const contactId = body.contactId ?? stored?.id;
+  // The same person everywhere (lib/people): every address, Slack ID and
+  // Pipedrive record they have, not just the one on the contact card.
+  const peopleIx = await getPeopleIndexSafe(username);
+  const person = (contactId ? peopleIx.people.find((p) => p.contactId === contactId) : undefined)
+    ?? findPerson(peopleIx, email) ?? findPerson(peopleIx, name) ?? null;
+  const personEmails = [...new Set([email, ...(person?.emails ?? [])].map((e) => normEmail(e)).filter((e): e is string => !!e))];
   // People profiles off, or this person excluded (lib/privacy): no profile.
   await assertProfilingAllowed(username, contactId);
   const override = contactId ? await getOverrideFromStore(username, contactId).catch(() => undefined) : undefined;
@@ -176,14 +184,16 @@ export async function generateContactProfile(username: string, body: ContactProf
 
   // Whole words and exact addresses only (see personMatcher). An auto-added
   // contact is often just "guy": take the full name from their own From header.
-  const fullName = name.trim().includes(" ") || !email ? name.trim() : (fullNameFromHeaders(emailsAll, email) ?? name.trim());
+  const personFull = person?.names.find((n) => fullNameKey(n));
+  const fullName = name.trim().includes(" ") ? name.trim() : (personFull ?? (email ? fullNameFromHeaders(emailsAll, email) : undefined) ?? name.trim());
   const who = personMatcher(fullName, email);
-  const emailSignal = emailsAll.filter((e) => who.sentEmail(e));
+  const fromThem = (e: { from: string; fromEmail?: string }) => who.sentEmail(e) || personEmails.includes(normEmail(e.fromEmail) ?? "");
+  const emailSignal = emailsAll.filter(fromThem);
 
   // Also a targeted Gmail search by name / email — catches things outside the
   // recent window that still matter.
   const targetedEmails = shouldPullWorkSignal
-    ? await searchEmails(username, email ? `from:${email} OR to:${email}` : name, 15).catch(
+    ? await searchEmails(username, personEmails.length ? personEmails.slice(0, 4).map((a) => `from:${a} OR to:${a}`).join(" OR ") : name, 15).catch(
         () => []
       )
     : [];
@@ -199,7 +209,7 @@ export async function generateContactProfile(username: string, body: ContactProf
   // Their direct, non-bulk emails in full: where writing style actually shows.
   // Each with its thread (recommendation 3): what they were answering, and
   // what happened next — a reply means little without the message it answers.
-  const direct = emails.filter((e) => !e.bulk && who.sentEmail(e)).slice(0, MAX_BODIES);
+  const direct = emails.filter((e) => !e.bulk && fromThem(e)).slice(0, MAX_BODIES);
   const emailBodies = (await Promise.all(direct.map(async (e) => {
     try {
       const [b, thread] = await Promise.all([getEmailBody(username, e.id), getThreadState(username, e.id).catch(() => null)]); // ci-ok: no thread → the email alone
@@ -210,9 +220,11 @@ export async function generateContactProfile(username: string, body: ContactProf
 
   // Slack identity: their user id from their email (users.lookupByEmail), so
   // "written by them" is decided by who posted, not by a display name.
-  const slackId = shouldPullWorkSignal && email ? (await getUserProfile(username, email).catch(() => null))?.id : undefined; // ci-ok: no Slack identity → display-name matching
+  const slackIds = new Set(person?.slackIds ?? []);
+  const lookedUp = shouldPullWorkSignal && email && slackIds.size === 0 ? (await getUserProfile(username, email).catch(() => null))?.id : undefined; // ci-ok: no Slack identity → display-name matching
+  if (lookedUp) slackIds.add(lookedUp);
   const slackAuthored = (m: { author: string; authorId?: string }) =>
-    slackId && m.authorId ? m.authorId === slackId : who.authored(m.author);
+    slackIds.size && m.authorId ? slackIds.has(m.authorId) : who.authored(m.author);
 
   // Merge recent Slack + targeted search, dedup by id. Kept: what they wrote,
   // what was said in a 1:1 DM with them (both sides), and messages naming them
@@ -270,7 +282,7 @@ export async function generateContactProfile(username: string, body: ContactProf
   const crm = directory === "work"
     ? await getStoredPipedriveSnapshot(username)
         .then((snap) => {
-          const ev = snap ? pipedriveEvidence(snap, { emails: email ? [email] : [], names: [fullName] }) : [];
+          const ev = snap ? pipedriveEvidence(snap, { emails: personEmails, names: [fullName], personIds: person?.pipedrivePersonIds ?? [] }) : [];
           return Array.isArray(ev) ? ev : [];
         })
         .catch((e) => { console.warn("[contact-profile] Pipedrive unreadable:", e instanceof Error ? e.message : e); return []; })
@@ -279,7 +291,7 @@ export async function generateContactProfile(username: string, body: ContactProf
   // Meetings with them, kept for good (lib/meetings/history) — and, where a
   // transcript has speaker labels (Read AI, Plaud, recordings), their own words.
   const pastMeetingsRaw = directory === "work"
-    ? await meetingHistoryWith(username, { names: [fullName], emails: email ? [email] : [] }, 8)
+    ? await meetingHistoryWith(username, { names: [...new Set([fullName, ...(person?.names ?? []).filter((n) => fullNameKey(n))])], emails: personEmails }, 8)
         .catch((e) => { console.warn("[contact-profile] meeting history unreadable:", e instanceof Error ? e.message : e); return []; })
     : [];
   const pastMeetings = Array.isArray(pastMeetingsRaw) ? pastMeetingsRaw : [];
@@ -303,7 +315,7 @@ export async function generateContactProfile(username: string, body: ContactProf
     ...emailBodies.map((b) => ({ channel: "email", by: "them" as const, setting: b.setting, date: isoDay(b.date), title: b.subject, text: withThread(b, selfFirst) })),
     ...emails.filter((e) => !bodyIds.has(e.id)).slice(0, 22).map((e) => ({
       channel: "email",
-      by: who.sentEmail(e) ? "them" as const : "others" as const,
+      by: fromThem(e) ? "them" as const : "others" as const,
       setting: emailSetting(e),
       date: isoDay(e.date),
       title: e.subject,
@@ -319,13 +331,13 @@ export async function generateContactProfile(username: string, body: ContactProf
   ];
   // Their own messages, setting by setting (recommendation 6).
   const theirMessages = [
-    ...emails.filter((e) => !e.bulk && who.sentEmail(e)).map((e) => ({ setting: emailSetting(e), text: e.snippet })),
+    ...emails.filter((e) => !e.bulk && fromThem(e)).map((e) => ({ setting: emailSetting(e), text: e.snippet })),
     ...slackRecent.filter((m) => slackAuthored(m)).map((m) => ({ setting: slackSetting(m), text: m.text })),
   ];
 
   // Where and when they write — measured from their own messages' timestamps.
   const theirTimes = [
-    ...emailsAll.filter((e) => !e.bulk && who.sentEmail(e)).map((e) => ({ channel: "email", at: e.date })),
+    ...emailsAll.filter((e) => !e.bulk && fromThem(e)).map((e) => ({ channel: "email", at: e.date })),
     ...slackRecent.filter((m) => slackAuthored(m)).map((m) => ({ channel: "slack", at: m.date })),
   ];
   const items = numberEvidence({

@@ -43,6 +43,8 @@ import { collateralFor } from "@/lib/pipedrive/collateral-server";
 import { adviceForQuery } from "@/lib/psychology/followup-advice";
 import { readMeetingHistory } from "@/lib/meetings/history-store";
 import { meetingsWith } from "@/lib/meetings/history";
+import { getPeopleIndexSafe, addPeopleLink } from "@/lib/people/directory-store";
+import { findPerson, fullNameKey, identifiersFor, normEmail, personLine } from "@/lib/people/directory";
 import { principlesFor, principleLines, timingFor, ETHICS } from "@/lib/psychology/playbook";
 import { syncLinearActionStates } from "@/lib/linear/sync-actions";
 import {
@@ -1411,7 +1413,11 @@ export function buildAssistantTools(
           return null;
         });
         if (!all) return { error: "Meeting history couldn't be read just now — do NOT say there were no meetings." };
-        let ms = person ? meetingsWith(all, person.includes("@") ? { emails: [person] } : { names: [person] }, 100) : [...all].sort((a, b) => b.date.localeCompare(a.date));
+        // Every name and address the person goes by (lib/people), not just the one asked about.
+        const ids = person ? identifiersFor(await getPeopleIndexSafe(username), [person]) : null;
+        let ms = ids
+          ? meetingsWith(all, { emails: ids.emails, names: ids.people.length ? ids.names.filter((n) => fullNameKey(n)).concat(ids.unresolved) : [person!] }, 100)
+          : [...all].sort((a, b) => b.date.localeCompare(a.date));
         if (topic?.trim()) {
           const words = topic.toLowerCase().split(/\s+/).filter((w) => w.length > 2);
           ms = ms.filter((m) => { const hay = [m.title, m.summary, ...m.topics, ...m.decisions, ...m.actions.map((a) => a.text)].join(" ").toLowerCase(); return words.every((w) => hay.includes(w)); });
@@ -1423,6 +1429,56 @@ export function buildAssistantTools(
             decisions: m.decisions, actions: m.actions, openQuestions: m.openQuestions,
           })),
         };
+      },
+    }),
+
+    whoIs: tool({
+      description: `Who a person is across all of ${name}'s sources — Basil contacts, Pipedrive, Slack, the calendar, email and meetings — joined into one person: every name they go by, their email addresses, phone numbers, Slack account, company and title, and which sources know them. Use for "who is X", "is X the same as Y", "what's X's email/number", or when a name could be two people.`,
+      inputSchema: z.object({ query: z.string().describe("A name, email address, phone number or Slack ID.") }),
+      execute: async ({ query }) => {
+        const ix = await getPeopleIndexSafe(username);
+        if (ix.people.length === 0) return { error: "The people directory isn't built yet — it builds within a few minutes. Do NOT say the person is unknown." };
+        const hit = findPerson(ix, query);
+        if (hit) return { person: hit };
+        // Not one clear match: show who it could be.
+        const q = query.trim().toLowerCase();
+        const candidates = ix.people.filter((p) => p.names.some((n) => n.toLowerCase().includes(q)) || p.emails.some((e) => e.includes(q))).slice(0, 8);
+        return candidates.length
+          ? { ambiguous: true, candidates: candidates.map((p) => ({ id: p.id, line: personLine(p) })) , note: "Several people match — ask which one, or use a full name or email." }
+          : { found: false, note: `Nobody called "${query}" in contacts, Pipedrive, Slack, the calendar, recent email or meetings.` };
+      },
+    }),
+
+    linkPeople: tool({
+      description: `Correct Basil's people directory when ${name} says two records are the same person ("Jane on Slack is Jane Doe from Acme") or are different people ("there are two Tom Smiths"). Pass each side as a name, email, Slack ID or a person id from whoIs. Only when ${name} has said so — never on a guess.`,
+      inputSchema: z.object({
+        kind: z.enum(["same", "different"]),
+        a: z.string(),
+        b: z.string(),
+      }),
+      // After reading outside content (an email could ask for this), ask first.
+      needsApproval: () => trust.tainted,
+      execute: async ({ kind, a, b }) => {
+        const ix = await getPeopleIndexSafe(username);
+        const key = (v: string) => {
+          if (/^(contact|pd|email|slack|name|phone):/.test(v)) return v;
+          const p = findPerson(ix, v);
+          if (p) return p.id;
+          const e = normEmail(v);
+          if (e) return `email:${e}`;
+          const full = fullNameKey(v);
+          return full ? `name:${full}` : null;
+        };
+        const ka = key(a), kb = key(b);
+        if (!ka || !kb) return { error: `Couldn't pin down ${!ka ? `"${a}"` : `"${b}"`} — use a full name, an email or a whoIs id.` };
+        if (ka === kb && kind === "same") return { ok: true, note: "Basil already treats these as one person." };
+        try {
+          await addPeopleLink(username, kind, ka, kb);
+        } catch (e) {
+          console.warn("[tools/linkPeople]", e instanceof Error ? e.message : e);
+          return { error: "Couldn't save that correction just now." };
+        }
+        return { ok: true, saved: kind === "same" ? `${a} and ${b} are now one person everywhere in Basil.` : `${a} and ${b} are kept apart from now on.` };
       },
     }),
 
