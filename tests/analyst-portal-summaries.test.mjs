@@ -40,3 +40,47 @@ test('bounded list reports omitted older summaries',async()=>{
   const r=await meetingSummaries(request(),deps({read:async()=>Array.from({length:51},(_,i)=>({...record,id:'fixture-'+i}))}));
   const body=await r.json();assert.equal(body.summaries.length,50);assert.equal(body.hasMore,true);
 });
+test('pages are stable for equal timestamps and cannot select another account',async()=>{
+  const memory=Array.from({length:111},(_,i)=>({...record,id:'fixture-'+i}));
+  const d=deps({read:async()=>memory});
+  const ids=[];let cursor=null;
+  do {
+    const res=await meetingSummaries(request('Bearer '+token,cursor?'?cursor='+cursor:''),d);
+    assert.equal(res.status,200);const data=await res.json();ids.push(...data.summaries.map(r=>r.id));cursor=data.nextCursor;
+  } while(cursor);
+  assert.equal(ids.length,111);assert.equal(new Set(ids).size,111);
+});
+
+test('page boundaries and empty histories terminate without a cursor', async () => {
+  for (const count of [0, 49, 50, 51, 100]) {
+    const rows = Array.from({length: count}, (_, i) => ({...record, id: String(i)}));
+    const d = deps({read: async () => rows});
+    const first = await (await meetingSummaries(request(), d)).json();
+    assert.equal(first.summaries.length, Math.min(count, 50));
+    assert.equal(first.hasMore, count > 50);
+    if (count <= 50) { assert.equal(first.nextCursor, null); continue; }
+    const last = await (await meetingSummaries(request('Bearer '+token, '?cursor='+first.nextCursor), d)).json();
+    assert.equal(last.summaries.length, count - 50);
+    assert.equal(last.hasMore, false);
+    assert.equal(last.nextCursor, null);
+  }
+});
+
+test('cursor is bound to the source account and boundary record revision', async () => {
+  const rows = Array.from({length: 55}, (_, i) => ({...record, id: String(i)}));
+  const d = deps({read: async () => rows});
+  const page = await (await meetingSummaries(request(), d)).json();
+  const next = () => request('Bearer '+token, '?cursor='+page.nextCursor);
+  const other = {...d, resolveAccount: async () => ({username:'different'})};
+  assert.equal((await meetingSummaries(next(), other)).status, 409);
+  rows.find(r => r.id === page.summaries.at(-1).id).updatedAt = '2026-10-03T12:00:00Z';
+  assert.equal((await meetingSummaries(next(), d)).status, 409);
+});
+
+test('malformed, repeated and additional query parameters fail before any read', async () => {
+  const cursor = '0'.repeat(64);
+  const d = deps({read: async () => assert.fail('unexpected storage read')});
+  for (const query of ['?cursor=', '?cursor=no', '?cursor='+cursor+'&cursor='+cursor, '?cursor='+cursor+'&account=other']) {
+    assert.equal((await meetingSummaries(request('Bearer '+token, query), d)).status, 400);
+  }
+});

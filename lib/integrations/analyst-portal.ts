@@ -17,7 +17,10 @@ export async function meetingSummaries(request: Request, deps: Dependencies): Pr
   if (!deps.token || deps.token.length < 32 || !deps.account?.trim()) return reply({ error: 'Summary connection is not configured.' }, 503);
   const supplied = request.headers.get('authorization') ?? '';
   if (supplied.length > 1024 || !timingSafeEqual(hash(supplied), hash('Bearer ' + deps.token))) return reply({ error: 'Not authorised.' }, 401);
-  if (new URL(request.url).search) return reply({ error: 'This connection has a fixed account scope; query parameters are not supported.' }, 400);
+  const params = new URL(request.url).searchParams;
+  const cursors = params.getAll('cursor');
+  if ([...params.keys()].some(key => key !== 'cursor') || cursors.length > 1 ||
+      (cursors.length && !/^[a-f0-9]{64}$/.test(cursors[0]))) return reply({ error: 'Invalid page cursor.' }, 400);
   try {
     const account = await deps.resolveAccount(deps.account.trim());
     if (!account || account.disabled) return reply({ error: 'The connected account is unavailable.' }, 403);
@@ -36,9 +39,14 @@ export async function meetingSummaries(request: Request, deps: Dependencies): Pr
         needsReview: typeof m.needsReview === 'boolean' ? m.needsReview : null, confidence: m.confidence ?? null,
       };
     }).filter((m: {summary: string}) => !/^\[Zoom meeting[^\]]*\]\s*\d{4}-\d{2}-\d{2}\.\s*Duration:/.test(m.summary))
-      .sort((a: {updatedAt: string}, b: {updatedAt: string}) => Date.parse(b.updatedAt) - Date.parse(a.updatedAt));
+      .sort((a: {updatedAt: string; id: string}, b: {updatedAt: string; id: string}) => Date.parse(b.updatedAt) - Date.parse(a.updatedAt) || a.id.localeCompare(b.id));
+    const position = (row: {id: string; updatedAt: string}) => createHash('sha256').update(JSON.stringify([account.username, row.id, row.updatedAt])).digest('hex');
+    const index = cursors.length ? summaries.findIndex((row: {id: string; updatedAt: string}) => position(row) === cursors[0]) : -1;
+    if (cursors.length && index < 0) return reply({error: 'Source changed; restart from the first page.'}, 409);
+    const page = summaries.slice(index + 1, index + 51);
+    const more = index + 1 + page.length < summaries.length;
     const body = { schema: 'basil-meeting-summaries-v1', account: account.username.toLowerCase(), retrievedAt: new Date(now).toISOString(),
-      summaries: summaries.slice(0, 50), hasMore: summaries.length > 50 };
+      summaries: page, hasMore: more, nextCursor: more ? position(page[page.length - 1]) : null };
     if (Buffer.byteLength(JSON.stringify(body), 'utf8') > 2_000_000) throw new Error('Summary response exceeds limit');
     return reply(body);
   } catch {
