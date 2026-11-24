@@ -13,7 +13,7 @@ import { followupState, dismissFollowup } from "@/lib/pipedrive/followups-server
 import { updateAutomation, FOLLOWUP_MODES, type FollowupMode } from "@/lib/pipedrive/automation";
 import { refreshPipedriveSnapshot, isPipedriveConnected } from "@/lib/pipedrive/client";
 
-export const maxDuration = 120;
+export const maxDuration = 300;
 
 async function view(username: string) {
   const st = await followupState(username, { storedOnly: true });
@@ -33,6 +33,7 @@ async function view(username: string) {
       notes: st.snapshot.notes.length,
       activities: st.snapshot.activities.length,
       meetingNotes: st.snapshot.activities.filter((a) => a.done && !!a.note?.trim()).length,
+      incomplete: Object.entries(st.snapshot.coverage ?? {}).filter(([, v]) => !v.complete).map(([k]) => k),
       leads: st.snapshot.leads.length,
     } : null,
     suggestions: st.suggestions,

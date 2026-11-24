@@ -11,7 +11,7 @@ import { Button } from "@/components/ui/button";
 type Mode = "off" | "suggest" | "alert" | "schedule";
 interface View {
   mode: Mode; staleDays: number; meetingMinutes: number; sellerContext?: string; readAt: number | null; stale: boolean;
-  counts: { deals: number; openDeals: number; people: number; organisations: number; notes: number; activities: number; meetingNotes?: number; leads: number } | null;
+  counts: { deals: number; openDeals: number; people: number; organisations: number; notes: number; activities: number; meetingNotes?: number; leads: number; incomplete?: string[] } | null;
   suggestions: unknown[];
 }
 
@@ -61,6 +61,7 @@ export function PipedriveAutomation() {
       {c && (
         <p className="text-xs text-muted-foreground">
           {c.openDeals} open of {c.deals} deals · {c.people} people · {c.organisations} organisations · {c.activities} activities · {c.meetingNotes ?? 0} meeting notes · {c.notes} notes · {c.leads} leads
+          {c.incomplete?.length ? <span className="text-signal-warning"> · not read in full: {c.incomplete.join(", ")}</span> : <span> · everything read in full</span>}
         </p>
       )}
       <fieldset className="space-y-1.5">

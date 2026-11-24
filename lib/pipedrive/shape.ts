@@ -14,6 +14,7 @@ export interface PdActivity {
   dealId: number | null;
   personId: number | null;
   orgId: number | null;
+  leadId?: string | null;
   note?: string;
   updateTime: string;
   ownerId?: number | null;

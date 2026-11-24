@@ -123,8 +123,11 @@ test("meeting notes: every written-up meeting or call, newest first, in the acco
 
 test("meeting notes are read in full and searchable", () => {
   const client = src("lib/pipedrive/client.ts");
-  assert.match(client, /HISTORY_PAGES = 20/);
+  assert.match(client, /HISTORY_PAGES = 60/);
+  assert.match(client, /MAX_PAGES = 60/);
   assert.match(client, /\/notes", \{ sort: "update_time DESC" \}, HISTORY_PAGES/);
-  assert.match(client, /!!\(a\.note \|\| a\.public_description\)\?\.trim\(\)/, "done activities with notes kept however old");
+  assert.match(client, /doneActs\.filter\(\(a\) => a\.done\)\.map\(act\)/, "every done activity kept, however old");
+  assert.match(client, /complete: false/, "a list stopped by the page cap is recorded as incomplete");
+  assert.doesNotMatch(client, /DONE_DAYS/, "no age filter on activities");
   assert.match(src("lib/ai/tools.ts"), /"meetings" = meeting and call notes, full history/);
 });

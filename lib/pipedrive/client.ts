@@ -6,9 +6,9 @@
  * context". So Basil reads the whole account it can see, not just the user's
  * own open items:
  *   - deals in every status (open, won, lost) and every owner, with stage and pipeline;
- *   - activities: everything open; done ones from the last 90 days; and EVERY
- *     done activity that has notes, however old — the meeting and call notes
- *     ("also ingest all meetings notes", 2026-11-24);
+ *   - activities: ALL of them, open and done, every owner, however old — with
+ *     their notes (the meeting and call write-ups). "Ensure we are pulling all
+ *     meeting notes and activities" (2026-11-24): no age filter;
  *   - people and organisations;
  *   - every note on deals, people, organisations and leads, in full;
  *   - leads; users (to name owners); stages and pipelines.
@@ -40,12 +40,11 @@ const TIMEOUT_MS = 15_000;
 const FRESH_MS = 26 * 60 * 60 * 1000;
 /** In-memory copy, so one request does not re-read the store for every surface. */
 const MEMORY_MS = 5 * 60 * 1000;
-const MAX_PAGES = 6;
+/** Pages of 500 per list: far beyond this account (3,000+ people), so lists are read whole. */
+const MAX_PAGES = 60;
 const SNAPSHOT_FILE = "pipedrive-snapshot.json";
-/** Done activities without notes are kept this long; ones with notes are kept forever. */
-const DONE_DAYS = 90;
-/** Pages of 500 for the full-history reads (notes, done activities): up to 10,000 each. */
-const HISTORY_PAGES = 20;
+/** Pages of 500 for the full-history reads (notes, done activities): up to 30,000 each. */
+const HISTORY_PAGES = 60;
 /** Longest note / meeting note kept, in characters. */
 const NOTE_CHARS = 6_000;
 
@@ -104,30 +103,33 @@ const qs = (p: Params) => {
   return q.toString();
 };
 
+/** A list and whether it was read to the end (false = the page cap stopped it). */
+export interface Listed<T> { items: T[]; complete: boolean }
+
 /** A v2 list, following cursors. */
-async function listV2<T>(token: string, path: string, params: Params, pages = MAX_PAGES): Promise<T[]> {
-  const out: T[] = [];
+async function listV2<T>(token: string, path: string, params: Params, pages = MAX_PAGES): Promise<Listed<T>> {
+  const items: T[] = [];
   let cursor: string | undefined;
   for (let i = 0; i < pages; i++) {
     const { data, nextCursor } = await call<T[] | null>(token, `${V2}${path}?${qs({ limit: 500, ...params, cursor })}`);
-    out.push(...(data ?? []));
-    if (!nextCursor) break;
+    items.push(...(data ?? []));
+    if (!nextCursor) return { items, complete: true };
     cursor = nextCursor;
   }
-  return out;
+  return { items, complete: false };
 }
 
 /** A v1 list, following start/limit pagination. */
-async function listV1<T>(token: string, path: string, params: Params, pages = MAX_PAGES): Promise<T[]> {
-  const out: T[] = [];
+async function listV1<T>(token: string, path: string, params: Params, pages = MAX_PAGES): Promise<Listed<T>> {
+  const items: T[] = [];
   let start = 0;
   for (let i = 0; i < pages; i++) {
     const { data, nextStart } = await call<T[] | null>(token, `${V1}${path}?${qs({ limit: 500, ...params, start })}`);
-    out.push(...(data ?? []));
-    if (nextStart === null || nextStart === undefined) break;
+    items.push(...(data ?? []));
+    if (nextStart === null || nextStart === undefined) return { items, complete: true };
     start = nextStart;
   }
-  return out;
+  return { items, complete: false };
 }
 
 /** Check a token and learn whose it is. Used when connecting, and by the admin check. */
@@ -148,7 +150,7 @@ export async function savePipedriveToken(username: string, apiToken: string): Pr
 
 // ── Raw shapes (only the fields Basil reads) ─────────────────────────────────
 
-interface RawActivity { id: number; subject: string; type: string; due_date: string | null; due_time: string | null; deal_id: number | null; person_id: number | null; org_id: number | null; note?: string | null; public_description?: string | null; update_time: string; done?: boolean; owner_id?: number | null; marked_as_done_time?: string | null }
+interface RawActivity { id: number; subject: string; type: string; due_date: string | null; due_time: string | null; deal_id: number | null; lead_id?: string | null; person_id: number | null; org_id: number | null; note?: string | null; public_description?: string | null; update_time: string; done?: boolean; owner_id?: number | null; marked_as_done_time?: string | null }
 interface RawDeal { id: number; title: string; value: number; currency: string; stage_id: number; pipeline_id?: number; status: string; person_id: number | null; org_id: number | null; expected_close_date: string | null; update_time: string; add_time?: string; stage_change_time: string | null; owner_id?: number | null; won_time?: string | null; lost_time?: string | null; lost_reason?: string | null; probability?: number | null }
 interface RawPerson { id: number; name: string; emails?: { value: string }[] | null; phones?: { value: string }[] | null; org_id: number | null; job_title?: string | null }
 interface RawOrg { id: number; name: string; website?: string | null; industry?: string | number | null }
@@ -182,6 +184,8 @@ interface StoredSnapshot {
   notes: PdNote[];
   leads: PdLead[];
   users: Record<string, string>;
+  /** Per list: how many were read and whether it was read to the end. */
+  coverage?: Record<string, { count: number; complete: boolean }>;
 }
 
 export interface PipedriveSnapshot extends StoredSnapshot {
@@ -192,24 +196,35 @@ export interface PipedriveSnapshot extends StoredSnapshot {
 
 async function load(username: string, cfg: PipedriveConfig): Promise<StoredSnapshot> {
   const t = cfg.apiToken!;
-  const doneSince = new Date(Date.now() - DONE_DAYS * 86_400_000).toISOString().slice(0, 19) + "Z";
-  const [openActs, doneActs, rawDeals, rawPersons, rawOrgs, rawStages, rawPipelines, rawNotes, rawLeads, rawUsers] = await Promise.all([
+  const [openL, doneL, dealsL, personsL, orgsL, stagesL, pipelinesL, notesL, leadsL, usersL] = await Promise.all([
     listV2<RawActivity>(t, "/activities", { done: false, sort_by: "due_date", sort_direction: "asc" }),
     listV2<RawActivity>(t, "/activities", { done: true, sort_by: "update_time", sort_direction: "desc" }, HISTORY_PAGES),
     listV2<RawDeal>(t, "/deals", { sort_by: "update_time", sort_direction: "desc" }),
     listV2<RawPerson>(t, "/persons", { sort_by: "update_time", sort_direction: "desc" }),
     listV2<RawOrg>(t, "/organizations", { sort_by: "update_time", sort_direction: "desc" }),
-    listV2<RawStage>(t, "/stages", {}, 2),
-    listV2<RawPipeline>(t, "/pipelines", {}, 1),
+    listV2<RawStage>(t, "/stages", {}, 4),
+    listV2<RawPipeline>(t, "/pipelines", {}, 2),
     listV1<RawNote>(t, "/notes", { sort: "update_time DESC" }, HISTORY_PAGES),
-    listV1<RawLead>(t, "/leads", { sort: "update_time DESC" }, 2),
-    listV1<RawUser>(t, "/users", {}, 1),
+    listV1<RawLead>(t, "/leads", { sort: "update_time DESC" }, MAX_PAGES),
+    listV1<RawUser>(t, "/users", {}, 2),
   ]);
+  const [openActs, doneActs, rawDeals, rawPersons, rawOrgs, rawStages, rawPipelines, rawNotes, rawLeads, rawUsers] =
+    [openL.items, doneL.items, dealsL.items, personsL.items, orgsL.items, stagesL.items, pipelinesL.items, notesL.items, leadsL.items, usersL.items] as const;
+  const coverage = {
+    openActivities: { count: openActs.length, complete: openL.complete },
+    doneActivities: { count: doneActs.length, complete: doneL.complete },
+    deals: { count: rawDeals.length, complete: dealsL.complete },
+    people: { count: rawPersons.length, complete: personsL.complete },
+    organisations: { count: rawOrgs.length, complete: orgsL.complete },
+    notes: { count: rawNotes.length, complete: notesL.complete },
+    leads: { count: rawLeads.length, complete: leadsL.complete },
+  };
   const stageName = new Map(rawStages.map((s) => [s.id, s.name]));
   const pipelineName = new Map(rawPipelines.map((p) => [p.id, p.name]));
   const act = (a: RawActivity): PdActivity => ({
     id: a.id, subject: a.subject, type: a.type, dueDate: a.due_date, dueTime: a.due_time ? a.due_time.slice(0, 5) : null,
     dealId: a.deal_id ?? null, personId: a.person_id ?? null, orgId: a.org_id ?? null,
+    ...(a.lead_id ? { leadId: a.lead_id } : {}),
     ...(a.note || a.public_description ? { note: stripHtml(a.note || a.public_description, NOTE_CHARS) } : {}),
     updateTime: a.update_time, ownerId: a.owner_id ?? null, done: !!a.done, doneTime: a.marked_as_done_time ?? null,
   });
@@ -220,9 +235,10 @@ async function load(username: string, cfg: PipedriveConfig): Promise<StoredSnaps
     companyDomain: cfg.companyDomain,
     activities: [
       ...openActs.filter((a) => !a.done).map(act),
-      // Recent done activities, and every done one with notes (meeting / call notes), however old.
-      ...doneActs.filter((a) => a.done && (Date.parse(a.update_time) >= Date.parse(doneSince) || !!(a.note || a.public_description)?.trim())).map(act),
+      // Every done activity, however old, with its notes.
+      ...doneActs.filter((a) => a.done).map(act),
     ],
+    coverage,
     deals: rawDeals.map((d) => ({
       id: d.id, title: d.title, value: d.value ?? 0, currency: d.currency, stage: stageName.get(d.stage_id) ?? `Stage ${d.stage_id}`,
       status: d.status, personId: d.person_id ?? null, orgId: d.org_id ?? null, expectedClose: d.expected_close_date ?? null,
@@ -302,7 +318,9 @@ export async function refreshPipedriveSnapshot(username: string, opts: { ownDoma
       const fresh = await load(username, cfg);
       await writeUserStore(username, SNAPSHOT_FILE, fresh).catch((e) =>
         console.warn("[pipedrive] snapshot not saved (next read refetches):", e instanceof Error ? e.message : e));
-      console.log(`[pipedrive] refreshed for ${username}: ${fresh.deals.length} deals, ${fresh.activities.length} activities, ${fresh.persons.length} people, ${fresh.orgs.length} organisations, ${fresh.notes.length} notes, ${fresh.leads.length} leads`);
+      const cov = Object.entries(fresh.coverage ?? {}).map(([k, v]) => `${k} ${v.count}${v.complete ? "" : " (CAPPED)"}`).join(", ");
+      const withNotes = fresh.activities.filter((a) => a.done && a.note?.trim()).length;
+      console.log(`[pipedrive] refreshed for ${username}: ${cov}; ${withNotes} done activities have notes`);
       const snap = withDirectory(fresh, opts.ownDomains ?? [], cfg);
       memory.set(username, { snap, readAt: Date.now() });
       return snap;
