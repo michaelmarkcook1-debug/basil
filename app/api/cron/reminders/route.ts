@@ -27,7 +27,7 @@ import { getSelfIdentity } from "@/lib/self-identity";
 import { readUserStore } from "@/lib/storage/user-store";
 import { HEALTH_META_FILE, type HealthMeta } from "@/lib/system/health";
 import { getWorkCalendar } from "@/lib/away/store";
-import { awayStatus, dayIn } from "@/lib/away/calendar";
+import { addDays, awayStatus, dayIn } from "@/lib/away/calendar";
 import { alertBrokenConnections, getNotifyState, notifyUser } from "@/lib/notify";
 import {
   brokenConnections, connectionNotification, dueReminders, hourIn, reminderKey, reminderNotification, startHour,
@@ -39,6 +39,9 @@ import { chaseCandidates, chaseKey, chaseNotification, chaserDraft, MAX_PER_DAY 
 import { getPeopleIndexSafe } from "@/lib/people/directory-store";
 import { findPerson } from "@/lib/people/directory";
 import { createEventIfNew } from "@/lib/events/store";
+import { isFirstWorkingDayOfWeek, isLastWorkingDayOfWeek, weekStart, wrapHour, mondayPlanNotification, fridayWrapNotification } from "@/lib/briefing/week-rhythm";
+import { isBacklog } from "@/lib/actions/backlog";
+import { isWaitingOnOthers } from "@/lib/actions/utils";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 120;
@@ -129,6 +132,34 @@ export async function GET(req: Request) {
                 ? { count: chases.length, drafted, ...(await notifyUser(username, cn, { onceKeys: chases.map((c) => chaseKey(c.action.id, now)) })) }
                 : { count: 0 };
             }
+          }
+        }
+      }
+      // ── Monday plan / Friday wrap (lib/briefing/week-rhythm) ──
+      const wantPlan = hour === startHour(settings.workStart);
+      const wantWrap = hour === wrapHour(settings.workEnd);
+      if (wantPlan || wantWrap) {
+        const nstate = await getNotifyState(username);
+        if (nstate.prefs.weekly) {
+          const wcal = await getWorkCalendar(username).catch((e) => {
+            console.warn(`[cron/reminders] ${username}: working calendar unreadable, no plan/wrap:`, e instanceof Error ? e.message : e);
+            return null;
+          });
+          const today = dayIn(now, wcal?.timezone ?? tz);
+          if (wcal && wantPlan && isFirstWorkingDayOfWeek(today, wcal)) {
+            const [acts, ident] = await Promise.all([listActions(username), getSelfIdentity(username)]);
+            const weekEnd = addDays(weekStart(today), 6);
+            const open = acts.filter((a) => a.status !== "done");
+            const waiting = open.filter((a) => a.delegatedTo || isWaitingOnOthers(a, ident.names)).length;
+            const dueThisWeek = open.filter((a) => a.dueDate && a.dueDate.slice(0, 10) <= weekEnd).length;
+            out.weekPlan = await notifyUser(username, mondayPlanNotification({ dueThisWeek, waiting }), { onceKeys: [`week-plan:${today}`] });
+          }
+          if (wcal && wantWrap && isLastWorkingDayOfWeek(today, wcal)) {
+            const acts = await listActions(username);
+            const since = Date.parse(`${weekStart(today)}T00:00:00Z`);
+            const doneThisWeek = acts.filter((a) => a.status === "done" && Date.parse(a.lastActivityAt ?? a.updatedAt ?? "") >= since).length;
+            const backlog = acts.filter((a) => isBacklog(a, now)).length;
+            out.weekWrap = await notifyUser(username, fridayWrapNotification({ doneThisWeek, backlog }), { onceKeys: [`week-wrap:${today}`] });
           }
         }
       }

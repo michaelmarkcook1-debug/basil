@@ -9,6 +9,7 @@
  * handlers, filters and what marking done / deleting sends are unchanged.
  */
 
+import { isBacklog } from "@/lib/actions/backlog";
 import { WorkstreamChip } from "@/components/workstreams/workstream-chip";
 import { WorkstreamBar, useWorkstreamFilter } from "@/components/workstreams/workstream-bar";
 import { actionKey, workstreamTotals } from "@/lib/workstreams/attach";
@@ -1740,6 +1741,8 @@ export default function ActionsPage() {
     if (statusFilter === "waiting") return matchesSearch && a.status !== "done" && isTheirs(a);
     if (isTheirs(a)) return false;
     if (statusFilter === "review") return matchesSearch && !!a.needsReview;
+    // ?filter=stale — the backlog the Friday wrap points at (lib/actions/backlog).
+    if (statusFilter === "stale") return matchesSearch && isBacklog(a);
     const matchesStatus = statusFilter === "all" || a.status === statusFilter;
     return matchesSearch && matchesStatus;
   });

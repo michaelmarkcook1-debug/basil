@@ -37,6 +37,7 @@ import { useDomainSync } from "@/lib/sync/use-domain-sync";
 import { getNow } from "@/lib/datetime";
 
 import type { Briefing } from "@/lib/types/briefing";
+import { isBacklog } from "@/lib/actions/backlog";
 
 // Use the browser's local timezone rather than a hardcoded one
 const USER_TZ = typeof Intl !== "undefined"
@@ -269,6 +270,11 @@ const BRIEFING_TYPES: Array<{ id: BriefingType; label: string; description: stri
 ];
 
 function defaultBriefingType(): BriefingType {
+  // ?type= (the Monday plan and Friday wrap pushes open weekly / evening).
+  if (typeof window !== "undefined") {
+    const t = new URLSearchParams(window.location.search).get("type");
+    if (t && BRIEFING_TYPES.some((b) => b.id === t)) return t as BriefingType;
+  }
   const h = new Date().getHours();
   if (h < 12) return "morning";
   if (h < 16) return "midday";
@@ -283,6 +289,8 @@ export default function BriefingPage() {
   const [error, setError] = useState("");
   const [sources, setSources] = useState<unknown[]>([]);
   const [readiness, setReadiness] = useState<SourceReadiness | null>(null);
+  // Open items untouched for 30+ days — the Friday wrap's backlog to clear.
+  const [backlogCount, setBacklogCount] = useState(0);
   const [readinessExpanded, setReadinessExpanded] = useState(false);
   const [extraFiles, setExtraFiles] = useState<File[]>([]);
 
@@ -390,6 +398,7 @@ export default function BriefingPage() {
         aiWork: 0,
         meetings: 0,
       });
+      setBacklogCount(((actData?.actions as Array<{ status: string; lastActivityAt?: string; updatedAt?: string; createdAt?: string }> | undefined) ?? []).filter((a) => isBacklog(a)).length);
     }).catch((e: unknown) => { console.warn("[briefing] readiness load failed:", e); }); // ci-ok: readiness panel is decorative, null state handled in JSX
 
     // Authoritative load from server — this is the source of truth (GET = cached today's briefing)
@@ -408,6 +417,10 @@ export default function BriefingPage() {
           if (data) {
             setBriefing(data);
             try { localStorage.setItem(cacheKeyForType(briefingType), JSON.stringify(data)); } catch { /* ignore */ }
+          } else if (new URLSearchParams(window.location.search).get("auto") === "1") {
+            // Opened from the Monday plan / Friday wrap push: write it now —
+            // these are generated only when the user actually opens them.
+            void generate(mountType);
           }
         })
         .catch((e: unknown) => {
@@ -535,6 +548,12 @@ export default function BriefingPage() {
             · takes about 30 seconds
           </span>
         </div>
+      )}
+
+      {briefingType === "evening" && backlogCount > 0 && (
+        <Link href="/dashboard/actions?filter=stale" className="block rounded-lg border px-4 py-3 text-sm" style={{ borderColor: "var(--w-line, #e5e0d5)", color: "var(--w-carbon)" }}>
+          <strong>{backlogCount} item{backlogCount === 1 ? "" : "s"} untouched for 30+ days.</strong> Clear them in a tap each: done, a new date, or delete →
+        </Link>
       )}
 
       {/* Hero header */}
