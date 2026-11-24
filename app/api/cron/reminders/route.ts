@@ -41,6 +41,8 @@ import { findPerson } from "@/lib/people/directory";
 import { createEventIfNew } from "@/lib/events/store";
 import { isFirstWorkingDayOfWeek, isLastWorkingDayOfWeek, weekStart, wrapHour, mondayPlanNotification, fridayWrapNotification } from "@/lib/briefing/week-rhythm";
 import { isBacklog } from "@/lib/actions/backlog";
+import { weeklyReachOut } from "@/lib/contacts/reach-out";
+import { reachOutNotification } from "@/lib/contacts/reach-out-shape";
 import { isWaitingOnOthers } from "@/lib/actions/utils";
 
 export const dynamic = "force-dynamic";
@@ -160,6 +162,22 @@ export async function GET(req: Request) {
             const doneThisWeek = acts.filter((a) => a.status === "done" && Date.parse(a.lastActivityAt ?? a.updatedAt ?? "") >= since).length;
             const backlog = acts.filter((a) => isBacklog(a, now)).length;
             out.weekWrap = await notifyUser(username, fridayWrapNotification({ doneThisWeek, backlog }), { onceKeys: [`week-wrap:${today}`] });
+          }
+        }
+      }
+      // ── Who to reach out to, weekly (lib/contacts/reach-out) ──
+      if (hour === startHour(settings.workStart) + 1) {
+        const rstate = await getNotifyState(username);
+        if (rstate.prefs.relationships) {
+          const rcal = await getWorkCalendar(username).catch((e) => {
+            console.warn(`[cron/reminders] ${username}: working calendar unreadable, no reach-out list:`, e instanceof Error ? e.message : e);
+            return null;
+          });
+          const rday = dayIn(now, rcal?.timezone ?? tz);
+          if (rcal && isFirstWorkingDayOfWeek(rday, rcal)) {
+            const people = await weeklyReachOut(username, tz);
+            const rn = reachOutNotification(people);
+            out.reachOut = rn ? { count: people.length, ...(await notifyUser(username, rn, { onceKeys: [`reach-out:${rday}`] })) } : { count: 0 };
           }
         }
       }

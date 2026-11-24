@@ -24,6 +24,7 @@ const KINDS: { key: keyof NotifyPrefs; label: string; hint: string }[] = [
   { key: "urgent", label: "Urgent messages", hint: "The moment something urgent arrives by email, Slack or Teams: legal, money, investors, or a high-urgency ask of you. Working hours only, never while you're away, at most 5 a day." },
   { key: "meetings", label: "Before meetings", hint: "About 20 minutes before a meeting with anyone from outside your company, with the prep one tap away. Not on days off." },
   { key: "weekly", label: "Monday plan & Friday wrap", hint: "Start of your first working day: plan the week. An hour before your last one ends: the wrap, and anything untouched for 30+ days to clear. Written only when you open them." },
+  { key: "relationships", label: "Who to reach out to", hint: "Once a week, an hour into your first working day: people past a keep-in-touch rhythm you set, key people gone quiet, anyone whose tone is cooling. Up to 5 names." },
   { key: "briefing", label: "Briefing ready", hint: "When the morning briefing has been written. Not on days off." },
   { key: "emailReminders", label: "Email reminders when no device is on", hint: "Off by default." },
 ];

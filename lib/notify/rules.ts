@@ -9,7 +9,7 @@
 import type { ActionItem } from "@/lib/types/action";
 import { isWaitingOnOthers } from "@/lib/actions/utils";
 
-export type NotifyKind = "briefing" | "reminders" | "connections" | "urgent" | "meetings" | "weekly" | "test";
+export type NotifyKind = "briefing" | "reminders" | "connections" | "urgent" | "meetings" | "weekly" | "relationships" | "test";
 
 export interface NotifyPrefs {
   /** Today's briefing is ready. */
@@ -24,11 +24,13 @@ export interface NotifyPrefs {
   meetings: boolean;
   /** Monday "plan your week" and the Friday wrap with the backlog to clear. */
   weekly: boolean;
+  /** Once a week: people past a keep-in-touch cadence, key people gone quiet, cooling tone. */
+  relationships: boolean;
   /** Email a reminder when no device has notifications turned on. Connection alerts always fall back to email. */
   emailReminders: boolean;
 }
 
-export const DEFAULT_PREFS: NotifyPrefs = { briefing: true, reminders: true, connections: true, urgent: true, meetings: true, weekly: true, emailReminders: false };
+export const DEFAULT_PREFS: NotifyPrefs = { briefing: true, reminders: true, connections: true, urgent: true, meetings: true, weekly: true, relationships: true, emailReminders: false };
 
 export interface Notification {
   kind: NotifyKind;
