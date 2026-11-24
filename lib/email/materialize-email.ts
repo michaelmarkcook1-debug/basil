@@ -13,6 +13,7 @@
  */
 
 import { createActionTracked } from "@/lib/actions/store";
+import { pushIfUrgent } from "@/lib/notify/urgent";
 import { ownerOfMeetingNote } from "@/lib/actions/utils";
 import { getSelfIdentity } from "@/lib/self-identity";
 import { isCalendarThread } from "./triage";
@@ -335,6 +336,17 @@ export async function materializeEmailIntelligence(
   ) {
     writeToneObservations(username, intel.toneShifts, date, "email", sourceRef).catch((err) => {
       console.error("[email-materialize] tone observation write failed:", err);
+    });
+  }
+
+  // Something urgent (legal, money, investors, a high-urgency ask): push it now,
+  // in working hours (lib/notify/urgent). Only when it became an action.
+  if (actionsCreated > 0) {
+    await pushIfUrgent(username, {
+      source: "email", urgency: intel.urgency, category: intel.category, confidence: intel.confidence,
+      from, text: `${subject} ${intel.keyContext ?? ""}`,
+      actionText: intel.actions.find((a) => a.text?.trim())?.text.trim() ?? `Reply to ${from}: ${shortSubject}`,
+      ref: sourceRef, date,
     });
   }
 

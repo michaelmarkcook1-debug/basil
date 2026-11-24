@@ -125,7 +125,7 @@ async function pushTo(device: PushDevice, n: Notification): Promise<PushResult> 
           privateKey: env("VAPID_PRIVATE_KEY")!,
         },
         TTL: 12 * 3600,
-        urgency: n.kind === "connections" ? "high" : "normal",
+        urgency: n.kind === "connections" || n.kind === "urgent" ? "high" : "normal",
       },
     );
     return "ok";

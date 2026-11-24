@@ -9,7 +9,7 @@
 import type { ActionItem } from "@/lib/types/action";
 import { isWaitingOnOthers } from "@/lib/actions/utils";
 
-export type NotifyKind = "briefing" | "reminders" | "connections" | "test";
+export type NotifyKind = "briefing" | "reminders" | "connections" | "urgent" | "test";
 
 export interface NotifyPrefs {
   /** Today's briefing is ready. */
@@ -18,11 +18,13 @@ export interface NotifyPrefs {
   reminders: boolean;
   /** A connection (Slack, Gmail, Calendar…) stopped working and needs reconnecting. */
   connections: boolean;
+  /** Something urgent arrived (legal, money, investors, or a high-urgency ask), pushed at once in working hours. */
+  urgent: boolean;
   /** Email a reminder when no device has notifications turned on. Connection alerts always fall back to email. */
   emailReminders: boolean;
 }
 
-export const DEFAULT_PREFS: NotifyPrefs = { briefing: true, reminders: true, connections: true, emailReminders: false };
+export const DEFAULT_PREFS: NotifyPrefs = { briefing: true, reminders: true, connections: true, urgent: true, emailReminders: false };
 
 export interface Notification {
   kind: NotifyKind;

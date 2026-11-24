@@ -13,6 +13,7 @@
  */
 
 import { createActionTracked } from "@/lib/actions/store";
+import { pushIfUrgent } from "@/lib/notify/urgent";
 import { createDecisionTracked, linkActionToDecision } from "@/lib/decisions/store";
 import { createMemoryTracked } from "@/lib/memory/store";
 import { actionAutoBar } from "@/lib/learning/calibration-store";
@@ -296,6 +297,17 @@ export async function materializeTeamsIntelligence(
       console.error("[teams-materialize] failed to create memory:", e);
       auditEntries.push(auditFailed(sourceRef, "memory", e instanceof Error ? e.message : String(e)));
     }
+  }
+
+  // Urgent and meant for the user: push it now, in working hours (lib/notify/urgent).
+  if (actionsCreated > 0) {
+    const addressed = !!(intel as { isMichaelAddressed?: boolean }).isMichaelAddressed || channelName.startsWith("Teams:");
+    await pushIfUrgent(username, {
+      source: "teams", urgency: intel.urgency, category: intel.category, confidence: intel.confidence,
+      from, text: `${channelLabel} ${intel.keyContext ?? ""}`,
+      actionText: intel.actions.find((a) => a.text?.trim())?.text.trim() ?? intel.keyContext ?? "",
+      ref: sourceRef, date, addressed,
+    });
   }
 
   return { actionsCreated, decisionsCreated, memoriesCreated, auditEntries };

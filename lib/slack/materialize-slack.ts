@@ -13,6 +13,7 @@
  */
 
 import { createActionTracked } from "@/lib/actions/store";
+import { pushIfUrgent } from "@/lib/notify/urgent";
 import { ownerOfMeetingNote } from "@/lib/actions/utils";
 import { createDecisionTracked, linkActionToDecision } from "@/lib/decisions/store";
 import { createMemoryTracked } from "@/lib/memory/store";
@@ -396,6 +397,17 @@ export async function materializeSlackIntelligence(
   ) {
     writeToneObservations(username, intel.toneShifts, date, "slack", sourceRef).catch((err) => {
       console.error("[slack-materialize] tone observation write failed:", err);
+    });
+  }
+
+  // Urgent and meant for the user (a DM or addressed to them): push it now, in
+  // working hours (lib/notify/urgent). Channel chatter never pushes.
+  if (actionsCreated > 0) {
+    await pushIfUrgent(username, {
+      source: "slack", urgency: intel.urgency, category: intel.category, confidence: intel.confidence,
+      from, text: `${channelLabel} ${intel.keyContext ?? ""}`,
+      actionText: intel.actions.find((a) => a.text?.trim())?.text.trim() ?? intel.keyContext ?? "",
+      ref: sourceRef, date, addressed: isDM || !!intel.isMichaelAddressed,
     });
   }
 
