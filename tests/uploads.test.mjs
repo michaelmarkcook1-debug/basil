@@ -150,7 +150,7 @@ test("uploads are filed like meetings: their own event source, labelled notes, r
   assert.match(src("lib/events/types.ts"), /\| "zoom" \| "upload";/);
   assert.match(src("lib/events/rules.ts"), /if \(payload\.source === "upload"\) \{/);
   const p = src("lib/uploads/process.ts");
-  assert.match(p, /notesOnly: !rec\.extractActions, label,/);
+  assert.match(p, /notesOnly: !rec\.extractActions,\s*\n\s*label: rec\.source === "readai"/);
   assert.match(src("lib/email/process-gmail-message.ts"), /content: `\[\$\{opts\.label \?\? "Zoom meeting"\} — \$\{extract\.meetingTitle\}\]/);
   assert.match(src("app/api/memory/recent-meetings/route.ts"), /m\.content\.startsWith\("\[Recording —"\)/);
 });

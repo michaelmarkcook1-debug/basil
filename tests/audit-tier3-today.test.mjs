@@ -141,7 +141,7 @@ function feedModule({ linearOn = false, linearThrows = false, followups = 0 } = 
     "@/lib/decisions/store": { listDecisions: async () => [] },
     "@/lib/contacts/user-store": { listUserContacts: async () => [] },
     "@/lib/contacts/overrides-store": { getAllOverridesFromStore: async () => ({}) },
-    "@/lib/pipedrive/client": PD_CLIENT, "@/lib/pipedrive/shape": PD_SHAPE, "@/lib/pipedrive/context": PD_CONTEXT, "@/lib/pipedrive/followups": PD_FOLLOWUPS, "@/lib/pipedrive/automation": PD_AUTO, "@/lib/pipedrive/collateral-server": { collateralFor: async () => ({ deals: [], readAt: null }) }, "@/lib/psychology/followup-advice": { adviceForQuery: async () => null }, "@/lib/psychology/playbook": loadTs("lib/psychology/playbook.ts"), "@/lib/linear/client": {
+    "@/lib/pipedrive/client": PD_CLIENT, "@/lib/pipedrive/shape": PD_SHAPE, "@/lib/pipedrive/context": PD_CONTEXT, "@/lib/pipedrive/followups": PD_FOLLOWUPS, "@/lib/pipedrive/automation": PD_AUTO, "@/lib/pipedrive/collateral-server": { collateralFor: async () => ({ deals: [], readAt: null }) }, "@/lib/psychology/followup-advice": { adviceForQuery: async () => null }, "@/lib/meetings/history-store": { readMeetingHistory: async () => [], meetingHistoryWith: async () => [] }, "@/lib/meetings/history": loadTs("lib/meetings/history.ts"), "@/lib/psychology/playbook": loadTs("lib/psychology/playbook.ts"), "@/lib/linear/client": {
       isLinearConnected: async () => linearOn,
       getMyOpenIssues: async () => { if (linearThrows) throw new Error("synthetic Linear outage"); return []; },
     },

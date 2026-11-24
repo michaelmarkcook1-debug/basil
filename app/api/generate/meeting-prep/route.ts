@@ -49,6 +49,8 @@ import { getPipedriveSnapshot } from "@/lib/pipedrive/client";
 import { accountBlock as pipedriveAccountBlock, meetingNotes as pdMeetingNotes, resolveAccounts as pdResolve } from "@/lib/pipedrive/context";
 import { objectionsIn, personaOf } from "@/lib/pipedrive/collateral";
 import { meetingPlaybook, type AttendeeRead } from "@/lib/psychology/playbook";
+import { meetingHistoryWith } from "@/lib/meetings/history-store";
+import { historyBlock } from "@/lib/meetings/history";
 import { chatsAbout } from "@/lib/ai-chats/search";
 import {
   readGenerateCache,
@@ -516,6 +518,11 @@ export async function POST(req: Request) {
     ...(attendees as string[]).filter((a) => typeof a === "string" && a.includes("@")),
     ...userContacts.filter((c) => attendeeNamesLower.includes(c.name.toLowerCase()) && c.email).map((c) => c.email as string),
   ];
+  // The running history with these people: every earlier meeting Basil
+  // processed (Zoom, Read AI, Plaud, recordings), kept for good.
+  const pastMeetings = await meetingHistoryWith(username, { names: attendeeNames, emails: attendeeEmails }, 6)
+    .catch((e) => { console.warn("[meeting-prep] meeting history unreadable:", e instanceof Error ? e.message : e); return []; });
+  const pastMeetingsBlock = historyBlock(pastMeetings, { summaryChars: 700 });
   const pdSnap = await getPipedriveSnapshot(username)
     .catch((e) => { console.warn("[meeting-prep] Pipedrive unreadable:", e instanceof Error ? e.message : e); return null; });
   const pdQuery = { emails: attendeeEmails, names: [...attendeeNames, ...attendeeCompanies] };
@@ -600,7 +607,7 @@ ${zoomBlock}
 ${teamsBlock ? `\n## MICROSOFT TEAMS MEETINGS WITH ATTENDEES (Outlook Calendar online meetings, last 14 days)\n${teamsBlock}` : ""}
 ${aiChatBlock ? `\n## ${who.toUpperCase()}'S OWN WORK WITH CLAUDE / CHATGPT ABOUT THESE PEOPLE (their thinking, not something said in a meeting — last 90 days)\n${aiChatBlock}` : ""}
 
-${pipedriveBlock ? `## PIPEDRIVE — CRM RECORD OF THESE ATTENDEES AND THEIR COMPANIES (deals, values, stages, notes, activities — the only source for deal figures; raise open next steps and anything past its close date)
+${pastMeetingsBlock ? `## EARLIER MEETINGS WITH THESE ATTENDEES (newest first — what was discussed, decided and left to do; follow up on open actions and questions)\n${pastMeetingsBlock}\n\n` : ""}${pipedriveBlock ? `## PIPEDRIVE — CRM RECORD OF THESE ATTENDEES AND THEIR COMPANIES (deals, values, stages, notes, activities — the only source for deal figures; raise open next steps and anything past its close date)
 ${pipedriveBlock}
 
 ` : ""}## HOW TO LAND IT — SALES PSYCHOLOGY FOR THIS MEETING (style and approach guidance; claims still need the evidence above)
@@ -618,8 +625,8 @@ ${attendeeMemoryBlock || "No memory notes on file for these attendees."}
 ## BLOCKER MEMORY — ITEMS FLAGGED AS BLOCKED OR AT RISK IN THE LAST 30 DAYS (from memory store — explicit, source-backed)
 ${blockersMemoryBlock || "No blockers flagged in memory."}
 ${extraBlock ? `\n${extraBlock}` : ""}
-## SIGNAL DENSITY — ${totalSignal} relevant item(s) found across email, Slack, and Zoom${relevantDecisions.length > 0 ? `, plus ${relevantDecisions.length} relevant decision(s)` : ""}${relevantActions.length > 0 ? `, plus ${relevantActions.length} open action(s)` : ""}${extraBlock ? `, plus extra context ${who} attached` : ""}.
-${totalSignal < 3 && !extraBlock ? "⚠️ LOW SIGNAL: You have very little hard evidence for this meeting. Keep topicsToRaise SHORT (1–3 entries) and generic-but-honest. Do NOT manufacture topics to fill space. Watch Outs may say 'Low carry-in signal — go in open-minded.'" : ""}
+## SIGNAL DENSITY — ${totalSignal} relevant item(s) found across email, Slack, and Zoom${pastMeetings.length ? `, plus ${pastMeetings.length} earlier meeting(s) with them` : ""}${relevantDecisions.length > 0 ? `, plus ${relevantDecisions.length} relevant decision(s)` : ""}${relevantActions.length > 0 ? `, plus ${relevantActions.length} open action(s)` : ""}${extraBlock ? `, plus extra context ${who} attached` : ""}.
+${totalSignal + pastMeetings.length + (pipedriveBlock ? 1 : 0) < 3 && !extraBlock ? "⚠️ LOW SIGNAL: You have very little hard evidence for this meeting. Keep topicsToRaise SHORT (1–3 entries) and generic-but-honest. Do NOT manufacture topics to fill space. Watch Outs may say 'Low carry-in signal — go in open-minded.'" : ""}
 
 ## How Basil writes meeting prep — match this shape precisely
 

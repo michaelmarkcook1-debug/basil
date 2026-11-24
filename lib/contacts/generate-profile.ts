@@ -32,6 +32,9 @@ import {
 import { getZoomSummaries, filterByAttendees } from "@/lib/google/zoom-summaries";
 import { getWhatsAppSignalForContact } from "@/lib/whatsapp/dump-job";
 import { getStoredPipedriveSnapshot } from "@/lib/pipedrive/client";
+import { meetingHistoryWith } from "@/lib/meetings/history-store";
+import { spokenBy } from "@/lib/meetings/history";
+import { getUploadText } from "@/lib/uploads/store";
 import { profileEvidence as pipedriveEvidence } from "@/lib/pipedrive/context";
 import {
   getTeamsChatSignalForContact,
@@ -273,8 +276,30 @@ export async function generateContactProfile(username: string, body: ContactProf
         .catch((e) => { console.warn("[contact-profile] Pipedrive unreadable:", e instanceof Error ? e.message : e); return []; })
     : [];
 
+  // Meetings with them, kept for good (lib/meetings/history) — and, where a
+  // transcript has speaker labels (Read AI, Plaud, recordings), their own words.
+  const pastMeetingsRaw = directory === "work"
+    ? await meetingHistoryWith(username, { names: [fullName], emails: email ? [email] : [] }, 8)
+        .catch((e) => { console.warn("[contact-profile] meeting history unreadable:", e instanceof Error ? e.message : e); return []; })
+    : [];
+  const pastMeetings = Array.isArray(pastMeetingsRaw) ? pastMeetingsRaw : [];
+  const meetingEvidence: RawEvidence[] = pastMeetings.map((m) => ({
+    channel: "meeting", by: "others" as const, setting: "meeting" as const, date: isoDay(m.date), title: m.title,
+    text: `Meeting "${m.title}" (${m.source}): ${clip(m.summary, 700)}${m.decisions.length ? ` Decided: ${m.decisions.slice(0, 3).join("; ")}.` : ""}`,
+  }));
+  const spoken: RawEvidence[] = [];
+  for (const m of pastMeetings.filter((x) => x.id.startsWith("upload:")).slice(0, 4)) {
+    const t = await getUploadText(username, m.id.slice("upload:".length)).catch(() => ({ segments: undefined })); // ci-ok: no transcript → no spoken lines
+    const lines = spokenBy(Array.isArray(t?.segments) ? t.segments : [], fullName, 5);
+    for (const line of Array.isArray(lines) ? lines : []) {
+      spoken.push({ channel: "meeting", by: "them", setting: "meeting", date: isoDay(m.date), title: m.title, text: `${fullName} said in "${m.title}": "${line}"` });
+    }
+  }
+
   const raw: RawEvidence[] = [
     ...crm,
+    ...meetingEvidence,
+    ...spoken.slice(0, 15),
     ...emailBodies.map((b) => ({ channel: "email", by: "them" as const, setting: b.setting, date: isoDay(b.date), title: b.subject, text: withThread(b, selfFirst) })),
     ...emails.filter((e) => !bodyIds.has(e.id)).slice(0, 22).map((e) => ({
       channel: "email",

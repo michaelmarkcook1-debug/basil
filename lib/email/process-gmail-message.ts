@@ -53,6 +53,7 @@ import { getFlags } from "@/core/feature-flags";
 import { runGmailShadow } from "@/core/ingestion/shadow-runner";
 import { normalizeGmailSignal } from "@/core/signals/normalizers/gmail.normalizer";
 import { enrichAndWriteSignal } from "@/core/ingestion/signal-pipeline";
+import { recordMeeting } from "@/lib/meetings/history-store";
 
 // ── Bot identity check (mirrors suggest route) ────────────────────────────────
 
@@ -397,6 +398,8 @@ export interface ProcessZoomEmailOpts {
   ensureAttendees?: string[];
   /** What the notes call it: "Zoom meeting" (default), "Recording", "Document". */
   label?: string;
+  /** Participants' email addresses when the source knows them (Read AI) — kept on the meeting history. */
+  attendeeEmails?: string[];
   /**
    * Context only: notes, decisions and attendees, but no actions (action
    * items, blockers, follow-ups, decision consequences). For backfilled
@@ -732,6 +735,25 @@ export async function processZoomEmail(opts: ProcessZoomEmailOpts): Promise<{ ex
       } catch (e) {
         console.error("[zoom-process] failed to create summary memory:", e);
       }
+    }
+
+    // ── Permanent meeting history, by person (lib/meetings/history) ──────────
+    // The summary memory above is short-lived context; this record is kept for
+    // good and found by attendee name or email.
+    if (extract.confidence >= ZOOM_REVIEW_FLOOR && (extract.summary?.trim() || extract.attendees.length)) {
+      await recordMeeting(username, {
+        id: sourceRef,
+        source: opts.label ?? "Zoom meeting",
+        title: extract.meetingTitle,
+        date: extract.meetingDate || date,
+        attendees: [...new Set([...extract.attendees, ...(opts.ensureAttendees ?? [])].map((a) => a.trim()).filter((a) => a && !isSelf(a, selfIdentity)))],
+        attendeeEmails: (opts.attendeeEmails ?? []).map((e) => e.toLowerCase()).filter((e) => !selfIdentity.emails.includes(e)),
+        summary: extract.summary?.trim() ?? "",
+        topics: extract.topics ?? [],
+        decisions: extract.decisions.map((d) => d.text).filter(Boolean),
+        actions: extract.actionItems.map((a) => ({ text: a.text, ...(a.owner ? { owner: a.owner } : {}) })).filter((a) => a.text),
+        openQuestions: extract.blockers ?? [],
+      }).catch((e) => console.error("[zoom-process] meeting history write failed:", e instanceof Error ? e.message : e));
     }
 
     // ── Per-attendee person memories (contact recency tracking) ───────────────

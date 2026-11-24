@@ -41,6 +41,8 @@ import { dueActivities, daysBetween, money } from "@/lib/pipedrive/shape";
 import { briefingBlock, accountBlock, meetingNotes } from "@/lib/pipedrive/context";
 import { collateralFor } from "@/lib/pipedrive/collateral-server";
 import { adviceForQuery } from "@/lib/psychology/followup-advice";
+import { readMeetingHistory } from "@/lib/meetings/history-store";
+import { meetingsWith } from "@/lib/meetings/history";
 import { principlesFor, principleLines, timingFor, ETHICS } from "@/lib/psychology/playbook";
 import { syncLinearActionStates } from "@/lib/linear/sync-actions";
 import {
@@ -1392,6 +1394,34 @@ export function buildAssistantTools(
         return {
           note: "Present the suggestions with their reasons, and give the prompt for the one(s) the user wants, verbatim in a code block. Do not draft the collateral yourself.",
           deals: r.deals,
+        };
+      },
+    }),
+
+    meetingHistory: tool({
+      description: `${name}'s meeting history, kept for good: every meeting Basil processed (Zoom, Read AI, Plaud, uploaded recordings) with date, attendees, summary, decisions, actions with owners, and open questions. Use for "when did I last meet X", "what did we agree with X", "what's still open from my meetings with X", or "what meetings did I have about Y".`,
+      inputSchema: z.object({
+        person: z.string().optional().describe("A person's name or email."),
+        topic: z.string().optional().describe("Words to look for in titles, summaries, decisions and actions."),
+        limit: z.number().int().min(1).max(20).optional(),
+      }),
+      execute: async ({ person, topic, limit }) => {
+        const all = await readMeetingHistory(username).catch((e) => {
+          console.warn("[tools/meetingHistory]", e instanceof Error ? e.message : e);
+          return null;
+        });
+        if (!all) return { error: "Meeting history couldn't be read just now — do NOT say there were no meetings." };
+        let ms = person ? meetingsWith(all, person.includes("@") ? { emails: [person] } : { names: [person] }, 100) : [...all].sort((a, b) => b.date.localeCompare(a.date));
+        if (topic?.trim()) {
+          const words = topic.toLowerCase().split(/\s+/).filter((w) => w.length > 2);
+          ms = ms.filter((m) => { const hay = [m.title, m.summary, ...m.topics, ...m.decisions, ...m.actions.map((a) => a.text)].join(" ").toLowerCase(); return words.every((w) => hay.includes(w)); });
+        }
+        return {
+          count: ms.length,
+          meetings: ms.slice(0, limit ?? 8).map((m) => ({
+            date: m.date.slice(0, 10), source: m.source, title: m.title, attendees: m.attendees, summary: m.summary.slice(0, 900),
+            decisions: m.decisions, actions: m.actions, openQuestions: m.openQuestions,
+          })),
         };
       },
     }),

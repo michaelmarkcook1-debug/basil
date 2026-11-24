@@ -308,7 +308,7 @@ test("B8. a message deleted before we fetched it (404) is not a failure; a page 
 // ── D2. Zoom API sync ─────────────────────────────────────────────────────────
 
 function meetingProcessor(generateTextSafe, parse) {
-  return loadTs("lib/zoom/process-meeting.ts", {
+  return loadTs("lib/zoom/process-meeting.ts", { "@/lib/meetings/history-store": { recordMeeting: async () => {} },
     "@/lib/ai/generate": { generateTextSafe },
     "@/lib/ai/model-config": { getTextModel: () => "m", MAX_TOKENS: { fast: 1024 } },
     "@/lib/ai/parse-json": { parseAndValidate: parse },
@@ -603,7 +603,7 @@ function linearIntegration(initial) {
   const route = loadTs("app/api/integrations/linear/route.ts", {
     "next/server": nextServer,
     "@/lib/auth": { verifySession: async () => true, getSessionUser: async () => "michael" },
-    "@/lib/pipedrive/client": PD_CLIENT, "@/lib/pipedrive/shape": PD_SHAPE, "@/lib/pipedrive/context": PD_CONTEXT, "@/lib/pipedrive/followups": PD_FOLLOWUPS, "@/lib/pipedrive/automation": PD_AUTO, "@/lib/pipedrive/collateral-server": { collateralFor: async () => ({ deals: [], readAt: null }) }, "@/lib/psychology/followup-advice": { adviceForQuery: async () => null }, "@/lib/psychology/playbook": loadTs("lib/psychology/playbook.ts"), "@/lib/linear/client": {
+    "@/lib/pipedrive/client": PD_CLIENT, "@/lib/pipedrive/shape": PD_SHAPE, "@/lib/pipedrive/context": PD_CONTEXT, "@/lib/pipedrive/followups": PD_FOLLOWUPS, "@/lib/pipedrive/automation": PD_AUTO, "@/lib/pipedrive/collateral-server": { collateralFor: async () => ({ deals: [], readAt: null }) }, "@/lib/psychology/followup-advice": { adviceForQuery: async () => null }, "@/lib/meetings/history-store": { readMeetingHistory: async () => [], meetingHistoryWith: async () => [] }, "@/lib/meetings/history": loadTs("lib/meetings/history.ts"), "@/lib/psychology/playbook": loadTs("lib/psychology/playbook.ts"), "@/lib/linear/client": {
       getLinearConfig: async () => ({ ...cfg }),
       saveLinearConfig: async (_u, c) => { calls.push(["save"]); cfg = { ...c }; },
       deleteLinearConfig: async () => { calls.push(["delete"]); cfg = {}; },
@@ -662,7 +662,7 @@ function linearWebhook() {
   const route = loadTs("app/api/webhooks/linear/route.ts", {
     "next/server": { NextResponse: nextServer.NextResponse, after: (fn) => queued.push(fn) },
     "@/lib/users": { getUsers: async () => [{ username: "michael" }] },
-    "@/lib/pipedrive/client": PD_CLIENT, "@/lib/pipedrive/shape": PD_SHAPE, "@/lib/pipedrive/context": PD_CONTEXT, "@/lib/pipedrive/followups": PD_FOLLOWUPS, "@/lib/pipedrive/automation": PD_AUTO, "@/lib/pipedrive/collateral-server": { collateralFor: async () => ({ deals: [], readAt: null }) }, "@/lib/psychology/followup-advice": { adviceForQuery: async () => null }, "@/lib/psychology/playbook": loadTs("lib/psychology/playbook.ts"), "@/lib/linear/client": { getLinearConfig: async () => ({ organizationId: "org1", webhookSecret: "sec" }) },
+    "@/lib/pipedrive/client": PD_CLIENT, "@/lib/pipedrive/shape": PD_SHAPE, "@/lib/pipedrive/context": PD_CONTEXT, "@/lib/pipedrive/followups": PD_FOLLOWUPS, "@/lib/pipedrive/automation": PD_AUTO, "@/lib/pipedrive/collateral-server": { collateralFor: async () => ({ deals: [], readAt: null }) }, "@/lib/psychology/followup-advice": { adviceForQuery: async () => null }, "@/lib/meetings/history-store": { readMeetingHistory: async () => [], meetingHistoryWith: async () => [] }, "@/lib/meetings/history": loadTs("lib/meetings/history.ts"), "@/lib/psychology/playbook": loadTs("lib/psychology/playbook.ts"), "@/lib/linear/client": { getLinearConfig: async () => ({ organizationId: "org1", webhookSecret: "sec" }) },
     "@/lib/events/store": ev.store,
     "@/lib/events/audit": audit,
     "@/lib/linear/sync-actions": { syncLinearActionStates: async () => { syncs++; return { closed: 0 }; } },

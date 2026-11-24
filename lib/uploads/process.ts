@@ -100,7 +100,9 @@ export async function analyseUploadText(username: string, rec: UploadRecord, tex
   const outcome = await processZoomEmail({
     username, gmailId: "", externalId: ref, eventId: event.id, subject: rec.title,
     dateFallback: rec.occurredAt, body: `${header}\n${body}`, ensureAttendees: rec.people,
-    notesOnly: !rec.extractActions, label,
+    notesOnly: !rec.extractActions,
+    label: rec.source === "readai" ? "Read AI meeting" : rec.source === "plaud" ? "Plaud recording" : label,
+    ...(rec.participantEmails?.length ? { attendeeEmails: rec.participantEmails } : {}),
   });
   // A failed AI step is a failed upload, not "nothing clear enough to file".
   if (outcome?.extractionFailed) {
