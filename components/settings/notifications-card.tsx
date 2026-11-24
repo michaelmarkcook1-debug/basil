@@ -22,6 +22,7 @@ const KINDS: { key: keyof NotifyPrefs; label: string; hint: string }[] = [
   { key: "reminders", label: "Reminders", hint: "At the start of your working day: follow-ups that have come round, and things due today or overdue. Each one once." },
   { key: "connections", label: "Connection problems", hint: "When Slack, Gmail, Calendar or another source stops working and needs you to sign in again. Emailed if no device has notifications on." },
   { key: "urgent", label: "Urgent messages", hint: "The moment something urgent arrives by email, Slack or Teams: legal, money, investors, or a high-urgency ask of you. Working hours only, never while you're away, at most 5 a day." },
+  { key: "meetings", label: "Before meetings", hint: "About 20 minutes before a meeting with anyone from outside your company, with the prep one tap away. Not on days off." },
   { key: "briefing", label: "Briefing ready", hint: "When the morning briefing has been written. Not on days off." },
   { key: "emailReminders", label: "Email reminders when no device is on", hint: "Off by default." },
 ];

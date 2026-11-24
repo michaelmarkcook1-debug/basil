@@ -38,6 +38,10 @@
       "schedule": "25 * * * *"
     },
     {
+      "path": "/api/cron/premeeting",
+      "schedule": "*/10 * * * *"
+    },
+    {
       "path": "/api/cron/reminders",
       "schedule": "10 * * * *"
     },
