@@ -191,9 +191,10 @@ export async function generateContactProfile(username: string, body: ContactProf
   const emailSignal = emailsAll.filter(fromThem);
 
   // Also a targeted Gmail search by name / email — catches things outside the
-  // recent window that still matter.
+  // recent window that still matter. A year back (it stopped at 30 days until
+  // 2026-11-24, so a quiet relationship had no email evidence at all).
   const targetedEmails = shouldPullWorkSignal
-    ? await searchEmails(username, personEmails.length ? personEmails.slice(0, 4).map((a) => `from:${a} OR to:${a}`).join(" OR ") : name, 15).catch(
+    ? await searchEmails(username, personEmails.length ? personEmails.slice(0, 4).map((a) => `from:${a} OR to:${a}`).join(" OR ") : name, 15, 365).catch(
         () => []
       )
     : [];

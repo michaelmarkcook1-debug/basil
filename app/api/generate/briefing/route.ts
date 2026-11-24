@@ -43,7 +43,7 @@ import { getZoomSummariesFromGmail } from "@/lib/google/zoom-summaries";
 import type { ZoomSummary } from "@/lib/google/zoom-summaries";
 import { getReadSummariesFromGmail } from "@/lib/google/read-summaries";
 import type { ReadSummary } from "@/lib/google/read-summaries";
-import { listMemories } from "@/lib/memory/store";
+import { listMemories, rankForPrompt } from "@/lib/memory/store";
 import type { Memory } from "@/lib/memory/types";
 import { getAllOverridesFromStore } from "@/lib/contacts/overrides-store";
 import type { ProfileOverride } from "@/lib/contact-profile-overrides";
@@ -277,6 +277,10 @@ export async function POST(req: Request) {
   const sinceDay = dayStatus && (dayStatus.state === "working" || dayStatus.state === "back") ? dayStatus.since : null;
   const gapDays = sinceDay ? Math.min(21, Math.max(2, daysBetween(sinceDay, todayDate))) : 2;
   const returning = dayStatus?.state === "back" ? dayStatus.period : null;
+  // Prompt labels name the window each source really covers (audit 2026-11-24:
+  // the headers said "last 48h" while the reads reached back up to 21 days).
+  const lastDays = (n: number) => `last ${n} days`;
+  const wideDays = Math.max(7, gapDays);
 
   // Accept multipart FormData (extra context) or no body (simple trigger).
   let extra: ExtraContext = {
@@ -566,11 +570,14 @@ export async function POST(req: Request) {
           })
           .join("\n");
 
-  // ── Relationship memory — person/context/fact notes, last 30 days ─────────
-  const thirtyDaysAgo = Date.now() - 30 * 24 * 60 * 60 * 1000;
-  const recentMemories = (memoriesResult as Memory[])
-    .filter((m) => new Date(m.updatedAt).getTime() > thirtyDaysAgo)
-    .slice(0, 15);
+  // ── Relationship memory — ranked like Ask Basil does (lib/memory/store) ──
+  // Pinned first, expired context notes dropped, then the notes that match
+  // today's calendar and inbox, then the newest. It took the 15 newest of the
+  // last 30 days until 2026-11-24, expired ones included, so a note about
+  // today's 10:00 could lose its place to yesterday's trivia.
+  const recentMemories = rankForPrompt(memoriesResult as Memory[], {
+    text: `${calendarBlock}\n${emails.slice(0, 30).map((e) => `${e.from} ${e.subject}`).join("\n")}`,
+  }).slice(0, 15);
 
   // ── The user's own recent work with Claude / ChatGPT (lib/ai-chats) ──────
   // What they have been thinking through since the last working day: one line
@@ -865,7 +872,7 @@ ${stalledActionsBlock}
 ### OTHER HIGH-PRIORITY OPEN ACTIONS
 ${otherActionsBlock}
 ` : ""}
-### DECISION LOG — active decisions from last 14 days (already made — use only for follow-up context)
+### DECISION LOG — active decisions from ${lastDays(decisionWindowDays)} (already made — use only for follow-up context)
 ${decisionsBlock}
 ${pipedriveBlock ? `
 ### PIPEDRIVE — the sales pipeline (CRM, read once a day). Deal values, stages and dates come only from here. Overdue/due sales activities belong in criticalToday; suggested follow-ups and stalled deals in followUps; accounts with movement in peopleAndAccounts.
@@ -874,23 +881,23 @@ ${pipedriveBlock}
 ### PIPEDRIVE
 Pipedrive is connected but could not be read today — say so once; do not describe the pipeline.
 ` : ""}
-### EMAILS — last 48h
+### EMAILS — ${lastDays(gapDays)}
 ${emailBlock}
 
-### SLACK — last 48h
+### SLACK — ${lastDays(wideDays)}
 ${slackBlock}
 
-### WHAT ${who.toUpperCase()} ALREADY DID — last 7 days (his OWN sent email + his OWN Slack messages)
+### WHAT ${who.toUpperCase()} ALREADY DID — ${lastDays(wideDays)} (his OWN sent email + his OWN Slack messages)
 This is RESOLUTION EVIDENCE. It exists so you never report settled work as
 outstanding. It is NOT a source of new actions, commitments, or signals — do not
 mine it for work to add.
 
 ${outboundBlock}
 ${zoomBlock ? `
-### ZOOM MEETING SUMMARIES — last 7 days (AI Companion recaps — what was actually said on prior calls)
+### ZOOM MEETING SUMMARIES — ${lastDays(wideDays)} (AI Companion recaps — what was actually said on prior calls)
 ${zoomBlock}
 ` : ""}${readBlock ? `
-### READ.AI MEETING SUMMARIES — last 7 days (Read Assistant recaps — action items, key topics, and what was said)
+### READ.AI MEETING SUMMARIES — ${lastDays(wideDays)} (Read Assistant recaps — action items, key topics, and what was said)
 ${readBlock}
 ` : ""}${aiChatBlock ? `
 ### ${firstName.toUpperCase()}'S OWN WORK WITH CLAUDE / CHATGPT — what they have been thinking through since the last working day (their own drafts and analysis, not things others said). Connect it to today's meetings and open items where it fits.

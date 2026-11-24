@@ -95,8 +95,11 @@ export async function searchEmails(
 
   // Resolve effective lookback: explicit > query-default (30d) > no-query default (2d)
   const effectiveDays = maxAgeDays ?? (query && query.trim() ? 30 : 2);
+  // A query that sets its own dates (after:, before:, newer_than:, older_than:)
+  // keeps them — appending a window on top silently narrowed it.
+  const ownDates = !!query && /\b(after|before|newer_than|older_than):/i.test(query);
   const q = query && query.trim()
-    ? `${query.trim()} newer_than:${effectiveDays}d`
+    ? (ownDates ? query.trim() : `${query.trim()} newer_than:${effectiveDays}d`)
     : `newer_than:${effectiveDays}d`;
 
   const res = await gmail.users.messages.list({

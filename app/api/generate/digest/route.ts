@@ -110,7 +110,7 @@ function formatEmailBlock(emails: GmailMessage[], label = "RECENT EMAILS", tz = 
 }
 
 function formatZoomBlock(summaries: ZoomSummary[], tz = "Europe/London"): string {
-  if (summaries.length === 0) return "=== ZOOM MEETING SUMMARIES ===\n(No Zoom summaries found)\n";
+  if (summaries.length === 0) return "=== ZOOM MEETING SUMMARIES — last 14 days ===\n(No Zoom summaries found)\n";
   const lines = summaries.map((s) => {
     const date = new Date(s.date).toLocaleDateString("en-GB", {
       day: "numeric", month: "short", timeZone: tz,
@@ -149,7 +149,7 @@ function formatSlackBlock(messages: SlackMessage[], tz = "Europe/London", who = 
     return `- ${date} ${m.channel} — ${m.author}: ${m.text.substring(0, 220)}${mention}`;
   });
 
-  return `=== RECENT SLACK MESSAGES (${messages.length}) ===\n${lines.join("\n")}\n`;
+  return `=== SLACK MESSAGES — last 7 days (${messages.length}) ===\n${lines.join("\n")}\n`;
 }
 
 // ── Route handler ──
@@ -235,7 +235,8 @@ export async function POST() {
 
     (async (): Promise<GmailMessage[]> => {
       try {
-        return await getRecentEmails(username, 30);
+        // 7 days, as the prompt says (it read Gmail's 2-day default until 2026-11-24).
+        return await getRecentEmails(username, 50, 7);
       } catch (e) {
         console.error("Failed to fetch emails:", e);
         return [];
@@ -244,7 +245,7 @@ export async function POST() {
 
     (async (): Promise<SlackMessage[]> => {
       try {
-        return await getRecentSlackMessages(username, 30);
+        return await getRecentSlackMessages(username, 30, 7);
       } catch (e) {
         console.error("Failed to fetch Slack messages:", e);
         return [];

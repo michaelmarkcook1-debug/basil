@@ -157,7 +157,7 @@ export function buildAssistantTools(
 
     searchEmails: tool({
       description:
-        `Search ${name}'s email — Gmail, and Outlook when Microsoft 365 is connected (Outlook results have ids starting "outlook:"). Pass search operators in \`query\` (e.g. \`from:someone@example.com\`, \`subject:launch\`; \`has:attachment\` is Gmail only). Omit \`query\` to get the most recent 2 days of mail. Results include an \`id\` field and a short \`snippet\` (~200 chars) — if ${name} needs the full contents of a message, follow up with \`readEmail\` using that id.`,
+        `Search ${name}'s email — Gmail, and Outlook when Microsoft 365 is connected (Outlook results have ids starting "outlook:"). Pass search operators in \`query\` (e.g. \`from:someone@example.com\`, \`subject:launch\`; \`has:attachment\` is Gmail only). Queries search the last year by default (set \`days\` for longer); omit \`query\` to get the most recent 2 days of mail. Results include an \`id\` field and a short \`snippet\` (~200 chars) — if ${name} needs the full contents of a message, follow up with \`readEmail\` using that id.`,
       inputSchema: z.object({
         query: z
           .string()
@@ -166,15 +166,16 @@ export function buildAssistantTools(
             "Gmail search query. Supports operators: from:, to:, subject:, has:attachment, etc. Leave empty for recent mail."
           ),
         limit: z.number().optional().describe("Max results. Defaults to 5."),
+        days: z.number().optional().describe("How far back a query searches, in days. Defaults to 365 (a year). Use a larger number, or after:YYYY/MM/DD in the query, for older mail."),
       }),
-      execute: async ({ query, limit }) => {
+      execute: async ({ query, limit, days }) => {
         const boxes = await connectedMailboxes(username);
         if (!boxes.google && !boxes.microsoft) {
           return { error: `No email connected. ${name} needs to connect Google or Microsoft 365 in Settings.` };
         }
         const max = limit || 5;
         const [gmail, outlook] = await Promise.allSettled([
-          boxes.google ? (query ? searchEmails(username, query, max) : getRecentEmails(username, max)) : Promise.resolve([]),
+          boxes.google ? (query ? searchEmails(username, query, max, Math.min(3650, Math.max(1, days ?? 365))) : getRecentEmails(username, max)) : Promise.resolve([]),
           boxes.microsoft ? queryOutlookMessages(username, query, { maxResults: max, folder: query ? "all" : "inbox" }) : Promise.resolve([]),
         ]);
         if (gmail.status === "rejected" && boxes.google && (!boxes.microsoft || outlook.status === "rejected")) throw gmail.reason;
@@ -1433,13 +1434,34 @@ export function buildAssistantTools(
     }),
 
     whoIs: tool({
-      description: `Who a person is across all of ${name}'s sources — Basil contacts, Pipedrive, Slack, the calendar, email and meetings — joined into one person: every name they go by, their email addresses, phone numbers, Slack account, company and title, and which sources know them. Use for "who is X", "is X the same as Y", "what's X's email/number", or when a name could be two people.`,
+      description: `Who a person is across all of ${name}'s sources — Basil contacts, Pipedrive, Slack, the calendar, email and meetings — joined into one person: every name they go by, their email addresses, phone numbers, Slack account, company and title, and which sources know them. Also returns the saved profile for people on the Contacts page (how to work with them, what to watch for, recent tone shifts). Use for "who is X", "how should I handle X", "is X the same as Y", "what's X's email/number", or when a name could be two people. For what was said in meetings with them, use meetingHistory.`,
       inputSchema: z.object({ query: z.string().describe("A name, email address, phone number or Slack ID.") }),
       execute: async ({ query }) => {
         const ix = await getPeopleIndexSafe(username);
         if (ix.people.length === 0) return { error: "The people directory isn't built yet — it builds within a few minutes. Do NOT say the person is unknown." };
         const hit = findPerson(ix, query);
-        if (hit) return { person: hit };
+        if (hit) {
+          // The saved read on them (Contacts page profile, the user's own notes,
+          // recent tone shifts), so chat answers "how do I handle X" from it
+          // instead of regenerating. Privacy choices are applied by the store.
+          const saved = hit.contactId
+            ? await import("@/lib/contacts/overrides-store")
+              .then((m) => m.getOverrideFromStore(username, hit.contactId!))
+              .catch(() => undefined)
+            : undefined;
+          const savedProfile = saved && (saved.personality || saved.ownerNotes || saved.workingStyle || saved.toneHistory?.length)
+            ? {
+              ...(saved.ownerNotes ? { ownerNotes: saved.ownerNotes } : {}),
+              ...(saved.personality ? { personality: saved.personality } : {}),
+              ...(saved.whatMakesThemTick ? { whatMakesThemTick: saved.whatMakesThemTick } : {}),
+              ...(saved.watchOut ? { watchOut: saved.watchOut } : {}),
+              ...(saved.workingStyle ? { workingStyle: saved.workingStyle } : {}),
+              ...(saved.toneHistory?.length ? { recentTone: saved.toneHistory.slice(-3) } : {}),
+              ...(saved.generatedAt ? { profileWrittenAt: saved.generatedAt } : {}),
+            }
+            : undefined;
+          return { person: hit, ...(savedProfile ? { savedProfile } : {}) };
+        }
         // Not one clear match: show who it could be.
         const q = query.trim().toLowerCase();
         const candidates = ix.people.filter((p) => p.names.some((n) => n.toLowerCase().includes(q)) || p.emails.some((e) => e.includes(q))).slice(0, 8);
