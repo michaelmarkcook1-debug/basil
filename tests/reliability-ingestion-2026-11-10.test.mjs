@@ -25,6 +25,10 @@ import path from "node:path";
 import crypto from "node:crypto";
 import { loadTs, makeLock, nextServer } from "./_helpers/load-ts.mjs";
 
+// Pipedrive (added 2026-11-24): not connected in these tests; the pure helpers are real.
+const PD_SHAPE = loadTs("lib/pipedrive/shape.ts");
+const PD_CLIENT = { getPipedriveConfig: async () => ({}), getPipedriveSnapshot: async () => null, activityUrl: () => "", dealUrl: () => "" };
+
 const ROOT = path.resolve(path.dirname(new URL(import.meta.url).pathname), "..");
 const src = (f) => fs.readFileSync(path.join(ROOT, f), "utf8");
 // Values built inside the sandbox have its own Object/Array, so compare as plain data.
@@ -596,7 +600,7 @@ function linearIntegration(initial) {
   const route = loadTs("app/api/integrations/linear/route.ts", {
     "next/server": nextServer,
     "@/lib/auth": { verifySession: async () => true, getSessionUser: async () => "michael" },
-    "@/lib/linear/client": {
+    "@/lib/pipedrive/client": PD_CLIENT, "@/lib/pipedrive/shape": PD_SHAPE, "@/lib/linear/client": {
       getLinearConfig: async () => ({ ...cfg }),
       saveLinearConfig: async (_u, c) => { calls.push(["save"]); cfg = { ...c }; },
       deleteLinearConfig: async () => { calls.push(["delete"]); cfg = {}; },
@@ -655,7 +659,7 @@ function linearWebhook() {
   const route = loadTs("app/api/webhooks/linear/route.ts", {
     "next/server": { NextResponse: nextServer.NextResponse, after: (fn) => queued.push(fn) },
     "@/lib/users": { getUsers: async () => [{ username: "michael" }] },
-    "@/lib/linear/client": { getLinearConfig: async () => ({ organizationId: "org1", webhookSecret: "sec" }) },
+    "@/lib/pipedrive/client": PD_CLIENT, "@/lib/pipedrive/shape": PD_SHAPE, "@/lib/linear/client": { getLinearConfig: async () => ({ organizationId: "org1", webhookSecret: "sec" }) },
     "@/lib/events/store": ev.store,
     "@/lib/events/audit": audit,
     "@/lib/linear/sync-actions": { syncLinearActionStates: async () => { syncs++; return { closed: 0 }; } },

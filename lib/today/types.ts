@@ -8,6 +8,7 @@
  *                decisions, AND "stakeholder has gone quiet" relationship events).
  *   • followup — the awaiting-your-reply detector (Gmail threads + Slack DMs).
  *   • linear   — hot open Linear issues assigned to the user.
+ *   • pipedrive — the user's overdue and due-today Pipedrive activities.
  *
  * NOTE: there is intentionally no separate "relationship-health" item kind. The
  * delta engine already emits relationship-category ChangeEvents from the contact
@@ -22,10 +23,11 @@
 import type { ChangeEvent } from "@/lib/delta/types";
 import type { PendingFollowup } from "@/lib/followups/types";
 import type { LinearIssue } from "@/lib/linear/client";
+import type { PdActivity } from "@/lib/pipedrive/shape";
 import type { Workstream, WorkstreamBy } from "@/lib/workstreams/types";
 
 /** Discriminator for the feed union. */
-export type TodayItemKind = "change" | "followup" | "linear";
+export type TodayItemKind = "change" | "followup" | "linear" | "pipedrive";
 
 /** Visual lane the home renders this item into. */
 export type TodayLane = "critical" | "needs-you" | "linear" | "later";
@@ -78,7 +80,17 @@ export interface TodayLinearItem extends TodayItemBase {
   issue: LinearIssue;
 }
 
-export type TodayFeedItem = TodayChangeItem | TodayFollowupItem | TodayLinearItem;
+export interface TodayPipedriveItem extends TodayItemBase {
+  kind: "pipedrive";
+  activity: PdActivity;
+  /** Days overdue (0 = due today). */
+  overdueDays: number;
+  dealTitle?: string;
+  /** The contact's email, when the activity is with a Pipedrive person (routes it to Clients & Sales). */
+  personEmail?: string;
+}
+
+export type TodayFeedItem = TodayChangeItem | TodayFollowupItem | TodayLinearItem | TodayPipedriveItem;
 
 /** Where the user stands today (lib/away). Added by the route, never cached with the feed. */
 export interface TodayAway {
@@ -108,7 +120,7 @@ export interface TodayFeedResponse {
   /** Items per workstream before the cap ("unsorted" = none yet). Absent on older cached responses. */
   workstreamTotals?: Record<Workstream | "unsorted", number>;
   /** Per-source counts before the cap. Absent on responses cached before 2026-09-15. */
-  totals?: { changes: number; followups: number; linear: number };
+  totals?: { changes: number; followups: number; linear: number; pipedrive?: number };
   /** True when `items` is shorter than `total`. Absent on older cached responses. */
   truncated?: boolean;
   /**
@@ -131,5 +143,6 @@ export interface TodayFeedResponse {
     changes: boolean;
     followups: { gmail: boolean; slack: boolean };
     linear: boolean;
+    pipedrive?: boolean;
   };
 }

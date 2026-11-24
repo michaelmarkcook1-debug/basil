@@ -80,8 +80,15 @@ const KEYWORD_RULES: ReadonlyArray<[Workstream, RegExp]> = [
   ["clients", /\b(proposal|pitch deck|demo|prospects?|pipeline|rfp|tender|statement of work|sow|renewal|client|customer|account plan|pricing proposal)\b/i],
 ];
 
-function builtinHit(s: RouteSubject): RouteHit | null {
+/** True when an address belongs to one of the user's clients (from their CRM). */
+export type ClientMatcher = (email?: string) => boolean;
+
+function builtinHit(s: RouteSubject, isClient?: ClientMatcher): RouteHit | null {
   if (s.source === "linear") return { workstream: "product", rule: "builtin:linear" };
+  // Your CRM is the clearest signal there is: a Pipedrive activity, or mail
+  // from a Pipedrive person or one of their organisations' domains.
+  if (s.source === "pipedrive") return { workstream: "clients", rule: "builtin:pipedrive" };
+  if (isClient?.(s.senderEmail)) return { workstream: "clients", rule: "builtin:pipedrive-contact" };
   const channel = s.channel?.replace(/^#/, "").trim().toLowerCase();
   if (channel) {
     const hits = CHANNEL_RULES.filter(([, re]) => re.test(channel));
@@ -94,6 +101,6 @@ function builtinHit(s: RouteSubject): RouteHit | null {
   return null;
 }
 
-export function routeByRules(s: RouteSubject, rules: readonly WorkstreamRule[]): RouteHit | null {
-  return userRuleHit(s, rules) ?? builtinHit(s);
+export function routeByRules(s: RouteSubject, rules: readonly WorkstreamRule[], isClient?: ClientMatcher): RouteHit | null {
+  return userRuleHit(s, rules) ?? builtinHit(s, isClient);
 }

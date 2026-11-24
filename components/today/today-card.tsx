@@ -10,7 +10,7 @@
  */
 
 import Link from "next/link";
-import { Mail, MessageSquare, Zap, ArrowUpRight, Clock } from "lucide-react";
+import { Mail, MessageSquare, Zap, ArrowUpRight, Clock, Handshake } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { CATEGORY_CONFIG } from "@/lib/delta/types";
 import type { TodayFeedItem } from "@/lib/today/types";
@@ -128,6 +128,26 @@ export function TodayCard({ item }: { item: TodayFeedItem }) {
         <span className="ml-1 mt-0.5 inline-flex shrink-0 items-center gap-1 rounded-full bg-muted/50 px-2 py-0.5 text-[11px] font-medium text-muted-foreground">
           <Clock className="h-3 w-3" /> {item.followup.hoursWaiting}h
         </span>
+      </CardShell>
+    );
+  }
+
+  if (item.kind === "pipedrive") {
+    const summary = `${item.title} — ${item.subtitle}. Click to open in Pipedrive.`;
+    return (
+      <CardShell href={item.href} critical={critical} summary={summary}>
+        <span className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-signal-positive-subtle text-signal-positive">
+          <Handshake className="h-3.5 w-3.5" strokeWidth={1.8} />
+        </span>
+        <div className="min-w-0 flex-1">
+          <p className="text-sm font-medium leading-snug text-foreground">{item.title}</p>
+          <p className="mt-0.5 text-xs leading-snug text-muted-foreground">{item.subtitle}</p>
+        </div>
+        {item.overdueDays > 0 && (
+          <span className="ml-1 mt-0.5 inline-flex shrink-0 items-center gap-1 rounded-full bg-signal-warning-subtle px-2 py-0.5 text-[11px] font-medium text-signal-warning">
+            <Clock className="h-3 w-3" /> {item.overdueDays}d late
+          </span>
+        )}
       </CardShell>
     );
   }

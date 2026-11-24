@@ -33,6 +33,9 @@ export function feedSubject(item: TodayFeedItem, actionsById?: ReadonlyMap<strin
   if (item.kind === "linear") {
     return { key, text: item.title, source: "linear", project: item.issue.project?.name };
   }
+  if (item.kind === "pipedrive") {
+    return { key, text: `${item.title} — ${item.subtitle}`, source: "pipedrive", senderEmail: item.personEmail };
+  }
   const action = item.change.source === "actions" && item.change.entityId ? actionsById?.get(item.change.entityId) : undefined;
   if (action) return actionSubject(action);
   return { key, text: [item.title, item.subtitle].filter(Boolean).join(" — "), source: item.change.source };

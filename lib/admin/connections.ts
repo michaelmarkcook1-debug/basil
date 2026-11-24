@@ -7,6 +7,7 @@
  *     so a revoked sign-in shows as expired, not "connected".
  *   - Slack: auth.test on each stored token.
  *   - Linear: a one-field `viewer` query with the stored key.
+ *   - Pipedrive: /users/me with the stored token.
  *   - Microsoft: its own status check.
  *   - Zoom: token present only. Zoom rotates the refresh token on every
  *     refresh, so a "check" would be a write; Basil's own use reports failures.
@@ -23,9 +24,10 @@ import { getMicrosoftConnectionStatus } from "@/lib/microsoft/auth";
 import { getSlackConfig } from "@/lib/slack/client";
 import { getLinearConfig } from "@/lib/linear/client";
 import { isZoomConnected } from "@/lib/zoom/auth";
+import { getPipedriveConfig, validatePipedriveToken } from "@/lib/pipedrive/client";
 import { autoRegisterGoogleWebhooks } from "@/lib/google/register-webhooks";
 
-export type SourceId = "google" | "slack" | "zoom" | "linear" | "microsoft";
+export type SourceId = "google" | "slack" | "zoom" | "linear" | "pipedrive" | "microsoft";
 export type SourceState = "ok" | "broken" | "off" | "unchecked";
 
 export interface SourceCheck {
@@ -47,6 +49,7 @@ export const RECONNECT_PATH: Record<SourceId, string> = {
   slack: "/api/auth/slack/oauth?from=settings",
   zoom: "/api/auth/zoom?from=%2Fdashboard%2Fsettings%3Fconnected%3Dzoom",
   linear: "/dashboard/settings",
+  pipedrive: "/dashboard/settings",
   microsoft: "/api/auth/microsoft?from=settings",
 };
 
@@ -106,6 +109,17 @@ async function checkLinear(username: string): Promise<SourceCheck> {
   }
 }
 
+async function checkPipedrive(username: string): Promise<SourceCheck> {
+  try {
+    const { apiToken } = await getPipedriveConfig(username);
+    if (!apiToken) return { state: "off" };
+    const who = await validatePipedriveToken(apiToken);
+    return { state: "ok", detail: who.companyName };
+  } catch (e) {
+    return { state: "broken", detail: msg(e) };
+  }
+}
+
 async function checkMicrosoft(username: string): Promise<SourceCheck> {
   try {
     const s = await getMicrosoftConnectionStatus(username);
@@ -131,11 +145,12 @@ export async function checkAllConnections(): Promise<AccountConnections[]> {
   const users = await getUsers();
   return Promise.all(
     users.map(async (u) => {
-      const [google, slack, zoom, linear, microsoft] = await Promise.all([
+      const [google, slack, zoom, linear, pipedrive, microsoft] = await Promise.all([
         withTimeout(checkGoogle(u.username), timedOut),
         withTimeout(checkSlack(u.username), timedOut),
         withTimeout(checkZoom(u.username), timedOut),
         withTimeout(checkLinear(u.username), timedOut),
+        withTimeout(checkPipedrive(u.username), timedOut),
         withTimeout(checkMicrosoft(u.username), timedOut),
       ]);
       return {
@@ -143,7 +158,7 @@ export async function checkAllConnections(): Promise<AccountConnections[]> {
         name: [u.name, u.surname].filter(Boolean).join(" ") || u.username,
         email: u.email,
         disabled: !!u.disabled,
-        sources: { google, slack, zoom, linear, microsoft },
+        sources: { google, slack, zoom, linear, pipedrive, microsoft },
       };
     }),
   );

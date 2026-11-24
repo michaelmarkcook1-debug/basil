@@ -37,6 +37,7 @@ function prefixFor(lane: TodayFeedItem["lane"]): Prefix {
 function wireFor(item: TodayFeedItem): string {
   if (item.kind === "followup") return item.followup.source.toUpperCase();
   if (item.kind === "linear") return "LINEAR";
+  if (item.kind === "pipedrive") return "PIPEDRIVE";
   return item.change.source.toUpperCase();
 }
 
@@ -55,7 +56,9 @@ function sourcingFor(item: TodayFeedItem): { label: string; cls: string; title: 
     title:
       item.kind === "followup"
         ? "Directly observed: an inbound message with no reply from you."
-        : "Read directly from Linear.",
+        : item.kind === "pipedrive"
+          ? "Read directly from Pipedrive."
+          : "Read directly from Linear.",
   };
 }
 

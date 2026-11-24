@@ -53,6 +53,7 @@ export function provenanceOf(item: TodayFeedItem): Provenance {
 /** Which integration this came from, for the provenance label. */
 export function sourceOf(item: TodayFeedItem): string {
   if (item.kind === "linear") return "Linear";
+  if (item.kind === "pipedrive") return "Pipedrive";
   if (item.kind === "followup") return item.followup.source === "slack" ? "Slack" : "Gmail";
   return item.change.source === "contacts" ? "Contacts"
     : item.change.source === "actions" ? "Commitments"
@@ -95,6 +96,8 @@ export interface Priority {
   workstreamKey?: string;
   /** A rule "Always file … here" can teach: the sender, or the Linear project. */
   learn?: { field: "sender" | "project"; value: string; label: string };
+  /** What the item is — sent with the user's filing so Basil learns patterns (lib/workstreams/learn). */
+  features?: { sender?: string; channel?: string; project?: string; source?: string };
 }
 
 /**
@@ -128,6 +131,7 @@ function contextOf(item: TodayFeedItem): string | undefined {
     return who || undefined;
   }
   if (item.kind === "linear") return item.issue.project?.name || undefined;
+  if (item.kind === "pipedrive") return item.dealTitle;
   return undefined;
 }
 
@@ -138,6 +142,7 @@ function detailOf(item: TodayFeedItem, why: string): string | undefined {
     item.kind === "change" ? item.change.context
     : item.kind === "followup" ? item.followup.preview
     : item.kind === "linear" ? item.issue.state?.name
+    : item.kind === "pipedrive" ? item.activity.note
     : undefined;
   if (!candidate) return undefined;
   return norm(candidate) === norm(why) ? undefined : candidate;
@@ -161,6 +166,7 @@ function toPriority(item: TodayFeedItem): Priority {
     workstream: item.workstream,
     workstreamBy: item.workstreamBy,
     workstreamKey: feedKey(item),
+    features: featuresOf(item),
     ...learnOf(item),
   };
 }
@@ -169,6 +175,13 @@ function toPriority(item: TodayFeedItem): Priority {
 function feedKey(item: TodayFeedItem): string {
   if (item.kind === "change" && item.change.source === "actions" && item.change.entityId) return `action:${item.change.entityId}`;
   return item.id;
+}
+
+function featuresOf(item: TodayFeedItem): NonNullable<Priority["features"]> {
+  if (item.kind === "followup") return { source: item.followup.source, ...(item.followup.fromEmail ? { sender: item.followup.fromEmail.toLowerCase() } : {}) };
+  if (item.kind === "linear") return { source: "linear", ...(item.issue.project?.name ? { project: item.issue.project.name.toLowerCase() } : {}) };
+  if (item.kind === "pipedrive") return { source: "pipedrive", ...(item.personEmail ? { sender: item.personEmail } : {}) };
+  return { source: item.change.source };
 }
 
 function learnOf(item: TodayFeedItem): Pick<Priority, "learn"> {

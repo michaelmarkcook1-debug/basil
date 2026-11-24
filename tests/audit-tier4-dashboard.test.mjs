@@ -9,6 +9,10 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { loadTs } from "./_helpers/load-ts.mjs";
 
+// Pipedrive (added 2026-11-24): not connected in these tests; the pure helpers are real.
+const PD_SHAPE = loadTs("lib/pipedrive/shape.ts");
+const PD_CLIENT = { getPipedriveConfig: async () => ({}), getPipedriveSnapshot: async () => null, activityUrl: () => "", dealUrl: () => "" };
+
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const X = loadTs("lib/today/executive.ts");
 const C = loadTs("lib/today/clock.ts");
@@ -91,7 +95,7 @@ test("L4 the feed maps a change's subject to the headline", async () => {
       "@/lib/delta/store": { getSinceDate: async () => NOON.toISOString() },
       "@/lib/actions/store": { listActions: async () => [] }, "@/lib/decisions/store": { listDecisions: async () => [] },
       "@/lib/contacts/user-store": { listUserContacts: async () => [] }, "@/lib/contacts/overrides-store": { getAllOverridesFromStore: async () => ({}) },
-      "@/lib/linear/client": { isLinearConnected: async () => false, getMyOpenIssues: async () => [] },
+      "@/lib/pipedrive/client": PD_CLIENT, "@/lib/pipedrive/shape": PD_SHAPE, "@/lib/linear/client": { isLinearConnected: async () => false, getMyOpenIssues: async () => [] },
       "@/lib/followups/detect": { detectPendingFollowups: async () => ({ items: [], sources: { gmail: true, slack: true } }) },
       "@/lib/learning/store": { getLearning: async () => ({}) }, "@/lib/settings/store": { getSettings: async () => ({ timezone: "Europe/London" }) },
       "@/lib/learning/priors": { computeCategoryPriors: () => ({}) },

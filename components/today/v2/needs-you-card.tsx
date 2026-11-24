@@ -74,6 +74,7 @@ export function NeedsYouCard({
                 by={p.workstreamBy}
                 text={`${p.title} — ${p.why}`}
                 learn={p.learn}
+                features={p.features}
                 onChanged={onWorkstreamChanged}
               />
             )}

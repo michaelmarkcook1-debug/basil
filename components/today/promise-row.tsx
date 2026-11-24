@@ -85,7 +85,7 @@ export function PromiseRow({ action, due, color, onChanged }: {
           <span className="text-[15px] leading-snug text-[color:var(--w-ink)]">{action.text}</span>
           <span className="flex flex-wrap items-center gap-2 text-[13px] text-[color:var(--w-ink-soft)]">
             <span><span className="font-semibold" style={{ color }}>{due}</span> · from {action.source}</span>
-            <WorkstreamChip size="sm" itemKey={actionKey(action.id)} workstream={action.workstream} by={action.workstreamBy} text={action.text} onChanged={() => onChanged()} />
+            <WorkstreamChip size="sm" itemKey={actionKey(action.id)} workstream={action.workstream} by={action.workstreamBy} text={action.text} features={{ source: action.source }} onChanged={() => onChanged()} />
           </span>
         </span>
       </div>

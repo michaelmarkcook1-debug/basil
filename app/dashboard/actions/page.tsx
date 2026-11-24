@@ -461,6 +461,7 @@ function ActionCard({
             workstream={action.workstream}
             by={action.workstreamBy}
             text={action.text}
+            features={{ source: action.source }}
             onChanged={() => { window.dispatchEvent(new Event("basil:workstreams-changed")); }}
           />
           <CategoryChip category={action.category} />

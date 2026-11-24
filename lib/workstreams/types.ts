@@ -74,4 +74,6 @@ export interface WorkstreamRule {
   value: string;
   workstream: Workstream;
   createdAt: string;
+  /** Set when Basil learned this from the user's filings (lib/workstreams/learn) rather than the user making it. */
+  learned?: { from: number };
 }

@@ -16,6 +16,8 @@ import { listUserContacts } from "@/lib/contacts/user-store";
 import { getAllOverridesFromStore } from "@/lib/contacts/overrides-store";
 import type { ToneObservation } from "@/lib/contact-profile-overrides";
 import { isLinearConnected, getMyOpenIssues, type LinearIssue } from "@/lib/linear/client";
+import { getPipedriveConfig, getPipedriveSnapshot, activityUrl, type PipedriveSnapshot } from "@/lib/pipedrive/client";
+import { dueActivities, daysBetween, emailDomain, isClientSender } from "@/lib/pipedrive/shape";
 import { detectPendingFollowups } from "@/lib/followups/detect";
 import { assignWorkstreams } from "@/lib/workstreams/classify";
 import { actionSubject, feedSubject, stampFeed, workstreamTotals } from "@/lib/workstreams/attach";
@@ -33,6 +35,7 @@ import type {
   TodayChangeItem,
   TodayFollowupItem,
   TodayLinearItem,
+  TodayPipedriveItem,
   TodayLane,
   SuggestVerb,
 } from "@/lib/today/types";
@@ -52,7 +55,7 @@ import type {
  */
 
 const CAP_TOTAL = 16;
-const CAP_PER_SOURCE = { change: 7, followup: 6, linear: 5 } as const;
+const CAP_PER_SOURCE = { change: 7, followup: 6, linear: 5, pipedrive: 5 } as const;
 const DUE_SOON_MS = 48 * 3_600_000;
 
 // Informational deltas ("a thing was created / resolved / re-engaged") are not
@@ -146,6 +149,24 @@ export async function computeTodayFeed(username: string): Promise<TodayFeedRespo
           return [];
         })
       : [];
+
+    // Pipedrive: overdue and due-today activities, plus the client directory
+    // that files client mail under Clients & Sales. Same rule as Linear: a
+    // failed read is "degraded", never "nothing due".
+    const pdConfig = await getPipedriveConfig(username).catch((e) => {
+      console.warn("[today] pipedrive config unreadable:", e instanceof Error ? e.message : e);
+      return {};
+    });
+    const pipedriveOn = !!("apiToken" in pdConfig && pdConfig.apiToken);
+    let pipedriveFailed = false;
+    const ownDomains = [...new Set(identity.emails.map((e) => emailDomain(e)).filter((d): d is string => !!d))];
+    const pd: PipedriveSnapshot | null = pipedriveOn
+      ? await getPipedriveSnapshot(username, { ownDomains }).catch((e) => {
+          console.warn("[today] pipedrive failed:", e instanceof Error ? e.message : e);
+          pipedriveFailed = true;
+          return null;
+        })
+      : null;
 
     // ── Map each source → TodayFeedItem, computing rank ───────────────────────
 
@@ -250,12 +271,46 @@ export async function computeTodayFeed(username: string): Promise<TodayFeedRespo
       })
       .filter((i): i is TodayLinearItem => i !== null);
 
+    // 4. Pipedrive — your activities that are overdue or due today.
+    const pdToday = dayIn(nowMs, workCal?.timezone ?? settings?.timezone ?? "Europe/London");
+    const pipedriveItems: TodayPipedriveItem[] = [];
+    if (pd) {
+      const deals = new Map(pd.deals.map((d) => [d.id, d]));
+      const persons = new Map(pd.persons.map((p) => [p.id, p]));
+      const orgs = new Map(pd.orgs.map((o) => [o.id, o]));
+      const { overdue, dueToday } = dueActivities(pd.activities, pdToday);
+      for (const a of [...overdue, ...dueToday]) {
+        const overdueDays = daysBetween(a.dueDate!, pdToday);
+        const deal = a.dealId ? deals.get(a.dealId) : undefined;
+        const person = a.personId ? persons.get(a.personId) : undefined;
+        const org = a.orgId ? orgs.get(a.orgId) : (person?.orgId ? orgs.get(person.orgId) : undefined);
+        const sev: ChangeSeverity = overdueDays > 7 ? "critical" : overdueDays > 0 ? "high" : "medium";
+        const when = overdueDays > 0 ? `overdue ${overdueDays} day${overdueDays === 1 ? "" : "s"}` : a.dueTime ? `today ${a.dueTime}` : "due today";
+        const who = [person?.name, org?.name].filter(Boolean).join(", ");
+        pipedriveItems.push({
+          id: `pipedrive:activity:${a.id}`,
+          kind: "pipedrive",
+          // Constant recency: an overdue call does not fade because it was logged long ago.
+          rank: SEVERITY_WEIGHT[sev] * CATEGORY_CONFIG.urgency.weight * 0.6,
+          lane: sev === "critical" ? "critical" : "needs-you",
+          title: a.subject,
+          subtitle: [`${a.type} · ${when}`, who, deal ? `${deal.title} (${deal.stage})` : ""].filter(Boolean).join(" · "),
+          occurredAt: a.dueDate ? `${a.dueDate}T${a.dueTime ?? "09:00"}:00Z` : a.updateTime,
+          href: activityUrl("companyDomain" in pdConfig ? pdConfig.companyDomain : undefined, a),
+          activity: a,
+          overdueDays,
+          ...(deal ? { dealTitle: deal.title } : {}),
+          ...(person?.emails[0] ? { personEmail: person.emails[0].toLowerCase() } : {}),
+        });
+      }
+    }
+
     // Everything that qualified, deduped and ranked — NOT capped. The cap is
     // presentation (see presentFeed); the number a headline may show is this
     // one. It used to be applied here, so `total` was the capped figure and
     // twenty unanswered threads read as six with no sign six was a cut.
     const byId = new Map<string, TodayFeedItem>();
-    for (const item of [...changeItems, ...followupItems, ...linearItems]) {
+    for (const item of [...changeItems, ...followupItems, ...linearItems, ...pipedriveItems]) {
       if (!byId.has(item.id)) byId.set(item.id, item);
     }
     const ranked = [...byId.values()].sort(byRank);
@@ -268,7 +323,7 @@ export async function computeTodayFeed(username: string): Promise<TodayFeedRespo
       ...allActions.filter((a) => a.status !== "done").map(actionSubject),
     ];
     const uniqueSubjects = [...new Map(subjects.map((s) => [s.key, s])).values()];
-    const placed = await assignWorkstreams(username, uniqueSubjects).catch((e) => {
+    const placed = await assignWorkstreams(username, uniqueSubjects, { isClient: pd ? (e?: string) => isClientSender(pd.directory, e) : undefined }).catch((e) => {
       console.warn("[today] workstreams failed:", e instanceof Error ? e.message : e);
       return new Map();
     });
@@ -278,15 +333,16 @@ export async function computeTodayFeed(username: string): Promise<TodayFeedRespo
       items: all,
       workstreamTotals: workstreamTotals(all),
       total: all.length,
-      totals: { changes: changeItems.length, followups: followupItems.length, linear: linearItems.length },
+      totals: { changes: changeItems.length, followups: followupItems.length, linear: linearItems.length, pipedrive: pipedriveItems.length },
       truncated: false,
       generatedAt: new Date().toISOString(),
       sources: {
         changes: true,
         followups: followupResult.sources,
         linear: linearOn,
+        pipedrive: pipedriveOn,
       },
-      degraded: [...(followupResult.degraded ?? []), ...(linearFailed ? ["Linear"] : [])],
+      degraded: [...(followupResult.degraded ?? []), ...(linearFailed ? ["Linear"] : []), ...(pipedriveFailed ? ["Pipedrive"] : [])],
     } satisfies TodayFeedResponse;
 }
 
@@ -316,6 +372,7 @@ export function presentFeed(feed: TodayFeedResponse, opts: { full?: boolean; wor
     changes: feed.items.filter((i) => i.kind === "change").length,
     followups: feed.items.filter((i) => i.kind === "followup").length,
     linear: feed.items.filter((i) => i.kind === "linear").length,
+    pipedrive: feed.items.filter((i) => i.kind === "pipedrive").length,
   };
   const total = feed.totals ? feed.total : feed.items.length;
   const degraded = feed.degraded ?? [];
@@ -328,6 +385,7 @@ export function presentFeed(feed: TodayFeedResponse, opts: { full?: boolean; wor
     ...top("change", CAP_PER_SOURCE.change),
     ...top("followup", CAP_PER_SOURCE.followup),
     ...top("linear", CAP_PER_SOURCE.linear),
+    ...top("pipedrive", CAP_PER_SOURCE.pipedrive),
   ].sort(byRank).slice(0, CAP_TOTAL);
 
   return { ...feed, items, totals, total, truncated: items.length < total, degraded, workstreamTotals: wsTotals };

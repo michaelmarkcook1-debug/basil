@@ -2,14 +2,16 @@
 
 /**
  * Settings → Workstreams: what each workstream holds, and the routing rules the
- * user has taught Basil ("Always file … here" on any card). Rules can be
- * removed here; new ones are made from the cards themselves.
+ * user has taught Basil ("Always file … here" on any card) or Basil learned
+ * from how they file (lib/workstreams/learn), and how often Basil's own filing
+ * is right. Rules can be removed here; new ones come from the cards.
  */
 
 import { useEffect, useState } from "react";
 import { Loader2, X } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { WORKSTREAMS, workstreamInfo, type WorkstreamRule } from "@/lib/workstreams/types";
+import type { LearningScore } from "@/lib/workstreams/learn";
 
 const FIELD_LABEL: Record<WorkstreamRule["field"], string> = {
   sender: "From",
@@ -21,6 +23,7 @@ const FIELD_LABEL: Record<WorkstreamRule["field"], string> = {
 
 export function WorkstreamsCard() {
   const [rules, setRules] = useState<WorkstreamRule[] | null>(null);
+  const [score, setScore] = useState<LearningScore | null>(null);
   const [failed, setFailed] = useState(false);
   const [busy, setBusy] = useState<string | null>(null);
 
@@ -28,7 +31,7 @@ export function WorkstreamsCard() {
     let live = true;
     fetch("/api/workstreams", { cache: "no-store" })
       .then((r) => (r.ok ? r.json() : Promise.reject(new Error(String(r.status)))))
-      .then((d: { rules?: WorkstreamRule[] }) => { if (live) setRules(d.rules ?? []); })
+      .then((d: { rules?: WorkstreamRule[]; score?: LearningScore }) => { if (live) { setRules(d.rules ?? []); setScore(d.score ?? null); } })
       .catch(() => { if (live) setFailed(true); });
     return () => { live = false; };
   }, []);
@@ -49,8 +52,18 @@ export function WorkstreamsCard() {
         <CardTitle className="text-base font-semibold">Workstreams</CardTitle>
         <p className="text-sm text-muted-foreground">
           Everything on Today and in Actions is filed under one of these. Basil sorts new things itself; to correct one,
-          click its label on the card. Tick “Always file … here” and the next one from that sender or project sorts itself.
+          click its label on the card. Basil learns from every one you file: file two from the same sender or project
+          (three from a Slack channel or company) the same way, and it makes that a rule. File one somewhere else and the
+          learned rule goes.
         </p>
+        {score && score.checked > 0 && (
+          <p className="text-sm">
+            Basil’s own filing was right <span className="font-semibold">{Math.round((score.accuracy ?? 0) * 100)}%</span> of
+            the {score.checked} times you checked it
+            {score.recentAccuracy !== null ? <> ({Math.round(score.recentAccuracy * 100)}% over the last 30)</> : null}.
+            It learns from {score.filings} filing{score.filings === 1 ? "" : "s"} of yours.
+          </p>
+        )}
       </CardHeader>
       <CardContent className="space-y-5">
         <ul className="grid gap-2 sm:grid-cols-2">
@@ -68,7 +81,7 @@ export function WorkstreamsCard() {
           ) : rules === null ? (
             <p className="text-sm text-muted-foreground">Reading…</p>
           ) : rules.length === 0 ? (
-            <p className="text-sm text-muted-foreground">None yet. They appear here when you tick “Always file … here” on a card.</p>
+            <p className="text-sm text-muted-foreground">None yet. They appear when you tick “Always file … here” on a card, or when Basil spots a pattern in how you file.</p>
           ) : (
             <ul className="divide-y rounded-xl border">
               {rules.map((r) => {
@@ -79,6 +92,11 @@ export function WorkstreamsCard() {
                       {FIELD_LABEL[r.field]}{r.field === "channel" ? "" : " "}<span className="font-medium">{r.value}</span>
                       {" → "}
                       <span className="font-semibold" style={{ color: w?.fg }}>{w?.label ?? r.workstream}</span>
+                      {r.learned && (
+                        <span className="ml-2 rounded-full bg-muted px-2 py-0.5 text-xs text-muted-foreground">
+                          learned from {r.learned.from} of your filings
+                        </span>
+                      )}
                     </span>
                     <button
                       type="button"

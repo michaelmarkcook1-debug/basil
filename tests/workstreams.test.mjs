@@ -13,6 +13,7 @@ const src = (f) => fs.readFileSync(path.join(ROOT, f), "utf8");
 const plain = (v) => JSON.parse(JSON.stringify(v));
 const T = loadTs("lib/workstreams/types.ts");
 const R = loadTs("lib/workstreams/rules.ts");
+const L = loadTs("lib/workstreams/learn.ts");
 
 const rule = (field, value, workstream, createdAt = "2026-11-23T00:00:00Z") => ({ id: `r-${field}-${value}`, field, value, workstream, createdAt });
 
@@ -48,7 +49,12 @@ function classify({ store, ai }) {
     "@/lib/ai/system-prompt": { getTaskSystemPrompt: async () => "sys" },
     "@/lib/workstreams/rules": R,
     "@/lib/workstreams/types": T,
-    "@/lib/workstreams/store": { readWorkstreams: async () => store, saveVerdicts: async (_u, v) => { saved.push(v); } },
+    "@/lib/workstreams/store": {
+      readWorkstreams: async () => store,
+      saveVerdicts: async (_u, v) => { saved.push(v); },
+      filingsOf: (verdicts) => Object.values(verdicts).filter((v) => v.by === "user" && v.w).map((v) => ({ w: v.w, at: v.at, t: v.t })),
+    },
+    "@/lib/workstreams/learn": L,
   });
   return { C, saved, calls };
 }
@@ -115,7 +121,7 @@ test("feed items and actions share keys, so one correction shows everywhere", ()
 test("Today filters by workstream BEFORE the display cap; totals stay whole-feed", () => {
   const feedSrc = src("lib/today/feed.ts");
   assert.match(feedSrc, /filter BEFORE the cap/);
-  assert.match(feedSrc, /assignWorkstreams\(username, uniqueSubjects\)/, "classified in the background compute");
+  assert.match(feedSrc, /assignWorkstreams\(username, uniqueSubjects[,)]/, "classified in the background compute");
   const route = src("app/api/today/route.ts");
   assert.match(route, /searchParams\.get\("workstream"\)/);
   assert.match(route, /withCurrentWorkstreams/, "corrections overlay the cached feed");

@@ -47,7 +47,9 @@ import {
   Trash2,
   Video,
   XCircle,
+  Handshake,
 } from "lucide-react";
+import { PipedriveConnect } from "@/components/settings/pipedrive-connect";
 
 interface ReadinessBannerData {
   readiness: { score: number; checks: boolean[] };
@@ -69,6 +71,7 @@ interface AllStatuses {
   slack: IntegrationStatus;
   microsoft?: IntegrationStatus & { microsoft?: { mail: boolean; calendar: boolean; drive: boolean; teams: boolean } };
   linear?: IntegrationStatus;
+  pipedrive?: IntegrationStatus;
   claude: IntegrationStatus;
   zoom?: IntegrationStatus;
   snapshot?: SnapshotDiagnostics;
@@ -134,7 +137,7 @@ interface UserSettings {
   };
 }
 
-type AppKey = "slack" | "google" | "linear" | "zoom" | "notion" | "apple" | "whatsapp" | "microsoft";
+type AppKey = "slack" | "google" | "linear" | "pipedrive" | "zoom" | "notion" | "apple" | "whatsapp" | "microsoft";
 
 interface AppDef {
   key: AppKey;
@@ -148,6 +151,8 @@ interface AppDef {
   disconnect?: () => Promise<void>;
   scopes?: string[];
   setup?: string[];
+  /** Called after an in-card connect/disconnect (API-key sources). */
+  refresh?: (message?: string) => void;
 }
 
 function StateBadge({ state, mode }: { state?: IntegrationState | "loading"; mode?: "manual" | "planned" }) {
@@ -967,6 +972,8 @@ function ConnectionCard({
               </Button>
             )}
           </div>
+        ) : app.key === "pipedrive" ? (
+          <PipedriveConnect connected={connected} onChanged={(m) => app.refresh?.(m)} />
         ) : app.key === "linear" && connected ? (
           <Button variant="ghost" size="sm" className="h-8 text-xs text-muted-foreground hover:text-destructive" onClick={() => void app.disconnect?.()}>
             Disconnect
@@ -1381,6 +1388,20 @@ export default function SettingsPage() {
       mode: "api-key",
       disconnect: () => disconnect("/api/integrations/linear", "linear"),
       setup: ["Use a Linear Personal API Key. Basil validates before saving."],
+    },
+    {
+      key: "pipedrive",
+      name: "Pipedrive",
+      role: "Deals, overdue and due-today sales activities, and who your clients are, so their email files under Clients & Sales.",
+      priority: "core",
+      icon: Handshake,
+      status: statuses?.pipedrive,
+      mode: "api-key",
+      refresh: (message?: string) => {
+        if (message) setNotice({ type: "success", message });
+        void loadAll();
+      },
+      setup: ["Paste your personal API token from Pipedrive → Personal preferences → API. Basil checks it, stores it encrypted, and only reads."],
     },
     {
       key: "zoom",

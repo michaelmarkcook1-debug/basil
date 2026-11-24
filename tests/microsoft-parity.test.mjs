@@ -14,6 +14,10 @@ import assert from "node:assert/strict";
 import { createRequire } from "node:module";
 import { loadTs, nextServer } from "./_helpers/load-ts.mjs";
 
+// Pipedrive (added 2026-11-24): not connected in these tests; the pure helpers are real.
+const PD_SHAPE = loadTs("lib/pipedrive/shape.ts");
+const PD_CLIENT = { getPipedriveConfig: async () => ({}), getPipedriveSnapshot: async () => null, activityUrl: () => "", dealUrl: () => "" };
+
 const require = createRequire(import.meta.url);
 const ai = require("ai");
 const j = (x) => JSON.parse(JSON.stringify(x));
@@ -564,7 +568,7 @@ function toolsWith({ google = true, microsoft = true, unified, writes, settings 
     "@/lib/calendar/unified": unified ?? noop, "@/lib/calendar/writes": writes ?? noop,
     "@/lib/microsoft/mail-provider": mailProvider, "@/lib/microsoft/outlook-mail": outlookMail,
     "@/lib/memory/store": noop, "@/lib/actions/store": noop, "@/lib/decisions/store": noop,
-    "@/lib/events/audit": { emitAuditEvent: async () => {} }, "@/lib/linear/sync-actions": noop, "@/lib/linear/client": noop,
+    "@/lib/events/audit": { emitAuditEvent: async () => {} }, "@/lib/linear/sync-actions": noop, "@/lib/pipedrive/client": PD_CLIENT, "@/lib/pipedrive/shape": PD_SHAPE, "@/lib/linear/client": noop,
     "@/lib/contacts-lookup": { findContactByName: () => undefined, timezoneFromLocation: () => undefined },
     "@/lib/contacts/user-store": { listUserContacts: async () => [] }, "@/lib/uploads/store": noop, "@/lib/ai-chats/store": { searchAIChats: async () => [], chatStatus: async () => ({ platforms: [], latestWork: [] }) }, "@/lib/uploads/search": noop,
     "@/lib/settings/store": { getSettings: async () => ({ meetingUrl: "", ...settings }) },

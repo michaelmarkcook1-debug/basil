@@ -3,6 +3,7 @@ import { getGoogleConnectionStatus } from "@/lib/google/auth";
 import { getMicrosoftConnectionStatus } from "@/lib/microsoft/auth";
 import { isSlackConnected } from "@/lib/slack/client";
 import { isLinearConnected } from "@/lib/linear/client";
+import { isPipedriveConnected } from "@/lib/pipedrive/client";
 import { isZoomConnected } from "@/lib/zoom/auth";
 import { getSnapshotDiagnostics } from "@/lib/storage/persistent";
 import { getSessionUser } from "@/lib/auth";
@@ -95,6 +96,17 @@ export async function GET() {
       lastCheckedAt: now,
     };
 
+    // ── Pipedrive ───────────────────────────────────────────────────────────
+    const pipedriveConnected = await isPipedriveConnected(username).catch((e) => {
+      console.error("[integrations/status] Pipedrive status check failed:", e instanceof Error ? e.message : e);
+      return false;
+    });
+    const pipedrive: IntegrationStatus = {
+      id:            "pipedrive",
+      state:         pipedriveConnected ? "connected" : "disconnected",
+      lastCheckedAt: now,
+    };
+
     // ── Claude / Anthropic ──────────────────────────────────────────────────
     const claude: IntegrationStatus = {
       id:            "claude",
@@ -113,7 +125,7 @@ export async function GET() {
     // ── Snapshot diagnostics ────────────────────────────────────────────────
     const snapshot = getSnapshotDiagnostics();
 
-    return NextResponse.json({ google, slack, microsoft, linear, claude, zoom, snapshot, watchHealth });
+    return NextResponse.json({ google, slack, microsoft, linear, pipedrive, claude, zoom, snapshot, watchHealth });
   } catch (err) {
     console.error("[integrations/status] Unexpected error:", err);
     return NextResponse.json(

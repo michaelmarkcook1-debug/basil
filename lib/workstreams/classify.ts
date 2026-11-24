@@ -3,16 +3,19 @@
  *
  * For each subject, in order: the user's own verdict → a routing rule (theirs,
  * then built-in) → a stored verdict → the fast-tier classifier, in batches,
- * capped per pass. The user's last few corrections go to the classifier as
- * examples, so it learns how this user files things.
+ * capped per pass. Learning from the user's own filings (lib/workstreams/learn):
+ * patterns become rules, near-repeats of a filed item are filed the same way
+ * without a model call, and the classifier sees the user's most similar
+ * filings as examples.
  *
  * Never throws: a failed classifier leaves things unsorted, never blocks Today.
  */
 import "server-only";
 import { generateTextSafe } from "@/lib/ai/generate";
 import { getTaskSystemPrompt } from "@/lib/ai/system-prompt";
-import { routeByRules, type RouteSubject } from "@/lib/workstreams/rules";
-import { readWorkstreams, saveVerdicts, type Verdict, type WorkstreamStore } from "@/lib/workstreams/store";
+import { routeByRules, type RouteSubject, type ClientMatcher } from "@/lib/workstreams/rules";
+import { readWorkstreams, saveVerdicts, filingsOf, type Verdict, type WorkstreamStore } from "@/lib/workstreams/store";
+import { nearestFiling, similarExamples } from "@/lib/workstreams/learn";
 import { WORKSTREAMS, isWorkstream, type Workstream, type WorkstreamBy } from "@/lib/workstreams/types";
 
 export interface Assigned {
@@ -70,7 +73,7 @@ export function parseVerdicts(text: string): Map<string, Workstream | null> {
 export async function assignWorkstreams(
   username: string,
   subjects: readonly RouteSubject[],
-  opts: { aiLimit?: number; store?: WorkstreamStore } = {},
+  opts: { aiLimit?: number; store?: WorkstreamStore; isClient?: ClientMatcher } = {},
 ): Promise<Map<string, Assigned>> {
   const out = new Map<string, Assigned>();
   if (subjects.length === 0) return out;
@@ -78,26 +81,28 @@ export async function assignWorkstreams(
   const now = new Date().toISOString();
   const learned: Record<string, Verdict> = {};
   const pending: RouteSubject[] = [];
+  const filings = filingsOf(store.verdicts);
 
   for (const s of subjects) {
     const v = store.verdicts[s.key];
     if (v?.by === "user") { out.set(s.key, { workstream: v.w, by: "user" }); continue; }
-    const hit = routeByRules(s, store.rules);
+    const hit = routeByRules(s, store.rules, opts.isClient);
     if (hit) {
       out.set(s.key, { workstream: hit.workstream, by: "rule" });
       continue;
     }
+    // Nearly the same words as something the user filed: file it the same way,
+    // free — and ahead of an older classifier guess, which knew less.
+    const same = nearestFiling(s.text, filings);
+    if (same) { out.set(s.key, { workstream: same, by: "rule" }); continue; }
     if (v) { out.set(s.key, { workstream: v.w, by: v.by }); continue; }
     pending.push(s);
   }
 
   const todo = pending.slice(0, opts.aiLimit ?? DEFAULT_AI_LIMIT);
   if (todo.length > 0) {
-    const examples = Object.values(store.verdicts)
-      .filter((v): v is Verdict & { w: Workstream; t: string } => v.by === "user" && !!v.w && !!v.t)
-      .sort((a, b) => b.at.localeCompare(a.at))
-      .slice(0, 12)
-      .map((v) => ({ t: v.t, w: v.w }));
+    // The user's filings most like what is being filed now (recent ones when nothing is similar).
+    const examples = similarExamples(todo.map((s) => s.text), filings, 12);
     const system = await getTaskSystemPrompt(username, undefined, { memories: 0 }).catch(() => "You file work items for an executive.");
     for (let i = 0; i < todo.length; i += BATCH) {
       const batch = todo.slice(i, i + BATCH);

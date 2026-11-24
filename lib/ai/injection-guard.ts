@@ -22,7 +22,7 @@
 export const EXTERNAL_READ_TOOLS: ReadonlySet<string> = new Set([
   "readEmail", "searchEmails", "searchSlack", "getSlackDMs", "lookupSlackUser",
   "readWebPage", "searchWeb", "searchDrive", "searchUploads", "searchAIChats",
-  "getCalendarEvents", "listLinearIssues",
+  "getCalendarEvents", "listLinearIssues", "listPipedrive",
 ]);
 
 /** Shared by the tools of one request; flips to tainted when outside content is read. */

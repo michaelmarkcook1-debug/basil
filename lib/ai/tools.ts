@@ -36,6 +36,8 @@ import {
   updateDecision,
 } from "@/lib/decisions/store";
 import { emitAuditEvent } from "@/lib/events/audit";
+import { getPipedriveConfig, getPipedriveSnapshot, dealUrl } from "@/lib/pipedrive/client";
+import { dueActivities, daysBetween, money } from "@/lib/pipedrive/shape";
 import { syncLinearActionStates } from "@/lib/linear/sync-actions";
 import {
   isLinearConnected,
@@ -1242,6 +1244,74 @@ export function buildAssistantTools(
             team: i.team.name,
             priority: i.priority,
             url: i.url,
+          })),
+        };
+      },
+    }),
+
+    listPipedrive: tool({
+      description: `Read ${name}'s Pipedrive CRM (read-only): open deals they own with stage, value and expected close; their overdue and upcoming sales activities; and people/organisations. Use when ${name} asks about deals, the pipeline, a client or prospect, what sales follow-ups are due, or who someone is at a company.`,
+      inputSchema: z.object({
+        view: z.enum(["deals", "activities", "contact"]).describe('"deals" = open deals; "activities" = overdue + next 14 days; "contact" = find a person or organisation by name or email.'),
+        query: z.string().optional().describe("For contact: a name, company or email. For deals/activities: optional text to filter by deal, person or company."),
+      }),
+      execute: async ({ view, query }) => {
+        const cfg = await getPipedriveConfig(username);
+        if (!cfg.apiToken) return { error: "Pipedrive isn't connected. Connect it in Settings → Connected sources." };
+        let pd;
+        try {
+          pd = await getPipedriveSnapshot(username);
+        } catch (err) {
+          return {
+            error: "Couldn't reach Pipedrive, so the pipeline is unknown — do NOT say there are no deals or activities.",
+            detail: err instanceof Error ? err.message.slice(0, 200) : String(err).slice(0, 200),
+          };
+        }
+        if (!pd) return { error: "Pipedrive isn't connected." };
+        const q = query?.trim().toLowerCase();
+        const persons = new Map(pd.persons.map((p) => [p.id, p]));
+        const orgs = new Map(pd.orgs.map((o) => [o.id, o]));
+        const deals = new Map(pd.deals.map((d) => [d.id, d]));
+        const label = (personId: number | null, orgId: number | null) => ({
+          person: personId ? persons.get(personId)?.name : undefined,
+          organisation: orgId ? orgs.get(orgId)?.name : undefined,
+        });
+        const matches = (...parts: (string | undefined)[]) => !q || parts.some((x) => x?.toLowerCase().includes(q));
+        if (view === "deals") {
+          const list = pd.deals
+            .map((d) => ({ d, ...label(d.personId, d.orgId) }))
+            .filter(({ d, person, organisation }) => matches(d.title, person, organisation));
+          return {
+            count: list.length,
+            deals: list.slice(0, 40).map(({ d, person, organisation }) => ({
+              title: d.title, stage: d.stage, value: money(d.value, d.currency), expectedClose: d.expectedClose,
+              lastStageChange: d.stageChangeTime?.slice(0, 10), person, organisation, url: dealUrl(cfg.companyDomain, d.id),
+            })),
+          };
+        }
+        if (view === "activities") {
+          const tz = (await getSettings(username).catch(() => null))?.timezone; // ci-ok: no settings → London default
+          const today = dayIn(Date.now(), tz ?? "Europe/London");
+          const { overdue } = dueActivities(pd.activities, today);
+          const upcoming = pd.activities.filter((a) => a.dueDate && a.dueDate >= today && daysBetween(today, a.dueDate) <= 14);
+          const shape = (a: (typeof pd.activities)[number]) => {
+            const deal = a.dealId ? deals.get(a.dealId) : undefined;
+            return { subject: a.subject, type: a.type, due: [a.dueDate, a.dueTime].filter(Boolean).join(" "), deal: deal?.title, ...label(a.personId, a.orgId), note: a.note };
+          };
+          const keep = (a: (typeof pd.activities)[number]) => { const x = shape(a); return matches(x.subject, x.deal, x.person, x.organisation); };
+          return { today, overdue: overdue.filter(keep).slice(0, 30).map(shape), upcoming: upcoming.filter(keep).slice(0, 30).map(shape) };
+        }
+        if (!q) return { error: "Give a name, company or email to look up." };
+        const people = pd.persons.filter((p) => matches(p.name, ...p.emails, p.orgId ? orgs.get(p.orgId)?.name : undefined)).slice(0, 10);
+        const companies = pd.orgs.filter((o) => matches(o.name, o.domain)).slice(0, 10);
+        return {
+          people: people.map((p) => ({
+            name: p.name, jobTitle: p.jobTitle, emails: p.emails, organisation: p.orgId ? orgs.get(p.orgId)?.name : undefined,
+            openDeals: pd.deals.filter((d) => d.personId === p.id).map((d) => `${d.title} (${d.stage})`),
+          })),
+          organisations: companies.map((o) => ({
+            name: o.name, website: o.website,
+            openDeals: pd.deals.filter((d) => d.orgId === o.id).map((d) => `${d.title} (${d.stage}, ${money(d.value, d.currency)})`),
           })),
         };
       },

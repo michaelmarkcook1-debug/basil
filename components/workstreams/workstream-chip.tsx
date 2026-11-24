@@ -5,11 +5,17 @@
  * small menu: the four workstreams and (when the item has a
  * sender / project) "Always file … here", which teaches Basil a routing rule
  * so the next one sorts itself.
+ *
+ * Every pick also teaches Basil without the tick: it sends what the item is
+ * (sender / channel / project / source) and what Basil had guessed, and the
+ * server turns repeated filings into rules (lib/workstreams/learn). When it
+ * learns one, the chip says so for a few seconds.
  */
 
 import { useEffect, useId, useRef, useState } from "react";
 import { Check, ChevronDown, Loader2 } from "lucide-react";
 import { WORKSTREAMS, workstreamInfo, type Workstream, type WorkstreamBy, type WorkstreamRule } from "@/lib/workstreams/types";
+import type { Features } from "@/lib/workstreams/learn";
 
 export interface LearnableRule {
   field: WorkstreamRule["field"];
@@ -18,8 +24,18 @@ export interface LearnableRule {
   label: string;
 }
 
+const FIELD_WORDS: Record<WorkstreamRule["field"], string> = {
+  sender: "everything from", domain: "everyone at", channel: "#", project: "the project", keyword: "anything mentioning",
+};
+
+/** "Learned: everything from guy@acme.com → Clients & Sales" */
+function learnedLine(r: WorkstreamRule): string {
+  const what = r.field === "channel" ? `#${r.value}` : `${FIELD_WORDS[r.field]} ${r.value}`;
+  return `Basil learned: ${what} → ${workstreamInfo(r.workstream)?.label ?? r.workstream}`;
+}
+
 export function WorkstreamChip({
-  itemKey, workstream, by, text, learn, onChanged, size = "md",
+  itemKey, workstream, by, text, learn, features, onChanged, size = "md",
 }: {
   /** "action:<id>" or the Today item id. */
   itemKey: string;
@@ -28,6 +44,8 @@ export function WorkstreamChip({
   /** What the item says — kept as an example for the classifier. */
   text: string;
   learn?: LearnableRule;
+  /** What the item is, so Basil can spot patterns in how you file. */
+  features?: Features;
   onChanged?: (next: Workstream | null) => void | Promise<unknown>;
   size?: "sm" | "md";
 }) {
@@ -36,6 +54,12 @@ export function WorkstreamChip({
   const [error, setError] = useState<string | null>(null);
   const [always, setAlways] = useState(false);
   const [current, setCurrent] = useState<Workstream | null | undefined>(workstream);
+  const [note, setNote] = useState<string | null>(null);
+  useEffect(() => {
+    if (!note) return;
+    const t = setTimeout(() => setNote(null), 7000);
+    return () => clearTimeout(t);
+  }, [note]);
   const ref = useRef<HTMLDivElement>(null);
   const menuId = useId();
   useEffect(() => setCurrent(workstream), [workstream]);
@@ -64,9 +88,14 @@ export function WorkstreamChip({
           workstream: next,
           text,
           ...(always && next && learn ? { learn: { field: learn.field, value: learn.value } } : {}),
+          ...(features ? { features } : {}),
+          // What Basil had, so it can keep score of how often it is right.
+          ...(by && by !== "user" ? { was: { workstream: prev ?? null, by } } : {}),
         }),
       });
       if (!r.ok) throw new Error(`(${r.status})`);
+      const d = (await r.json().catch(() => ({}))) as { learned?: WorkstreamRule[] }; // ci-ok: the save worked; a missing note is fine
+      if (d.learned?.length) setNote(learnedLine(d.learned[0]));
       setOpen(false);
       await onChanged?.(next);
     } catch (e) {
@@ -97,6 +126,11 @@ export function WorkstreamChip({
         {label}
         <ChevronDown className="h-3 w-3 opacity-70" aria-hidden />
       </button>
+      {note && !open && (
+        <p role="status" className="absolute left-0 top-full z-20 mt-1 w-max max-w-[18rem] rounded-lg bg-[var(--w-paper)] px-2.5 py-1.5 text-[12px] leading-snug text-[color:var(--w-ink)] shadow-md border border-[var(--w-rule)]">
+          {note}
+        </p>
+      )}
       {open && (
         <div
           id={menuId}

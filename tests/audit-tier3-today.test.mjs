@@ -18,6 +18,10 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { loadTs } from "./_helpers/load-ts.mjs";
 
+// Pipedrive (added 2026-11-24): not connected in these tests; the pure helpers are real.
+const PD_SHAPE = loadTs("lib/pipedrive/shape.ts");
+const PD_CLIENT = { getPipedriveConfig: async () => ({}), getPipedriveSnapshot: async () => null, activityUrl: () => "", dealUrl: () => "" };
+
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 /**
  * Values built inside the loader's sandbox carry the sandbox's prototypes, and
@@ -134,7 +138,7 @@ function feedModule({ linearOn = false, linearThrows = false, followups = 0 } = 
     "@/lib/decisions/store": { listDecisions: async () => [] },
     "@/lib/contacts/user-store": { listUserContacts: async () => [] },
     "@/lib/contacts/overrides-store": { getAllOverridesFromStore: async () => ({}) },
-    "@/lib/linear/client": {
+    "@/lib/pipedrive/client": PD_CLIENT, "@/lib/pipedrive/shape": PD_SHAPE, "@/lib/linear/client": {
       isLinearConnected: async () => linearOn,
       getMyOpenIssues: async () => { if (linearThrows) throw new Error("synthetic Linear outage"); return []; },
     },
@@ -174,7 +178,7 @@ test("#14 a response cached before totals existed still presents sanely", () => 
   const F = feedModule();
   const old = { items: [{ id: "a", kind: "followup", rank: 1, lane: "needs-you", title: "t", subtitle: "s", occurredAt: NOON.toISOString() }], total: 1, generatedAt: NOON.toISOString(), sources: READY_EMPTY.sources };
   const shown = F.presentFeed(old);
-  assert.deepEqual(plain(shown.totals), { changes: 0, followups: 1, linear: 0 });
+  assert.deepEqual(plain(shown.totals), { changes: 0, followups: 1, linear: 0, pipedrive: 0 });
   assert.equal(shown.truncated, false);
   assert.deepEqual(plain(shown.degraded), []);
 });
