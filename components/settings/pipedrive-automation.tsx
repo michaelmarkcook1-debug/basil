@@ -10,7 +10,7 @@ import { Button } from "@/components/ui/button";
 
 type Mode = "off" | "suggest" | "alert" | "schedule";
 interface View {
-  mode: Mode; staleDays: number; meetingMinutes: number; readAt: number | null; stale: boolean;
+  mode: Mode; staleDays: number; meetingMinutes: number; sellerContext?: string; readAt: number | null; stale: boolean;
   counts: { deals: number; openDeals: number; people: number; organisations: number; notes: number; activities: number; meetingNotes?: number; leads: number } | null;
   suggestions: unknown[];
 }
@@ -39,7 +39,8 @@ export function PipedriveAutomation() {
 
   useEffect(() => { void call(); }, [call]);
 
-  const patch = (body: Partial<Pick<View, "mode" | "staleDays" | "meetingMinutes">>) => call({ method: "PATCH", body: JSON.stringify(body) }, "save");
+  const patch = (body: Partial<Pick<View, "mode" | "staleDays" | "meetingMinutes" | "sellerContext">>) => call({ method: "PATCH", body: JSON.stringify(body) }, "save");
+  const [seller, setSeller] = useState<string | null>(null);
 
   if (!view) return <p className="text-xs text-muted-foreground">{error ?? "Reading…"}</p>;
   const c = view.counts;
@@ -89,6 +90,18 @@ export function PipedriveAutomation() {
           )}
         </div>
       )}
+      <div className="space-y-1.5">
+        <label htmlFor="pd-seller" className="text-xs font-medium">Your selling context, for collateral prompts</label>
+        <p className="text-xs text-muted-foreground">
+          Basil doesn’t write decks or one-pagers. It suggests which ones a deal needs and gives you a prompt to paste into Claude or ChatGPT, with the client’s Pipedrive context. What you write here goes into every prompt: your value proposition, three differentiators, and the proof you can stand behind (case studies, metrics, quotes).
+        </p>
+        <textarea id="pd-seller" rows={5} maxLength={4000} className="w-full rounded-md border bg-background p-2 text-xs"
+          value={seller ?? view.sellerContext ?? ""} onChange={(e) => setSeller(e.target.value)}
+          placeholder="e.g. TalentGenius helps … We differ by … Proof: …" />
+        {seller !== null && seller !== (view.sellerContext ?? "") && (
+          <Button size="sm" className="h-8 text-xs" disabled={busy !== null} onClick={() => void patch({ sellerContext: seller }).then(() => setSeller(null))}>Save selling context</Button>
+        )}
+      </div>
       {view.mode !== "off" && <p className="text-xs text-muted-foreground">{view.suggestions.length} follow-up{view.suggestions.length === 1 ? "" : "s"} suggested right now.</p>}
       {error && <p className="text-xs text-signal-critical">{error}</p>}
     </div>

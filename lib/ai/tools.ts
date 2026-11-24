@@ -39,6 +39,7 @@ import { emitAuditEvent } from "@/lib/events/audit";
 import { getPipedriveConfig, getPipedriveSnapshot, dealUrl } from "@/lib/pipedrive/client";
 import { dueActivities, daysBetween, money } from "@/lib/pipedrive/shape";
 import { briefingBlock, accountBlock, meetingNotes } from "@/lib/pipedrive/context";
+import { collateralFor } from "@/lib/pipedrive/collateral-server";
 import { syncLinearActionStates } from "@/lib/linear/sync-actions";
 import {
   isLinearConnected,
@@ -1373,6 +1374,22 @@ export function buildAssistantTools(
             title: l.title, person, organisation, owner: owner(l.ownerId), source: l.source ?? undefined, added: l.addTime.slice(0, 10),
             value: l.value ? money(l.value.amount, l.value.currency) : undefined, expectedClose: l.expectedClose,
           })),
+        };
+      },
+    }),
+
+    collateralPrompts: tool({
+      description: `Suggest which sales collateral a client deal needs (discovery talk track, persona cards, demo script, post-meeting recap, champion one-pager, executive deck, proposal, ROI calculator, objection response, re-engagement emails, win-loss notes) and return a ready-to-paste prompt for each, grounded in the deal's Pipedrive record and ${name}'s selling context. Use whenever ${name} asks for collateral, a deck, one-pager, proposal, battle plan or "what should I send" for a client. Basil does NOT write the collateral itself: give ${name} the suggestions and the prompts.`,
+      inputSchema: z.object({
+        query: z.string().describe("The deal title, company, person or email."),
+      }),
+      execute: async ({ query }) => {
+        const r = await collateralFor(username, { query });
+        if (r.readAt === null) return { error: "Pipedrive hasn't been read yet (or isn't connected). Connect it, or press Refresh now in Settings → Pipedrive." };
+        if (r.deals.length === 0) return { note: `No open Pipedrive deal matches "${query}".` };
+        return {
+          note: "Present the suggestions with their reasons, and give the prompt for the one(s) the user wants, verbatim in a code block. Do not draft the collateral yourself.",
+          deals: r.deals,
         };
       },
     }),

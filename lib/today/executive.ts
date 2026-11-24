@@ -97,7 +97,7 @@ export interface Priority {
   /** A rule "Always file … here" can teach: the sender, or the Linear project. */
   learn?: { field: "sender" | "project"; value: string; label: string };
   /** A Pipedrive follow-up suggestion: dismiss it, or (opt-in) find a time and book it. */
-  followup?: { id: string; schedulable: boolean; contact?: string };
+  followup?: { id: string; schedulable: boolean; contact?: string; dealId?: number };
   /** What the item is — sent with the user's filing so Basil learns patterns (lib/workstreams/learn). */
   features?: { sender?: string; channel?: string; project?: string; source?: string };
 }
@@ -170,7 +170,7 @@ function toPriority(item: TodayFeedItem): Priority {
     workstreamKey: feedKey(item),
     features: featuresOf(item),
     ...(item.kind === "pipedrive" && item.followup
-      ? { followup: { id: item.followup.id, schedulable: item.followup.schedulable, ...(item.followup.contactName ? { contact: item.followup.contactName } : {}) } }
+      ? { followup: { id: item.followup.id, schedulable: item.followup.schedulable, ...(item.followup.contactName ? { contact: item.followup.contactName } : {}), ...(item.followup.dealId ? { dealId: item.followup.dealId } : {}) } }
       : {}),
     ...learnOf(item),
   };

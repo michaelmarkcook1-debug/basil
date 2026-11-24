@@ -98,7 +98,7 @@ test("L4 the feed maps a change's subject to the headline", async () => {
       "@/lib/delta/store": { getSinceDate: async () => NOON.toISOString() },
       "@/lib/actions/store": { listActions: async () => [] }, "@/lib/decisions/store": { listDecisions: async () => [] },
       "@/lib/contacts/user-store": { listUserContacts: async () => [] }, "@/lib/contacts/overrides-store": { getAllOverridesFromStore: async () => ({}) },
-      "@/lib/pipedrive/client": PD_CLIENT, "@/lib/pipedrive/shape": PD_SHAPE, "@/lib/pipedrive/context": PD_CONTEXT, "@/lib/pipedrive/followups": PD_FOLLOWUPS, "@/lib/pipedrive/automation": PD_AUTO, "@/lib/linear/client": { isLinearConnected: async () => false, getMyOpenIssues: async () => [] },
+      "@/lib/pipedrive/client": PD_CLIENT, "@/lib/pipedrive/shape": PD_SHAPE, "@/lib/pipedrive/context": PD_CONTEXT, "@/lib/pipedrive/followups": PD_FOLLOWUPS, "@/lib/pipedrive/automation": PD_AUTO, "@/lib/pipedrive/collateral-server": { collateralFor: async () => ({ deals: [], readAt: null }) }, "@/lib/linear/client": { isLinearConnected: async () => false, getMyOpenIssues: async () => [] },
       "@/lib/followups/detect": { detectPendingFollowups: async () => ({ items: [], sources: { gmail: true, slack: true } }) },
       "@/lib/learning/store": { getLearning: async () => ({}) }, "@/lib/settings/store": { getSettings: async () => ({ timezone: "Europe/London" }) },
       "@/lib/learning/priors": { computeCategoryPriors: () => ({}) },

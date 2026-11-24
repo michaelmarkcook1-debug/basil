@@ -3,7 +3,7 @@
  * user's opt-in for them (lib/pipedrive/automation).
  *
  * GET                                        → { mode, staleDays, meetingMinutes, readAt, stale, suggestions }
- * PATCH { mode?, staleDays?, meetingMinutes? } → change the opt-in
+ * PATCH { mode?, staleDays?, meetingMinutes?, sellerContext? } → change the opt-in / selling context
  * POST  { action: "dismiss", id }             → hide one for 14 days
  * POST  { action: "refresh" }                 → read Pipedrive again now
  */
@@ -22,6 +22,7 @@ async function view(username: string) {
     mode: st.automation.mode,
     staleDays: st.automation.staleDays,
     meetingMinutes: st.automation.meetingMinutes,
+    sellerContext: st.automation.sellerContext,
     readAt: st.snapshot?.at ?? null,
     stale: !!st.snapshot?.stale,
     counts: st.snapshot ? {
@@ -47,15 +48,16 @@ export async function GET() {
 export async function PATCH(req: Request) {
   const username = await getSessionUser();
   if (!username) return NextResponse.json({ error: "Unauthorised" }, { status: 401 });
-  const body = (await req.json().catch(() => null)) as { mode?: unknown; staleDays?: unknown; meetingMinutes?: unknown } | null; // ci-ok: bad body → 400 below
+  const body = (await req.json().catch(() => null)) as { mode?: unknown; staleDays?: unknown; meetingMinutes?: unknown; sellerContext?: unknown } | null; // ci-ok: bad body → 400 below
   if (!body) return NextResponse.json({ error: "Invalid JSON" }, { status: 400 });
   if (body.mode !== undefined && !FOLLOWUP_MODES.includes(body.mode as FollowupMode)) return NextResponse.json({ error: "unknown mode" }, { status: 400 });
   await updateAutomation(username, () => ({
     ...(body.mode !== undefined ? { mode: body.mode as FollowupMode } : {}),
     ...(typeof body.staleDays === "number" ? { staleDays: body.staleDays } : {}),
     ...(typeof body.meetingMinutes === "number" ? { meetingMinutes: body.meetingMinutes } : {}),
+    ...(typeof body.sellerContext === "string" ? { sellerContext: body.sellerContext.slice(0, 4_000) } : {}),
   }));
-  console.log(`[pipedrive/followups] ${username} set ${JSON.stringify(body)}`);
+  console.log(`[pipedrive/followups] ${username} set ${Object.keys(body).join(", ")}`);
   return NextResponse.json(await view(username));
 }
 

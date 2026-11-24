@@ -603,7 +603,7 @@ function linearIntegration(initial) {
   const route = loadTs("app/api/integrations/linear/route.ts", {
     "next/server": nextServer,
     "@/lib/auth": { verifySession: async () => true, getSessionUser: async () => "michael" },
-    "@/lib/pipedrive/client": PD_CLIENT, "@/lib/pipedrive/shape": PD_SHAPE, "@/lib/pipedrive/context": PD_CONTEXT, "@/lib/pipedrive/followups": PD_FOLLOWUPS, "@/lib/pipedrive/automation": PD_AUTO, "@/lib/linear/client": {
+    "@/lib/pipedrive/client": PD_CLIENT, "@/lib/pipedrive/shape": PD_SHAPE, "@/lib/pipedrive/context": PD_CONTEXT, "@/lib/pipedrive/followups": PD_FOLLOWUPS, "@/lib/pipedrive/automation": PD_AUTO, "@/lib/pipedrive/collateral-server": { collateralFor: async () => ({ deals: [], readAt: null }) }, "@/lib/linear/client": {
       getLinearConfig: async () => ({ ...cfg }),
       saveLinearConfig: async (_u, c) => { calls.push(["save"]); cfg = { ...c }; },
       deleteLinearConfig: async () => { calls.push(["delete"]); cfg = {}; },
@@ -662,7 +662,7 @@ function linearWebhook() {
   const route = loadTs("app/api/webhooks/linear/route.ts", {
     "next/server": { NextResponse: nextServer.NextResponse, after: (fn) => queued.push(fn) },
     "@/lib/users": { getUsers: async () => [{ username: "michael" }] },
-    "@/lib/pipedrive/client": PD_CLIENT, "@/lib/pipedrive/shape": PD_SHAPE, "@/lib/pipedrive/context": PD_CONTEXT, "@/lib/pipedrive/followups": PD_FOLLOWUPS, "@/lib/pipedrive/automation": PD_AUTO, "@/lib/linear/client": { getLinearConfig: async () => ({ organizationId: "org1", webhookSecret: "sec" }) },
+    "@/lib/pipedrive/client": PD_CLIENT, "@/lib/pipedrive/shape": PD_SHAPE, "@/lib/pipedrive/context": PD_CONTEXT, "@/lib/pipedrive/followups": PD_FOLLOWUPS, "@/lib/pipedrive/automation": PD_AUTO, "@/lib/pipedrive/collateral-server": { collateralFor: async () => ({ deals: [], readAt: null }) }, "@/lib/linear/client": { getLinearConfig: async () => ({ organizationId: "org1", webhookSecret: "sec" }) },
     "@/lib/events/store": ev.store,
     "@/lib/events/audit": audit,
     "@/lib/linear/sync-actions": { syncLinearActionStates: async () => { syncs++; return { closed: 0 }; } },

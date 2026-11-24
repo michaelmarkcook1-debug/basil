@@ -76,7 +76,7 @@ test("the feed carries follow-up degradation through to the dashboard", async ()
       "@/lib/delta/store": { getSinceDate: async () => new Date().toISOString() },
       "@/lib/actions/store": { listActions: async () => [] }, "@/lib/decisions/store": { listDecisions: async () => [] },
       "@/lib/contacts/user-store": { listUserContacts: async () => [] }, "@/lib/contacts/overrides-store": { getAllOverridesFromStore: async () => ({}) },
-      "@/lib/pipedrive/client": PD_CLIENT, "@/lib/pipedrive/shape": PD_SHAPE, "@/lib/pipedrive/context": PD_CONTEXT, "@/lib/pipedrive/followups": PD_FOLLOWUPS, "@/lib/pipedrive/automation": PD_AUTO, "@/lib/linear/client": { isLinearConnected: async () => true, getMyOpenIssues: async () => { throw new Error("linear outage"); } },
+      "@/lib/pipedrive/client": PD_CLIENT, "@/lib/pipedrive/shape": PD_SHAPE, "@/lib/pipedrive/context": PD_CONTEXT, "@/lib/pipedrive/followups": PD_FOLLOWUPS, "@/lib/pipedrive/automation": PD_AUTO, "@/lib/pipedrive/collateral-server": { collateralFor: async () => ({ deals: [], readAt: null }) }, "@/lib/linear/client": { isLinearConnected: async () => true, getMyOpenIssues: async () => { throw new Error("linear outage"); } },
       "@/lib/followups/detect": { detectPendingFollowups: async () => ({ items: [], sources: { gmail: true, slack: true }, degraded: ["Gmail"] }) },
       "@/lib/learning/store": { getLearning: async () => ({}) }, "@/lib/settings/store": { getSettings: async () => ({}) },
       "@/lib/learning/priors": { computeCategoryPriors: () => ({}) },

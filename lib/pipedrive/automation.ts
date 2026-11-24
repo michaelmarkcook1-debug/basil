@@ -27,10 +27,12 @@ export interface PipedriveAutomation {
   dismissed: Record<string, string>;
   /** Suggestion id → the event Basil booked for it. */
   booked: Record<string, { eventId: string; at: string; start: string }>;
+  /** The user's selling context (value proposition, differentiators, proof) — goes into every collateral prompt. */
+  sellerContext: string;
 }
 
 const FILE = "pipedrive-automation.json";
-export const DEFAULT_AUTOMATION: PipedriveAutomation = { mode: "suggest", staleDays: 14, meetingMinutes: 30, dismissed: {}, booked: {} };
+export const DEFAULT_AUTOMATION: PipedriveAutomation = { mode: "suggest", staleDays: 14, meetingMinutes: 30, dismissed: {}, booked: {}, sellerContext: "" };
 
 function clean(s: Partial<PipedriveAutomation> | null): PipedriveAutomation {
   return {
@@ -39,6 +41,7 @@ function clean(s: Partial<PipedriveAutomation> | null): PipedriveAutomation {
     meetingMinutes: [15, 30, 45, 60].includes(s?.meetingMinutes as number) ? s!.meetingMinutes! : DEFAULT_AUTOMATION.meetingMinutes,
     dismissed: s?.dismissed && typeof s.dismissed === "object" ? s.dismissed : {},
     booked: s?.booked && typeof s.booked === "object" ? s.booked : {},
+    sellerContext: typeof s?.sellerContext === "string" ? s.sellerContext.slice(0, 4_000) : "",
   };
 }
 
