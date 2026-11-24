@@ -64,6 +64,21 @@ function noteLine(n: PdNote, ix: ReturnType<typeof indexes>, max = 400): string 
   return `- ${day(n.addTime)}${n.userId ? ` by ${ix.owner(n.userId) ?? "a colleague"}` : ""}${on ? ` on ${on}` : ""}: ${clip(n.content.replace(/\s+/g, " "), max)}`;
 }
 
+/** Done activities with notes — what was written up after meetings and calls — newest first. */
+export function meetingNotes(s: Pick<CrmData, "activities">): PdActivity[] {
+  return s.activities
+    .filter((a) => a.done && !!a.note?.trim())
+    .sort((a, b) => (b.doneTime ?? b.dueDate ?? b.updateTime).localeCompare(a.doneTime ?? a.dueDate ?? a.updateTime));
+}
+
+function meetingNoteLine(a: PdActivity, ix: ReturnType<typeof indexes>, max: number): string {
+  const when = day(a.doneTime) || a.dueDate || day(a.updateTime);
+  const deal = a.dealId ? ix.deal.get(a.dealId)?.title : undefined;
+  const who = [a.personId ? ix.person.get(a.personId)?.name : "", a.orgId ? ix.org.get(a.orgId)?.name : ""].filter(Boolean).join(", ");
+  const by = a.ownerId ? ix.owner(a.ownerId) : undefined;
+  return `- ${when} ${a.type} "${a.subject}"${who ? ` with ${who}` : ""}${deal ? ` · deal "${deal}"` : ""}${by ? ` · logged by ${by}` : ""}:\n  ${clip((a.note ?? "").replace(/\s+/g, " "), max)}`;
+}
+
 const header = (s: CrmData) => (s.stale ? `(Pipedrive could not be refreshed; this is the copy from ${new Date(s.at).toISOString().slice(0, 16).replace("T", " ")} UTC.)\n` : "");
 
 /** The pipeline for the daily briefing: due work, what moved, what is closing, what is stuck. */
@@ -84,6 +99,7 @@ export function briefingBlock(s: CrmData, today: string, opts: { sinceDays?: num
     .sort((a, b) => a.updateTime.localeCompare(b.updateTime));
   const newLeads = s.leads.filter((l) => !l.archived && l.addTime >= since);
   const notes = s.notes.filter((n) => n.addTime >= since).slice(0, 12);
+  const recentMeetingNotes = meetingNotes(s).filter((a) => (a.doneTime ?? a.updateTime) >= since).slice(0, 10);
   const sec = (title: string, lines: string[], max: number) =>
     lines.length ? `${title} (${lines.length})\n${lines.slice(0, max).join("\n")}${lines.length > max ? `\n- …and ${lines.length - max} more` : ""}` : "";
   const totalOpen = open.reduce((m, d) => { m[d.currency] = (m[d.currency] ?? 0) + d.value; return m; }, {} as Record<string, number>);
@@ -98,6 +114,7 @@ export function briefingBlock(s: CrmData, today: string, opts: { sinceDays?: num
     sec("Lost recently", lost.map((d) => dealLine(d, ix, me)), 8),
     sec("Your open deals with no update in 21+ days (going cold)", stuck.map((d) => dealLine(d, ix, me)), 8),
     sec("New leads", newLeads.map((l) => `- "${l.title}"${l.orgId ? ` · ${ix.org.get(l.orgId)?.name ?? ""}` : ""}${l.personId ? ` · ${ix.person.get(l.personId)?.name ?? ""}` : ""}${l.source ? ` · from ${l.source}` : ""} · added ${day(l.addTime)}`), 8),
+    sec("Meeting and call notes logged recently", recentMeetingNotes.map((a) => meetingNoteLine(a, ix, 500)), 10),
     sec("Recent CRM notes", notes.map((n) => noteLine(n, ix, 300)), 12),
   ].filter(Boolean);
   return header(s) + body.join("\n\n");
@@ -118,7 +135,7 @@ export function resolveAccounts(s: CrmData, q: AccountQuery): { persons: PdPerso
 }
 
 /** Everything Pipedrive holds on these people / companies. Empty string when it knows none of them. */
-export function accountBlock(s: CrmData, q: AccountQuery, today: string, opts: { maxNotes?: number; maxActivities?: number } = {}): string {
+export function accountBlock(s: CrmData, q: AccountQuery, today: string, opts: { maxNotes?: number; maxActivities?: number; maxMeetingNotes?: number; meetingNoteChars?: number } = {}): string {
   const { persons, orgs } = resolveAccounts(s, q);
   if (persons.length === 0 && orgs.length === 0) return "";
   const ix = indexes(s);
@@ -130,7 +147,8 @@ export function accountBlock(s: CrmData, q: AccountQuery, today: string, opts: {
   const dIds = new Set(deals.map((d) => d.id));
   const acts = s.activities.filter((a) => touches(a) || (a.dealId !== null && dIds.has(a.dealId)));
   const openActs = acts.filter((a) => !a.done).sort((a, b) => (a.dueDate ?? "9").localeCompare(b.dueDate ?? "9"));
-  const doneActs = acts.filter((a) => a.done).sort((a, b) => (b.doneTime ?? b.updateTime).localeCompare(a.doneTime ?? a.updateTime));
+  const doneActs = acts.filter((a) => a.done && !a.note?.trim()).sort((a, b) => (b.doneTime ?? b.updateTime).localeCompare(a.doneTime ?? a.updateTime));
+  const writtenUp = meetingNotes({ activities: acts });
   const notes = s.notes.filter((n) => touches(n) || (n.dealId !== null && dIds.has(n.dealId))).sort((a, b) => b.addTime.localeCompare(a.addTime));
   const leads = s.leads.filter((l) => !l.archived && touches(l));
   const lines: string[] = [];
@@ -142,6 +160,7 @@ export function accountBlock(s: CrmData, q: AccountQuery, today: string, opts: {
   if (deals.length) lines.push(`Deals (${deals.length}):\n${deals.slice(0, 15).map((d) => dealLine(d, ix, me)).join("\n")}`);
   if (leads.length) lines.push(`Open leads:\n${leads.slice(0, 5).map((l) => `- "${l.title}" · added ${day(l.addTime)}`).join("\n")}`);
   if (openActs.length) lines.push(`Planned activities:\n${openActs.slice(0, opts.maxActivities ?? 8).map((a) => activityLine(a, ix, me, today)).join("\n")}`);
+  if (writtenUp.length) lines.push(`Meeting and call notes (${writtenUp.length}, newest first):\n${writtenUp.slice(0, opts.maxMeetingNotes ?? 6).map((a) => meetingNoteLine(a, ix, opts.meetingNoteChars ?? 700)).join("\n")}`);
   if (doneActs.length) lines.push(`Recent completed activities:\n${doneActs.slice(0, opts.maxActivities ?? 8).map((a) => activityLine(a, ix, me, today)).join("\n")}`);
   if (notes.length) lines.push(`Notes (newest first):\n${notes.slice(0, opts.maxNotes ?? 8).map((n) => noteLine(n, ix)).join("\n")}`);
   return header(s) + lines.join("\n");
@@ -185,8 +204,10 @@ export function profileEvidence(s: CrmData, q: AccountQuery, max = 12): Array<{ 
   for (const n of s.notes.filter((n) => touches(n) || (n.dealId !== null && dIds.has(n.dealId))).slice(0, 5)) {
     out.push({ channel: "crm", by: "others", date: day(n.addTime), title: "Note", text: `Pipedrive note${n.userId ? ` by ${ix.owner(n.userId) ?? "a colleague"}` : ""}: ${clip(n.content.replace(/\s+/g, " "), 600)}` });
   }
-  for (const a of s.activities.filter((a) => a.done && (touches(a) || (a.dealId !== null && dIds.has(a.dealId))) && MEETINGISH.test(`${a.type} ${a.subject}`)).slice(0, 4)) {
-    out.push({ channel: "crm", by: "others", date: day(a.doneTime) || day(a.updateTime), title: a.type, text: `Pipedrive ${a.type} "${a.subject}"${a.note ? ` — ${clip(a.note, 400)}` : ""}` });
+  const theirMeetings = meetingNotes({ activities: s.activities.filter((a) => touches(a) || (a.dealId !== null && dIds.has(a.dealId))) });
+  const meetingsWithoutNotes = s.activities.filter((a) => a.done && !a.note?.trim() && (touches(a) || (a.dealId !== null && dIds.has(a.dealId))) && MEETINGISH.test(`${a.type} ${a.subject}`));
+  for (const a of [...theirMeetings.slice(0, 5), ...meetingsWithoutNotes.slice(0, 2)]) {
+    out.push({ channel: "crm", by: "others", date: day(a.doneTime) || day(a.updateTime), title: a.type, text: `Pipedrive ${a.type} "${a.subject}"${a.note ? ` — notes: ${clip(a.note.replace(/\s+/g, " "), 800)}` : ""}` });
   }
   return out.slice(0, max);
 }

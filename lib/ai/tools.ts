@@ -38,7 +38,7 @@ import {
 import { emitAuditEvent } from "@/lib/events/audit";
 import { getPipedriveConfig, getPipedriveSnapshot, dealUrl } from "@/lib/pipedrive/client";
 import { dueActivities, daysBetween, money } from "@/lib/pipedrive/shape";
-import { briefingBlock, accountBlock } from "@/lib/pipedrive/context";
+import { briefingBlock, accountBlock, meetingNotes } from "@/lib/pipedrive/context";
 import { syncLinearActionStates } from "@/lib/linear/sync-actions";
 import {
   isLinearConnected,
@@ -1253,10 +1253,11 @@ export function buildAssistantTools(
     listPipedrive: tool({
       description: `Read ${name}'s Pipedrive CRM (read-only) — the whole account: deals in every status and owner, activities, people, organisations, notes and leads. Use for anything about deals, the pipeline, forecast, a client or prospect, what was said or noted about an account, sales follow-ups, won/lost deals, or leads.`,
       inputSchema: z.object({
-        view: z.enum(["pipeline", "deals", "account", "activities", "notes", "leads"]).describe(
+        view: z.enum(["pipeline", "deals", "account", "activities", "meetings", "notes", "leads"]).describe(
           '"pipeline" = overview: due/overdue activities, deals closing soon or past close, stage moves, won/lost, going cold, new leads, recent notes. ' +
           '"deals" = list deals (filter with status/query). "account" = everything on a person or company (query = name or email): deals, notes, activities. ' +
-          '"activities" = overdue + next 14 days. "notes" = search CRM notes (query = words). "leads" = open leads.'),
+          '"activities" = overdue + next 14 days. "meetings" = meeting and call notes, full history, newest first (query = a person, company, deal or words). ' +
+          '"notes" = search CRM notes (query = words). "leads" = open leads.'),
         query: z.string().optional().describe("A name, company, email, deal title or words to filter by."),
         status: z.enum(["open", "won", "lost", "all"]).optional().describe('For "deals": defaults to open.'),
         mineOnly: z.boolean().optional().describe(`Only ${name}'s own deals/activities. Defaults to false for deals, true for activities.`),
@@ -1327,6 +1328,24 @@ export function buildAssistantTools(
           };
           const keep = (a: (typeof pd.activities)[number]) => { const x = shape(a); return matches(x.subject, x.deal, x.person, x.organisation); };
           return { ...staleNote, today, overdue: overdue.filter(keep).slice(0, 30).map(shape), upcoming: upcoming.filter(keep).slice(0, 30).map(shape) };
+        }
+
+        if (view === "meetings") {
+          const words = (q ?? "").split(/\s+/).filter((w) => w.length > 2);
+          const hits = meetingNotes(pd).filter((a) => {
+            const on = [a.dealId ? deals.get(a.dealId)?.title : "", a.personId ? persons.get(a.personId)?.name : "", a.orgId ? orgs.get(a.orgId)?.name : ""].join(" ").toLowerCase();
+            const hay = `${a.subject} ${a.note ?? ""} ${on}`.toLowerCase();
+            return words.length === 0 || words.every((w) => hay.includes(w));
+          });
+          return {
+            ...staleNote,
+            count: hits.length,
+            meetings: hits.slice(0, 15).map((a) => ({
+              date: (a.doneTime ?? a.dueDate ?? a.updateTime).slice(0, 10), type: a.type, subject: a.subject,
+              deal: a.dealId ? deals.get(a.dealId)?.title : undefined, loggedBy: owner(a.ownerId), ...label(a.personId, a.orgId),
+              notes: (a.note ?? "").slice(0, 2_500),
+            })),
+          };
         }
 
         if (view === "notes") {

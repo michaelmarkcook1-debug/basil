@@ -11,7 +11,7 @@ import { Button } from "@/components/ui/button";
 type Mode = "off" | "suggest" | "alert" | "schedule";
 interface View {
   mode: Mode; staleDays: number; meetingMinutes: number; readAt: number | null; stale: boolean;
-  counts: { deals: number; openDeals: number; people: number; organisations: number; notes: number; activities: number; leads: number } | null;
+  counts: { deals: number; openDeals: number; people: number; organisations: number; notes: number; activities: number; meetingNotes?: number; leads: number } | null;
   suggestions: unknown[];
 }
 
@@ -59,7 +59,7 @@ export function PipedriveAutomation() {
       </div>
       {c && (
         <p className="text-xs text-muted-foreground">
-          {c.openDeals} open of {c.deals} deals · {c.people} people · {c.organisations} organisations · {c.activities} activities · {c.notes} notes · {c.leads} leads
+          {c.openDeals} open of {c.deals} deals · {c.people} people · {c.organisations} organisations · {c.activities} activities · {c.meetingNotes ?? 0} meeting notes · {c.notes} notes · {c.leads} leads
         </p>
       )}
       <fieldset className="space-y-1.5">

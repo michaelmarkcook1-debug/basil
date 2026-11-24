@@ -516,7 +516,7 @@ export async function POST(req: Request) {
   ];
   const pipedriveBlock = await getPipedriveSnapshot(username)
     .then((snap) => snap
-      ? pipedriveAccountBlock(snap, { emails: attendeeEmails, names: [...attendeeNames, ...attendeeCompanies] }, new Date().toLocaleDateString("en-CA", { timeZone: tz }), { maxNotes: 10, maxActivities: 8 })
+      ? pipedriveAccountBlock(snap, { emails: attendeeEmails, names: [...attendeeNames, ...attendeeCompanies] }, new Date().toLocaleDateString("en-CA", { timeZone: tz }), { maxNotes: 10, maxActivities: 8, maxMeetingNotes: 8, meetingNoteChars: 1_200 })
       : "")
     .catch((e) => { console.warn("[meeting-prep] Pipedrive unreadable:", e instanceof Error ? e.message : e); return ""; });
   const aiChatBlock = await readChatIndex(username)

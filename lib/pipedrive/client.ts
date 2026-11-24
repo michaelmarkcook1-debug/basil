@@ -6,9 +6,11 @@
  * context". So Basil reads the whole account it can see, not just the user's
  * own open items:
  *   - deals in every status (open, won, lost) and every owner, with stage and pipeline;
- *   - activities: everything open, plus done in the last 90 days;
+ *   - activities: everything open; done ones from the last 90 days; and EVERY
+ *     done activity that has notes, however old — the meeting and call notes
+ *     ("also ingest all meetings notes", 2026-11-24);
  *   - people and organisations;
- *   - notes (newest 1,000) on deals, people, organisations and leads;
+ *   - every note on deals, people, organisations and leads, in full;
  *   - leads; users (to name owners); stages and pipelines.
  *
  * One snapshot per user, shared by every Basil server through the user's
@@ -40,8 +42,12 @@ const FRESH_MS = 26 * 60 * 60 * 1000;
 const MEMORY_MS = 5 * 60 * 1000;
 const MAX_PAGES = 6;
 const SNAPSHOT_FILE = "pipedrive-snapshot.json";
+/** Done activities without notes are kept this long; ones with notes are kept forever. */
 const DONE_DAYS = 90;
-const MAX_NOTES = 1_000;
+/** Pages of 500 for the full-history reads (notes, done activities): up to 10,000 each. */
+const HISTORY_PAGES = 20;
+/** Longest note / meeting note kept, in characters. */
+const NOTE_CHARS = 6_000;
 
 export interface PipedriveConfig {
   apiToken?: string;
@@ -189,13 +195,13 @@ async function load(username: string, cfg: PipedriveConfig): Promise<StoredSnaps
   const doneSince = new Date(Date.now() - DONE_DAYS * 86_400_000).toISOString().slice(0, 19) + "Z";
   const [openActs, doneActs, rawDeals, rawPersons, rawOrgs, rawStages, rawPipelines, rawNotes, rawLeads, rawUsers] = await Promise.all([
     listV2<RawActivity>(t, "/activities", { done: false, sort_by: "due_date", sort_direction: "asc" }),
-    listV2<RawActivity>(t, "/activities", { done: true, updated_since: doneSince, sort_by: "update_time", sort_direction: "desc" }, 2),
+    listV2<RawActivity>(t, "/activities", { done: true, sort_by: "update_time", sort_direction: "desc" }, HISTORY_PAGES),
     listV2<RawDeal>(t, "/deals", { sort_by: "update_time", sort_direction: "desc" }),
     listV2<RawPerson>(t, "/persons", { sort_by: "update_time", sort_direction: "desc" }),
     listV2<RawOrg>(t, "/organizations", { sort_by: "update_time", sort_direction: "desc" }),
     listV2<RawStage>(t, "/stages", {}, 2),
     listV2<RawPipeline>(t, "/pipelines", {}, 1),
-    listV1<RawNote>(t, "/notes", { sort: "update_time DESC" }, 2),
+    listV1<RawNote>(t, "/notes", { sort: "update_time DESC" }, HISTORY_PAGES),
     listV1<RawLead>(t, "/leads", { sort: "update_time DESC" }, 2),
     listV1<RawUser>(t, "/users", {}, 1),
   ]);
@@ -204,7 +210,7 @@ async function load(username: string, cfg: PipedriveConfig): Promise<StoredSnaps
   const act = (a: RawActivity): PdActivity => ({
     id: a.id, subject: a.subject, type: a.type, dueDate: a.due_date, dueTime: a.due_time ? a.due_time.slice(0, 5) : null,
     dealId: a.deal_id ?? null, personId: a.person_id ?? null, orgId: a.org_id ?? null,
-    ...(a.note || a.public_description ? { note: stripHtml(a.note || a.public_description, 600) } : {}),
+    ...(a.note || a.public_description ? { note: stripHtml(a.note || a.public_description, NOTE_CHARS) } : {}),
     updateTime: a.update_time, ownerId: a.owner_id ?? null, done: !!a.done, doneTime: a.marked_as_done_time ?? null,
   });
   return {
@@ -212,7 +218,11 @@ async function load(username: string, cfg: PipedriveConfig): Promise<StoredSnaps
     at: Date.now(),
     userId: cfg.userId ?? null,
     companyDomain: cfg.companyDomain,
-    activities: [...openActs.filter((a) => !a.done).map(act), ...doneActs.filter((a) => a.done).map(act)],
+    activities: [
+      ...openActs.filter((a) => !a.done).map(act),
+      // Recent done activities, and every done one with notes (meeting / call notes), however old.
+      ...doneActs.filter((a) => a.done && (Date.parse(a.update_time) >= Date.parse(doneSince) || !!(a.note || a.public_description)?.trim())).map(act),
+    ],
     deals: rawDeals.map((d) => ({
       id: d.id, title: d.title, value: d.value ?? 0, currency: d.currency, stage: stageName.get(d.stage_id) ?? `Stage ${d.stage_id}`,
       status: d.status, personId: d.person_id ?? null, orgId: d.org_id ?? null, expectedClose: d.expected_close_date ?? null,
@@ -232,8 +242,8 @@ async function load(username: string, cfg: PipedriveConfig): Promise<StoredSnaps
       ...(o.website ? { website: o.website, domain: domainFromWebsite(o.website) } : {}),
       ...(typeof o.industry === "string" && o.industry ? { industry: o.industry } : {}),
     })),
-    notes: rawNotes.filter((n) => n.active_flag !== false && n.content).slice(0, MAX_NOTES).map((n) => ({
-      id: n.id, content: stripHtml(n.content), dealId: n.deal_id ?? null, personId: n.person_id ?? null, orgId: n.org_id ?? null,
+    notes: rawNotes.filter((n) => n.active_flag !== false && n.content).map((n) => ({
+      id: n.id, content: stripHtml(n.content, NOTE_CHARS), dealId: n.deal_id ?? null, personId: n.person_id ?? null, orgId: n.org_id ?? null,
       leadId: n.lead_id ?? null, userId: n.user_id ?? null, addTime: n.add_time, updateTime: n.update_time,
     })),
     leads: rawLeads.map((l) => ({

@@ -104,3 +104,27 @@ test("wiring: daily read, context everywhere, booking only from the user's click
   assert.match(src("components/today/v2/followup-actions.tsx"), /Book &amp; send invite/, "a second click confirms the send");
   assert.doesNotMatch(src("lib/pipedrive/client.ts"), /method:\s*"(POST|PUT|PATCH|DELETE)"/, "never writes to Pipedrive");
 });
+
+test("meeting notes: every written-up meeting or call, newest first, in the account record and the briefing", () => {
+  const s = base({
+    deals: [deal({})],
+    activities: [
+      act({ id: 1, type: "meeting", subject: "Kick-off", done: true, doneTime: "2025-03-01T10:00:00Z", dealId: 1, note: "Agreed a 3-month pilot. Jane owns security review." }),
+      act({ id: 2, type: "call", subject: "Check-in", done: true, doneTime: "2026-11-21T10:00:00Z", personId: 10, note: "Budget approved for Q1." }),
+      act({ id: 3, type: "call", subject: "No notes", done: true, doneTime: "2026-11-22T10:00:00Z", personId: 10 }),
+    ],
+  });
+  assert.deepEqual([...C.meetingNotes(s).map((a) => a.id)], [2, 1], "only written-up ones, newest first, old ones kept");
+  const block = C.accountBlock(s, { emails: ["jane@acme.com"] }, TODAY);
+  assert.match(block, /Meeting and call notes \(2, newest first\)/);
+  assert.match(block, /2025-03-01 meeting "Kick-off".*\n  Agreed a 3-month pilot/);
+  assert.match(C.briefingBlock(s, TODAY), /Meeting and call notes logged recently \(1\)/);
+});
+
+test("meeting notes are read in full and searchable", () => {
+  const client = src("lib/pipedrive/client.ts");
+  assert.match(client, /HISTORY_PAGES = 20/);
+  assert.match(client, /\/notes", \{ sort: "update_time DESC" \}, HISTORY_PAGES/);
+  assert.match(client, /!!\(a\.note \|\| a\.public_description\)\?\.trim\(\)/, "done activities with notes kept however old");
+  assert.match(src("lib/ai/tools.ts"), /"meetings" = meeting and call notes, full history/);
+});

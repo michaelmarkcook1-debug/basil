@@ -31,6 +31,7 @@ async function view(username: string) {
       organisations: st.snapshot.orgs.length,
       notes: st.snapshot.notes.length,
       activities: st.snapshot.activities.length,
+      meetingNotes: st.snapshot.activities.filter((a) => a.done && !!a.note?.trim()).length,
       leads: st.snapshot.leads.length,
     } : null,
     suggestions: st.suggestions,
