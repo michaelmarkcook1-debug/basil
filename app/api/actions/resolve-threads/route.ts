@@ -20,6 +20,10 @@ export const maxDuration = 180;
 export async function POST() {
   const username = await getSessionUser();
   if (!username) return NextResponse.json({ error: "Unauthorised" }, { status: 401 });
+  // The daily whole-list review, if the morning run has not done it today. It
+  // runs after the response (so after both passes below, and opening Today never
+  // waits on it), and is scheduled first so a failing pass cannot skip it.
+  after(() => reviewOpenTasksDaily(username));
   try {
     const threads = await resolveThreadActions(username);
     // The second pass runs even if it finds nothing new in threads; its own
@@ -28,9 +32,6 @@ export async function POST() {
       console.error("[actions/resolve-threads] done-check failed:", err instanceof Error ? err.message : err);
       return { checked: 0, closed: [] as { id: string; text: string; state: "done" | "expired"; reason: string }[] };
     });
-    // The daily whole-list review, if the morning run has not done it today;
-    // after the response, so opening Today never waits on it.
-    after(() => reviewOpenTasksDaily(username));
     return NextResponse.json({
       checked: threads.checked + done.checked,
       closed: threads.closed.length + done.closed.length,

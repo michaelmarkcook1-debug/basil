@@ -147,12 +147,46 @@ const judgeSays = (stillNeeded, answeredBy = "", reason = "") => async () => ({ 
 test("decide: your reply closes it; marketing closes it; another person settling it closes it; doubt keeps it", async () => {
   const R = resolver();
   const a = { text: "Send Jane the deck" };
-  assert.equal((await R.decide(a, view([said("Fixture Owner", "Attached", true)]), judgeSays(true), "Fixture")).kind, "reply-sent");
+  assert.equal((await R.decide(a, view([said("Fixture Owner", "Attached", true)]), judgeSays(false), "Fixture")).kind, "reply-sent");
+  assert.equal((await R.decide(a, view([said("Fixture Owner", "", true)]), judgeSays(true), "Fixture")).kind, "reply-sent", "a reply with no words (an attachment) sent the thing");
   assert.equal((await R.decide(a, view([], { bulk: true }), judgeSays(true), "Fixture")).kind, "bulk-mail");
   const settled = await R.decide(a, view([said("Omar Haddad", "I've sent Jane the deck")]), judgeSays(false, "Omar Haddad", "Omar sent it"), "Fixture");
   assert.equal(settled.kind, "answered-elsewhere"); assert.equal(settled.by, "Omar Haddad");
   assert.equal((await R.decide(a, view([said("Omar Haddad", "Fixture, can you send it?")]), judgeSays(true), "Fixture")).kind, "open");
   assert.equal((await R.decide(a, view([]), judgeSays(false), "Fixture")).kind, "open", "no later messages → nothing to judge");
+});
+
+test("decide: a reply that only takes the job on keeps it open as your promise (2026-11-25, the Randstad data run)", async () => {
+  const R = resolver();
+  const a = { text: "Run the data collection for the seven companies and confirm a Randstad test is doable tomorrow" };
+  const v = view([said("Fixture Owner", "I can set it up now and let it run, the run can take 24+ hours", true), said("Ed Baum", "Please do")],
+    { original: { from: "Ed Baum", date: ago(3), text: "Could you run your data collection process against these companies?" } });
+  let asked;
+  const promised = await R.decide(a, v, async (input) => { asked = input; return { stillNeeded: true, promised: true, answeredBy: "", reason: "accepted, run not done" }; }, "Fixture");
+  assert.equal(asked.mode, "reply", "the reply is read, not taken as proof");
+  assert.equal(promised.kind, "promised");
+  assert.equal(promised.to, "Ed Baum");
+  assert.match(promised.quote, /set it up now/);
+  assert.equal((await R.decide(a, v, judgeSays(true), "Fixture")).kind, "open", "unsure or off-topic reply → still open, no promise recorded");
+  const p = R.judgePrompt("Fixture", a.text, v, "reply");
+  assert.match(p, /FINISHED the item, or only took it on/);
+  assert.match(p, /Fixture \(you\)[^\n]*set it up now/);
+  assert.match(p, /or you are unsure, answer stillNeeded=true/);
+});
+
+test("a run keeps a taken-on job open, records it as a promise, and does not count it as closed", async () => {
+  const updates = [];
+  const actions = [{ id: "r1", text: "Run the data collection", status: "open", source: "slack", sourceRef: "slack:C1:1.0", createdAt: ago(1), notes: "from Ed" }];
+  const R = resolver({ actions, updates });
+  const loader = async () => view([said("Fixture Owner", "On it — setting it up now", true)], { original: { from: "Ed Baum", date: ago(2), text: "Can you run it?" } });
+  const out = await R.resolveThreadActions("u", { loaders: { slack: loader }, judge: async () => ({ stillNeeded: true, promised: true, answeredBy: "", reason: "" }) });
+  assert.equal(out.closed.length, 0);
+  const patch = updates.find((u) => u.id === "r1").patch;
+  assert.equal(patch.status, undefined, "stays open");
+  assert.equal(patch.commitment.to, "Ed Baum");
+  assert.match(patch.commitment.quote, /setting it up now/);
+  assert.match(patch.notes, /^from Ed\nYou took this on .*kept open until it's done/);
+  assert.ok(patch.threadCheckedAt);
 });
 
 test("the model judge keeps the item open when its answer is not clean JSON", async () => {

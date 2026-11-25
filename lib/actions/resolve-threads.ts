@@ -22,7 +22,15 @@ import { isCalendarInvitation } from "@/lib/email/triage";
  *
  * Per open email/Slack action, re-read the whole conversation after the source
  * message:
- *   - the user posted/replied            → done, "reply-sent"
+ *   - the user posted/replied            → a small model reads the reply: if it
+ *                                           did what the item asks, done
+ *                                           ("reply-sent"); if it only accepted it
+ *                                           or promised it ("I'll set it up now"),
+ *                                           the item stays open as the user's
+ *                                           promise ("promised") — until
+ *                                           2026-11-25 any reply closed it, so an
+ *                                           accepted job vanished the moment it
+ *                                           was accepted
  *   - the source was bulk/marketing mail  → done, "bulk-mail"
  *   - someone else replied                → ask a small model whether the user
  *                                           STILL needs to act; close only on a
@@ -42,6 +50,8 @@ export type ThreadResolution =
   | { kind: "bulk-mail" }
   | { kind: "calendar-invite" }
   | { kind: "promise-kept"; by: string; at: string; reason: string }
+  /** The user's reply took the job on rather than finishing it: kept open as their promise. */
+  | { kind: "promised"; at: string; to: string; quote: string; reason: string }
   | { kind: "answered-elsewhere"; by: string; at: string; reason: string }
   | { kind: "open" };
 
@@ -61,20 +71,40 @@ const VerdictSchema = z.object({
   stillNeeded: z.boolean(),
   answeredBy: z.string().optional().default(""),
   reason: z.string().optional().default(""),
+  /** Reply mode: the user said they would do it (only meaningful with stillNeeded). */
+  promised: z.boolean().optional().default(false),
 });
 
 export type Judge = (input: {
   firstName: string;
   ask: string;
   view: ConversationView;
-  /** "promise": the item is something the user promised in the original message. */
-  mode?: "ask" | "promise";
-}) => Promise<{ stillNeeded: boolean; answeredBy: string; reason: string }>;
+  /**
+   * "promise": the item is something the user promised.
+   * "reply": the user replied in the conversation — did the reply finish it?
+   */
+  mode?: "ask" | "promise" | "reply";
+}) => Promise<{ stillNeeded: boolean; answeredBy: string; reason: string; promised?: boolean }>;
 
-export function judgePrompt(firstName: string, ask: string, view: ConversationView, mode: "ask" | "promise" = "ask"): string {
+export function judgePrompt(firstName: string, ask: string, view: ConversationView, mode: "ask" | "promise" | "reply" = "ask"): string {
   const clip = (s: string) => s.replace(/\s+/g, " ").trim().slice(0, 500);
+  const thread = view.later.map((m) => `- ${m.self ? `${firstName} (you)` : m.from} (${m.date.slice(0, 10)}): ${clip(m.text)}`).join("\n");
+  if (mode === "reply") {
+    return `An item on ${firstName}'s to-do list was created from the original message below, and ${firstName} has since replied in the same conversation. Decide whether ${firstName}'s reply FINISHED the item, or only took it on.
+
+Answer stillNeeded=false when the reply itself did what the item asks: answered the question, gave the decision or confirmation, sent or attached the thing, declined, or said it is already done.
+Answer stillNeeded=true when the item needs work beyond replying and ${firstName} only accepted it, said when it will happen, or asked something back ("I'll set it up now", "will do", "on it", "let me check"). Then set promised=true if ${firstName} said they would do it.
+If the reply is about something else, or you are unsure, answer stillNeeded=true.
+
+To-do item: ${clip(ask)}
+Original message from ${view.original.from} (${view.original.date.slice(0, 10)}): ${clip(view.original.text)}
+Later messages:
+${thread}
+
+Respond with JSON only: {"stillNeeded": true or false, "promised": true or false, "answeredBy": "", "reason": "one short sentence"}`;
+  }
   if (mode === "promise") {
-    return `${firstName} made a promise in the original message below. Later messages in the same conversation follow. Decide whether the promise is STILL outstanding.
+    return `${firstName} made a promise — in the original message, or in a reply of theirs below. Later messages in the same conversation follow. Decide whether the promise is STILL outstanding.
 
 Answer stillNeeded=false ONLY when a later message clearly shows ${firstName} delivered it (sent the thing, did the task) or the other person released ${firstName} from it.
 Answer stillNeeded=true if the later messages are about something else, only acknowledge, or if you are unsure.
@@ -82,7 +112,7 @@ Answer stillNeeded=true if the later messages are about something else, only ack
 The promise: ${clip(ask)}
 Original message from ${view.original.from} (${view.original.date.slice(0, 10)}): ${clip(view.original.text)}
 Later messages:
-${view.later.map((m) => `- ${m.self ? `${firstName} (you)` : m.from} (${m.date.slice(0, 10)}): ${clip(m.text)}`).join("\n")}
+${thread}
 
 Respond with JSON only: {"stillNeeded": true or false, "answeredBy": "name or empty", "reason": "one short sentence"}`;
   }
@@ -136,8 +166,21 @@ export async function decide(
     const last = later[later.length - 1];
     return { kind: "promise-kept", by: v.answeredBy || (last.self ? firstName : last.from), at: last.date, reason: v.reason };
   }
-  const mine = view.later.find((m) => m.self);
-  if (mine) return { kind: "reply-sent", at: mine.date, counterpart: view.original.from, subject: view.subject };
+  const mine = view.later.filter((m) => m.self);
+  if (mine.length) {
+    // A reply with no words (an attachment) is taken as the thing being sent.
+    const said = mine.filter((m) => m.text.trim());
+    const lastMine = mine[mine.length - 1];
+    if (said.length === 0) return { kind: "reply-sent", at: lastMine.date, counterpart: view.original.from, subject: view.subject };
+    const later = view.later.filter((m) => m.text.trim());
+    const v = await judge({ firstName, ask: action.text, view: { ...view, later }, mode: "reply" });
+    if (!v.stillNeeded) return { kind: "reply-sent", at: lastMine.date, counterpart: view.original.from, subject: view.subject };
+    if (v.promised) {
+      const quote = said[said.length - 1];
+      return { kind: "promised", at: quote.date, to: view.original.from, quote: quote.text.replace(/\s+/g, " ").trim().slice(0, 200), reason: v.reason };
+    }
+    return { kind: "open" };
+  }
   if (view.bulk) return { kind: "bulk-mail" };
   if (isCalendarInvitation(view.subject)) return { kind: "calendar-invite" };
   const others = view.later.filter((m) => !m.self && m.text.trim());
@@ -230,7 +273,7 @@ async function slackLoader(username: string): Promise<ViewLoader | null> {
 
 export interface ResolveResult {
   checked: number;
-  closed: Array<{ action: ActionItem; resolution: Exclude<ThreadResolution, { kind: "open" }> }>;
+  closed: Array<{ action: ActionItem; resolution: Exclude<ThreadResolution, { kind: "open" } | { kind: "promised" }> }>;
 }
 
 export function dueForCheck(a: ActionItem, now = Date.now()): boolean {
@@ -279,6 +322,21 @@ export async function resolveThreadActions(
     if (!view) { updates.push({ id: action.id, patch: { threadCheckedAt: now } }); continue; }
     const r = await decide(action, view, judge, firstName);
     if (r.kind === "open") { updates.push({ id: action.id, patch: { threadCheckedAt: now } }); continue; }
+    if (r.kind === "promised") {
+      // Still open, now as the user's promise: later checks look for it being
+      // delivered (promise mode), and it shows with what was said and to whom.
+      const note = `You took this on (${r.at.slice(0, 10)}): “${r.quote}” — kept open until it's done.`;
+      updates.push({
+        id: action.id,
+        patch: {
+          threadCheckedAt: now,
+          lastActivityAt: r.at,
+          commitment: action.commitment ?? { to: r.to, quote: r.quote, sentAt: r.at },
+          notes: action.notes ? `${action.notes}\n${note}` : note,
+        },
+      });
+      continue;
+    }
     const note =
       r.kind === "reply-sent" ? `Closed: you replied on ${r.at.slice(0, 10)}.`
       : r.kind === "bulk-mail" ? "Closed: this came from marketing or list mail."
