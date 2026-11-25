@@ -352,7 +352,12 @@ function runMaintenance(username: string, passes: MaintenancePass[]): void {
 }
 
 export async function listActions(username: string, options?: { fresh?: boolean }): Promise<ActionItem[]> {
-  const items = await readAll(username, options);
+  // "dismissed" is a status an older version wrote and nothing else knows: every
+  // filter tests status !== "done", so three June items sat open into November.
+  const isLegacyDismissed = (a: ActionItem) => (a.status as string) === "dismissed";
+  const stored = await readAll(username, options);
+  const legacyDismissed = stored.some(isLegacyDismissed);
+  const items = legacyDismissed ? stored.map((a) => (isLegacyDismissed(a) ? { ...a, status: "done" as const } : a)) : stored;
   // The user's working calendar (stored values only; never waits on Google).
   // While they are away nothing is archived or purged for age, and days away
   // never count toward an age rule — leave must not close what they never saw.
@@ -389,6 +394,13 @@ export async function listActions(username: string, options?: { fresh?: boolean 
   // failed with "[lock] could not acquire actions:<user> after 320 attempts"
   // (2026-11-16: Complete and Delete both failed).
   const maintenance: MaintenancePass[] = [];
+  if (legacyDismissed) {
+    maintenance.push((current) => {
+      let n = 0;
+      const next = current.map((a) => (isLegacyDismissed(a) ? (n++, { ...a, status: "done" as const }) : a));
+      return { items: next, changed: n > 0, log: n > 0 ? `closed ${n} item(s) left as "dismissed"` : undefined };
+    });
+  }
 
   // ── Background maintenance: ONE lock, both passes ────────────────────────────
   // These used to be two separate fire-and-forget withLock() calls on the SAME
@@ -433,7 +445,14 @@ export async function listActions(username: string, options?: { fresh?: boolean 
   const selfIdentity = await getSelfIdentity(username).catch(() => ({ emails: [], names: [] }));
   const selfNameTokens = selfIdentity.names.map((n) => n.toLowerCase());
 
+  // Who the user is could not be read: nobody can be judged someone else.
+  // 2026-11-25: with the lookup failing, every "Michael Cook" item looked like
+  // a stranger's and 163 of the user's own actions were purged (restored the
+  // same hour). Same rule as isWaitingOnOthers: with no names known, keep all.
+  const selfUnknown = selfIdentity.names.length === 0 && selfIdentity.emails.length === 0;
+
   function isOtherPersonOwner(owner: string | undefined): boolean {
+    if (selfUnknown) return false;
     if (!owner?.trim()) return false;
     const o = owner.trim().toLowerCase();
     // First-person / ambiguous labels → keep

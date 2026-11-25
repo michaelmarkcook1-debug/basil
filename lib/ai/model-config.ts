@@ -83,12 +83,27 @@ export function preferOpenAI(): boolean {
   return process.env.AI_PREFER_OPENAI === "1" || process.env.AI_PREFER_OPENAI === "true";
 }
 
+/**
+ * Whether OpenAI may answer at all. Owner, 2026-11-25: "Revert to Claude
+ * models, there is a significant drop in quality and reasoning." From 23 to 24
+ * Nov the Anthropic credit ran out and every call quietly fell back to GPT; the
+ * spend log, which records the model asked for, hid it. Now Claude only: when
+ * Claude cannot answer, the call fails, the event is classified again later
+ * (/api/events/reprocess), and the app says Claude is unavailable
+ * (lib/ai/provider-health). AI_OPENAI_FALLBACK=1 brings the fallback back;
+ * AI_PREFER_OPENAI=1 still makes OpenAI the primary.
+ */
+export function openAIAllowed(): boolean {
+  const on = (v: string | undefined) => v === "1" || v === "true";
+  return preferOpenAI() || on(process.env.AI_OPENAI_FALLBACK);
+}
+
 function resolveProviderMode(): ProviderMode {
   if (isGatewayEnabled()) return "vercel_gateway";
   const _ak = ["ANTHROPIC", "API", "KEY"].join("_");
   const _ok = ["OPENAI", "API", "KEY"].join("_");
   const hasAnthropic = !!(process.env.BASIL_LLM_KEY ?? process.env[_ak]);
-  const hasOpenAI = !!(process.env.openai_basilv2 ?? process.env[_ok]);
+  const hasOpenAI = openAIAllowed() && !!(process.env.openai_basilv2 ?? process.env[_ok]);
   // When OpenAI is the preferred primary AND a key is present, report it as such.
   if (preferOpenAI() && hasOpenAI) return "openai_direct";
   if (hasAnthropic) return "anthropic_direct";
@@ -730,11 +745,13 @@ function nativeStructuredOutputMiddleware(): LanguageModelMiddleware {
 }
 
 /**
- * Direct OpenAI model for a tier — generateTextSafe's SECOND fallback (after
- * Anthropic direct), so Claude stays primary and OpenAI is the resilience
- * option. Returns null when no OpenAI key is set.
+ * Direct OpenAI model for a tier — a fallback only when openAIAllowed() (off
+ * by default since 2026-11-25). Returns null when OpenAI is not allowed or no
+ * OpenAI key is set.
  */
 export function getDirectOpenAIModel(kind: ModelKind = "default"): LanguageModel | null {
+  // Claude only unless OpenAI is switched back on (openAIAllowed).
+  if (!openAIAllowed()) return null;
   const _ok = ["OPENAI", "API", "KEY"].join("_");
   const key = process.env.openai_basilv2 ?? process.env[_ok];
   if (!key) return null;

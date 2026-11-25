@@ -386,7 +386,8 @@ function ActionCard({
               auto-archived. Neither is conflated with a manual completion. */}
           {action.archivedReason && (() => {
             const signalDriven = action.archivedReason === "rsvp-confirmed" || action.archivedReason === "reply-sent"
-              || action.archivedReason === "answered-elsewhere" || action.archivedReason === "promise-kept";
+              || action.archivedReason === "answered-elsewhere" || action.archivedReason === "promise-kept"
+              || action.archivedReason === "done-elsewhere";
             const label =
               action.archivedReason === "rsvp-confirmed" ? "you responded on your calendar"
               : action.archivedReason === "reply-sent" ? "you replied"
@@ -396,6 +397,10 @@ function ActionCard({
               : action.archivedReason === "promise-kept" ? "you followed through"
               : action.archivedReason === "notification" ? "automatic notification"
               : action.archivedReason === "meeting-note" ? "meeting note, not a task"
+              : action.archivedReason === "done-elsewhere" ? "you did it"
+              : action.archivedReason === "duplicate" ? "duplicate"
+              : action.archivedReason === "not-mine" ? "someone else's"
+              : action.archivedReason === "not-a-task" ? "not a task"
               : action.archivedReason === "stale-untouched" ? "untouched 30 days"
               : action.archivedReason === "stale-overdue" ? "expired overdue"
               : action.archivedReason === "past-meeting" ? "meeting passed"

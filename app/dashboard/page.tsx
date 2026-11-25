@@ -40,6 +40,7 @@ import { WaitingPanel, NextDaysPanel } from "@/components/today/v2/side-panels";
 import { WorkPanel, type ProjectLite } from "@/components/today/v2/work-panel";
 import { ReadOfTheDay } from "@/components/today/v2/read-of-the-day";
 import { ConnectPrompt } from "@/components/today/connect-prompt";
+import { ClaudeStatus } from "@/components/today/claude-status";
 import { AwayCard } from "@/components/today/away-card";
 import { GetTheApp } from "@/components/pwa/get-the-app";
 import { fellDueWhileAway } from "@/lib/away/fell-due";
@@ -227,6 +228,7 @@ export default function Today() {
       <span aria-hidden className="pointer-events-none absolute -right-40 -top-56 h-[560px] w-[760px] rounded-full" style={{ background: "radial-gradient(closest-side, rgba(212,185,120,.32), transparent 72%)" }} />
       <div className="relative mx-auto flex w-full max-w-[78rem] flex-col gap-7 px-4 py-6 sm:px-8 sm:py-10">
 
+        <ClaudeStatus />
         <ConnectPrompt />
         <GetTheApp />
 

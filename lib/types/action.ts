@@ -41,7 +41,15 @@ export interface ActionItem {
     /** Came from a system notification that only reported something (signed, confirmed) — nothing to do. */
     | "notification"
     /** A meeting note ("Follow up: …", "Blocker: …") that named nobody — kept in the recap, not a task. */
-    | "meeting-note";
+    | "meeting-note"
+    /** The daily review (lib/actions/review.ts): the same work as another open item. */
+    | "duplicate"
+    /** The daily review: someone else's job, nothing for the user to chase. */
+    | "not-mine"
+    /** The daily review: an idea, theme, blocker or notification with no next step. */
+    | "not-a-task"
+    /** The daily review: what the user sent, or a meeting they held, shows it done. */
+    | "done-elsewhere";
   /** When resolve-threads last re-read this action's source conversation. */
   threadCheckedAt?: string;
   /** When lib/actions/check-done.ts last looked for evidence that this is finished. */

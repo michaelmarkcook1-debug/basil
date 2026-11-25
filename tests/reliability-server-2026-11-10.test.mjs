@@ -112,7 +112,7 @@ test("A6. a throw during verification restores the previous connection; your own
 function generateModule(generateText, settled) {
   return loadTs("lib/ai/generate.ts", {
     ai: { generateText, streamText: () => ({}), stepCountIs: ai.stepCountIs },
-    "@/lib/ai/model-config": { getTextModel: () => "primary", getDirectAnthropicModel: () => "anthropic-fallback", getDirectOpenAIModel: () => null, preferOpenAI: () => false, PROVIDER_MODE: "openai_direct" },
+    "@/lib/ai/provider-health": { noteAiFailure: async () => {}, claudeCreditOut: async () => false }, "@/lib/ai/model-config": { getTextModel: () => "primary", getDirectAnthropicModel: () => "anthropic-fallback", getDirectOpenAIModel: () => null, preferOpenAI: () => false, PROVIDER_MODE: "openai_direct" },
     "@/lib/ai/spend-guard": {
       reserveSpend: async () => ({ username: "f", feature: "t", family: "opus5", reservedUsd: 0, heldKeys: [] }),
       commitSpend: async (_r, u) => { settled.push(["commit", plain(u)]); },

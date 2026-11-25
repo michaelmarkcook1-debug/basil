@@ -22,6 +22,7 @@ import { getEmailBody, getRecentEmails, searchEmails } from "@/lib/google/gmail"
 import { ZOOM_DIGEST_GMAIL_QUERY, coveredByHostedRecap, digestMeetingRef, digestMeetingText, digestNotesOnly, isPersonalMeeting, isZoomDigest, parseZoomDigest, type DigestMeeting } from "@/lib/zoom/digest";
 import { resolveThreadActions } from "@/lib/actions/resolve-threads";
 import { checkDoneActions } from "@/lib/actions/check-done";
+import { reviewOpenTasksDaily } from "@/lib/actions/review";
 import { captureSentPromises } from "@/lib/commitments/capture";
 import { getRecentSlackMessages } from "@/lib/slack/client";
 import { getMutedSourceKeys } from "@/lib/learning/store";
@@ -1177,6 +1178,10 @@ export async function POST(req: Request) {
     } catch (err) {
       console.error("[poll-ingest] done-check failed:", err);
     }
+    // Then the whole list at once, once a day: duplicates, other people's
+    // jobs, notes that were never tasks (lib/actions/review.ts).
+    const reviewed = await reviewOpenTasksDaily(username);
+    if (reviewed?.closed.length) await forceFlushSnapshot().catch((e) => console.warn("[poll-ingest] snapshot flush after review failed:", e));
   });
 
   // ── Promises in your sent mail → actions to confirm ─────────────────────

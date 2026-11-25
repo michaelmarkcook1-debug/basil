@@ -18,6 +18,7 @@
  * instead of calling generateText / streamText directly.
  */
 
+import { noteAiFailure } from "@/lib/ai/provider-health";
 import { generateText, streamText, stepCountIs } from "ai";
 import {
   getTextModel,
@@ -301,6 +302,7 @@ export async function generateTextSafe(
   } catch (primaryErr) {
     const msg = primaryErr instanceof Error ? primaryErr.message : String(primaryErr);
     console.warn(`[ai/generate] Primary model failed (${kind}): ${msg.slice(0, 200)}`);
+    void noteAiFailure(primaryErr);
 
     if (primaryProgress.steps > 0 || primaryProgress.tools > 0) {
       await settleFailure();
@@ -330,6 +332,7 @@ export async function generateTextSafe(
       return result;
     } catch (fallbackErr) {
       lastErr = fallbackErr;
+      void noteAiFailure(fallbackErr);
       const msg = fallbackErr instanceof Error ? fallbackErr.message : String(fallbackErr);
       console.warn(`[ai/generate] Fallback ${name} failed (${kind}): ${msg.slice(0, 200)}`);
       // Same rule as the primary: once this attempt ran a step or a tool, the

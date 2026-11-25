@@ -9,6 +9,7 @@
 import { NextResponse } from "next/server";
 import { getSessionUser } from "@/lib/auth";
 import { PROVIDER_MODE, getChatModel } from "@/lib/ai/model-config";
+import { claudeCreditOut } from "@/lib/ai/provider-health";
 
 export const dynamic = "force-dynamic";
 
@@ -25,5 +26,7 @@ export async function GET() {
   } catch (e) {
     return NextResponse.json({ ok: false, providerMode: PROVIDER_MODE, model: null, error: e instanceof Error ? e.message : "not configured" });
   }
-  return NextResponse.json({ ok, providerMode: PROVIDER_MODE, model, probe: "configuration" });
+  // Claude refused for billing in the last 30 minutes: the home says so, since
+  // Basil no longer falls back to another model (lib/ai/provider-health).
+  return NextResponse.json({ ok, providerMode: PROVIDER_MODE, model, probe: "configuration", claudeCreditOut: await claudeCreditOut() });
 }

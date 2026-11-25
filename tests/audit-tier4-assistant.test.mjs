@@ -72,7 +72,7 @@ test("AI-01 a hold taken before setup is released when setup throws", async () =
 function generateModule({ committed, generateText }) {
   return loadTs("lib/ai/generate.ts", {
     ai: { generateText, streamText: () => ({}), stepCountIs: ai.stepCountIs },
-    "@/lib/ai/model-config": { getTextModel: () => "mock", getDirectAnthropicModel: () => null, getDirectOpenAIModel: () => null, preferOpenAI: () => false, PROVIDER_MODE: "openai_direct" },
+    "@/lib/ai/provider-health": { noteAiFailure: async () => {}, claudeCreditOut: async () => false }, "@/lib/ai/model-config": { getTextModel: () => "mock", getDirectAnthropicModel: () => null, getDirectOpenAIModel: () => null, preferOpenAI: () => false, PROVIDER_MODE: "openai_direct" },
     "@/lib/ai/spend-guard": {
       reserveSpend: async () => ({ username: "f", feature: "t", family: "opus5", reservedUsd: 0.10, heldKeys: [] }),
       commitSpend: async (_r, u) => { committed.push(u); }, releaseSpend: async () => {},
@@ -104,7 +104,7 @@ test("reservation contract: observe-only (no cap) never stops, and the SDK's one
   let seen;
   const G = loadTs("lib/ai/generate.ts", {
     ai: { generateText: async (o) => { seen = o; return { text: "", usage: {} }; }, streamText: () => ({}), stepCountIs: ai.stepCountIs },
-    "@/lib/ai/model-config": { getTextModel: () => "mock", getDirectAnthropicModel: () => null, getDirectOpenAIModel: () => null, preferOpenAI: () => false, PROVIDER_MODE: "openai_direct" },
+    "@/lib/ai/provider-health": { noteAiFailure: async () => {}, claudeCreditOut: async () => false }, "@/lib/ai/model-config": { getTextModel: () => "mock", getDirectAnthropicModel: () => null, getDirectOpenAIModel: () => null, preferOpenAI: () => false, PROVIDER_MODE: "openai_direct" },
     "@/lib/ai/spend-guard": { reserveSpend: async () => ({ username: "f", feature: "t", family: "haiku", reservedUsd: 0, heldKeys: [] }), commitSpend: async () => {}, releaseSpend: async () => {} },
     "@/lib/ai/pricing": { costUsd: () => 0 },
   });
@@ -152,7 +152,7 @@ test("/api/ai/status answers from configuration and never calls a model", async 
   const route = loadTs("app/api/ai/status/route.ts", {
     "next/server": nextServer,
     "@/lib/auth": { getSessionUser: async () => "fixture" },
-    "@/lib/ai/model-config": { PROVIDER_MODE: "openai_direct", getChatModel: () => ({ modelId: "gpt-5.6-sol" }) },
+    "@/lib/ai/provider-health": { noteAiFailure: async () => {}, claudeCreditOut: async () => false }, "@/lib/ai/model-config": { PROVIDER_MODE: "openai_direct", getChatModel: () => ({ modelId: "gpt-5.6-sol" }) },
     "@/lib/ai/generate": { generateTextSafe: async () => { generated++; return {}; } },
   });
   const res = await route.GET();

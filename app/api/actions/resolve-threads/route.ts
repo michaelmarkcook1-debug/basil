@@ -7,10 +7,11 @@
  * itself when the user looks at it instead of only at the 05:45 ingest run.
  * Each action is looked at most once a day per pass, so repeat visits cost nothing.
  */
-import { NextResponse } from "next/server";
+import { NextResponse, after } from "next/server";
 import { getSessionUser } from "@/lib/auth";
 import { resolveThreadActions } from "@/lib/actions/resolve-threads";
 import { checkDoneActions } from "@/lib/actions/check-done";
+import { reviewOpenTasksDaily } from "@/lib/actions/review";
 
 export const dynamic = "force-dynamic";
 // Up to 40 conversations × (2 Gmail/Slack calls + occasionally a small model call).
@@ -27,6 +28,9 @@ export async function POST() {
       console.error("[actions/resolve-threads] done-check failed:", err instanceof Error ? err.message : err);
       return { checked: 0, closed: [] as { id: string; text: string; state: "done" | "expired"; reason: string }[] };
     });
+    // The daily whole-list review, if the morning run has not done it today;
+    // after the response, so opening Today never waits on it.
+    after(() => reviewOpenTasksDaily(username));
     return NextResponse.json({
       checked: threads.checked + done.checked,
       closed: threads.closed.length + done.closed.length,
