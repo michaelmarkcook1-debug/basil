@@ -27,3 +27,17 @@ export function alreadyWrittenToday(generatedAt: string | undefined, today: stri
   const t = Date.parse(generatedAt);
   return Number.isFinite(t) && new Date(t).toLocaleDateString("en-CA", { timeZone: tz }) === today;
 }
+
+/** Briefings that describe a single day. Weekly and meeting briefings keep their own expiry. */
+const DAILY_BRIEFINGS = new Set(["morning", "midday", "evening"]);
+
+/**
+ * A cached briefing may be shown now. A daily one must have been written today
+ * in the user's time zone: it was cached for a rolling 24 hours, so until the
+ * 08:00 run the home led with yesterday's briefing under today's date
+ * (2026-11-25: Tuesday's 17:00 clash shown on Wednesday morning).
+ */
+export function briefingIsCurrent(type: string, generatedAt: string | undefined, tz: string, now: number = Date.now()): boolean {
+  if (!DAILY_BRIEFINGS.has(type)) return true;
+  return alreadyWrittenToday(generatedAt, new Date(now).toLocaleDateString("en-CA", { timeZone: tz }), tz);
+}

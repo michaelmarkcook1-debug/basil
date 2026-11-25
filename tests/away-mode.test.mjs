@@ -364,6 +364,26 @@ test("already written today is judged on the user's local day", () => {
   assert.equal(S.alreadyWrittenToday(undefined, "2026-11-24", "Europe/London"), false);
 });
 
+test("a daily briefing is only shown on the day it was written", () => {
+  // 2026-11-25 04:24 London: Tuesday's 08:00 briefing was still inside its 24h
+  // expiry, and the home led with Tuesday's 17:00 clash under Wednesday's date.
+  const wedEarly = Date.parse("2026-11-25T04:24:00Z");
+  const tuesday = "2026-11-24T08:02:00Z";
+  assert.equal(S.briefingIsCurrent("morning", tuesday, "Europe/London", wedEarly), false);
+  assert.equal(S.briefingIsCurrent("midday", tuesday, "Europe/London", wedEarly), false);
+  assert.equal(S.briefingIsCurrent("evening", tuesday, "Europe/London", wedEarly), false);
+  assert.equal(S.briefingIsCurrent("morning", "2026-11-25T08:01:00Z", "Europe/London", Date.parse("2026-11-25T09:30:00Z")), true);
+  assert.equal(S.briefingIsCurrent("morning", undefined, "Europe/London", wedEarly), false);
+  // The weekly and meeting briefings span more than a day and keep their own expiry.
+  assert.equal(S.briefingIsCurrent("weekly", "2026-11-23T08:00:00Z", "Europe/London", wedEarly), true);
+  assert.equal(S.briefingIsCurrent("meeting", tuesday, "Europe/London", wedEarly), true);
+  // Judged on the user's day: 22:00 UTC on the 24th is already the 25th in Sydney.
+  assert.equal(S.briefingIsCurrent("morning", "2026-11-24T22:00:00Z", "Australia/Sydney", wedEarly), true);
+
+  const route = src("app/api/generate/briefing/route.ts");
+  assert.match(route, /if \(!briefingIsCurrent\(key\.replace\(\/\^briefing-\/, ""\), record\.generatedAt, tz\)\) return Response\.json\(null\);/);
+});
+
 test("the hourly cron writes nothing outside the user's morning, or twice in a day", async () => {
   const working = cal({ workingDays: [0, 1, 2, 3, 4, 5, 6], holidayRegion: "none" });
   const early = cron({ calendar: working, due: false });

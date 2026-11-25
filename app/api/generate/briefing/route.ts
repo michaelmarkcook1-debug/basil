@@ -46,6 +46,7 @@ import type { ZoomSummary } from "@/lib/google/zoom-summaries";
 import { getReadSummariesFromGmail } from "@/lib/google/read-summaries";
 import type { ReadSummary } from "@/lib/google/read-summaries";
 import { readBriefingHistory, recordBriefingDay } from "@/lib/briefing/history-store";
+import { briefingIsCurrent } from "@/lib/briefing/schedule";
 import { recurringBlock, recurringItems } from "@/lib/briefing/history";
 import { listMemories, rankForPrompt } from "@/lib/memory/store";
 import type { Memory } from "@/lib/memory/types";
@@ -113,8 +114,15 @@ export async function GET(req: Request) {
 
   // ?type= selects which briefing; the home's "Full briefing" wants the morning
   // chief-of-staff read, so that's the default.
-  const record = await readGenerateCache<Briefing>(username, briefingCacheKey(new URL(req.url).searchParams.get("type")));
+  const key = briefingCacheKey(new URL(req.url).searchParams.get("type"));
+  const record = await readGenerateCache<Briefing>(username, key);
   if (!record || !isCacheValid(record)) return Response.json(null);
+
+  // A daily briefing is only today's if it was written today (the 24h expiry
+  // let yesterday's lead the home until the 08:00 run). Before then the home
+  // shows Basil's own read of today's calendar instead.
+  const tz = (await getSettings(username).catch(() => null))?.timezone || "Europe/London"; // ci-ok: settings optional, London default
+  if (!briefingIsCurrent(key.replace(/^briefing-/, ""), record.generatedAt, tz)) return Response.json(null);
 
   return Response.json(record.content);
 }
