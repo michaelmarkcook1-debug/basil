@@ -95,7 +95,7 @@ export const EVENTS: CalendarEvent[] = [
   {
     id: "e2", summary: "Q3 forecast review with Finance", start: iso(9, 30), end: iso(10, 30),
     isAllDay: false, hasVideo: true, attendeeCount: 5, attendees: [],
-    dateLabel: "Today", isOrganizer: false, myResponseStatus: "needsAction",
+    dateLabel: "Today", isOrganizer: false, myResponseStatus: "needsAction", organizerName: "Priya Raman",
   },
   {
     id: "e3", summary: "1:1 — Daniel Okafor", start: iso(13, 0), end: iso(13, 30),

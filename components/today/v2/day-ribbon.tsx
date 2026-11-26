@@ -1,9 +1,11 @@
 "use client";
 
 /**
- * The shape of your day, as one ribbon: meetings (navy), free stretches you
- * could think in (gold hatch), declined meetings (dashed ghost), and a live
- * "now" line. Hover or focus a block for what it is and a way in.
+ * The shape of your day, as one ribbon: meetings (navy), proposed meetings —
+ * invitations you haven't replied to (cream, blue ring, answerable in place) —
+ * free stretches you could think in (gold hatch), declined meetings (dashed
+ * ghost), and a live "now" line. Hover or focus a block for what it is and a
+ * way in.
  *
  * Length encodes duration and nothing else. Free stretches are computed from
  * the calendar within your working hours — gaps of 30 minutes or more — never
@@ -12,7 +14,9 @@
 
 import { useMemo, useState } from "react";
 import Link from "next/link";
+import { mutate } from "swr";
 import type { CalendarEvent } from "@/lib/google/calendar";
+import { RsvpControls, type Rsvp } from "@/components/calendar/rsvp-controls";
 import { buildBlocks, hhmm, localHours, parseHHMM, type Kind } from "@/lib/today/visual-data";
 
 const STYLE: Record<Kind, React.CSSProperties> = {
@@ -25,6 +29,8 @@ const STYLE: Record<Kind, React.CSSProperties> = {
     color: "#4A3712", border: "1px solid #C8A96B",
   },
   declined: { background: "rgba(246,241,231,.7)", color: "#4B5568", border: "1.5px dashed #8A8F99" },
+  // The Calendar page's "invite" mark (schedule/components/event-kind.tsx), so both pages agree.
+  proposed: { background: "var(--w-paper)", color: "var(--w-ink)", border: "1.5px solid #2F5FA8" },
 };
 
 export function DayRibbon({
@@ -39,7 +45,14 @@ export function DayRibbon({
 }) {
   const ws = parseHHMM(workStart, 9);
   const we = parseHHMM(workEnd, 18);
-  const blocks = useMemo(() => buildBlocks(events, now, timeZone, ws, we), [events, now, timeZone, ws, we]);
+  // Answers given here show at once; the calendar re-read catches up behind.
+  const [answers, setAnswers] = useState<Record<string, Rsvp>>({});
+  const shown = useMemo(
+    () => events.map((e) => (answers[e.id] ? { ...e, myResponseStatus: answers[e.id] } : e)),
+    [events, answers],
+  );
+  const byId = useMemo(() => new Map(shown.map((e) => [e.id, e])), [shown]);
+  const blocks = useMemo(() => buildBlocks(shown, now, timeZone, ws, we), [shown, now, timeZone, ws, we]);
   const startH = Math.min(8, Math.floor(Math.min(ws, ...blocks.map((b) => b.start))));
   const endH = Math.max(19, Math.ceil(Math.max(we, ...blocks.map((b) => b.end))));
   const span = endH - startH;
@@ -48,9 +61,10 @@ export function DayRibbon({
   const nowIn = nowH >= startH && nowH <= endH;
 
   // Default focus: the next meeting, else the first block.
-  const next = blocks.find((b) => b.kind === "meeting" && b.end > nowH) ?? blocks[0];
+  const next = blocks.find((b) => (b.kind === "meeting" || b.kind === "proposed") && b.end > nowH) ?? blocks[0];
   const [focusId, setFocusId] = useState<string | null>(null);
   const focus = blocks.find((b) => b.id === focusId) ?? next;
+  const focusEvent = focus?.kind === "proposed" ? byId.get(focus.id) : undefined;
 
   if (!connected) {
     return (
@@ -86,7 +100,7 @@ export function DayRibbon({
                 onMouseEnter={() => setFocusId(b.id)}
                 onFocus={() => setFocusId(b.id)}
                 onClick={() => setFocusId(b.id)}
-                aria-label={`${b.title}, ${b.time}${b.kind === "declined" ? ", declined" : ""}`}
+                aria-label={`${b.title}, ${b.time}${b.kind === "declined" ? ", declined" : b.kind === "proposed" ? ", not answered yet" : ""}`}
                 className="basil-grow absolute top-[30px] flex h-[66px] flex-col justify-between overflow-hidden rounded-xl px-2.5 py-2 text-left transition-[translate,box-shadow] duration-200"
                 style={{
                   ...STYLE[b.kind],
@@ -102,7 +116,9 @@ export function DayRibbon({
                 <span className="truncate text-[13px] font-semibold" style={{ textDecoration: b.kind === "declined" ? "line-through" : "none" }}>
                   {b.title}
                 </span>
-                <span className="basil-mono whitespace-nowrap text-[11px] opacity-80">{hhmm(b.start)}</span>
+                <span className="basil-mono whitespace-nowrap text-[11px] opacity-80">
+                  {hhmm(b.start)}{b.kind === "proposed" && <span style={{ color: "#2F5FA8" }}> · no reply</span>}
+                </span>
               </button>
             );
           })}
@@ -129,6 +145,19 @@ export function DayRibbon({
             <span className="text-[14px] text-[color:var(--w-ink-soft)]">
               {focus.kind === "free" ? "Unbooked inside your working hours." : focus.kind === "declined" ? "You declined this one." : focus.who}
             </span>
+            {focusEvent && (
+              <div className="mt-1">
+                <RsvpControls
+                  key={focusEvent.id}
+                  compact
+                  event={focusEvent}
+                  onChanged={(status) => {
+                    setAnswers((a) => ({ ...a, [focusEvent.id]: status }));
+                    void mutate("/api/calendar/upcoming");
+                  }}
+                />
+              </div>
+            )}
           </div>
           {focus.href && (
             <Link href={focus.href} className="basil-lift inline-flex min-h-[44px] items-center rounded-xl border border-[var(--w-rule-strong)] bg-[var(--w-flimsy)] px-4 text-[14px] font-medium text-[#10213F]">

@@ -127,7 +127,10 @@ export default function Today() {
   const nowH = useMemo(() => (now ? localHours(clock.toISOString(), timeZone) : 0), [now, clock, timeZone]);
   const freeHours = useMemo(() => blocks.filter((b) => b.kind === "free").reduce((n, b) => n + Math.max(0, b.end - Math.max(b.start, nowH)), 0), [blocks, nowH]);
   const declinedCount = blocks.filter((b) => b.kind === "declined").length;
-  const meetingCount = blocks.filter((b) => b.kind === "meeting").length;
+  // Invitations you haven't replied to are still on your day — counted, and named as such.
+  const proposedCount = blocks.filter((b) => b.kind === "proposed").length;
+  const meetingCount = blocks.filter((b) => b.kind === "meeting").length + proposedCount;
+  const meetingNote = [proposedCount && `${proposedCount} not answered`, declinedCount && `${declinedCount} declined`].filter(Boolean).join(", ");
 
   const all = useMemo(() => actions?.actions ?? [], [actions]);
   const selfNames = useMemo(() => (selfName ? [selfName] : []), [selfName]);
@@ -259,7 +262,7 @@ export default function Today() {
               { value: String(Math.max(0, heldCount)), label: "held for your return" },
               { value: feedError ? "—" : String(needsCount), label: "can't wait", dark: true },
             ] : [
-              { value: calConnected ? String(meetingCount) : "—", label: calConnected ? `meeting${meetingCount === 1 ? "" : "s"}${declinedCount ? ` (${declinedCount} declined)` : ""}` : "calendar not connected" },
+              { value: calConnected ? String(meetingCount) : "—", label: calConnected ? `meeting${meetingCount === 1 ? "" : "s"}${meetingNote ? ` (${meetingNote})` : ""}` : "calendar not connected" },
               { value: calConnected ? `${Math.floor(freeHours)}${freeHours % 1 >= 0.5 ? "½" : ""}` : "—", unit: " h", label: "free to think, from now" },
               { value: feedError ? "—" : String(needsCount), label: needsCount === 1 ? "thing needs you" : "things need you", dark: true },
             ]}
@@ -276,6 +279,7 @@ export default function Today() {
             <h2 id="day-h" className="basil-serif text-[30px] text-[#10213F]">The shape of your day</h2>
             <span className="flex flex-wrap gap-4 text-[12px] text-[color:var(--w-ink-soft)]">
               <span className="inline-flex items-center gap-1.5"><span className="h-2.5 w-3.5 rounded-[3px] bg-[#10213F]" />Meeting</span>
+              <span className="inline-flex items-center gap-1.5"><span className="h-2.5 w-3.5 rounded-[3px] border-[1.5px] border-[#2F5FA8] bg-[var(--w-paper)]" />Proposed, not answered</span>
               <span className="inline-flex items-center gap-1.5"><span className="h-2.5 w-3.5 rounded-[3px] border border-[#C8A96B]" style={{ background: "repeating-linear-gradient(135deg, rgba(200,169,107,.6) 0 3px, rgba(200,169,107,.25) 3px 6px)" }} />Free to think</span>
               <span className="inline-flex items-center gap-1.5"><span className="h-2.5 w-3.5 rounded-[3px] border-[1.5px] border-dashed border-[#8A8F99]" />Declined</span>
             </span>

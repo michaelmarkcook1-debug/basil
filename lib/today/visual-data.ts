@@ -7,8 +7,10 @@
 
 import type { CalendarEvent } from "@/lib/google/calendar";
 import { localDate } from "@/lib/today/executive";
+import { answeredSeries, awaitingReply } from "@/lib/calendar/invitations";
 
-export type Kind = "meeting" | "free" | "declined";
+/** proposed: someone else's invitation you haven't replied to yet. */
+export type Kind = "meeting" | "free" | "declined" | "proposed";
 export interface Block {
   id: string;
   kind: Kind;
@@ -52,7 +54,12 @@ export const parseHHMM = (s: string | undefined, fallback: number) => {
   return m ? Number(m[1]) + Number(m[2]) / 60 : fallback;
 };
 
-/** Today's blocks: meetings, declined meetings, and free gaps ≥ 30 min inside working hours. Pure — exported for tests. */
+/**
+ * Today's blocks: meetings, proposed meetings (invitations you haven't replied
+ * to), declined meetings, and free gaps ≥ 30 min inside working hours. A
+ * proposed meeting still holds its time until you answer it — the organiser
+ * expects you, and the clash check counts it too. Pure — exported for tests.
+ */
 export function buildBlocks(
   events: CalendarEvent[], now: Date, timeZone: string | undefined, workStart = 9, workEnd = 18,
 ): Block[] {
@@ -63,16 +70,23 @@ export function buildBlocks(
     .filter((x) => x.t > x.s)
     .sort((a, b) => a.s - b.s);
 
+  // Across the whole window, not just today: a series you said yes to on
+  // another date is not a fresh invitation today.
+  const answered = answeredSeries(events);
   const blocks: Block[] = timed.map(({ e, s, t }) => {
     const declined = e.myResponseStatus === "declined";
+    const proposed = !declined && awaitingReply(e, answered);
     const names = (e.attendeeDetails ?? []).map((a) => a.name || a.email.split("@")[0]).filter(Boolean);
+    const from = e.organizerName || e.organizerEmail;
     return {
       id: e.id,
-      kind: declined ? "declined" : "meeting",
+      kind: declined ? "declined" : proposed ? "proposed" : "meeting",
       start: s, end: t,
       title: e.summary || "Untitled",
       time: `${hhmm(s)} – ${hhmm(t)}`,
-      who: names.length === 0 ? "Just you" : names.length <= 2 ? names.join(" · ") : `${names[0]} + ${names.length - 1}`,
+      who: proposed
+        ? `${from ? `Invited by ${from}` : "An invitation"} — you haven't replied yet`
+        : names.length === 0 ? "Just you" : names.length <= 2 ? names.join(" · ") : `${names[0]} + ${names.length - 1}`,
       href: declined ? undefined : `/dashboard/meetings/${e.id}`,
       cta: declined ? undefined : "Open prep",
     };

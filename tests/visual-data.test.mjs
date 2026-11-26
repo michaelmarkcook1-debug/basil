@@ -7,7 +7,7 @@ import assert from "node:assert/strict";
 import { loadTs } from "./_helpers/load-ts.mjs";
 
 const executive = { localDate: (d, tz) => new Intl.DateTimeFormat("en-CA", { timeZone: tz, year: "numeric", month: "2-digit", day: "2-digit" }).format(d) };
-const V = loadTs("lib/today/visual-data.ts", { "@/lib/today/executive": executive });
+const V = loadTs("lib/today/visual-data.ts", { "@/lib/today/executive": executive, "@/lib/calendar/invitations": loadTs("lib/calendar/invitations.ts") });
 const A = loadTs("lib/contacts/activity-shape.ts");
 const TZ = "Europe/London";
 const ev = (id, s, e, extra = {}) => ({ id, summary: id, start: s, end: e, isAllDay: false, hasVideo: false, attendeeCount: 2, attendees: ["x"], isOrganizer: false, myResponseStatus: "accepted", attendeeDetails: [{ name: "Carter Hughes", email: "c@x.test" }], ...extra });
@@ -28,6 +28,35 @@ test("day ribbon: meetings, a declined ghost, and free stretches only inside wor
   // Free: before the stand-up, between the two, and after Carter (the declined slot is free).
   assert.equal(free.join(" | "), "09:00 – 09:30 | 10:00 – 11:00 | 11:45 – 18:00");
   assert.ok(!blocks.some((b) => b.kind === "free" && b.start < 9), "nothing before the working day");
+});
+
+test("day ribbon: an invitation you haven't replied to is a proposed meeting that still holds its time (2026-11-26)", () => {
+  const now = new Date("2026-11-26T08:00:00Z"); // London is on GMT
+  const blocks = V.buildBlocks([
+    ev("standup", "2026-11-26T09:00:00Z", "2026-11-26T09:30:00Z"),
+    ev("pitch", "2026-11-26T11:00:00Z", "2026-11-26T12:00:00Z", { myResponseStatus: "needsAction", organizerName: "Ed Baum" }),
+    ev("maybe", "2026-11-26T13:00:00Z", "2026-11-26T13:30:00Z", { myResponseStatus: "tentative" }),
+    // A repeating meeting you said yes to on another date: Google reset today's answer, it is not a new invitation.
+    ev("gtm-today", "2026-11-26T14:00:00Z", "2026-11-26T14:30:00Z", { myResponseStatus: "needsAction", seriesId: "gtm" }),
+    ev("gtm-later", "2026-11-28T14:00:00Z", "2026-11-28T14:30:00Z", { myResponseStatus: "accepted", seriesId: "gtm" }),
+    // Your own event never waits on your reply.
+    ev("mine", "2026-11-26T15:00:00Z", "2026-11-26T15:30:00Z", { myResponseStatus: "needsAction", isOrganizer: true }),
+    // An unanswered invitation you then declined is declined, not proposed.
+    ev("nope", "2026-11-26T16:00:00Z", "2026-11-26T16:30:00Z", { myResponseStatus: "declined" }),
+  ], now, TZ, 9, 18);
+  const kind = (id) => blocks.find((b) => b.id === id)?.kind;
+  assert.equal(kind("pitch"), "proposed");
+  assert.equal(kind("standup"), "meeting");
+  assert.equal(kind("maybe"), "meeting", "a maybe is an answer");
+  assert.equal(kind("gtm-today"), "meeting", "series answered elsewhere");
+  assert.equal(kind("mine"), "meeting");
+  assert.equal(kind("nope"), "declined");
+  const pitch = blocks.find((b) => b.id === "pitch");
+  assert.match(pitch.who, /Invited by Ed Baum/);
+  assert.equal(pitch.href, "/dashboard/meetings/pitch", "still opens the meeting");
+  const free = blocks.filter((b) => b.kind === "free").map((b) => b.time);
+  assert.ok(!free.some((t) => t.startsWith("11:")), "no free stretch over the proposed meeting");
+  assert.ok(free.includes("15:30 – 18:00"), "the declined slot is free");
 });
 
 test("orbit tone: quiet after two weeks, cooler on a cooling or cool verdict, warmer when warming", () => {
