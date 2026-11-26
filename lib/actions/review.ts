@@ -20,6 +20,14 @@
  * quarters of the list closes in one run; every close says why in the item's
  * notes; and anything can be reopened, which the next review learns from
  * (done-lessons).
+ *
+ * A run Claude could not answer is not a run (2026-11-26): that morning the
+ * Anthropic credit was out at 05:45, the judge's failure read as "keep
+ * everything", and the day was recorded as reviewed, so a top-up would not have
+ * brought the review back until the next morning. Now the day is recorded only
+ * when Claude answered. A billing refusal costs nothing and is fixed by a top-up,
+ * so it is retried on the next trigger; any other failure (a timeout, an answer
+ * that does not parse) can cost money, so it is tried at most three times a day.
  */
 import "server-only";
 import { z } from "zod";
@@ -37,6 +45,7 @@ import { withLock } from "@/lib/events/lock";
 import { generateTextSafe } from "@/lib/ai/generate";
 import { getTextModel } from "@/lib/ai/model-config";
 import { parseAndValidate } from "@/lib/ai/parse-json";
+import { isBillingError } from "@/lib/ai/provider-health";
 
 /** Below this the verdict is treated as "keep". */
 export const REVIEW_MIN_CONFIDENCE = 0.8;
@@ -187,35 +196,36 @@ export function reviewPatch(p: PlannedClose, nowIso: string): Partial<ActionItem
 
 export type ReviewJudge = (prompt: string) => Promise<ReviewItem[]>;
 
+/** Throws when Claude did not answer, or answered in a shape that cannot be read: nothing was judged. */
 export function makeReviewJudge(username: string): ReviewJudge {
   return async (prompt) => {
-    try {
-      const { text } = await generateTextSafe({
-        model: getTextModel("long"),
-        // Thinking and the answer share this budget; 150 verdicts are ~6k tokens.
-        maxOutputTokens: 24_000,
-        system: "You tidy an executive's task list. You are conservative: when in doubt, keep.",
-        prompt,
-      }, "long", { username, feature: "actions:review" });
-      const parsed = parseAndValidate(text, ReviewSchema, "[actions/review]");
-      return parsed.ok ? parsed.data.items : [];
-    } catch (err) {
-      console.warn("[actions/review] judge failed, nothing closed:", err instanceof Error ? err.message : err);
-      return [];
-    }
+    const { text } = await generateTextSafe({
+      model: getTextModel("long"),
+      // Thinking and the answer share this budget; 150 verdicts are ~6k tokens.
+      maxOutputTokens: 24_000,
+      system: "You tidy an executive's task list. You are conservative: when in doubt, keep.",
+      prompt,
+    }, "long", { username, feature: "actions:review" });
+    const parsed = parseAndValidate(text, ReviewSchema, "[actions/review]");
+    if (!parsed.ok) throw new Error(`[actions/review] the answer could not be read: ${parsed.error}`);
+    return parsed.data.items;
   };
 }
 
 const FILE = "task-review.json";
+/** Failed runs (other than billing refusals) allowed in one day before the review waits for tomorrow. */
+const MAX_FAILED_RUNS = 3;
 interface ReviewRecord {
   day: string;
   at: string;
   reviewed: number;
   closed: { id: string; text: string; verdict: ReviewVerdictKind; reason: string }[];
+  /** Runs that failed today; absent on a run that finished. */
+  failed?: number;
 }
 
 export interface ReviewResult {
-  skipped?: "already-today" | "too-few";
+  skipped?: "already-today" | "too-few" | "failed-today";
   reviewed: number;
   closed: { id: string; text: string; verdict: ReviewVerdictKind; reason: string }[];
 }
@@ -248,9 +258,14 @@ export async function reviewOpenTasks(
   const settings = deps.settings !== undefined ? deps.settings : await getSettings(username).catch((e) => { console.warn("[actions/review] settings unavailable:", e instanceof Error ? e.message : e); return null; });
   const tz = settings?.timezone || "Europe/London";
   const day = new Date(now).toLocaleDateString("en-CA", { timeZone: tz });
+  let failedToday = 0;
   if (!deps.force && !deps.dryRun) {
     const last = await readUserStore<ReviewRecord | null>(username, FILE, null, { fresh: true }).catch(() => null); // ci-ok: unreadable record means review again
-    if (last?.day === day) return { skipped: "already-today", reviewed: 0, closed: [] };
+    if (last?.day === day) {
+      if (!last.failed) return { skipped: "already-today", reviewed: 0, closed: [] };
+      if (last.failed >= MAX_FAILED_RUNS) return { skipped: "failed-today", reviewed: 0, closed: [] };
+      failedToday = last.failed;
+    }
   }
 
   if (deps.dryRun && (!deps.actions || !deps.identity || !deps.outbound || !deps.meetings || deps.settings === undefined || !deps.absences || !deps.lessons)) {
@@ -290,13 +305,24 @@ export async function reviewOpenTasks(
   const judge = deps.judge ?? makeReviewJudge(username);
 
   const planned: PlannedClose[] = [];
-  for (let i = 0; i < open.length; i += PER_CALL) {
-    const tasks = open.slice(i, i + PER_CALL).map((a, j) => ({ t: `T${j + 1}`, a }));
-    const items = await judge(reviewPrompt({
-      firstName, selfNames: identity.names, today, tasks, outbound: recentOut, meetings,
-      absences, lessons: lessonsBlock(lessons, firstName, 10),
-    }));
-    planned.push(...planReview(tasks, items));
+  try {
+    for (let i = 0; i < open.length; i += PER_CALL) {
+      const tasks = open.slice(i, i + PER_CALL).map((a, j) => ({ t: `T${j + 1}`, a }));
+      const items = await judge(reviewPrompt({
+        firstName, selfNames: identity.names, today, tasks, outbound: recentOut, meetings,
+        absences, lessons: lessonsBlock(lessons, firstName, 10),
+      }));
+      planned.push(...planReview(tasks, items));
+    }
+  } catch (err) {
+    // Nothing closes and the day stays open, so the next trigger (Today opening,
+    // the next ingest) runs it again; only failures that may have cost money count.
+    if (!deps.dryRun && !isBillingError(err)) {
+      await writeUserStore<ReviewRecord>(username, FILE, { day, at: nowIso, reviewed: 0, closed: [], failed: failedToday + 1 }).catch((e) => {
+        console.warn("[actions/review] could not record the failed run:", e instanceof Error ? e.message : e);
+      });
+    }
+    throw err;
   }
 
   const closed = planned.map((p) => ({ id: p.a.id, text: p.a.text, verdict: p.v.verdict, reason: p.v.reason }));

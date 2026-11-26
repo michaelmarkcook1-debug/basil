@@ -16,7 +16,7 @@ const NOW = Date.parse("2026-11-25T06:00:00Z");
 const ago = (d) => new Date(NOW - d * DAY).toISOString();
 const shape = loadTs("lib/actions/done-lessons-shape.ts");
 
-function reviewModule({ actions = [], record = null, judge, store = {} } = {}) {
+function reviewModule({ actions = [], record = null, judge, store = {}, generate = async () => { throw new Error("no model in tests"); } } = {}) {
   const writes = [];
   const records = [];
   let current = record;
@@ -31,9 +31,10 @@ function reviewModule({ actions = [], record = null, judge, store = {} } = {}) {
     "@/lib/actions/done-lessons": { readDoneLessons: async () => [], lessonsBlock: shape.lessonsBlock },
     "@/lib/storage/user-store": { readUserStore: async () => current, writeUserStore: async (_u, _f, v) => { current = v; records.push(v); } },
     "@/lib/events/lock": makeLock(),
-    "@/lib/ai/generate": { generateTextSafe: async () => { throw new Error("no model in tests"); } },
+    "@/lib/ai/generate": { generateTextSafe: generate },
     "@/lib/ai/model-config": { getTextModel: () => "long" },
     "@/lib/ai/parse-json": loadTs("lib/ai/parse-json.ts", { zod }),
+    "@/lib/ai/provider-health": loadTs("lib/ai/provider-health.ts", { "@/lib/storage/counter": { getCounter: async () => 0, incrCounter: async () => 1 } }),
   });
   return { R, writes, records, judge };
 }
@@ -109,6 +110,49 @@ test("the run closes what Claude is sure of, records the day, and does not run t
   const again = await m.R.reviewOpenTasks("michael", { judge, now: NOW + 3_600_000 });
   assert.equal(again.skipped, "already-today");
   assert.equal(m.writes.length, 2, "nothing written the second time");
+});
+
+// 2026-11-26: the Anthropic credit was out at 05:45; the failed judge read as
+// "keep everything" and the day was recorded, so a top-up could not bring the
+// review back until the next morning.
+const BILLING = "[ai/generate] Primary and all direct fallbacks failed. Last: Your credit balance is too low to access the Anthropic API. Please go to Plans & Billing to upgrade or purchase credits.";
+const three = () => [act({ id: "x", text: "Explore a monthly podcast" }), act({ id: "y" }), act({ id: "z" })];
+
+test("Claude refusing for billing leaves the day open, and the run after the top-up closes as usual (2026-11-26)", async () => {
+  const m = reviewModule({ actions: three() });
+  const broke = async () => { throw new Error(BILLING); };
+  await assert.rejects(m.R.reviewOpenTasks("michael", { judge: broke, now: NOW }), /credit balance/);
+  await assert.rejects(m.R.reviewOpenTasks("michael", { judge: broke, now: NOW + 600_000 }), /credit balance/);
+  assert.equal(m.records.length, 0, "a billing refusal is not recorded, however often it happens");
+  assert.equal(m.writes.length, 0, "and closes nothing");
+  const r = await m.R.reviewOpenTasks("michael", { judge: async () => [v("T1", "not_a_task", 0.9)], now: NOW + 3_600_000 });
+  assert.equal(r.closed.length, 1);
+  assert.equal(m.records.at(-1).day, "2026-11-25");
+  assert.equal(m.records.at(-1).failed, undefined);
+  assert.equal((await m.R.reviewOpenTasks("michael", { judge: broke, now: NOW + 7_200_000 })).skipped, "already-today");
+});
+
+test("other failures may have cost money: tried three times in a day, then it waits for tomorrow (2026-11-26)", async () => {
+  const m = reviewModule({ actions: three() });
+  let calls = 0;
+  const timesOut = async () => { calls++; throw new Error("[ai/generate] Primary and all direct fallbacks failed. Last: The operation was aborted due to timeout"); };
+  for (let i = 0; i < 3; i++) await assert.rejects(m.R.reviewOpenTasks("michael", { judge: timesOut, now: NOW + i * 600_000 }), /timeout/);
+  assert.equal(JSON.stringify(m.records.map((r) => r.failed)), JSON.stringify([1, 2, 3]));
+  assert.equal((await m.R.reviewOpenTasks("michael", { judge: timesOut, now: NOW + 3_600_000 })).skipped, "failed-today");
+  assert.equal(calls, 3);
+  // The next day starts afresh.
+  const r = await m.R.reviewOpenTasks("michael", { judge: async () => [v("T1", "keep", 0.9)], now: NOW + DAY });
+  assert.equal(r.skipped, undefined);
+  assert.equal(m.records.at(-1).day, "2026-11-26");
+  assert.equal(m.records.at(-1).failed, undefined);
+});
+
+test("an answer that cannot be read is a failed run, not a review that kept everything (2026-11-26)", async () => {
+  const m = reviewModule({ actions: three(), generate: async () => ({ text: "Sorry, I can't help with that." }) });
+  await assert.rejects(m.R.reviewOpenTasks("michael", { now: NOW }), /could not be read/);
+  assert.equal(m.records.at(-1).failed, 1);
+  assert.equal(m.writes.length, 0);
+  assert.equal(await m.R.reviewOpenTasksDaily("michael"), null, "the scheduled run logs it and carries on");
 });
 
 test("a dry run must be handed its data and writes nothing", async () => {
