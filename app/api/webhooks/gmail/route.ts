@@ -141,7 +141,7 @@ export async function POST(req: Request) {
             userId: "me",
             id,
             format: "metadata",
-            metadataHeaders: ["From", "Subject", "List-Unsubscribe", "List-Id", "Precedence", "Auto-Submitted"],
+            metadataHeaders: ["From", "Subject", "List-Unsubscribe", "List-Id", "Precedence", "Auto-Submitted", "X-Basil-Notice"],
           });
           const labels = detail.data.labelIds || [];
           // The history delta can carry the user's own sent mail; Basil only
@@ -151,6 +151,8 @@ export async function POST(req: Request) {
           const h = (n: string) =>
             headers.find((hh) => hh.name?.toLowerCase() === n.toLowerCase())?.value || "";
 
+          // Basil's own notices sent to the user's inbox (lib/email/to-user) are never inbound signals.
+          if (h("X-Basil-Notice")) return;
           const fromRaw = h("From");
           const subject = h("Subject");
           const snippet = detail.data.snippet || "";

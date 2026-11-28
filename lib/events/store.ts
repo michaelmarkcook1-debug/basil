@@ -279,6 +279,15 @@ export async function replaceAll(username: string, events: BasilEvent[]): Promis
 // Compaction only removes the ephemeral event receipt record, not the derived data.
 
 const PRUNE_AGE_MS = 7 * 24 * 60 * 60 * 1000;
+export const EXPIRE_AFTER_DAYS = 30;
+const EXPIRED_KEEP_DAYS = 45;
+
+/** A pending draft or notice older than EXPIRE_AFTER_DAYS → "expired" (pure; exported for tests). */
+export function expireIfStale(e: BasilEvent, nowIso: string): BasilEvent {
+  if (e.status !== "pending" || (e.disposition !== "draft" && e.disposition !== "notify")) return e;
+  if (Date.parse(nowIso) - new Date(e.createdAt).getTime() < EXPIRE_AFTER_DAYS * 86_400_000) return e;
+  return { ...e, status: "expired", updatedAt: nowIso, executionResult: `Expired: no answer in ${EXPIRE_AFTER_DAYS} days` };
+}
 const MAX_EVENTS   = 300;
 
 /**
@@ -289,12 +298,23 @@ const MAX_EVENTS   = 300;
  */
 export async function compactEvents(username: string): Promise<number> {
   return withLock(lockKey(username), async () => {
-    const all    = await readAll(username, { fresh: true });
-    const before = all.length;
+    const read   = await readAll(username, { fresh: true });
+    const before = read.length;
     const cutoff = Date.now() - PRUNE_AGE_MS;
+
+    // Expire the unanswered (2026-11-28): a pending draft or notice nobody
+    // acted on in 30 days leaves the queue. Nothing ever resolved them — 1,254
+    // of 1,334 stored events were pending, 573 of them over 30 days old, and
+    // new follow-up and chaser drafts were buried among them. Never acted on;
+    // kept until 45 days (past every ingest window, so nothing is re-created).
+    const nowIso = new Date().toISOString();
+    const all = read.map((e) => expireIfStale(e, nowIso));
+    const expiredCount = all.filter((e, i) => e !== read[i]).length;
+    if (expiredCount) console.log(`[events/compact] ${username}: expired ${expiredCount} unanswered pending event(s) older than ${EXPIRE_AFTER_DAYS} days`);
 
     // Age-based pruning
     const afterAging = all.filter((e) => {
+      if (e.status === "expired") return new Date(e.createdAt).getTime() > Date.now() - EXPIRED_KEEP_DAYS * 86_400_000;
       // Always keep operationally pending / in-flight events
       if (e.status === "pending" || e.status === "executing" || e.status === "approved") {
         return true;
@@ -356,7 +376,8 @@ export async function compactEvents(username: string): Promise<number> {
     }
 
     const pruned = before - compacted.length;
-    if (pruned > 0) {
+    // Write when anything was pruned OR expired (expiry alone changes no count).
+    if (pruned > 0 || expiredCount > 0) {
       await writeAll(username, compacted);
       console.log(`[events:${username}] Compacted ${pruned} stale event(s) (${before} → ${compacted.length} total)`);
     }

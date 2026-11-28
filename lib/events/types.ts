@@ -17,7 +17,8 @@ export type EventStatus =
   | "failed"       // execution attempted but failed — see executionError
   | "rejected"     // user declined
   | "acknowledged" // notify events the user has seen
-  | "approved";    // kept for backward compat with stored events that predate the executor
+  | "approved"     // kept for backward compat with stored events that predate the executor
+  | "expired";     // pending draft/notice nobody answered in 30 days — out of the queue, never acted on
 
 export type EventPriority = "high" | "normal" | "low";
 

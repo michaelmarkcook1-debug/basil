@@ -300,6 +300,33 @@ export async function sendEmail(
   return { id: res.data.id || "" };
 }
 
+/**
+ * One of Basil's own notices (the briefing, a reminder) sent FROM the user's
+ * Gmail TO the user — so it arrives without a verified sending domain
+ * (Resend refused basil-app.vercel.app, 2026-11-28). Plain text and HTML.
+ * Marked `X-Basil-Notice` and `Auto-Submitted` so Basil's own ingestion skips
+ * it (app/api/webhooks/gmail; poll-ingest already skips mail from the user).
+ * The caller passes only the user's own address.
+ */
+export async function sendNoticeToSelf(username: string, to: string, subject: string, text: string, html?: string): Promise<{ id: string }> {
+  const auth = await getAuthedClient(username);
+  if (!auth) throw new Error("Gmail not connected");
+  const gmail = google.gmail({ version: "v1", auth });
+  const hdr = (v: string) => v.replace(/[\r\n]+/g, " ").trim();
+  const head = `To: ${hdr(to)}\r\nSubject: ${encodeHeader(hdr(subject))}\r\nMIME-Version: 1.0\r\nAuto-Submitted: auto-generated\r\nX-Basil-Notice: 1\r\n`;
+  let mime: string;
+  if (html) {
+    const b = `basil_${Date.now().toString(36)}`;
+    mime = `${head}Content-Type: multipart/alternative; boundary="${b}"\r\n\r\n` +
+      `--${b}\r\nContent-Type: text/plain; charset=utf-8\r\nContent-Transfer-Encoding: 8bit\r\n\r\n${text}\r\n` +
+      `--${b}\r\nContent-Type: text/html; charset=utf-8\r\nContent-Transfer-Encoding: 8bit\r\n\r\n${html}\r\n--${b}--`;
+  } else {
+    mime = `${head}Content-Type: text/plain; charset=utf-8\r\nContent-Transfer-Encoding: 8bit\r\n\r\n${text}`;
+  }
+  const res = await gmail.users.messages.send({ userId: "me", requestBody: { raw: Buffer.from(mime).toString("base64url") } });
+  return { id: res.data.id || "" };
+}
+
 // ── Reply detection ────────────────────────────────────────────────────────────
 
 export interface SentReplyInfo {

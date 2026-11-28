@@ -13,7 +13,7 @@ import type { Briefing } from "@/lib/types/briefing";
 import { getSettings } from "@/lib/settings/store";
 import { findByUsername } from "@/lib/users";
 import { getSlackConfig, sendSlackDM } from "@/lib/slack/client";
-import { sendEmail, isEmailConfigured } from "@/lib/email/send";
+import { emailUser } from "@/lib/email/to-user";
 import { renderBriefingEmail, renderBriefingSlack } from "./render";
 
 function appUrl(): string {
@@ -40,17 +40,15 @@ export async function deliverBriefing(username: string, briefing: Briefing): Pro
   let slack = "off";
 
   if (wantEmail) {
-    if (!isEmailConfigured()) {
-      email = "email-not-configured";
+    const user = await findByUsername(username).catch(() => null); // ci-ok: best-effort — no email means email channel is skipped
+    if (!user?.email) {
+      email = "no-email";
     } else {
-      const user = await findByUsername(username).catch(() => null); // ci-ok: best-effort — no email means email channel is skipped
-      if (!user?.email) {
-        email = "no-email";
-      } else {
-        const { subject, html, text } = renderBriefingEmail(briefing, firstName, appUrl());
-        const r = await sendEmail({ to: user.email, subject, html, text });
-        email = r.ok ? "sent" : `error:${r.error}`;
-      }
+      // From the user's own Gmail to themselves, Resend as the fallback
+      // (lib/email/to-user) — Resend alone failed on the unverified domain.
+      const { subject, html, text } = renderBriefingEmail(briefing, firstName, appUrl());
+      const r = await emailUser(username, { to: user.email, subject, html, text });
+      email = r.ok ? `sent:${r.via}` : `error:${r.error}`;
     }
   }
 

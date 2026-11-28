@@ -16,7 +16,7 @@ import "server-only";
 import { createHash } from "node:crypto";
 import webpush from "web-push";
 import { readUserStore, updateUserStore } from "@/lib/storage/user-store";
-import { sendEmail } from "@/lib/email/send";
+import { emailUser } from "@/lib/email/to-user";
 import { publicOrigin } from "@/lib/http/origin";
 import { getUsers } from "@/lib/users";
 import { DEFAULT_PREFS, type Notification, type NotifyPrefs } from "@/lib/notify/rules";
@@ -143,7 +143,8 @@ async function emailFallback(username: string, n: Notification): Promise<boolean
   if (!user?.email || user.disabled) return false;
   const link = `${publicOrigin()}${n.url}`;
   const esc = (s: string) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
-  const res = await sendEmail({
+  // From the user's own Gmail to themselves, Resend as the fallback (lib/email/to-user).
+  const res = await emailUser(username, {
     to: user.email,
     subject: n.title,
     text: `${n.body}\n\nOpen Basil: ${link}\n\nYou can change what Basil tells you in Settings → Notifications.`,

@@ -41,7 +41,7 @@ test("the approval button says Send for sends and Save draft for drafts", () => 
 
 test("new emails and drafts encode a non-ASCII subject (em dash, curly quote)", () => {
   const g = src("lib/google/gmail.ts");
-  assert.equal((g.match(/Subject: \$\{encodeHeader\(hdr\(subject\)\)\}\\r\\nMIME-Version: 1\.0/g) ?? []).length, 2, "sendEmail and createDraft");
+  assert.equal((g.match(/Subject: \$\{encodeHeader\(hdr\(subject\)\)\}\\r\\nMIME-Version: 1\.0/g) ?? []).length, 3, "sendEmail, createDraft and sendNoticeToSelf");
   const encodeHeader = (s) => /^[\x20-\x7e]*$/.test(s) ? s : `=?UTF-8?B?${Buffer.from(s, "utf8").toString("base64")}?=`;
   assert.equal(encodeHeader("Pricing next steps"), "Pricing next steps");
   assert.equal(Buffer.from(encodeHeader("Pricing — next steps").slice(10, -2), "base64").toString("utf8"), "Pricing — next steps");

@@ -104,6 +104,7 @@ function sender({ devices = [], prefs = {}, pushOutcome = () => ({}), env = { VA
     } } },
     "@/lib/storage/user-store": store,
     "@/lib/email/send": { sendEmail: async (m) => { emails.push(m); return emailOk ? { ok: true } : { ok: false, error: "nope" }; } },
+    "@/lib/email/to-user": { emailUser: async (_u, m) => { emails.push(m); return emailOk ? { ok: true, via: "gmail" } : { ok: false, error: "nope" }; } },
     "@/lib/http/origin": { publicOrigin: () => "https://basil.example" },
     "@/lib/users": { getUsers: async () => [{ username: "u", email: "u@example.com" }] },
     "@/lib/notify/rules": R,
