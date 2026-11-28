@@ -18,6 +18,7 @@ import type { ActionItem } from "@/lib/types/action";
 import type { ActionLink } from "@/lib/actions/destination";
 import { WorkstreamChip } from "@/components/workstreams/workstream-chip";
 import { actionKey } from "@/lib/workstreams/attach";
+import { logOpened } from "@/lib/learning/log-opened";
 
 interface Destination { emailId: string | null; links: ActionLink[] }
 
@@ -56,6 +57,8 @@ export function PromiseRow({ action, due, color, onChanged }: {
 
   async function takeMeThere() {
     if (dest) { setDest(null); return; }
+    // Opening an item's source is the "opened" learning signal (lib/learning/log-opened).
+    logOpened(action.id);
     setBusy("there");
     setError(null);
     try {
